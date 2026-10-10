@@ -289,9 +289,9 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 
-## Current state (v0.4.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux; since then, unreleased: attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS)
+## Current state (v0.5.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS)
 
-- Since 0.4.0 (schema version 9: `messages.bcc`, `messages.refs`, `folders.missing`,
+- New in 0.5.0 (schema version 9: `messages.bcc`, `messages.refs`, `folders.missing`,
   `outbox.send_after`, `accounts.imap_security`; the upgrade reads the start of every stored
   message once to fill in `refs`):
   - Attachments: click opens one in its app (`attachments.rs`: written under
@@ -514,19 +514,19 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 ## Roadmap
 
 1. ~~**Real mail, read-only.**~~ Done; see Current state, with STARTTLS, older messages on
-   request and IMAP IDLE since 0.4.0.
+   request and IMAP IDLE in 0.5.0.
 1b. ~~**Write back.**~~ Done; see Current state. Not yet: CONDSTORE/QRESYNC (flag changes are
    found by asking for the flags of every stored message, fine for thousands, not millions).
-2. ~~**Sending.**~~ Done; see Current state, with attaching files, Bcc and undo send since
-   0.4.0. Not yet: drafts on the server's Drafts folder, and skipping the Sent copy for servers
+2. ~~**Sending.**~~ Done; see Current state, with attaching files, Bcc and undo send in
+   0.5.0. Not yet: drafts on the server's Drafts folder, and skipping the Sent copy for servers
    that save one themselves (Gmail and Outlook.com do; matters with step 5).
-3. ~~**HTML mail.**~~ Done; see Current state, with opening and saving attachments since
-   0.4.0. Not yet: `<style>` blocks (dropped, since CSS can load from the network; keeping
+3. ~~**HTML mail.**~~ Done; see Current state, with opening and saving attachments in
+   0.5.0. Not yet: `<style>` blocks (dropped, since CSS can load from the network; keeping
    them needs a CSS sanitizer).
    HTML compose is done (see Current state); not yet: images and colors in it, HTML
    signatures, quoting a reply's original HTML instead of its text.
 4. ~~**Filters ("Sorting Office").**~~ Done; see Current state, with a rule started from a
-   message since 0.4.0. Not yet: regular expressions, conditions on headers and attachments,
+   message in 0.5.0. Not yet: regular expressions, conditions on headers and attachments,
    actions that copy or forward, rules that run on a schedule.
 5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP). Waiting
    for the owner to register OAuth clients with Google (Cloud project; Gmail's scope is
@@ -536,7 +536,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
-   AppImage (self-updating) and a .deb. The repository is public and v0.3.1 is released;
+   AppImage (self-updating) and a .deb. The repository is public and v0.5.0 is released;
    docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~ and ~~downloading older
    messages~~: done, see Current state and the numbers in docs/storage.md. Next: backup and
