@@ -2003,6 +2003,9 @@ async function showRuleList(){
   $('r-form').hidden = true; $('r-list-view').hidden = false; $('r-err').textContent = '';
   try { RULES = await invoke('list_rules'); } catch (e){ $('r-err').textContent = tr(e); return; }
   $('r-run').textContent = t('Run on {folder} now', {folder:folderName(state.folder)});
+  const m = current();
+  $('r-from').hidden = !m;
+  if (m) $('r-from').textContent = isOut(m.f) ? t('New rule for mail to {name}', {name:nameOf(m.to)}) : t('New rule for mail from {name}', {name:m.from || m.email});
   $('r-list').innerHTML = RULES.length ? RULES.map((r, i) => `<div class="rrule${r.enabled ? '' : ' off'}" data-id="${r.id}">
 <input type="checkbox" data-r="toggle"${r.enabled ? ' checked' : ''} title="${esc(t('On or off'))}" aria-label="${esc(t('Rule {name} on', {name:r.name}))}">
 <div class="rtext"><div class="rname">${esc(r.name)}${r.enabled ? '' : ` <span class="tag">${esc(t('Off|rule'))}</span>`}</div><div class="rsum" title="${esc(ruleSummary(r))}">${esc(ruleSummary(r))}</div></div>
@@ -2012,9 +2015,17 @@ async function showRuleList(){
     : `<p class="dnote">${esc(t('No rules yet. A rule can file invoices, flag mail from a client, or answer while you’re away.'))}</p>`;
   $('r-new').focus();
 }
-function showRuleForm(existing){
+// A rule started from a message: mail from its sender (or, in Sent, to its first recipient),
+// filed where this one is when that is one of the user's folders, else flagged.
+function ruleFrom(m){
+  const out = isOut(m.f), to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0] ?? '';
+  return {id:0, name:out ? nameOf(m.to) : (m.from || m.email), enabled:true, account:acctId(m.f), match_all:true,
+    conditions:[out ? {field:'to', op:'is', value:to} : {field:'from', op:'is', value:m.email}],
+    actions:[kindOf(m.f) === 'custom' ? {type:'move', folder:m.f} : {type:'flag'}], stop:false};
+}
+function showRuleForm(existing, start = null){
   const firstAccount = ACCOUNTS.find(a => a.imap)?.id ?? ACCOUNTS[0]?.id ?? null;
-  rule = existing ? structuredClone(existing) : {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
+  rule = existing ? structuredClone(existing) : start ?? {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
     conditions:[{field:'from', op:'contains', value:''}], actions:[{type:'flag'}], stop:false};
   $('r-list-view').hidden = true; $('r-form').hidden = false; $('r-form-err').textContent = '';
   $('r-form-title').textContent = existing ? t('Edit rule') : t('New rule');
@@ -2087,6 +2098,7 @@ $('r-form').addEventListener('submit', async e => {
 });
 $('r-back').addEventListener('click', showRuleList);
 $('r-new').addEventListener('click', () => showRuleForm(null));
+$('r-from').addEventListener('click', () => { const m = current(); if (m) showRuleForm(null, ruleFrom(m)); });
 $('r-close').addEventListener('click', () => rdlg.close());
 rdlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 $('r-list').addEventListener('click', async e => {

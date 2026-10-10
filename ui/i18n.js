@@ -492,6 +492,8 @@ const PL = {
   'No folder matches.': 'Żaden folder nie pasuje.',
   'The conversation. T or Esc goes back.': 'Cały wątek. T albo Esc wraca.',
   'No other messages in this conversation. T or Esc goes back.': 'W tym wątku nie ma innych wiadomości. T albo Esc wraca.',
+  'New rule for mail to {name}': 'Nowa reguła dla poczty do {name}',
+  'New rule for mail from {name}': 'Nowa reguła dla poczty od {name}',
   'Off: send at once': 'Wyłączone: wysyłaj od razu',
   'Show new mail at once': 'Pokazuj nową pocztę od razu',
   'Notify me of new mail while Telex is in the background': 'Powiadamiaj o nowej poczcie, gdy Telex działa w tle',
