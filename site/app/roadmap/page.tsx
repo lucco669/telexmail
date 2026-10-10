@@ -1,15 +1,18 @@
+import Link from 'next/link';
 import { CtaBand } from '@/components/CtaBand';
 import { PageHeader } from '@/components/PageHeader';
-import { RoadmapList } from '@/components/Roadmap';
+import { RoadmapList, stepStatus } from '@/components/Roadmap';
 import { roadmap } from '@/lib/content';
 import { pages } from '@/lib/pages';
+import { getLatestRelease } from '@/lib/release';
 import { pageMetadata } from '@/lib/seo';
 import s from './page.module.css';
 
 export const metadata = pageMetadata(pages.roadmap);
 
-export default function RoadmapPage() {
-  const done = roadmap.filter((x) => x.status === 'done').length;
+export default async function RoadmapPage() {
+  const release = await getLatestRelease();
+  const done = roadmap.filter((x) => stepStatus(x, release) === 'done').length;
   return (
     <>
       <PageHeader
@@ -27,14 +30,15 @@ export default function RoadmapPage() {
           <div className={s.meter} aria-hidden="true">
             <span style={{ width: `${(done / roadmap.length) * 100}%` }} />
           </div>
+          {release && <p className={s.label}>Newest release: {release.version}</p>}
           <p className={s.note}>
             The order can change when something turns out to matter more. This page follows the app as each step
-            lands.
+            lands; the <Link href={pages.changelog.path}>changelog</Link> says what each version brought.
           </p>
         </aside>
-        <RoadmapList details />
+        <RoadmapList release={release} details />
       </div>
-      <CtaBand title="Want to see where it is today?" secondary={pages.screenshots} />
+      <CtaBand title="Want to see where it is today?" secondary={pages.demo} />
     </>
   );
 }

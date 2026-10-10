@@ -2,9 +2,11 @@ import Link from 'next/link';
 import { CtaBand } from '@/components/CtaBand';
 import { PageHeader } from '@/components/PageHeader';
 import { Shot } from '@/components/Shot';
+import { Since } from '@/components/Since';
 import { WindowFrame } from '@/components/WindowFrame';
-import { featureRows, notYet, screens, hero } from '@/lib/content';
+import { featureRows, hero, notYet, screens } from '@/lib/content';
 import { pages } from '@/lib/pages';
+import { getLatestRelease } from '@/lib/release';
 import { pageMetadata } from '@/lib/seo';
 import s from './page.module.css';
 
@@ -13,18 +15,27 @@ export const metadata = pageMetadata(pages.features);
 const screenById = Object.fromEntries([hero, ...screens].map((x) => [x.id, x]));
 const ROW_SIZES = '(max-width: 960px) calc(100vw - 32px), 680px';
 
-export default function FeaturesPage() {
+export default async function FeaturesPage() {
+  const release = await getLatestRelease();
   return (
     <>
       <PageHeader
         page={pages.features}
         title="Everything Telex does today."
-        lead="A fast, dense mail client for people who read a lot of mail. Here is what works in the current build, with screenshots, and what doesn’t yet."
-      />
+        lead="A fast, dense mail client for people who read a lot of mail. Here is what works, with screenshots, what the next version adds, and what doesn’t work yet."
+      >
+        <Link href={pages.demo.path} className="btn btn-primary">
+          Try it in your browser
+        </Link>
+        <Link href={pages.changelog.path} className="btn">
+          What’s new
+        </Link>
+      </PageHeader>
       <nav className={`container ${s.toc}`} aria-label="On this page">
         {featureRows.map((f) => (
           <a key={f.id} href={`#${f.id}`}>
             {f.title}
+            <Since since={f.since} release={release} className={s.tocBadge} />
           </a>
         ))}
       </nav>
@@ -35,15 +46,19 @@ export default function FeaturesPage() {
             <section key={f.id} id={f.id} className={s.row}>
               <div className={s.text}>
                 <p className="eyebrow">
-                  <b>{String(i + 1).padStart(2, '0')}</b>
-                  {f.soon && <span className="badge"> Coming</span>}
+                  <b>{String(i + 1).padStart(2, '0')}</b> <Since since={f.since} release={release} />
                 </p>
                 <h2 className={s.title}>{f.title}</h2>
                 <p className={s.body}>{f.text}</p>
                 <ul className={s.points}>
-                  {f.points.map((p) => (
-                    <li key={p}>{p}</li>
-                  ))}
+                  {f.points.map((p) => {
+                    const point = typeof p === 'string' ? { text: p, since: undefined } : p;
+                    return (
+                      <li key={point.text}>
+                        {point.text} <Since since={point.since} release={release} className={s.pointBadge} />
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
               <div className={s.shot}>
@@ -65,13 +80,14 @@ export default function FeaturesPage() {
             ))}
           </ul>
           <p className={s.gapsMore}>
-            What comes when is on the <Link href={pages.roadmap.path}>roadmap</Link>. Wondering whether your provider
-            works? See the <Link href={pages.faq.path}>questions and answers</Link>, or read{' '}
+            What comes when is on the <Link href={pages.roadmap.path}>roadmap</Link>, and what each version brought is in
+            the <Link href={pages.changelog.path}>changelog</Link>. Wondering whether your provider works? See the{' '}
+            <Link href={pages.faq.path}>questions and answers</Link>, or read{' '}
             <Link href={pages.about.path}>why Telex is built this way</Link>.
           </p>
         </aside>
       </div>
-      <CtaBand secondary={pages.keyboard} />
+      <CtaBand secondary={pages.demo} />
     </>
   );
 }

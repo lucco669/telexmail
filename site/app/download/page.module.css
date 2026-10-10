@@ -63,3 +63,25 @@
 }
 .table td { padding: 12px 12px 12px 0; border-bottom: 1px solid var(--line-soft); }
 .mono { font-family: var(--font-mono); }
+.leadLink { color: var(--accent); white-space: nowrap; }
+
+.linux { display: grid; gap: 20px; padding-block: 56px; border-top: 1px solid var(--line-soft); scroll-margin-top: 80px; }
+.linux .h2 { margin-bottom: 0; }
+.linuxGrid { display: grid; gap: 16px; }
+@media (min-width: 900px) {
+  .linuxGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+}
+.pkg { display: grid; align-content: start; justify-items: start; gap: 12px; padding: 24px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.pkg h3 { font-size: 21px; }
+.cmd {
+  width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--surface);
+  font: 13px/1.6 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tableWrap { overflow-x: auto; }

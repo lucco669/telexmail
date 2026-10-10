@@ -12,9 +12,12 @@ export default function NotFound() {
         </p>
         <h1 className="h1">No message at this address.</h1>
         <p className="lead">The page may have moved. Everything about Telex starts on the home page.</p>
-        <p>
+        <p style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
           <Link className="btn btn-primary" href="/">
             Go to the home page
+          </Link>
+          <Link className="btn" href="/demo">
+            Try the live demo
           </Link>
         </p>
       </div>

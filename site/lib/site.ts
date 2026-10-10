@@ -15,6 +15,7 @@ export const site = {
     'A compact, fast email client for Windows. Dense lists, one key per action, and your mail on your own disk, searchable offline. No Electron, no telemetry.',
   keywords: [
     'email client for Windows',
+    'email client for Linux',
     'IMAP email client',
     'keyboard-driven email',
     'offline email search',

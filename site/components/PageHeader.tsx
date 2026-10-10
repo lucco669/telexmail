@@ -11,6 +11,7 @@ export function PageHeader({
   lead,
   children,
   extraLd = [],
+  compact = false,
 }: {
   page: PageInfo;
   title: string;
@@ -18,9 +19,11 @@ export function PageHeader({
   children?: React.ReactNode;
   /** More structured data for this page, merged with the breadcrumb. */
   extraLd?: object[];
+  /** Less room above and below, for a page whose content should show without scrolling. */
+  compact?: boolean;
 }) {
   return (
-    <header className={`container ${s.head}`}>
+    <header className={`container ${s.head}${compact ? ` ${s.compact}` : ''}`}>
       <JsonLd items={[breadcrumbLd(page), ...extraLd]} />
       <nav aria-label="Breadcrumb" className={s.crumbs}>
         <ol>

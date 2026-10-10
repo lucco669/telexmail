@@ -214,6 +214,9 @@ img { display: block; max-width: 100%; height: auto; }
   vertical-align: middle;
 }
 .badge-muted { background: var(--line-soft); color: var(--muted); }
+/* Built for a version: "Coming in 0.5" until it is released, then "New in 0.5" (components/Since.tsx). */
+.badge-coming { background: transparent; box-shadow: inset 0 0 0 1px var(--accent); }
+.badge-new { background: var(--accent); color: var(--accent-fg); }
 
 /* Long-form text (privacy, about) */
 .prose { max-width: 68ch; font-size: 17px; line-height: 1.7; }

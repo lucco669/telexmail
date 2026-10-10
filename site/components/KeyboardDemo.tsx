@@ -1,18 +1,25 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { shortcuts, type Shortcut } from '@/lib/content';
+import type { Release } from '@/lib/release';
+import { Since } from './Since';
 import s from './Keyboard.module.css';
 
 function matches(sc: Shortcut, e: KeyboardEvent) {
   return sc.match.some((m) => {
     const letter = /^[a-z]$/i.test(m.key);
     if (letter ? e.key.toLowerCase() !== m.key.toLowerCase() : e.key !== m.key) return false;
-    // Shift matters for letters (R vs Shift+R); symbols like / need Shift on some layouts.
-    if (letter && !!m.shift !== e.shiftKey) return false;
+    // Shift matters for letters (R vs Shift+R) and where a row says so (↓ vs Shift+↓); symbols like /
+    // need Shift on some layouts.
+    if ((letter || m.shift !== undefined) && !!m.shift !== e.shiftKey) return false;
     return !!m.ctrl === (e.ctrlKey || e.metaKey);
   });
 }
+
+// Rows whose keys would also do something in the browser (select the page, open view-source):
+// here they only light up.
+const KEEP_FROM_BROWSER = new Set(['selectall', 'format']);
 
 function Keys({ sc }: { sc: Shortcut }) {
   return (
@@ -34,9 +41,19 @@ function Keys({ sc }: { sc: Shortcut }) {
 
 /**
  * The shortcut table. Pressing a listed key lights up its row, like selecting a message in the
- * app, and the readout above says what it does. `grouped` adds Move / Write / Organize / Find headings.
+ * app, and the readout above says what it does. `grouped` adds Move / Select / Write … headings;
+ * `onlyHome` keeps the short list for the home page.
  */
-export function KeyboardDemo({ grouped = false }: { grouped?: boolean }) {
+export function KeyboardDemo({
+  release,
+  grouped = false,
+  onlyHome = false,
+}: {
+  release: Release | null;
+  grouped?: boolean;
+  onlyHome?: boolean;
+}) {
+  const list = useMemo(() => (onlyHome ? shortcuts.filter((x) => x.home) : shortcuts), [onlyHome]);
   const [hit, setHit] = useState<string | null>(null);
   const [tried, setTried] = useState<Set<string>>(() => new Set());
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -46,8 +63,9 @@ export function KeyboardDemo({ grouped = false }: { grouped?: boolean }) {
       if (e.altKey) return; // AltGr on Polish keyboards arrives as Ctrl+Alt
       const t = e.target as HTMLElement | null;
       if (t?.closest?.('input, textarea, select, [contenteditable], dialog')) return;
-      const sc = shortcuts.find((x) => matches(x, e));
+      const sc = list.find((x) => matches(x, e));
       if (!sc) return;
+      if (KEEP_FROM_BROWSER.has(sc.id)) e.preventDefault();
       setHit(sc.id);
       setTried((prev) => (prev.has(sc.id) ? prev : new Set(prev).add(sc.id)));
       clearTimeout(timer.current);
@@ -58,10 +76,10 @@ export function KeyboardDemo({ grouped = false }: { grouped?: boolean }) {
       window.removeEventListener('keydown', onKey);
       clearTimeout(timer.current);
     };
-  }, []);
+  }, [list]);
 
-  const last = shortcuts.find((x) => x.id === hit);
-  const groups = grouped ? [...new Set(shortcuts.map((x) => x.group))] : [null];
+  const last = list.find((x) => x.id === hit);
+  const groups = grouped ? [...new Set(list.map((x) => x.group))] : [null];
 
   return (
     <div className={s.demo}>
@@ -69,7 +87,7 @@ export function KeyboardDemo({ grouped = false }: { grouped?: boolean }) {
         <span className={s.readKeys}>{last ? <Keys sc={last} /> : <span className={s.idle}>Press a key from the list…</span>}</span>
         <span className={s.readAction}>{last?.action}</span>
         <span className={s.count}>
-          {tried.size}/{shortcuts.length} tried
+          {tried.size}/{list.length} tried
         </span>
       </div>
       <table className={s.table}>
@@ -90,14 +108,16 @@ export function KeyboardDemo({ grouped = false }: { grouped?: boolean }) {
                   </th>
                 </tr>
               )}
-              {shortcuts
+              {list
                 .filter((sc) => !g || sc.group === g)
                 .map((sc) => (
                   <tr key={sc.id} className={s.row} data-hit={sc.id === hit || undefined} data-tried={tried.has(sc.id) || undefined}>
                     <td className={s.keys}>
                       <Keys sc={sc} />
                     </td>
-                    <td className={s.action}>{sc.action}</td>
+                    <td className={s.action}>
+                      {sc.action} <Since since={sc.since} release={release} className={s.badge} />
+                    </td>
                   </tr>
                 ))}
             </Fragment>

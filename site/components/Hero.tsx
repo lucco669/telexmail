@@ -1,22 +1,34 @@
 import Link from 'next/link';
-import { facts, hero } from '@/lib/content';
+import { facts, hero, NEXT, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
+import { isReleased, shortVersion, versionAnchor } from '@/lib/versions';
 import { DownloadButton } from './DownloadButton';
 import { ArrowIcon } from './Icons';
 import { Shot } from './Shot';
 import { WindowFrame } from './WindowFrame';
 import s from './Hero.module.css';
 
+/** The line in the pill above the title: what the next version brings, or what the newest one did. */
+function news(release: Release | null) {
+  if (!release || !isReleased(NEXT, release)) {
+    return { lead: `Coming in ${shortVersion(NEXT)}:`, text: 'attachments, conversations, undo send and new mail at once.', anchor: NEXT };
+  }
+  const notes = versions.find((v) => v.version === release.version);
+  if (!notes) return { lead: `Version ${release.version} is out:`, text: 'see what’s new.', anchor: release.version };
+  return { lead: `New in ${shortVersion(release.version)}:`, text: `${notes.title}.`, anchor: release.version };
+}
+
 export function Hero({ release }: { release: Release | null }) {
   const file = release?.exe ?? release?.msi;
+  const pill = news(release);
   return (
     <section className={s.hero}>
       <div className="container">
-        <Link className={s.status} href={pages.roadmap.path}>
+        <Link className={s.status} href={`${pages.changelog.path}#${versionAnchor(pill.anchor)}`}>
           <span className={s.pulse} aria-hidden="true" />
           <span>
-            <b>Early preview.</b> Sync, sending, HTML mail and filters work; Gmail sign-in is next.
+            <b>{pill.lead}</b> {pill.text}
           </span>
           <ArrowIcon />
         </Link>
@@ -24,31 +36,30 @@ export function Hero({ release }: { release: Release | null }) {
           Email at the speed <span className={s.nowrap}>of your keyboard.</span>
         </h1>
         <p className={s.lead}>
-          Telex is a compact, fast email client for Windows. Dense lists, one key for every action, and all your mail on
-          your own disk, searchable offline.
+          Telex is a compact, fast email client for Windows and Linux. Dense lists, one key for every action, and all your
+          mail on your own disk, searchable offline.
         </p>
         <div className={s.actions}>
-          {/* Until there is a build to download, the tour is the main action. */}
-          {file ? (
-            <>
-              <DownloadButton release={release} />
-              <a href="#screens" className="btn btn-lg">
-                See it in action
-              </a>
-            </>
-          ) : (
-            <>
-              <a href="#screens" className="btn btn-primary btn-lg">
-                See it in action
-              </a>
-              <DownloadButton release={release} />
-            </>
-          )}
+          <DownloadButton release={release} />
+          <Link href={pages.demo.path} className="btn btn-lg">
+            <span className={s.liveDot} aria-hidden="true" />
+            Try it in your browser
+          </Link>
         </div>
         <p className={s.meta}>
-          {release && file
-            ? `Version ${release.version} · ${megabytes(file.size)} · Windows 10 and 11, 64-bit`
-            : 'Windows 10 and 11, 64-bit · the first preview build is on its way'}
+          {release && file ? (
+            <>
+              Version {release.version} · {megabytes(file.size)} · Windows 10 and 11, 64-bit
+              {(release.appimage || release.deb) && (
+                <>
+                  {' · '}
+                  <Link href={`${pages.download.path}#linux`}>Linux</Link>
+                </>
+              )}
+            </>
+          ) : (
+            'Windows 10 and 11, 64-bit · the first preview build is on its way'
+          )}
         </p>
       </div>
 

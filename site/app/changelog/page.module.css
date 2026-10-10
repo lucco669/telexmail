@@ -1,0 +1,64 @@
+.jump { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 24px; }
+.jump a {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 500 13px/1.2 var(--font-mono);
+  text-decoration: none;
+}
+.jump a:hover { border-color: var(--accent); color: var(--fg); }
+
+.list { padding-bottom: 96px; }
+.entry {
+  display: grid;
+  gap: 20px;
+  padding-block: 48px;
+  border-top: 1px solid var(--line-soft);
+  scroll-margin-top: 80px;
+}
+@media (min-width: 900px) {
+  .entry { grid-template-columns: 200px minmax(0, 1fr); gap: 56px; padding-block: 64px; }
+  .meta { position: sticky; top: 96px; align-self: start; }
+}
+
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+@media (min-width: 900px) {
+  .meta { display: grid; justify-items: start; align-content: start; gap: 10px; }
+}
+.ver { font: 600 64px/0.9 var(--font-cond); letter-spacing: -0.03em; }
+/* An unreleased version is drawn as an outline: there, but not out yet. */
+.entry:not([data-released]) .ver { color: transparent; -webkit-text-stroke: 1.5px var(--accent); }
+.full { color: var(--muted); font: 500 12px/1.4 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.date { color: var(--faint); font: 13px/1.4 var(--font-mono); }
+@media (max-width: 899px) {
+  .ver { width: 100%; font-size: 52px; }
+}
+
+.body { display: grid; gap: 14px; max-width: 72ch; }
+.title { font-size: clamp(26px, 3vw, 34px); line-height: 1.1; letter-spacing: -0.012em; }
+.summary { color: var(--muted); font-size: 17.5px; }
+.points { display: grid; gap: 10px; margin: 6px 0 0; padding: 0; list-style: none; }
+.points li { position: relative; padding-left: 22px; font-size: 15.5px; }
+.points li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.upgrade {
+  padding: 12px 14px;
+  border-left: 3px solid var(--flag);
+  border-radius: 0 6px 6px 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 14.5px;
+}
+.files { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 4px; font-size: 14.5px; }
+.files a { color: var(--accent); }
+.pending { color: var(--muted); font-size: 14.5px; }
+.pending a { color: var(--accent); }

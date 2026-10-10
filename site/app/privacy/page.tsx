@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { PageHeader } from '@/components/PageHeader';
 import { pages } from '@/lib/pages';
 import { pageMetadata } from '@/lib/seo';
@@ -25,6 +26,7 @@ export default function PrivacyPage() {
             <li>The app talks to your mail servers, and to image servers only when you ask</li>
             <li>Update checks only if you allow them: one file from GitHub, nothing about you</li>
             <li>No cookies or trackers on this site, only cookieless page counts</li>
+            <li>The live demo runs in your browser: nothing you do there is sent</li>
           </ul>
         </aside>
         <article className="prose">
@@ -37,14 +39,22 @@ export default function PrivacyPage() {
             apart from both, in Windows Credential Manager under “Telex”.
           </p>
           <p>
+            From version 0.5, an attachment you open is written to a Telex folder among your temporary files, marked
+            as coming from the internet so Windows treats it with care, and that folder is emptied each time Telex
+            starts. Attachments you save go where you choose. The addresses Telex suggests while you write come from
+            your own mail base; nothing is looked up anywhere.
+          </p>
+          <p>
             Exporting your settings writes a file wherever you choose, with your settings, rules, identities and
             signatures, and your accounts’ server names and user names. It never holds passwords. Nothing is sent
             anywhere: what you do with the file is up to you.
           </p>
           <h3>Who it talks to</h3>
           <p>
-            The IMAP and SMTP servers you set up, over encrypted connections (SSL/TLS, or STARTTLS for SMTP on port
-            587). There is no Telex server: your mail never passes through us, and we never see it.
+            The IMAP and SMTP servers you set up, over encrypted connections (SSL/TLS, or STARTTLS on port 587 and, from
+            version 0.5, 143), never unencrypted. There is no Telex server: your mail never passes through us, and we
+            never see it. From version 0.5, to show new mail at once, Telex keeps one connection open to each
+            account’s IMAP server, watching the Inbox (IMAP IDLE); you can turn that off in Settings › Mail.
           </p>
           <p>
             When you add an account, Telex finds its servers itself. It looks in its own list of common providers
@@ -132,6 +142,14 @@ export default function PrivacyPage() {
           <p>
             If you pick light or dark, the choice is saved in your browser’s local storage on your own device. It is
             never sent anywhere.
+          </p>
+          <h3 id="demo">The live demo</h3>
+          <p>
+            The <Link href={pages.demo.path}>live demo</Link> is Telex’s own interface with a made-up mailbox, and it runs
+            entirely in your browser. What you type, “send” or attach there stays in the page and is gone when you
+            reload it; files you attach are never read, only their names and sizes are shown. Like the app, it keeps
+            its theme, language, text size and pane sizes in your browser’s local storage. Links in the demo mailbox
+            open in a new tab, as they would in your browser from the app.
           </p>
           <h3>Downloads</h3>
           <p>

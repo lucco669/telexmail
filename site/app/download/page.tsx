@@ -8,6 +8,7 @@ import { screens } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { getReleases, megabytes } from '@/lib/release';
 import { appLd, pageMetadata } from '@/lib/seo';
+import { versionAnchor } from '@/lib/versions';
 import s from './page.module.css';
 
 export const metadata = pageMetadata(pages.download);
@@ -19,15 +20,25 @@ export default async function DownloadPage() {
   const releases = await getReleases();
   const latest = releases[0] ?? null;
   const file = latest?.exe ?? latest?.msi;
+  const linux = latest?.appimage || latest?.deb;
   return (
     <>
       <PageHeader
         page={pages.download}
         title="Get Telex for Windows."
         lead={
-          latest && file
-            ? `Version ${latest.version}${latest.date ? `, released ${dateFmt.format(new Date(latest.date))}` : ''}. A ${megabytes(file.size)} installer for Windows 10 and 11.`
-            : 'The first preview build is being finished. The installer will appear right here: this page checks for new releases every hour.'
+          latest && file ? (
+            <>
+              Version {latest.version}
+              {latest.date ? `, released ${dateFmt.format(new Date(latest.date))}` : ''}. A {megabytes(file.size)} installer
+              for Windows 10 and 11{linux ? ', and an AppImage or .deb for Linux' : ''}.{' '}
+              <Link className={s.leadLink} href={`${pages.changelog.path}#${versionAnchor(latest.version)}`}>
+                What’s new in {latest.version}
+              </Link>
+            </>
+          ) : (
+            'The first preview build is being finished. The installer will appear right here: this page checks for new releases every hour.'
+          )
         }
         extraLd={[appLd(latest)]}
       >
@@ -37,11 +48,14 @@ export default async function DownloadPage() {
             .msi package ({megabytes(latest.msi.size)})
           </a>
         )}
-        {latest?.appimage && (
-          <a className={s.alt} href={latest.appimage.url}>
-            Linux AppImage ({megabytes(latest.appimage.size)})
+        {linux && (
+          <a className={s.alt} href="#linux">
+            Linux
           </a>
         )}
+        <Link className={s.alt} href={pages.demo.path}>
+          Try it in your browser first
+        </Link>
       </PageHeader>
 
       <div className={`container ${s.layout}`}>
@@ -63,12 +77,6 @@ export default async function DownloadPage() {
                 The installer isn’t code-signed yet, so Windows SmartScreen may say it doesn’t recognize it. Choose{' '}
                 <b>More info</b>, then <b>Run anyway</b>. On Windows 10 without WebView2, the installer fetches it.
               </p>
-              {latest?.appimage && (
-                <p>
-                  On Linux, make the AppImage runnable and start it: <code>chmod +x {latest.appimage.name}</code>, then{' '}
-                  <code>./{latest.appimage.name}</code>.
-                </p>
-              )}
             </li>
             <li>
               <h3>Add your account</h3>
@@ -82,7 +90,8 @@ export default async function DownloadPage() {
               <h3>Let the first sync run</h3>
               <p>
                 Telex downloads the newest 300 messages of each folder into its local mail base, then checks for new
-                mail every 10 minutes.
+                mail every 10 minutes. From version 0.5, new Inbox mail shows the moment it arrives, and older mail
+                comes down when you ask for it.
               </p>
             </li>
           </ol>
@@ -95,6 +104,53 @@ export default async function DownloadPage() {
         </div>
       </div>
 
+      {linux && (
+        <section id="linux" className={`container ${s.linux}`} aria-labelledby="linux-h">
+          <h2 id="linux-h" className={s.h2}>
+            On Linux
+          </h2>
+          <div className={s.linuxGrid}>
+            {latest.appimage && (
+              <div className={s.pkg}>
+                <h3>AppImage</h3>
+                <p className={s.p}>
+                  One file that runs on most 64-bit distributions and updates itself, like the Windows version. Make it
+                  runnable and start it:
+                </p>
+                <pre className={s.cmd}>
+                  <code>
+                    chmod +x {latest.appimage.name}
+                    {'\n'}./{latest.appimage.name}
+                  </code>
+                </pre>
+                <a className="btn" href={latest.appimage.url}>
+                  Download the AppImage ({megabytes(latest.appimage.size)})
+                </a>
+              </div>
+            )}
+            {latest.deb && (
+              <div className={s.pkg}>
+                <h3>.deb package</h3>
+                <p className={s.p}>
+                  For Debian, Ubuntu and their relatives. Smaller, installed like any package; updates come as a new
+                  .deb from this page.
+                </p>
+                <pre className={s.cmd}>
+                  <code>sudo apt install ./{latest.deb.name}</code>
+                </pre>
+                <a className="btn" href={latest.deb.url}>
+                  Download the .deb ({megabytes(latest.deb.size)})
+                </a>
+              </div>
+            )}
+          </div>
+          <p className={s.p}>
+            Both need a 64-bit PC with Ubuntu 22.04 or newer (or a system of the same age), and a keyring for the
+            passwords: GNOME Keyring or KWallet.
+          </p>
+        </section>
+      )}
+
       <div className={`container ${s.facts}`}>
         <section aria-labelledby="requirements">
           <h2 id="requirements" className={s.h2}>
@@ -102,20 +158,11 @@ export default async function DownloadPage() {
           </h2>
           <dl className={s.req}>
             <dt>System</dt>
-            <dd>Windows 10 or 11, 64-bit</dd>
+            <dd>Windows 10 or 11, 64-bit{linux ? '; or 64-bit Linux, Ubuntu 22.04 or newer' : ''}</dd>
             <dt>Runtime</dt>
             <dd>WebView2, built into Windows 11 and fetched by the installer on Windows 10</dd>
-            {latest?.appimage && (
-              <>
-                <dt>Linux</dt>
-                <dd>
-                  The AppImage: 64-bit, Ubuntu 22.04 or newer and similar systems, with a keyring for the passwords
-                  (GNOME Keyring or KWallet)
-                </dd>
-              </>
-            )}
             <dt>Incoming</dt>
-            <dd>IMAP over SSL/TLS, port 993, with a password</dd>
+            <dd>IMAP over SSL/TLS (port 993) with a password; from version 0.5 also STARTTLS (port 143)</dd>
             <dt>Outgoing</dt>
             <dd>SMTP over SSL/TLS (465) or STARTTLS (587), same login as IMAP</dd>
             <dt>Not yet</dt>
@@ -137,10 +184,10 @@ export default async function DownloadPage() {
             <code>%APPDATA%\app.telexmail.desktop\telex.db</code>; delete it too if you want the downloaded mail gone.
             Saved passwords are under “Telex” in Windows Credential Manager. Mail on your server is never touched.
           </p>
-          {latest?.appimage && (
+          {linux && (
             <p className={s.p} style={{ marginTop: 16 }}>
-              On Linux, delete the AppImage. The mail base is in <code>~/.local/share/app.telexmail.desktop/</code>, and
-              the passwords are in your keyring under “Telex”.
+              On Linux, delete the AppImage or remove the package (<code>sudo apt remove telex</code>). The mail base is
+              in <code>~/.local/share/app.telexmail.desktop/</code>, and the passwords are in your keyring under “Telex”.
             </p>
           )}
         </section>
@@ -149,38 +196,43 @@ export default async function DownloadPage() {
       {releases.length > 0 && (
         <div className={`container ${s.versions}`}>
           <h2 className={s.h2}>All versions</h2>
-          <table className={s.table}>
-            <thead>
-              <tr>
-                <th scope="col">Version</th>
-                <th scope="col">Released</th>
-                <th scope="col">Installer</th>
-                <th scope="col">Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {releases.map((r) => (
-                <tr key={r.version}>
-                  <td className={s.mono}>{r.version}</td>
-                  <td>{r.date ? dateFmt.format(new Date(r.date)) : '–'}</td>
-                  <td>
-                    {r.exe && <a href={r.exe.url}>.exe ({megabytes(r.exe.size)})</a>}
-                    {r.exe && r.msi && ' · '}
-                    {r.msi && <a href={r.msi.url}>.msi</a>}
-                    {r.appimage && (
-                      <>
-                        {' · '}
-                        <a href={r.appimage.url}>AppImage</a>
-                      </>
-                    )}
-                  </td>
-                  <td>
-                    <a href={r.pageUrl}>Release notes</a>
-                  </td>
+          <div className={s.tableWrap}>
+            <table className={s.table}>
+              <thead>
+                <tr>
+                  <th scope="col">Version</th>
+                  <th scope="col">Released</th>
+                  <th scope="col">Windows</th>
+                  <th scope="col">Linux</th>
+                  <th scope="col">Notes</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {releases.map((r) => (
+                  <tr key={r.version}>
+                    <td className={s.mono}>
+                      <Link href={`${pages.changelog.path}#${versionAnchor(r.version)}`}>{r.version}</Link>
+                    </td>
+                    <td>{r.date ? dateFmt.format(new Date(r.date)) : '–'}</td>
+                    <td>
+                      {r.exe && <a href={r.exe.url}>.exe ({megabytes(r.exe.size)})</a>}
+                      {r.exe && r.msi && ' · '}
+                      {r.msi && <a href={r.msi.url}>.msi</a>}
+                    </td>
+                    <td>
+                      {r.appimage && <a href={r.appimage.url}>AppImage</a>}
+                      {r.appimage && r.deb && ' · '}
+                      {r.deb && <a href={r.deb.url}>.deb</a>}
+                      {!r.appimage && !r.deb && '–'}
+                    </td>
+                    <td>
+                      <a href={r.pageUrl}>On GitHub</a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       <CtaBand title="Questions before you install?" secondary={pages.faq} />

@@ -66,6 +66,9 @@
   .actions > * { flex: 1 1 100%; }
 }
 .meta { margin-top: 14px; color: var(--faint); font: 13px/1.5 var(--font-mono); }
+.meta a { color: inherit; text-underline-offset: 3px; }
+.meta a:hover { color: var(--accent); }
+.liveDot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 
 /* The screenshot sits half on the page, half on a panel band that carries the facts below it. */
 .stage {

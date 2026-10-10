@@ -8,6 +8,7 @@
 .tip { display: grid; gap: 4px; padding-top: 18px; border-top: 1px solid var(--line); }
 .tip h3 { font-size: 18px; }
 .tip p { color: var(--muted); font-size: 15px; }
+.badge { margin-left: 4px; padding: 2px 5px; font-size: 9.5px; vertical-align: 2px; }
 
 @media print {
   .layout { display: block; padding: 0; }

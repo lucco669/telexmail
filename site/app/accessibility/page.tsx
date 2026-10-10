@@ -31,7 +31,7 @@ const aaa = themes.filter((t) => t.level === 'AAA').length;
 const beyond = [
   {
     title: 'Every action on a key',
-    text: 'Reading, replying, flagging, deleting, filtering and the settings themselves work from the keyboard. Ctrl+, opens Settings; arrow keys move through its tabs and choices.',
+    text: 'Reading, replying, selecting, moving, filtering and the settings themselves work from the keyboard. Ctrl+, opens Settings; arrow keys move through its tabs and choices. Folder pickers and address suggestions are listboxes a screen reader can follow.',
     link: { href: pages.keyboard.path, label: 'All shortcuts' },
   },
   {
@@ -66,7 +66,7 @@ const beyond = [
 
 const gaps = [
   'Moving through the message list with the arrow keys isn’t announced row by row yet; the message pane reads out the message that opens.',
-  'HTML mail keeps its sender’s colors on a white page, so its contrast is the sender’s. Press H for the plain text in your theme.',
+  'In a light theme HTML mail keeps its sender’s colors on white, so its contrast is the sender’s; dark themes turn its colors around to the theme. Press H for the plain text in your theme.',
   'Messages from the mail servers (errors, refusals) come through as the servers word them, usually in English.',
   'These are our own measurements and checks. Telex hasn’t had an outside accessibility audit yet.',
 ];

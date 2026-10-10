@@ -89,7 +89,10 @@ ui/                  The interface. index.html + styles.css + app.js, no build s
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
                      an English demo mailbox (site/scripts/demo-mailbox.json) via `npm run screens`;
-                     retake them after visible UI changes.
+                     its live demo (/demo) is ui/ itself with a stand-in for the core
+                     (site/demo/backend.js), copied into site/public/demo-app by `npm run demo`.
+                     Retake both after visible UI changes. What is built but not released is
+                     marked `since: NEXT` in site/lib/content.ts ("Coming in 0.5" until it ships).
 brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-small.svg (32 px and
                      below). `npm run icons` in site/ makes every app and site icon from them.
 scripts/             set-version.mjs: sets the version in every file that has it, or checks them.

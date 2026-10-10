@@ -13,6 +13,9 @@
   text-decoration: none;
 }
 .toc a:hover { border-color: var(--accent); color: var(--fg); }
+.toc a { display: inline-flex; align-items: center; gap: 8px; }
+.tocBadge { padding: 2px 5px; font-size: 9.5px; }
+.pointBadge { margin-left: 2px; padding: 2px 5px; font-size: 9.5px; vertical-align: 1px; white-space: nowrap; }
 
 .row {
   display: grid;

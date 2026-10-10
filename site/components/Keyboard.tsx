@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import { pages } from '@/lib/pages';
+import type { Release } from '@/lib/release';
 import { KeyboardDemo } from './KeyboardDemo';
 import s from './Keyboard.module.css';
 
 /** The keyboard section on the home page. */
-export function Keyboard() {
+export function Keyboard({ release }: { release: Release | null }) {
   return (
     <section id="keyboard" className={`section ${s.section}`}>
       <div className={`container ${s.layout}`}>
@@ -14,16 +15,21 @@ export function Keyboard() {
           </p>
           <h2 className="h2">One key per action.</h2>
           <p className="lead">
-            The keys you use all day are single keys, with no Ctrl chords to remember. Try them here: press any key from
-            the list.
+            The keys you use all day are single keys, with no Ctrl chords to remember, and they work on one message or a
+            whole selection. Try them here: press any key from the list.
           </p>
           <p>
             <Link className="more" href={pages.keyboard.path}>
               Every shortcut, with tips
             </Link>
           </p>
+          <p>
+            <Link className="more" href={pages.demo.path}>
+              Or press them in the live demo
+            </Link>
+          </p>
         </header>
-        <KeyboardDemo />
+        <KeyboardDemo release={release} onlyHome />
       </div>
     </section>
   );

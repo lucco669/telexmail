@@ -2,15 +2,19 @@
 
 import Link from 'next/link';
 import { useId, useRef, useState } from 'react';
-import { screens } from '@/lib/content';
+import { homeScreens as screens, screens as allScreens } from '@/lib/content';
 import { pages } from '@/lib/pages';
+import type { Release } from '@/lib/release';
 import { useResolvedTheme } from '@/lib/theme';
 import { Shot, type ShotTheme } from './Shot';
+import { Since } from './Since';
 import { WindowFrame } from './WindowFrame';
 import s from './Screens.module.css';
 
+const screensCount = allScreens.length + 1; // and the inbox at the top of the page
+
 /** Tabbed screenshots with a light/dark switch (it starts on the page's theme). Arrow keys move between tabs. */
-export function Screens() {
+export function Screens({ release }: { release: Release | null }) {
   const [index, setIndex] = useState(0);
   const [choice, setChoice] = useState<ShotTheme>('site');
   const site = useResolvedTheme() ?? 'light';
@@ -33,15 +37,15 @@ export function Screens() {
       <div className="container">
         <header className="section-head">
           <p className="eyebrow">
-            <b>03</b> · Screens
+            <b>04</b> · Screens
           </p>
           <h2 className="h2">A closer look.</h2>
           <p className="lead">
-            Real screenshots of the current build, with a demo mailbox.
+            Real screenshots of the newest build, with a demo mailbox, in light and dark.
           </p>
           <p>
             <Link className="more" href={pages.screenshots.path}>
-              All screenshots, full size
+              All {screensCount} screenshots, full size
             </Link>
           </p>
         </header>
@@ -84,7 +88,7 @@ export function Screens() {
             <span className={s.counter}>
               {index + 1}/{screens.length}
             </span>
-            {screen.caption}
+            {screen.caption} <Since since={screen.since} release={release} />
           </p>
         </div>
       </div>

@@ -15,17 +15,21 @@ const principles = [
   ['Powerful filters', 'Rules that sort, flag, move and auto-reply, with the reason shown on every message they touch.'],
   ['Private by default', 'Remote images blocked until you allow them. Links in spam not clickable. Nothing phones home.'],
   ['Fluent in Polish', 'Old charsets like Windows-1250 and ISO-8859-2 decode correctly; replies quote the Polish way.'],
-  ['Plain text first', 'Compose is plain text in a mono face. Mail between people reads best that way.'],
+  ['Plain text first', 'Compose is plain text in a mono face. HTML is a switch away, and always goes out with a plain-text copy.'],
+  ['Readable', 'Every theme meets WCAG 2.2 AA contrast, the high-contrast ones AAA, checked by a script on every change.'],
+  ['Mail follows the theme', 'In a dark theme HTML mail goes on the theme’s dark paper with its colors turned around; one click shows it on white, as sent.'],
+  ['Honest about mail', '“Sent” only once your server has accepted the message. Until then it waits in the Outbox, with the reason.'],
+  ['Forgiving', 'Z undoes a delete or a move, and takes back a message in the moment after Send. Esc keeps a draft, never loses it.'],
 ];
 
 const never = ['Electron', 'AI features switched on by default', 'A web-app look', 'Anything that phones home'];
 
 const stack = [
-  ['Mail core', 'Rust: IMAP (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls)'],
+  ['Mail core', 'Rust: IMAP with IDLE (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls), HTML cleaning (ammonia)'],
   ['Mail base', 'SQLite with FTS5 full-text search, one file on your disk'],
-  ['Window', 'Tauri 2 and WebView2, which Windows already has'],
+  ['Window', 'Tauri 2: WebView2 on Windows, WebKitGTK on Linux, so no browser is bundled'],
   ['Interface', 'Plain HTML, CSS and JavaScript, set in IBM Plex'],
-  ['This site', 'Next.js on Vercel, with no cookies and cookieless page counts'],
+  ['This site', 'Next.js on Vercel, with no cookies and cookieless page counts. The live demo is the app’s own interface'],
 ];
 
 export default function AboutPage() {
@@ -34,7 +38,7 @@ export default function AboutPage() {
       <PageHeader
         page={pages.about}
         title="A mail client built like a tool."
-        lead="Telex is for people who get a lot of mail and want to get through it fast: a compact, keyboard-driven client for Windows in the spirit of The Bat!, with your mail kept on your own disk."
+        lead="Telex is for people who get a lot of mail and want to get through it fast: a compact, keyboard-driven client for Windows and Linux in the spirit of The Bat!, with your mail kept on your own disk."
       />
 
       <section className={`container ${s.section}`} aria-labelledby="feel">

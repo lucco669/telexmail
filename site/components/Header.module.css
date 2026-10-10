@@ -72,3 +72,8 @@
   .nav { display: flex; }
   .menuBtn { display: none; }
 }
+/* Seven links and the buttons fit from 900 px when the links are a little tighter. */
+@media (min-width: 900px) and (max-width: 1099px) {
+  .nav { margin-right: 4px; }
+  .link { padding: 7px 8px; font-size: 14px; }
+}

@@ -1,8 +1,9 @@
 import Link from 'next/link';
-import { ticker } from '@/lib/content';
+import { NEXT, ticker } from '@/lib/content';
 import { footerGroups } from '@/lib/pages';
 import { getLatestRelease } from '@/lib/release';
 import { site } from '@/lib/site';
+import { isReleased, shortVersion } from '@/lib/versions';
 import { DotMatrix } from './DotMatrix';
 import { Logo } from './Logo';
 import { TelexTicker } from './TelexTicker';
@@ -13,9 +14,11 @@ const year = (process.env.BUILD_DATE ?? '2026').slice(0, 4);
 
 export async function Footer() {
   const release = await getLatestRelease();
-  const messages = release
-    ? [ticker[0], `VERSION ${release.version} IS OUT${release.date ? ` ${release.date.slice(0, 10).split('-').reverse().join('.')}` : ''}`, ...ticker.slice(1)]
-    : ticker;
+  const out = release
+    ? [`VERSION ${release.version} IS OUT${release.date ? ` ${release.date.slice(0, 10).split('-').reverse().join('.')}` : ''}`]
+    : [];
+  const next = `${isReleased(NEXT, release) ? 'NEW' : 'COMING'} IN ${shortVersion(NEXT)}: ATTACHMENTS, CONVERSATIONS, UNDO SEND`;
+  const messages = [ticker[0], ...out, next, ...ticker.slice(1)];
   return (
     <footer className={`${s.footer} no-print`}>
       <TelexTicker messages={messages} />
@@ -45,7 +48,7 @@ export async function Footer() {
       </div>
       <div className={`container ${s.bottom}`}>
         <span>
-          © {year} {site.name}. Made for Windows, with Rust and Tauri.
+          © {year} {site.name}. Made for Windows and Linux, with Rust and Tauri.
         </span>
         {site.contact && (
           <a href={`mailto:${site.contact}`} className={s.top_link}>

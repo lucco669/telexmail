@@ -1,0 +1,18 @@
+.links { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+.card { display: grid; align-content: start; gap: 10px; padding: 24px 24px 28px; background: var(--bg); }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.title { font-size: 21px; line-height: 1.2; }
+.keys { display: inline-flex; gap: 4px; }
+.text { color: var(--muted); font-size: 15.5px; }

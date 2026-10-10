@@ -17,13 +17,17 @@ const csp = [
   `img-src 'self' data: blob:${preview ? ' https://vercel.live https://vercel.com' : ''}`,
   `font-src 'self'${preview ? ' https://vercel.live https://assets.vercel.com' : ''}`,
   `connect-src 'self'${preview ? ' https://vercel.live wss://ws-us3.pusher.com' : ''}`,
-  `frame-src ${preview ? 'https://vercel.live' : "'none'"}`,
+  // Frames from this site only: the live demo on /demo, and the HTML mail frame inside it.
+  `frame-src 'self'${live}`,
   "frame-ancestors 'none'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
   'upgrade-insecure-requests',
 ].join('; ');
+
+// The live demo (public/demo-app, made by `npm run demo`) may be framed by this site's /demo page.
+const demoCsp = csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'");
 
 const securityHeaders = [
   { key: 'Content-Security-Policy', value: csp },
@@ -53,7 +57,19 @@ const nextConfig: NextConfig = {
   async headers() {
     const rules = [];
     // Not in development: the dev server needs eval for fast refresh.
-    if (process.env.NODE_ENV === 'production') rules.push({ source: '/:path*', headers: securityHeaders });
+    if (process.env.NODE_ENV === 'production') {
+      rules.push({ source: '/:path*', headers: securityHeaders });
+      // Later rules win for the same header.
+      rules.push({
+        source: '/demo-app/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: demoCsp },
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+        ],
+      });
+    }
+    // The demo's own page is the app's index.html; /demo is the page to find.
+    rules.push({ source: '/demo-app/:path*', headers: [{ key: 'X-Robots-Tag', value: 'noindex' }] });
     // Screenshots and icons in public/ aren't fingerprinted: cache a day, refresh in the background.
     rules.push({
       source: '/:file(screens/.*|icon-.*\\.png)',

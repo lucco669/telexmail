@@ -10,3 +10,4 @@
 .meter { height: 8px; margin: 12px 0 8px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
 .meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
 .note { color: var(--muted); font-size: 14.5px; }
+.note a { color: var(--accent); }

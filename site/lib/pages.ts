@@ -29,9 +29,18 @@ export const pages = {
     label: 'Features',
     title: 'Features of a fast, keyboard-driven email client',
     description:
-      'What Telex does today: a dense list, one key per action, accounts that set themselves up, IMAP sync, SMTP sending, rules and offline search.',
+      'What Telex does: a dense list, one key per action, conversations, attachments, accounts that set themselves up, IMAP sync, rules and offline search.',
     ogTitle: 'Everything Telex does today.',
     ogScreen: 'inbox',
+  },
+  demo: {
+    path: '/demo',
+    label: 'Live demo',
+    title: 'Live demo: try Telex in your browser',
+    description:
+      'The real Telex interface in your browser, with a demo mailbox: read, reply, filter, move and send with the keyboard. Nothing you do leaves the page.',
+    ogTitle: 'Try it in your browser.',
+    ogScreen: 'thread',
   },
   keyboard: {
     path: '/keyboard',
@@ -47,7 +56,7 @@ export const pages = {
     label: 'Screenshots',
     title: 'Screenshots in light and dark',
     description:
-      'Telex in light and dark: the main window, reply, quick filter, HTML mail, rules, identities, account setup, the Outbox and comfortable rows.',
+      'Telex in light and dark: the main window, reply, conversations, moving many messages, attachments, the quick filter, HTML mail, rules and settings.',
     ogTitle: 'A closer look.',
     ogScreen: 'filter',
   },
@@ -63,18 +72,27 @@ export const pages = {
   download: {
     path: '/download',
     label: 'Download',
-    title: 'Download for Windows',
+    title: 'Download for Windows and Linux',
     description:
-      'Download Telex for Windows 10 and 11. System requirements, installation steps, and how Telex sets up your IMAP and SMTP account.',
+      'Download Telex for Windows 10 and 11, or Linux as an AppImage or .deb. System requirements, installation steps, and how Telex sets up your account.',
     ogTitle: 'Get Telex for Windows.',
     ogScreen: 'account',
+  },
+  changelog: {
+    path: '/changelog',
+    label: 'Changelog',
+    title: 'Changelog: what’s new in each version',
+    description:
+      'Every Telex release and what it brought, from the first self-updating build to attachments, conversations and undo send, with its downloads.',
+    ogTitle: 'What’s new in Telex.',
+    ogScreen: 'select',
   },
   roadmap: {
     path: '/roadmap',
     label: 'Roadmap',
     title: 'Roadmap: what’s done and what’s next',
     description:
-      'Where Telex stands: what works today, what is being built, and what comes next, from HTML mail to filters and Gmail sign-in.',
+      'Where Telex stands: what works today, what the next version brings, and what follows, from Gmail sign-in to backups and local folders.',
     ogTitle: 'Early, and honest about it.',
     ogScreen: 'comfortable',
   },
@@ -107,12 +125,12 @@ export const pages = {
   },
 } satisfies Record<string, PageInfo>;
 
-export const nav: PageInfo[] = [pages.features, pages.keyboard, pages.accessibility, pages.screenshots, pages.roadmap, pages.faq];
+export const nav: PageInfo[] = [pages.features, pages.demo, pages.keyboard, pages.accessibility, pages.changelog, pages.roadmap, pages.faq];
 
 export type FooterLink = { path: string; label: string };
 
 export const footerGroups: { title: string; items: FooterLink[] }[] = [
-  { title: 'Product', items: [pages.features, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
-  { title: 'Project', items: [pages.roadmap, pages.faq, pages.about] },
+  { title: 'Product', items: [pages.features, pages.demo, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
+  { title: 'Project', items: [pages.changelog, pages.roadmap, pages.faq, pages.about] },
   { title: 'Legal', items: [pages.privacy, { path: '/privacy#cookies', label: 'Cookies' }] },
 ];

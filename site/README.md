@@ -1,15 +1,16 @@
 # Telex website
 
 The website for Telex: Next.js 16 (App Router), plain CSS with the app's color tokens, no other
-dependencies. Ten prerendered pages (home, features, keyboard, accessibility, screenshots,
-download, roadmap, FAQ, about, privacy), light and dark, with a download button that finds the newest installer on
-its own.
+dependencies. Twelve prerendered pages (home, features, live demo, keyboard, accessibility,
+screenshots, download, changelog, roadmap, FAQ, about, privacy), light and dark, with a download button
+that finds the newest installer on its own, and a live demo that runs the app's own interface.
 
 ```
 npm install
 npm run dev        # http://localhost:3000
 npm run build      # what Vercel runs
 npm run screens    # retake the screenshots from ../ui (needs Edge or Chrome)
+npm run demo       # rebuild the live demo from ../ui into public/demo-app
 npm run icons      # rebuild every app and site icon from ../brand
 npm run themes     # measure the app's themes again into lib/themes.json (the accessibility page)
 ```
@@ -19,15 +20,53 @@ npm run themes     # measure the app's themes again into lib/themes.json (the ac
 - `lib/pages.ts`: every page's address, menu label, title, description and link-preview line.
   The header, footer, sitemap, breadcrumbs and preview images all read it. Add a page here first.
 - `lib/site.ts`: name, keywords, site URL, contact address, the GitHub repo that holds releases.
-- `lib/content.ts`: features, feature rows, shortcuts and tips, screenshot captions, roadmap, FAQ,
-  and the lines the telex tape punches. Keep it true to the app; update the roadmap when a step lands.
-- `lib/release.ts`: reads the GitHub releases that have an `.exe` or `.msi` (checked hourly).
+- `lib/content.ts`: features, feature rows, shortcuts and tips, screenshot captions, the versions
+  (the changelog), roadmap, FAQ, the live demo's cards, and the lines the telex tape punches. Keep
+  it true to the app; update the roadmap when a step lands.
+- `lib/versions.ts`: what the site says about something built for a version (see below).
+- `lib/release.ts`: reads the GitHub releases that have an `.exe` or `.msi`, with their AppImage
+  and .deb (checked hourly).
 - `lib/seo.ts`: per-page metadata and the structured data (breadcrumbs, app, website, FAQ).
 - `lib/theme.ts`: the light/dark choice. It is `data-theme` on `<html>`, saved in localStorage
   and set before the first paint by the script in `app/layout.tsx`; tokens are in `app/globals.css`.
 - `app/<page>/page.tsx`: the subpages. Shared pieces are in `components/`, each with a CSS module.
 - `public/screens/`: screenshots, `<scene>-light.png` and `<scene>-dark.png`, 1280×800 at 2×.
 - `app/**/opengraph-image.png`: one link preview per page, made by `npm run screens`.
+
+## Versions: what is out and what is coming
+
+`NEXT` in `lib/content.ts` is the version being finished. Features, points, shortcuts, tips,
+screenshots and roadmap steps built for it carry `since: NEXT`. Until GitHub has a release that new,
+the site marks them "Coming in 0.5" (the roadmap step is in progress, the hero and the home page's
+What's new say "Coming"); once the release is published they turn into "New in 0.5" within the
+hour, with no redeploy (`lib/versions.ts`, `components/Since.tsx`). When a newer minor version is
+out, the badges go away by themselves.
+
+After a release:
+
+1. Its entry in `versions` (`lib/content.ts`) already says what it brought; give it its date.
+2. Set `NEXT` to the version after it, and add that version's entry (title, summary, points and
+   `highlights` for the home page) as its features land.
+3. Retake the screenshots (`npm run screens`) and rebuild the demo (`npm run demo`).
+
+The changelog page merges `versions` with the releases on GitHub: dates and files come from GitHub,
+and a release the site doesn't describe yet still shows, with a link to its notes.
+
+## The live demo
+
+`/demo` shows the app itself in a frame. `public/demo-app/` is a copy of `../ui` (index.html,
+app.js, i18n.js, boot.js, the style sheets and fonts) plus `demo/backend.js`, a stand-in for Tauri
+and the Rust core that answers every `invoke` from the English demo mailbox
+(`scripts/demo-mailbox.json`), in memory. `npm run demo` (`scripts/demo.mjs`) builds that folder;
+run it after UI changes, like `npm run screens`, and commit the result (Vercel builds only this
+folder). The screenshots use the same backend with the clock stopped at 10.10.2026 09:30; the live
+demo moves the mailbox's dates so that its "today" is the visitor's.
+
+`components/DemoFrame.tsx` starts it in the page's theme (`?theme=light|dark`; `?lang=en|pl` works
+too), shows the inbox screenshot until the app has drawn itself, and puts the app's window title in
+the frame's title bar. `next.config.ts` lets only this site frame `/demo-app/` and keeps it out of
+search results. Nothing in the demo talks to the network: sending moves mail to Sent, and
+attachments can be added but not opened.
 
 ## The footer
 
@@ -79,13 +118,15 @@ only your domain gets indexed.
 
 ## Screenshots
 
-`npm run screens` opens `../ui/index.html` in headless Edge with a stand-in for Tauri that answers
-from an English demo mailbox (`scripts/demo-mailbox.json`: two accounts with identities, rules, an
-HTML newsletter), plays a short scene for each shot (open a reply, type in the quick filter, …) and
-saves light and dark versions. The clock is fixed at 10.10.2026 09:30 so list dates stay the same.
-Scenes are at the top of `scripts/screens.mjs`. The stand-in copies what the core does for replies
-(`drafts::start`) and HTML mail (`html::render`); when those change visibly, change it too. (The
-core's own `sample.json` is Polish and only for its tests.)
+`npm run screens` opens `../ui/index.html` in headless Edge with the live demo's stand-in for
+Tauri (`demo/backend.js`), answering from the English demo mailbox (`scripts/demo-mailbox.json`:
+two accounts with identities, rules, conversations, attachments, an HTML newsletter, and the mail
+that "arrives" in the live demo), plays a short scene for each shot (open a reply, type in the
+quick filter, …) and saves light and dark versions. The clock is fixed at 10.10.2026 09:30 so list
+dates stay the same. Scenes are at the top of `scripts/screens.mjs`. The stand-in copies what the
+core does for lists and filters (`list.rs`), replies (`drafts::start`), HTML mail (`html::render`,
+`colors.rs`) and rules (`filters.rs`); when those change visibly, change it too. (The core's own
+`sample.json` is Polish and only for its tests.)
 `npm run screens reply og` retakes only those; `og` makes the preview image of every page in
 `lib/pages.ts` (its `ogTitle` next to its `ogScreen`).
 

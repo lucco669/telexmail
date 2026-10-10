@@ -1,0 +1,69 @@
+.demo { display: grid; gap: 12px; }
+
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--fg);
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dot { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+@keyframes ping {
+  75%, 100% { transform: scale(2.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot::after { animation: none; }
+}
+.hint { color: var(--muted); font-size: 14px; }
+.tools { display: flex; gap: 8px; margin-left: auto; }
+
+/* Tall enough for the whole window on a laptop screen, never taller than the screen. */
+.viewport {
+  position: relative;
+  height: clamp(520px, calc(100svh - 150px), 860px);
+  background: var(--panel);
+}
+.app {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+.app[data-ready] { opacity: 1; }
+.poster { position: absolute; inset: 0; overflow: hidden; transition: opacity 0.25s; }
+.poster[data-hidden] { opacity: 0; pointer-events: none; }
+.poster img { width: 100%; height: 100%; object-fit: cover; object-position: left top; filter: saturate(0.6); opacity: 0.55; }
+.starting {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: 500 13px/1 var(--font-mono);
+  box-shadow: var(--shadow);
+}
+@media (prefers-reduced-motion: reduce) {
+  .app, .poster { transition: none; }
+}
+@media (max-width: 640px) {
+  .hint { display: none; }
+  .viewport { height: clamp(480px, calc(100svh - 120px), 720px); }
+}

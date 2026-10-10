@@ -8,8 +8,9 @@ export type Release = {
   pageUrl: string;
   exe: Asset | null;
   msi: Asset | null;
-  /** The Linux build, from releases that have one. */
+  /** The Linux builds, from releases that have them. */
   appimage: Asset | null;
+  deb: Asset | null;
 };
 
 type GitHubAsset = { name: string; browser_download_url: string; size: number };
@@ -29,7 +30,7 @@ function pick(assets: GitHubAsset[], ext: string): Asset | null {
 }
 
 /**
- * Releases that have a Windows installer (and the Linux AppImage, if they have one), newest first
+ * Releases that have a Windows installer (and the Linux AppImage and .deb, if they have them), newest first
  * (up to 10). Empty when there are none yet,
  * they are still drafts, the repository is private, or GitHub can't be reached. Checked at most
  * once an hour, so a new
@@ -56,11 +57,12 @@ export async function getReleases(): Promise<Release[]> {
         version: r.tag_name.replace(/^v/, ''),
         date: r.published_at ?? '',
         pageUrl: r.html_url,
-        // Tauri names them Telex_0.1.0_x64-setup.exe, Telex_0.1.0_x64_en-US.msi and
-        // Telex_0.1.0_amd64.AppImage.
+        // Tauri names them Telex_0.1.0_x64-setup.exe, Telex_0.1.0_x64_en-US.msi,
+        // Telex_0.1.0_amd64.AppImage and Telex_0.1.0_amd64.deb.
         exe: pick(r.assets, '.exe'),
         msi: pick(r.assets, '.msi'),
         appimage: pick(r.assets, '.appimage'),
+        deb: pick(r.assets, '.deb'),
       }))
       .filter((r) => r.exe || r.msi);
   } catch {

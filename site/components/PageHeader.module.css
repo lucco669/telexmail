@@ -19,3 +19,9 @@
 .crumbs a:hover { text-decoration: underline; }
 .lead { max-width: 60ch; color: var(--muted); font-size: clamp(17px, 1.6vw, 19px); line-height: 1.55; }
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 8px; }
+.compact { padding-top: 40px; padding-bottom: 28px; }
+@media (min-width: 1024px) {
+  .compact { padding-top: 48px; padding-bottom: 32px; }
+}
+.compact :global(.h1) { font-size: clamp(34px, 4.8vw, 56px); }
+.compact .lead { font-size: 17px; }

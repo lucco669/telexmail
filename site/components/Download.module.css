@@ -64,3 +64,6 @@
 .q:hover { color: var(--accent); }
 .a { padding: 0 40px 20px 0; color: var(--muted); font-size: 15.5px; }
 .faqMore { margin-top: 20px; }
+.linux { color: var(--muted); font-size: 14.5px; }
+.linux a { color: var(--accent); }
+.links { display: flex; flex-wrap: wrap; gap: 8px 24px; }
