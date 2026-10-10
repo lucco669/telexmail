@@ -9,11 +9,11 @@
 //! A filtered list is a search: which messages match is worked out once, in order, and its
 //! pages are read from that result until the mail base changes.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::functions::{Context, FunctionFlags};
 use rusqlite::types::Value;
-use rusqlite::{params_from_iter, Connection};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Account, MessageId, MessageSummary};
@@ -53,6 +53,10 @@ pub struct ListView {
     pub filter: String,
     #[serde(default)]
     pub bodies: bool,
+    /// Show the conversation this message belongs to, in every folder of its account
+    /// except Spam and Trash; `folder` doesn't count then.
+    #[serde(default)]
+    pub thread: Option<MessageId>,
 }
 
 /// The quick filter, read: plain words, and operators. Unknown operators and values that
@@ -295,15 +299,22 @@ impl Query {
     fn new(store: &MailStore, view: &ListView) -> Result<Self, StoreError> {
         let mut filter = String::new();
         let mut args = Vec::new();
-        match &view.folder {
-            Some(key) => {
+        match (&view.folder, view.thread) {
+            (_, Some(id)) => {
+                let ids = store.conversation(id)?;
+                filter.push_str("id IN (SELECT value FROM json_each(?))");
+                args.push(Value::Text(
+                    serde_json::to_string(&ids).map_err(|e| StoreError::Database(e.to_string()))?,
+                ));
+            }
+            (Some(key), None) => {
                 if store.kind_of(key).is_none() {
                     return Err(StoreError::UnknownFolder(key.clone()));
                 }
                 filter.push_str("folder = ?");
                 args.push(Value::Text(key.clone()));
             }
-            None => {
+            (None, None) => {
                 filter.push_str("folder NOT IN ");
                 filter.push_str(&folders_of_kind("'spam', 'trash'"));
             }
@@ -363,7 +374,8 @@ impl Query {
         }
 
         let desc = !view.ascending;
-        let who = match view.folder.as_deref().and_then(|k| store.kind_of(k)) {
+        let folder = view.folder.as_deref().filter(|_| view.thread.is_none());
+        let who = match folder.and_then(|k| store.kind_of(k)) {
             Some(kind) if kind.is_outgoing() => "telex_recipient(to_addr)".to_owned(),
             Some(_) => "telex_lower(from_name)".to_owned(),
             None => format!(
@@ -552,7 +564,7 @@ impl MailStore {
     pub fn page(&self, view: &ListView, at: PageAt, limit: usize) -> Result<Page, StoreError> {
         let limit = limit.clamp(1, MAX_PAGE);
         let q = Query::new(self, view)?;
-        if view.filter.trim().is_empty() {
+        if view.filter.trim().is_empty() && view.thread.is_none() {
             self.keyset_page(&q, at, limit)
         } else {
             self.found_page(&q, view, at, limit)
@@ -574,6 +586,72 @@ impl MailStore {
             (Some(a), Some(b)) => ids[a.min(b)..=a.max(b)].to_vec(),
             _ => ids,
         })
+    }
+
+    /// Every message of the conversation `id` is in: the messages it answers and those
+    /// that answer it, directly or not, found by Message-ID, In-Reply-To and References, in
+    /// its account and not in Spam or Trash (except `id` itself). In no order; the list
+    /// sorts them.
+    pub fn conversation(&self, id: MessageId) -> Result<Vec<MessageId>, StoreError> {
+        let changes = self.db.total_changes();
+        if let Some((cached, at, ids)) = &*self.thread.borrow() {
+            if *cached == id && *at == changes {
+                return Ok(ids.clone());
+            }
+        }
+        let (folder, message_id, refs): (String, Option<String>, String) = self
+            .db
+            .query_row(
+                "SELECT folder, message_id, refs FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?
+            .ok_or(StoreError::UnknownMessage(id))?;
+        let mut start: Vec<String> = refs.split_whitespace().map(str::to_owned).collect();
+        start.extend(message_id);
+        if start.is_empty() {
+            return Ok(vec![id]);
+        }
+        // One pass over the account's links (only messages that have some), then the
+        // thread is followed in memory, however deep it goes.
+        let account = folder.split('/').next().unwrap_or_default().to_owned();
+        let mut stmt = self.db.prepare_cached(&format!(
+            "SELECT id, COALESCE(message_id, ''), refs FROM messages
+             WHERE folder >= ?1 || '/' AND folder < ?1 || '0' AND folder NOT IN {}
+               AND (message_id IS NOT NULL OR refs <> '')",
+            folders_of_kind("'spam', 'trash'")
+        ))?;
+        let rows: Vec<(i64, String, String)> = stmt
+            .query_map(params![account], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<Result<_, _>>()?;
+        // Every Message-ID, and the messages that are it or point at it.
+        let mut linked: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (i, (_, mid, refs)) in rows.iter().enumerate() {
+            for key in std::iter::once(mid.as_str()).chain(refs.split_whitespace()) {
+                if !key.is_empty() {
+                    linked.entry(key).or_default().push(i);
+                }
+            }
+        }
+        let mut found = HashSet::from([id]);
+        let mut seen: HashSet<&str> = HashSet::new();
+        let mut todo: Vec<&str> = start.iter().map(String::as_str).collect();
+        while let Some(key) = todo.pop() {
+            if !seen.insert(key) {
+                continue;
+            }
+            for &i in linked.get(key).into_iter().flatten() {
+                let (row_id, mid, refs) = &rows[i];
+                if found.insert(*row_id as MessageId) {
+                    todo.push(mid.as_str());
+                    todo.extend(refs.split_whitespace());
+                }
+            }
+        }
+        let ids: Vec<MessageId> = found.into_iter().collect();
+        *self.thread.borrow_mut() = Some((id, changes, ids.clone()));
+        Ok(ids)
     }
 
     fn keyset_page(&self, q: &Query, at: PageAt, limit: usize) -> Result<Page, StoreError> {
@@ -885,7 +963,12 @@ mod tests {
                             },
                             message_id: Some(format!("{folder}.{i}@x.pl")),
                             bcc: String::new(),
-                            refs: Vec::new(),
+                            // Each message answers the one before it in the folder.
+                            refs: if i > 0 {
+                                vec![format!("{folder}.{}@x.pl", i - 1)]
+                            } else {
+                                vec![]
+                            },
                         },
                         raw: b"x".to_vec(),
                     }
@@ -960,6 +1043,7 @@ mod tests {
                             ascending,
                             filter: filter.into(),
                             bodies: false,
+                            thread: None,
                         };
                         check_paging(&store, &view, folder.ends_with("sent"));
                     }
@@ -1117,6 +1201,40 @@ mod tests {
                 .unwrap(),
             all
         );
+    }
+
+    #[test]
+    fn a_conversation_is_found_across_its_links() {
+        let mut store = store(10);
+        let inbox: Vec<MessageId> = store
+            .list("studio/inbox")
+            .unwrap()
+            .iter()
+            .map(|m| m.id)
+            .collect();
+        // In the fixture each Inbox message answers the one before it: one long thread.
+        let mut thread = store.conversation(inbox[4]).unwrap();
+        thread.sort_unstable();
+        let mut expected = inbox.clone();
+        expected.sort_unstable();
+        assert_eq!(thread, expected);
+        let view = ListView {
+            folder: Some("studio/sent".into()),
+            thread: Some(inbox[0]),
+            ..Default::default()
+        };
+        let page = store.page(&view, PageAt::First, 50).unwrap();
+        assert_eq!(page.total, 10, "the folder doesn't count in a conversation");
+        assert!(page.rows.iter().all(|m| m.folder == "studio/inbox"));
+        // A message moved to Trash leaves the conversation, which is worked out again.
+        let gone = inbox[9];
+        store.move_to(gone, "studio/trash").unwrap();
+        let after = store.conversation(inbox[0]).unwrap();
+        assert_eq!(after.len(), 9);
+        assert!(!after.contains(&gone));
+        // A message without any links is a conversation of one.
+        let lone = store.list("studio/trash").unwrap()[0].id;
+        assert!(store.conversation(lone).unwrap().contains(&lone));
     }
 
     #[test]

@@ -457,6 +457,7 @@ const PL = {
   'The counts cover the mail Telex has downloaded: the newest 300 messages of each folder at the first check, then everything new.': 'Liczby obejmują pocztę pobraną przez Telexa: 300 najnowszych wiadomości z każdego folderu przy pierwszym sprawdzeniu, potem wszystko, co nowe.',
 
   // Attachments, Bcc, picking several messages, moving, conversations, older mail, undo sending
+  'Conversation · {n}': 'Wątek · {n}',
   'Remove {name}': 'Usuń {name}',
   'Open {name}': 'Otwórz {name}',
   'Save {name}…': 'Zapisz {name}…',
@@ -482,8 +483,11 @@ const PL = {
   'Messages from different accounts can’t be moved together.': 'Wiadomości z różnych kont nie da się przenieść razem.',
   'Go to folder': 'Przejdź do folderu',
   'No folder matches.': 'Żaden folder nie pasuje.',
+  'The conversation. T or Esc goes back.': 'Cały wątek. T albo Esc wraca.',
+  'No other messages in this conversation. T or Esc goes back.': 'W tym wątku nie ma innych wiadomości. T albo Esc wraca.',
   'Words, or from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k': 'Słowa albo from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k',
   'move to': 'przenieś',
+  'conversation': 'wątek',
   'IMAP security': 'Zabezpieczenia IMAP',
   'SSL/TLS (usually port 993)': 'SSL/TLS (zwykle port 993)',
   'STARTTLS (usually port 143)': 'STARTTLS (zwykle port 143)',

@@ -215,6 +215,8 @@ pub struct MailStore {
     incoming: Vec<Message>,
     /// The last filtered list the UI paged through (see `list`).
     pub(crate) found: RefCell<Option<list::Found>>,
+    /// The last conversation worked out: for which message, at which `total_changes`.
+    pub(crate) thread: RefCell<Option<(MessageId, u64, Vec<MessageId>)>>,
 }
 
 impl MailStore {
@@ -249,6 +251,7 @@ impl MailStore {
             sample,
             incoming: Vec::new(),
             found: RefCell::new(None),
+            thread: RefCell::new(None),
         })
     }
 

@@ -162,6 +162,7 @@ const state = {
   collapsed:{}, compose:null, images:new Set(), white:new Set(), // white: HTML shown on white
   undo:null, // what Z takes back: {kind:'move', items:[{id, from}]} after a delete or move
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
+  thread:null, // {id, subject}: the list shows this message's conversation
   recent: Array.isArray(saved.recent) ? saved.recent.slice(0, 8) : [], // folders last moved to or opened with M and G
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
@@ -298,6 +299,7 @@ function renderStatus(){
   const {total, unread} = countOf(state.folder), found = list.total;
   const picked = state.picked.size > 1 ? ' · ' + esc(tn(state.picked.size, '{n} selected', '{n} selected', {n:num(state.picked.size)})) : '';
   $('st-folder').innerHTML = !ACCOUNTS.length ? esc(t('No account yet'))
+    : state.thread ? esc(t('Conversation · {n}', {n:tn(found, '{n} message', '{n} messages', {n:num(found)})})) + picked
     : allMail() ? esc(t('All mail') + ' · ' + tn(found, '{n} match', '{n} matches', {n:num(found)})) + picked
     : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
@@ -382,7 +384,7 @@ treeEl.addEventListener('click', e => {
 $('folder-select').addEventListener('change', e => setFolder(e.target.value));
 
 function setFolder(key){
-  state.folder = key; state.q = ''; qEl.value = ''; state.inText = false;
+  state.folder = key; state.q = ''; qEl.value = ''; state.inText = false; state.thread = null;
   unpick();
   paintScope(); renderTree(); renderStatus();
   return loadView({top:true});
@@ -397,10 +399,11 @@ function setFolder(key){
 const PAGE = 100, MARGIN = 20, KEEP = 600;
 const list = {total:0, start:0, rows:[], seq:0};
 let rowH = 21, selRow = null; // selRow: the selected message, also when its row isn't loaded
-const allMail = () => state.scope === 'all' && !!state.q.trim();
-const selKey = () => allMail() ? '*' : state.folder;
+// All mail (the filter in every account) or a conversation: lists across folders, with a Folder column.
+const allMail = () => !!state.thread || (state.scope === 'all' && !!state.q.trim());
+const selKey = () => state.thread ? '#' : allMail() ? '*' : state.folder;
 const viewArgs = () => ({folder:allMail() ? null : state.folder, sort:state.sort.key, ascending:state.sort.dir > 0,
-  filter:state.q, bodies:state.inText});
+  filter:state.q, bodies:state.inText, thread:state.thread?.id ?? null});
 const current = () => selRow && selRow.id === state.sel[selKey()] && (allMail() || selRow.f === state.folder) ? selRow : null;
 // The messages an action is for: those picked with Shift or Ctrl, else the selected one.
 const chosen = () => state.picked.size ? [...state.picked] : current() ? [current().id] : [];
@@ -1467,6 +1470,32 @@ $('pk-q').addEventListener('keydown', e => {
 $('pk-list').addEventListener('click', e => { const li = e.target.closest('[data-i]'); if (li) choosePicked(Number(li.dataset.i)); });
 pdlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 
+/* ---------- conversations: T ---------- */
+// The selected message with everything it answers and everything that answers it, from every
+// folder of its account (not Spam or Trash). T or Esc goes back to the folder.
+function toggleThread(){
+  if (state.thread){ leaveThread(); return; }
+  const m = current();
+  if (!m){ say(t('Select a message first.')); return; }
+  unpick();
+  state.thread = {id:m.id, folder:state.folder, scope:state.scope};
+  state.sel['#'] = m.id;
+  state.q = ''; qEl.value = ''; state.inText = false;
+  paintScope(); renderHead();
+  loadView({top:true}).then(() => {
+    say(list.total > 1 ? t('The conversation. T or Esc goes back.') : t('No other messages in this conversation. T or Esc goes back.'), 4000);
+  });
+}
+function leaveThread(){
+  const back = state.thread; if (!back) return;
+  const m = current();
+  state.thread = null;
+  // Back in the folder, on the same message if it is there.
+  if (m && m.f === back.folder) state.sel[back.folder] = m.id;
+  paintScope(); renderHead();
+  loadView();
+}
+
 // quiet: a background check, which speaks up only for new mail or errors.
 // first: the download right after adding an account.
 let checkAgain = null; // asked for while a check was running; runs when it ends
@@ -1527,8 +1556,9 @@ $('b-settings').addEventListener('click', () => openSettings());
 let searchTimer;
 function setFilter(text){
   state.q = text; state.inText = false;
+  if (state.thread && text.trim()) state.thread = null; // the filter looks in the folder or all mail again
   unpick();
-  paintScope();
+  paintScope(); renderHead();
   clearTimeout(searchTimer);
   loadView();
   if (state.q.trim()) searchTimer = setTimeout(() => { state.inText = true; loadView(); }, 150);
@@ -2550,6 +2580,7 @@ function onKey(e){
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
     if (unpick()){ e.preventDefault(); afterPick(); return; }
+    if (state.thread){ e.preventDefault(); leaveThread(); return; }
   }
   // Tab in the filter box: this folder or all mail, while there is something to look for.
   if (tg === qEl && e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && qEl.value.trim()){ e.preventDefault(); toggleScope(); return; }
@@ -2574,6 +2605,7 @@ function onKey(e){
   else if (k === 'h' || k === 'H') setView(!pref().prefer_text);
   else if (k === 'm' || k === 'M') openPicker('move');
   else if (k === 'g' || k === 'G') openPicker('go');
+  else if (k === 't' || k === 'T') toggleThread();
   else if (k === 'z' || k === 'Z') undo();
   else if (k === '/') qEl.focus();
   else return;
