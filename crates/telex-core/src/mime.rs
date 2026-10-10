@@ -45,6 +45,8 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
             attachments: Vec::new(),
             body: String::from_utf8_lossy(raw).into_owned(),
             message_id: None,
+            bcc: String::new(),
+            refs: Vec::new(),
         };
     };
 
@@ -104,6 +106,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         from_email,
         to: format_addresses(p.to()),
         cc: format_addresses(p.cc()),
+        bcc: format_addresses(p.bcc()),
         subject,
         date,
         size_kb,
@@ -114,7 +117,36 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         attachments,
         body,
         message_id: p.message_id().map(str::to_owned),
+        refs: answered_ids(&p),
     }
+}
+
+/// The Message-IDs a message answers: In-Reply-To, then References, each once.
+fn answered_ids(p: &mail_parser::Message<'_>) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for header in [p.in_reply_to(), p.references()] {
+        let found = match (header.as_text_list(), header.as_text()) {
+            (Some(list), _) => list.iter().map(|r| r.to_string()).collect(),
+            (None, Some(one)) => vec![one.to_owned()],
+            (None, None) => Vec::new(),
+        };
+        for id in found {
+            let id = id.trim().trim_matches(['<', '>']).to_owned();
+            if !id.is_empty() && !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    ids
+}
+
+/// Just the Message-IDs a message answers, without parsing the body: for mail stored before
+/// Telex kept them.
+pub fn answered_ids_of(raw: &[u8]) -> Vec<String> {
+    MessageParser::default()
+        .parse_headers(raw)
+        .map(|p| answered_ids(&p))
+        .unwrap_or_default()
 }
 
 /// Just the Message-ID header, without parsing the body.
@@ -375,6 +407,17 @@ JVBERi0xLjQK\r\n\
         );
         assert_eq!(parse_message_id(raw).as_deref(), Some("abc.123@x.pl"));
         assert_eq!(parse_message_id(b"Subject: none\r\n\r\n"), None);
+    }
+
+    #[test]
+    fn replies_know_what_they_answer_and_drafts_keep_blind_copies() {
+        let raw = b"Message-ID: <c@x.pl>\r\nIn-Reply-To: <b@x.pl>\r\n\
+References: <a@x.pl>\r\n <b@x.pl>\r\nBcc: Szef <szef@x.pl>\r\nSubject: Re: Re: Wycena\r\n\r\nOK\r\n";
+        let m = parse_message(raw, "x/sent", None);
+        assert_eq!(m.refs, ["b@x.pl", "a@x.pl"], "In-Reply-To first, each once");
+        assert_eq!(answered_ids_of(raw), m.refs);
+        assert_eq!(m.bcc, "Szef <szef@x.pl>");
+        assert!(answered_ids_of(b"Subject: Hej\r\n\r\nx").is_empty());
     }
 
     #[test]

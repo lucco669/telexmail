@@ -428,6 +428,8 @@ fn message(
             attachments,
             body,
             message_id: Some(message_id),
+            bcc: String::new(),
+            refs: Vec::new(),
         },
         raw: raw.into_bytes(),
     }

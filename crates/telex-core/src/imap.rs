@@ -1648,6 +1648,7 @@ mod tests {
             host: "localhost".into(),
             port: 0,
             username: "biuro@twojastudio.pl".into(),
+            security: Default::default(),
         }
     }
 
@@ -2218,6 +2219,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             host: "imap.gmail.com".into(),
             port: 993,
             username: String::new(),
+            security: Default::default(),
         };
         let mut client = connect_tls(&settings).await.unwrap();
         let greeting = client.read_response().await.unwrap();

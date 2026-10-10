@@ -577,6 +577,8 @@ mod tests {
             attachments: vec![],
             body: body.into(),
             message_id: None,
+            bcc: String::new(),
+            refs: Vec::new(),
         }
     }
 

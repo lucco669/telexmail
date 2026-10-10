@@ -28,6 +28,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/006_identities.sql"),
     include_str!("migrations/007_message_content.sql"),
     include_str!("migrations/008_usage.sql"),
+    include_str!("migrations/009_conversations_and_sending.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -539,6 +540,7 @@ impl MailStore {
             from_email: identity.email,
             to: draft.to,
             cc: draft.cc,
+            bcc: String::new(),
             subject: draft.subject,
             date: now,
             size_kb: size_kb.max(1),
@@ -549,6 +551,7 @@ impl MailStore {
             attachments: draft.attachments,
             body,
             message_id: None,
+            refs: Vec::new(),
         };
         insert_message(&self.db, &folder, None, &message, None, raw)
     }
@@ -1022,7 +1025,8 @@ impl MailStore {
         let id = if let Some(id) = existing {
             self.db.execute(
                 "UPDATE accounts SET name = ?2, email = ?3, imap_host = ?4, imap_port = ?5,
-                     imap_user = ?6, smtp_host = ?7, smtp_port = ?8, smtp_security = ?9
+                     imap_user = ?6, smtp_host = ?7, smtp_port = ?8, smtp_security = ?9,
+                     imap_security = ?10
                  WHERE id = ?1",
                 params![
                     id,
@@ -1033,7 +1037,8 @@ impl MailStore {
                     setup.username,
                     setup.smtp_host,
                     setup.smtp_port,
-                    setup.smtp_security.as_str()
+                    setup.smtp_security.as_str(),
+                    setup.imap_security.as_str()
                 ],
             )?;
             id
@@ -1042,9 +1047,9 @@ impl MailStore {
             let tx = self.db.transaction()?;
             tx.execute(
                 "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user,
-                     smtp_host, smtp_port, smtp_security)
+                     smtp_host, smtp_port, smtp_security, imap_security)
                  VALUES (?1, (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts),
-                     ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     id,
                     setup.name,
@@ -1054,7 +1059,8 @@ impl MailStore {
                     setup.username,
                     setup.smtp_host,
                     setup.smtp_port,
-                    setup.smtp_security.as_str()
+                    setup.smtp_security.as_str(),
+                    setup.imap_security.as_str()
                 ],
             )?;
             tx.execute(
@@ -1496,6 +1502,9 @@ fn migrate(db: &Connection) -> Result<(), StoreError> {
         if reached == 2 {
             backfill_message_ids(&tx)?;
         }
+        if reached == 9 {
+            backfill_refs(&tx)?;
+        }
         tx.pragma_update(None, "user_version", reached as i64)?;
         tx.commit()?;
     }
@@ -1517,6 +1526,29 @@ fn backfill_message_ids(db: &Connection) -> Result<(), StoreError> {
                 "UPDATE messages SET message_id = ?1 WHERE id = ?2",
                 params![mid, id],
             )?;
+        }
+    }
+    Ok(())
+}
+
+/// Version 9 added `refs`; fill it in from the headers of mail stored before, one message
+/// at a time so a large mail base isn't read into memory at once.
+fn backfill_refs(db: &Connection) -> Result<(), StoreError> {
+    let ids: Vec<i64> = {
+        let mut stmt = db.prepare("SELECT id FROM message_content WHERE raw IS NOT NULL")?;
+        let ids = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        ids
+    };
+    // Only the start of each message: the headers are there, attachments aren't needed.
+    let mut read = db.prepare("SELECT substr(raw, 1, 65536) FROM message_content WHERE id = ?1")?;
+    let mut write = db.prepare("UPDATE messages SET refs = ?1 WHERE id = ?2")?;
+    for id in ids {
+        let raw: Vec<u8> = read.query_row([id], |r| r.get(0))?;
+        let refs = crate::mime::answered_ids_of(&raw);
+        if !refs.is_empty() {
+            write.execute(params![refs.join(" "), id])?;
         }
     }
     Ok(())
@@ -1595,10 +1627,11 @@ pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> 
 
 const MESSAGE_COLUMNS: &str = "m.id, m.folder, m.from_name, m.from_email, m.to_addr, m.cc, \
      m.subject, m.date, m.size_kb, m.unread, m.flagged, m.remote_images, m.note, m.attachments, \
-     COALESCE(c.body, ''), m.message_id";
+     COALESCE(c.body, ''), m.message_id, m.bcc, m.refs";
 
 fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
     let attachments: String = r.get(13)?;
+    let refs: String = r.get(17)?;
     Ok(Message {
         id: r.get::<_, i64>(0)? as MessageId,
         folder: r.get(1)?,
@@ -1616,12 +1649,15 @@ fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
         attachments: serde_json::from_str(&attachments).unwrap_or_default(),
         body: r.get(14)?,
         message_id: r.get(15)?,
+        bcc: r.get(16)?,
+        refs: refs.split_whitespace().map(str::to_owned).collect(),
     })
 }
 
 fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
     let mut stmt = db.prepare(
-        "SELECT id, name, email, imap_host, imap_port, imap_user, smtp_host, smtp_port, smtp_security
+        "SELECT id, name, email, imap_host, imap_port, imap_user, smtp_host, smtp_port, smtp_security,
+             imap_security
          FROM accounts ORDER BY position, id",
     )?;
     let mut accounts = stmt
@@ -1631,6 +1667,9 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
                     host,
                     port: r.get(4)?,
                     username: r.get(5)?,
+                    security: SmtpSecurity::from_name(
+                        &r.get::<_, Option<String>>(9)?.unwrap_or_default(),
+                    ),
                 }),
                 None => None,
             };
@@ -1778,8 +1817,8 @@ fn insert_message(
         serde_json::to_string(&m.attachments).map_err(|e| StoreError::Database(e.to_string()))?;
     db.prepare_cached(
         "INSERT INTO messages (folder, srv_folder, uid, message_id, from_name, from_email, to_addr,
-             cc, subject, date, size_kb, unread, flagged, remote_images, note, attachments)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+             cc, subject, date, size_kb, unread, flagged, remote_images, note, attachments, bcc, refs)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
     )?
     .execute(params![
         folder,
@@ -1798,6 +1837,8 @@ fn insert_message(
         m.remote_images,
         m.note,
         attachments,
+        m.bcc,
+        m.refs.join(" "),
     ])?;
     let id = db.last_insert_rowid();
     // The text goes in second: its trigger indexes it together with the summary.
@@ -1884,6 +1925,8 @@ mod tests {
                 attachments: vec![],
                 body: "Dzień dobry, przesyłam żółwia.".into(),
                 message_id: Some(format!("{uid}.{subject}@kowalska-architekci.pl")),
+                bcc: String::new(),
+                refs: Vec::new(),
             },
             raw: format!("Message-ID: <{uid}.{subject}@kowalska-architekci.pl>\r\nSubject: {subject}\r\n\r\nx")
                 .into_bytes(),
@@ -2474,6 +2517,42 @@ mod tests {
             )
             .unwrap();
         assert_eq!(orphans, 0);
+    }
+
+    #[test]
+    fn version_9_knows_what_old_replies_answer() {
+        // A version 8 database with a reply in it.
+        let db = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..8] {
+            db.execute_batch(sql).unwrap();
+        }
+        db.pragma_update(None, "user_version", 8).unwrap();
+        db.execute_batch(
+            "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user)
+                 VALUES ('studio', 0, 'Studio', 'biuro@x.pl', 'mail.x.pl', 993, 'biuro@x.pl');
+             INSERT INTO folders (account, id, position, name, kind, remote)
+                 VALUES ('studio', 'inbox', 0, 'Inbox', 'inbox', 'INBOX');
+             INSERT INTO messages (id, folder, srv_folder, uid, message_id, from_name, from_email,
+                 to_addr, cc, subject, date, size_kb, unread, flagged, remote_images, attachments)
+                 VALUES (1, 'studio/inbox', 'studio/inbox', 1, 'b@x.pl', 'Anna', 'a@x.pl', '', '',
+                     'Re: Wycena', '2026-10-09 14:30:00', 1, 1, 0, 0, '[]');",
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO message_content (id, body, raw) VALUES (1, 'OK', ?1)",
+            [b"Message-ID: <b@x.pl>\r\nIn-Reply-To: <a@x.pl>\r\nSubject: Re: Wycena\r\n\r\nOK\r\n".to_vec()],
+        )
+        .unwrap();
+        let store = MailStore::with_connection(db, false).unwrap();
+        let m = store.get(1).unwrap();
+        assert_eq!(m.refs, ["a@x.pl"]);
+        assert_eq!(m.bcc, "");
+        let account = store.account("studio").unwrap();
+        assert_eq!(
+            account.imap.as_ref().unwrap().security,
+            SmtpSecurity::Tls,
+            "as before"
+        );
     }
 
     #[test]

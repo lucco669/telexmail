@@ -665,6 +665,8 @@ mod tests {
                                 "Dzień dobry.".into()
                             },
                             message_id: Some(format!("{folder}.{i}@x.pl")),
+                            bcc: String::new(),
+                            refs: Vec::new(),
                         },
                         raw: b"x".to_vec(),
                     }

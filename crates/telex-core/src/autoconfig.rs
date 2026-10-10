@@ -582,6 +582,7 @@ fn setup(
         host: imap.to_owned(),
         port: 993,
         username,
+        imap_security: SmtpSecurity::Tls,
         smtp_host: smtp.0.to_owned(),
         smtp_port: smtp.1,
         smtp_security: smtp.2,

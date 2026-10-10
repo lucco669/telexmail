@@ -214,7 +214,13 @@ pub struct ImapSettings {
     pub host: String,
     pub port: u16,
     pub username: String,
+    #[serde(default)]
+    pub security: ImapSecurity,
 }
+
+/// How the IMAP connection is encrypted: the same two choices as for sending, TLS from the
+/// first byte (usually port 993) or STARTTLS (usually port 143). Never unencrypted.
+pub type ImapSecurity = SmtpSecurity;
 
 /// Where an account sends from. It logs in with the IMAP user name and password.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -264,6 +270,9 @@ pub struct AccountSetup {
     /// Login name. Defaults to the email address, which is what most servers expect.
     #[serde(default)]
     pub username: String,
+    /// SSL/TLS on 993 unless the server takes STARTTLS on 143 only.
+    #[serde(default)]
+    pub imap_security: ImapSecurity,
     /// SMTP server. Defaults to the IMAP server, which is right for most own domains.
     #[serde(default)]
     pub smtp_host: String,
@@ -352,6 +361,7 @@ impl AccountSetup {
             host,
             port: self.port,
             username,
+            imap_security: self.imap_security,
             smtp_host,
             smtp_port,
             smtp_security: self.smtp_security,
@@ -363,6 +373,7 @@ impl AccountSetup {
             host: self.host.clone(),
             port: self.port,
             username: self.username.clone(),
+            security: self.imap_security,
         }
     }
 
@@ -399,6 +410,9 @@ pub struct Message {
     pub to: String,
     #[serde(default)]
     pub cc: String,
+    /// Blind copies, on mail the user wrote: drafts and Telex's own Sent copies.
+    #[serde(default)]
+    pub bcc: String,
     pub subject: String,
     /// Local time the message was received (or written, for outgoing mail).
     pub date: NaiveDateTime,
@@ -420,6 +434,9 @@ pub struct Message {
     /// The Message-ID header, used by sync to recognize a moved message. Not sent to the UI.
     #[serde(default, skip_serializing)]
     pub message_id: Option<String>,
+    /// The Message-IDs it answers (In-Reply-To, then References), for conversations.
+    #[serde(default, skip_serializing)]
+    pub refs: Vec<String>,
 }
 
 /// One row of the message list. Everything except the body.
@@ -500,6 +517,7 @@ mod tests {
             host: host.into(),
             port: 993,
             username: String::new(),
+            imap_security: SmtpSecurity::Tls,
             smtp_host: String::new(),
             smtp_port: 0,
             smtp_security: SmtpSecurity::Tls,
