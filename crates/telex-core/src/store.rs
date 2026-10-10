@@ -602,7 +602,10 @@ impl MailStore {
     // ---- Sending ----
 
     /// Put a composed message in the account's Outbox. `raw` is the message exactly as it
-    /// will be sent; `message` is its parsed form for the list and preview.
+    /// will be kept (Bcc included; sending leaves that header out); `message` is its parsed
+    /// form for the list and preview. With `send_after`, it waits until then, so the user
+    /// can still take it back ([`MailStore::hold_outgoing`]).
+    #[allow(clippy::too_many_arguments)]
     pub fn queue_outgoing(
         &mut self,
         account: &str,
@@ -611,6 +614,7 @@ impl MailStore {
         env_from: &str,
         env_to: &[String],
         replaces: Option<MessageId>,
+        send_after: Option<NaiveDateTime>,
     ) -> Result<MessageId, StoreError> {
         let outbox = self.folder_key_of_kind(account, FolderKind::Outbox)?;
         if let Some(old) = replaces {
@@ -621,19 +625,50 @@ impl MailStore {
         let tx = self.db.transaction()?;
         let id = insert_message(&tx, &outbox, None, message, None, Some(raw))?;
         tx.execute(
-            "INSERT INTO outbox (message, account, env_from, env_to) VALUES (?1, ?2, ?3, ?4)",
-            params![id as i64, account, env_from, env_to],
+            "INSERT INTO outbox (message, account, env_from, env_to, send_after)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id as i64, account, env_from, env_to, send_after],
         )?;
         tx.commit()?;
         Ok(id)
     }
 
-    /// The oldest message after `after` waiting in the account's Outbox, skipping ones the
-    /// server refused for good. Go through the Outbox by passing back the last id.
+    /// Take back a message that is still waiting out its moment in the Outbox: it stays
+    /// there, held, until the user edits it (E) or drops it. Too late once it is due.
+    pub fn hold_outgoing(&mut self, id: MessageId, now: NaiveDateTime) -> Result<(), StoreError> {
+        let tx = self.db.transaction()?;
+        let held = tx.execute(
+            "UPDATE outbox SET refused = 1, send_after = NULL
+             WHERE message = ?1 AND NOT refused AND send_after IS NOT NULL AND send_after > ?2",
+            params![id as i64, now],
+        )?;
+        if held == 0 {
+            return Err(StoreError::Invalid(tr!(
+                "Too late to undo: the message is on its way.",
+                "Za późno, żeby cofnąć: wiadomość już wychodzi."
+            )));
+        }
+        let note = tr!(
+            "Not sent: you took it back. Press E to change it and send it, or Del to drop it.",
+            "Nie wysłano: cofnięto wysyłanie. Naciśnij E, żeby ją zmienić i wysłać, albo Del, \
+             żeby ją usunąć."
+        );
+        tx.execute(
+            "UPDATE messages SET note = ?2 WHERE id = ?1",
+            params![id as i64, note],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The oldest message after `after` waiting in the account's Outbox that is due at
+    /// `now`, skipping ones the server refused for good or the user took back. Go through
+    /// the Outbox by passing back the last id.
     pub fn next_outgoing(
         &self,
         account: &str,
         after: MessageId,
+        now: NaiveDateTime,
     ) -> Result<Option<OutgoingMail>, StoreError> {
         let outbox = format!("{account}/{OUTBOX_ID}");
         self.db
@@ -642,9 +677,9 @@ impl MailStore {
                  FROM outbox o JOIN messages m ON m.id = o.message
                      JOIN message_content c ON c.id = o.message
                  WHERE o.account = ?1 AND m.folder = ?2 AND NOT o.refused AND o.message > ?3
-                   AND c.raw IS NOT NULL
+                   AND c.raw IS NOT NULL AND (o.send_after IS NULL OR o.send_after <= ?4)
                  ORDER BY o.message LIMIT 1",
-                params![account, outbox, after as i64],
+                params![account, outbox, after as i64, now],
                 |r| {
                     let env_to: String = r.get(2)?;
                     Ok(OutgoingMail {
@@ -733,9 +768,10 @@ impl MailStore {
         Ok(())
     }
 
-    /// True when the account has mail waiting to be sent (refused mail doesn't count).
-    pub fn has_outgoing(&self, account: &str) -> Result<bool, StoreError> {
-        Ok(self.next_outgoing(account, 0)?.is_some())
+    /// True when the account has mail due to be sent at `now` (refused and held mail
+    /// doesn't count, nor mail still waiting out its moment to undo).
+    pub fn has_outgoing(&self, account: &str, now: NaiveDateTime) -> Result<bool, StoreError> {
+        Ok(self.next_outgoing(account, 0, now)?.is_some())
     }
 
     /// The message as it was received or sent, when Telex has it.

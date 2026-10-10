@@ -360,9 +360,10 @@ pub struct SendReport {
     pub problems: Vec<String>,
 }
 
-/// Send everything waiting in the account's Outbox, oldest first. A message the server
+/// Send everything due in the account's Outbox, oldest first. A message the server
 /// refuses stays in the Outbox with the reason; a connection problem ends the round and
-/// the rest is tried at the next check. Mail queued while this runs is picked up too.
+/// the rest is tried at the next check. Mail queued while this runs is picked up too, and
+/// mail still waiting out its moment to undo is left for later.
 pub async fn send_outbox(
     account: &Account,
     transport: &Transport,
@@ -371,7 +372,8 @@ pub async fn send_outbox(
     let mut report = SendReport::default();
     let mut after = 0;
     loop {
-        let next = lock(store)?.next_outgoing(&account.id, after)?;
+        let now = Local::now().naive_local();
+        let next = lock(store)?.next_outgoing(&account.id, after, now)?;
         let Some(mail) = next else { break };
         after = mail.message;
         match send_raw(transport, &mail.env_from, &mail.env_to, &mail.raw).await {
@@ -929,11 +931,17 @@ JVBERi0xLjQK\r\n\
                         &c.env_from,
                         &c.env_to,
                         None,
+                        None,
                     )
                     .unwrap()
             })
             .collect();
         (Mutex::new(store), account, ids)
+    }
+
+    /// The moment the Outbox is looked at.
+    fn due() -> chrono::NaiveDateTime {
+        Local::now().naive_local()
     }
 
     #[tokio::test]
@@ -976,7 +984,7 @@ JVBERi0xLjQK\r\n\
             changes[0].kind,
             ChangeKind::Append(account.folder_key("sent"))
         );
-        assert!(!s.has_outgoing(&account.id).unwrap());
+        assert!(!s.has_outgoing(&account.id, due()).unwrap());
     }
 
     #[tokio::test]
@@ -1010,7 +1018,7 @@ JVBERi0xLjQK\r\n\
             "{note}"
         );
         // Refused for good: it isn't picked up again until the user edits it.
-        assert!(!s.has_outgoing(&account.id).unwrap());
+        assert!(!s.has_outgoing(&account.id, due()).unwrap());
     }
 
     #[tokio::test]
@@ -1039,7 +1047,7 @@ JVBERi0xLjQK\r\n\
             .unwrap()
             .starts_with("Not sent yet:"));
         assert!(
-            s.has_outgoing(&account.id).unwrap(),
+            s.has_outgoing(&account.id, due()).unwrap(),
             "both are tried again later"
         );
     }
@@ -1049,7 +1057,7 @@ JVBERi0xLjQK\r\n\
         let (store, account, ids) = store_with_queued(&["anna@kowalska-architekci.pl"]);
         let mut s = store.lock().unwrap();
         s.move_to(ids[0], &account.folder_key("inbox")).unwrap();
-        assert!(!s.has_outgoing(&account.id).unwrap());
+        assert!(!s.has_outgoing(&account.id, due()).unwrap());
     }
 
     #[test]
@@ -1071,6 +1079,7 @@ JVBERi0xLjQK\r\n\
                 &c.env_from,
                 &c.env_to,
                 Some(ids[0]),
+                None,
             )
             .unwrap();
         assert!(s.get(ids[0]).is_err());
@@ -1103,6 +1112,7 @@ JVBERi0xLjQK\r\n\
                 &c.raw,
                 &c.env_from,
                 &c.env_to,
+                None,
                 None,
             )
             .unwrap();
@@ -1161,6 +1171,65 @@ BCC: d@x.pl\r\n\r\nBcc: in the body stays\r\n";
         std::fs::remove_file(&path).unwrap();
         let err = compose(&account(), &d, &Originals::default(), now()).unwrap_err();
         assert!(err.contains("Couldn't attach \"wycena.pdf\""), "{err}");
+    }
+
+    #[tokio::test]
+    async fn sending_waits_its_moment_and_can_be_taken_back() {
+        let (port, server) = start_fake_smtp("nobody@").await;
+        let (store, account, _) = store_with_queued(&[]);
+        let queue = |to: &str, wait: i64| {
+            let c = compose(&account, &draft(to), &Originals::default(), now()).unwrap();
+            store
+                .lock()
+                .unwrap()
+                .queue_outgoing(
+                    &account.id,
+                    &c.message,
+                    &c.raw,
+                    &c.env_from,
+                    &c.env_to,
+                    None,
+                    Some(due() + chrono::TimeDelta::seconds(wait)),
+                )
+                .unwrap()
+        };
+        let later = queue("anna@kowalska-architekci.pl", 60);
+        let taken_back = queue("piotr@nowak-meble.pl", 60);
+        assert!(!store
+            .lock()
+            .unwrap()
+            .has_outgoing(&account.id, due())
+            .unwrap());
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        assert!(report.sent.is_empty(), "nothing is due yet: {report:?}");
+        assert!(server.lock().unwrap().accepted.is_empty());
+
+        {
+            let mut s = store.lock().unwrap();
+            s.hold_outgoing(taken_back, due()).unwrap();
+            let held = s.get(taken_back).unwrap();
+            assert_eq!(
+                held.folder,
+                account.folder_key("outbox"),
+                "it stays to be edited"
+            );
+            assert!(held.note.unwrap().contains("Press E"));
+            assert!(s.hold_outgoing(taken_back, due()).is_err(), "only once");
+            // A minute later the other one is due, and too late to take back.
+            let a_minute_on = due() + chrono::TimeDelta::seconds(61);
+            assert!(s.has_outgoing(&account.id, a_minute_on).unwrap());
+            assert!(s.hold_outgoing(later, a_minute_on).is_err());
+            assert_eq!(
+                s.next_outgoing(&account.id, 0, a_minute_on)
+                    .unwrap()
+                    .unwrap()
+                    .message,
+                later,
+                "the held one is never sent"
+            );
+        }
     }
 
     /// Needs the internet: `cargo test -p telex-core -- --ignored`. Checks that lettre's TLS

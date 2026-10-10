@@ -160,7 +160,7 @@ const state = {
   scope: saved.scope === 'all' ? 'all' : 'folder', // the quick filter looks in this folder or in all mail
   more: saved.more && typeof saved.more === 'object' ? saved.more : {}, // accounts showing all their folders
   collapsed:{}, compose:null, images:new Set(), white:new Set(), // white: HTML shown on white
-  undo:null, // what Z takes back: {kind:'move', items:[{id, from}]} after a delete or move
+  undo:null, // what Z takes back: {kind:'move', items:[{id, from}]} after a delete or move; {kind:'send', id, until}
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
   thread:null, // {id, subject}: the list shows this message's conversation
   recent: Array.isArray(saved.recent) ? saved.recent.slice(0, 8) : [], // folders last moved to or opened with M and G
@@ -191,13 +191,14 @@ const THEME_NAMES = {system:N_('Match Windows'), light:N_('Light'), dark:N_('Dar
 const LANG_NAMES = {en:'English', pl:'Polski'}; // each in itself, never translated
 const TEXT_SIZES = [90, 100, 110, 125, 150, 175, 200];
 const CHECK_EVERY = [5, 10, 15, 30, 60, 0];
+const UNDO_SEND = [0, 5, 10, 20, 30];
 const darkMode = matchMedia('(prefers-color-scheme: dark)'), forcedColors = matchMedia('(forced-colors: active)');
 const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light') : id;
 // Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', check_every:10,
-    push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', ask_subject:true,
+    push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
     spell_check:true, updates:'ask'},
   language:I18n.lang(), offer:null, fresh:false,
 };
@@ -976,16 +977,18 @@ previewEl.addEventListener('click', async e => {
 // and templates; or edit, which reopens a draft or an unsent message in the Outbox.
 // A message is plain text (`body`) or HTML (`html`, edited in place); Settings › Writing
 // says which a new message, a reply and a forward start in, and Text | HTML switches.
-async function openCompose(kind, preset = {}){
+// `of`: the message to edit when it isn't the selected one (one just taken back from sending).
+async function openCompose(kind, preset = {}, of = null){
   if (!ACCOUNTS.length){ say(t('Add a mail account first.')); openAccountDialog(); return; }
-  const s = current();
-  if (kind !== 'new' && !s){ say(t('Select a message first.')); return; }
+  const s = of != null ? {id:of, f:(await full(of).catch(() => null))?.folder} : current();
+  if (kind !== 'new' && !s?.f){ say(t('Select a message first.')); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say(t('Only drafts and unsent messages in the Outbox can be edited.')); return; }
   if (kind !== 'new' && state.picked.size > 1){ unpick(); paintSelection(); }
   loadRecipients();
   let c;
   try {
     if (kind === 'edit'){
+      bodies.delete(s.id); // its note may have changed (taken back, refused)
       const m = await full(s.id), account = acctId(s.f), ids = ACCT[account]?.identities ?? [];
       const me = ids.find(i => i.email.toLowerCase() === m.from_email.toLowerCase()) ?? ids.find(i => i.is_default) ?? ids[0];
       // Attachments come from the old message itself, which Send replaces.
@@ -1305,9 +1308,31 @@ async function send(){
   renderPreview();
   await refresh();
   listEl.focus();
+  if (r.wait){ // it waits a moment in the Outbox, so Z can still take it back
+    state.undo = {kind:'send', id:r.queued, until:Date.now() + r.wait * 1000};
+    say(t('Sending in {n} s. Press Z to undo.', {n:r.wait}), r.wait * 1000 + 500);
+    return;
+  }
   const sent = sentText(r.sent);
   if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
   else say(sent || t('In the Outbox. It goes out with the next check.'), 6000);
+}
+// Mail that waited its moment has gone out (or not): what the SMTP server said.
+window.__TAURI__?.event?.listen('outbox-sent', ({payload: r}) => {
+  if (state.undo?.kind === 'send' && state.undo.id === r.queued) state.undo = null;
+  refresh();
+  const sent = sentText(r.sent);
+  if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
+  else if (sent) say(sent, 6000);
+});
+// Z within the moment: the message stays in the Outbox, held, and opens again to be changed.
+async function unsend(u){
+  state.undo = null;
+  if (Date.now() >= u.until){ say(t('Too late to undo: the message is on its way.')); return; }
+  try { await invoke('hold_message', {id:u.id}); } catch (e){ say(tr(e), 8000); return; }
+  await refresh();
+  await openCompose('edit', {}, u.id);
+  say(t('Not sent. Change it and send it again, or press Esc to keep it as a draft.'), 8000);
 }
 
 /* ---------- actions ---------- */
@@ -1404,9 +1429,10 @@ async function moveChosen(folder){
   await refresh({skip:n === 1 ? ids[0] : undefined});
   if (!state.compose) renderPreview();
 }
-// Z: put back what was deleted or moved last.
+// Z: put back what was deleted or moved last, or take back mail still waiting to be sent.
 async function undo(){
   const u = state.undo; if (!u) return;
+  if (u.kind === 'send'){ await unsend(u); return; }
   const groups = new Map();
   for (const it of u.items){ if (!groups.has(it.from)) groups.set(it.from, []); groups.get(it.from).push(it.id); }
   try { for (const [folder, ids] of groups) await call('move_messages', {ids, folder}); } catch { return; }
@@ -2146,6 +2172,7 @@ function renderSettings(keepFocus){
   $('s-reply').innerHTML = radios('reply_format', [['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))], ['html', esc(t('Always HTML'))]], s.reply_format);
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
+  $('s-undo').innerHTML = UNDO_SEND.map(n => `<option value="${n}"${n === s.undo_send ? ' selected' : ''}>${esc(undoText(n))}</option>`).join('');
   const can = !!upd.build?.updatable;
   $('s-updates').checked = s.updates === 'daily'; $('s-updates').disabled = !can;
   $('s-upd-none').hidden = can; $('s-check').hidden = !can;
@@ -2174,7 +2201,10 @@ function syncSettings(){
   $('s-updates').checked = s.updates === 'daily';
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
+  $('s-undo').value = String(s.undo_send);
 }
+// How long sent mail waits so it can be taken back.
+const undoText = n => n === 0 ? t('Off: send at once') : tn(n, '{n} second', '{n} seconds');
 function openSettings(tab){
   if (tab) setTab = tab;
   move_ = {plan:null, choice:null, report:null, exported:move_.exported, error:'', counts:null};
@@ -2217,6 +2247,7 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-every') changeSettings({check_every:Number(v)});
   else if (el.id === 's-push') changeSettings({push_mail:el.checked});
   else if (el.id === 's-notify') changeSettings({notify:el.checked});
+  else if (el.id === 's-undo') changeSettings({undo_send:Number(v)});
   else if (el.id === 's-updates') changeSettings({updates:el.checked ? 'daily' : 'off'});
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
@@ -2237,7 +2268,7 @@ const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('
   mark_read:N_('Mark messages as read'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
-  notify:N_('Notify me of new mail while Telex is in the background')};
+  notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending')};
 function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
@@ -2252,6 +2283,7 @@ function settingValue(key, v){
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
     case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
+    case 'undo_send': return undoText(v);
     default: return String(v);
   }
 }

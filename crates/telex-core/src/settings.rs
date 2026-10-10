@@ -42,6 +42,8 @@ pub const LANGUAGES: &[&str] = &["en", "pl"];
 pub const TEXT_SIZES: &[u16] = &[90, 100, 110, 125, 150, 175, 200];
 /// Minutes between background checks for mail. 0: only when the user asks.
 pub const CHECK_INTERVALS: &[u16] = &[0, 5, 10, 15, 30, 60];
+/// Seconds sent mail waits in the Outbox, so Send can be undone. 0: it goes at once.
+pub const UNDO_SEND: &[u16] = &[0, 5, 10, 20, 30];
 
 /// The keys of [`Settings`] in the order the settings window shows them.
 const KEYS: &[&str] = &[
@@ -57,6 +59,7 @@ const KEYS: &[&str] = &[
     "mail_paper",
     "compose_format",
     "reply_format",
+    "undo_send",
     "ask_subject",
     "spell_check",
     "updates",
@@ -87,6 +90,8 @@ pub struct Settings {
     pub compose_format: ComposeFormat,
     /// What a reply or a forward is written in.
     pub reply_format: ReplyFormat,
+    /// Seconds, one of [`UNDO_SEND`]: how long sent mail waits so Z can take it back.
+    pub undo_send: u16,
     /// Send asks once more when the subject is empty.
     pub ask_subject: bool,
     /// Underline misspelt words while writing.
@@ -167,6 +172,7 @@ impl Default for Settings {
             mail_paper: MailPaper::Theme,
             compose_format: ComposeFormat::Plain,
             reply_format: ReplyFormat::Same,
+            undo_send: 5,
             ask_subject: true,
             spell_check: true,
             updates: Updates::Ask,
@@ -196,6 +202,7 @@ impl Settings {
             && (self.language == "auto" || LANGUAGES.contains(&self.language.as_str()))
             && TEXT_SIZES.contains(&self.text_size)
             && CHECK_INTERVALS.contains(&self.check_every)
+            && UNDO_SEND.contains(&self.undo_send)
     }
 
     fn to_map(&self) -> Map<String, Value> {
@@ -1129,6 +1136,16 @@ mod tests {
         assert_eq!(s.reply_format, ReplyFormat::Plain);
         assert_eq!(s.mail_paper, MailPaper::White);
         assert!(!s.spell_check && s.ask_subject);
+
+        // 0.5 added these; an older file gets the defaults.
+        assert!(s.push_mail && s.notify);
+        assert_eq!(s.undo_send, 5);
+        let (s, ignored) = s.merged(&serde_json::json!({
+            "undo_send": 7, "push_mail": false, "notify": false,
+        }));
+        assert_eq!(ignored, ["undo_send"], "only the listed delays");
+        assert_eq!(s.undo_send, 5);
+        assert!(!s.push_mail && !s.notify);
     }
 
     #[test]

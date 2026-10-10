@@ -11,8 +11,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
-use chrono::Local;
+use chrono::{Local, TimeDelta};
 use serde::Serialize;
 use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
@@ -31,6 +32,7 @@ use telex_core::{
 };
 
 use crate::files::FilesState;
+use crate::settings::SettingsState;
 
 struct AppState {
     store: Mutex<MailStore>,
@@ -641,27 +643,36 @@ async fn download_older(
     })
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Clone, Serialize)]
 struct SendOutcome {
     /// The message's id in the Outbox.
     queued: MessageId,
+    /// Seconds it waits before it goes, so it can be taken back; 0: it was sent right away.
+    wait: u16,
     /// One line per message the SMTP server accepted, this one and any that waited.
     sent: Vec<String>,
     errors: Vec<String>,
 }
 
-/// Send a message: build it, put it in the Outbox and send the Outbox right away. It
-/// only counts as sent once the SMTP server accepts it; until then it waits in the
-/// Outbox and goes out at the next check.
+/// Send a message: build it, put it in the Outbox and send it. With Settings › Writing's
+/// moment to undo, it waits that long first (`hold_message` takes it back) and goes out in
+/// the background; the result comes as an "outbox-sent" event. It only counts as sent once
+/// the SMTP server accepts it; until then it waits in the Outbox and goes out at the next
+/// check.
 #[tauri::command]
 async fn send_message(
+    app: AppHandle,
     state: State<'_, AppState>,
     files: State<'_, FilesState>,
+    settings: State<'_, SettingsState>,
     draft: OutgoingDraft,
 ) -> CmdResult<SendOutcome> {
     files.check(&draft.attachments)?;
+    let wait = settings.get().undo_send;
     let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
     let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
+    let send_after =
+        (wait > 0).then(|| Local::now().naive_local() + TimeDelta::seconds(i64::from(wait)));
     let queued = with_store(&state, |s| {
         s.queue_outgoing(
             &account.id,
@@ -670,30 +681,70 @@ async fn send_message(
             &composed.env_from,
             &composed.env_to,
             draft.replaces,
+            send_after,
         )
     })?;
     let mut outcome = SendOutcome {
         queued,
+        wait,
         ..SendOutcome::default()
     };
-    send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
+    if wait == 0 {
+        send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
+        return Ok(outcome);
+    }
+    tauri::async_runtime::spawn(async move {
+        // A moment more than the wait, so the message is due when the Outbox is read.
+        tokio::time::sleep(Duration::from_millis(u64::from(wait) * 1000 + 300)).await;
+        let state = app.state::<AppState>();
+        let mut done = SendOutcome {
+            queued,
+            ..SendOutcome::default()
+        };
+        // Another send may be running; it picks this one up if it is due by then. If not,
+        // try again shortly, for at most a minute; the next check sends it anyway.
+        for _ in 0..30 {
+            let due = with_store(&state, |s| {
+                s.has_outgoing(&account.id, Local::now().naive_local())
+            })
+            .unwrap_or(false);
+            if !due {
+                break;
+            }
+            if send_account_outbox(&state, &account, &mut done.sent, &mut done.errors).await {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+        let _ = app.emit("outbox-sent", done);
+    });
     Ok(outcome)
 }
 
-/// Send what waits in the account's Outbox. If another send is running, it picks up
-/// new mail itself, so this one does nothing.
+/// Take back a message still waiting out its moment in the Outbox. It stays there, held,
+/// for the user to edit (E) or drop.
+#[tauri::command]
+fn hold_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<()> {
+    with_store(&state, |s| s.hold_outgoing(id, Local::now().naive_local()))
+}
+
+/// Send what is due in the account's Outbox. If another send is running, it picks up
+/// new mail itself, so this one does nothing and returns false.
 async fn send_account_outbox(
     state: &AppState,
     account: &Account,
     sent: &mut Vec<String>,
     errors: &mut Vec<String>,
-) {
+) -> bool {
     let Some(_sending) = BusyGuard::take(&state.sending) else {
-        return;
+        return false;
     };
-    let has_mail = with_store(state, |s| s.has_outgoing(&account.id)).unwrap_or(false);
+    let has_mail = with_store(state, |s| {
+        s.has_outgoing(&account.id, Local::now().naive_local())
+    })
+    .unwrap_or(false);
     if !has_mail {
-        return;
+        return true;
     }
     let mut problem = |e: &str| errors.push(format!("{}: {e}", account.name));
     let Some(settings) = &account.smtp else {
@@ -702,7 +753,7 @@ async fn send_account_outbox(
             "nie ustawiono serwera SMTP, więc wiadomości czekają w Skrzynce nadawczej. \
              Dodaj go w Ustawienia › Konta"
         ));
-        return;
+        return true;
     };
     let username = account
         .imap
@@ -710,11 +761,17 @@ async fn send_account_outbox(
         .map_or(account.email.as_str(), |i| i.username.as_str());
     let password = match secrets::load_password(&account.email) {
         Ok(p) => p,
-        Err(e) => return problem(&e),
+        Err(e) => {
+            problem(&e);
+            return true;
+        }
     };
     let transport = match smtp::transport(settings, username, &password) {
         Ok(t) => t,
-        Err(SendError::Refused(e) | SendError::Failed(e)) => return problem(&e),
+        Err(SendError::Refused(e) | SendError::Failed(e)) => {
+            problem(&e);
+            return true;
+        }
     };
     match smtp::send_outbox(account, &transport, &state.store).await {
         Ok(report) => {
@@ -725,6 +782,7 @@ async fn send_account_outbox(
         }
         Err(e) => problem(&e.to_string()),
     }
+    true
 }
 
 /// Send queued changes (read state, flags, moves, deletes) to the servers now, without
@@ -807,6 +865,7 @@ pub fn run() {
             mark_folder_read,
             list_ids,
             recipients,
+            hold_message,
             download_older,
             files::open_attachment,
             files::save_attachment,

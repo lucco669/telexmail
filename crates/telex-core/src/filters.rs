@@ -462,6 +462,7 @@ fn auto_reply(
             &composed.env_from,
             &composed.env_to,
             None,
+            None,
         )
         .map_err(|e| e.to_string())?;
     store

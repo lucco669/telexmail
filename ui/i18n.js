@@ -482,6 +482,9 @@ const PL = {
   'Attach…': 'Dołącz…',
   'Attached {name}.': 'Dołączono {name}.',
   'Attach files': 'Dołącz pliki',
+  'Sending in {n} s. Press Z to undo.': 'Wysyłka za {n} s. Z cofa.',
+  'Too late to undo: the message is on its way.': 'Za późno, żeby cofnąć: wiadomość już wychodzi.',
+  'Not sent. Change it and send it again, or press Esc to keep it as a draft.': 'Nie wysłano. Zmień ją i wyślij ponownie albo naciśnij Esc, żeby zachować ją jako szkic.',
   'Everything here was read already.': 'Wszystko tutaj było już przeczytane.',
   'Moved to {folder}. Press Z to undo.': 'Przeniesiono do folderu {folder}. Z cofa.',
   'Messages from different accounts can’t be moved together.': 'Wiadomości z różnych kont nie da się przenieść razem.',
@@ -489,8 +492,10 @@ const PL = {
   'No folder matches.': 'Żaden folder nie pasuje.',
   'The conversation. T or Esc goes back.': 'Cały wątek. T albo Esc wraca.',
   'No other messages in this conversation. T or Esc goes back.': 'W tym wątku nie ma innych wiadomości. T albo Esc wraca.',
+  'Off: send at once': 'Wyłączone: wysyłaj od razu',
   'Show new mail at once': 'Pokazuj nową pocztę od razu',
   'Notify me of new mail while Telex is in the background': 'Powiadamiaj o nowej poczcie, gdy Telex działa w tle',
+  'Undo sending': 'Cofanie wysyłki',
   'Words, or from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k': 'Słowa albo from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k',
   'move to': 'przenieś',
   'conversation': 'wątek',
@@ -499,6 +504,7 @@ const PL = {
   'STARTTLS (usually port 143)': 'STARTTLS (zwykle port 143)',
   'New mail': 'Nowa poczta',
   'At once: Telex keeps one connection open to each server that allows it (IMAP IDLE) and checks the Inbox when the server says something changed. The other folders are checked as often as set above.': 'Od razu: Telex utrzymuje jedno połączenie z każdym serwerem, który na to pozwala (IMAP IDLE), i sprawdza Odebrane, gdy serwer da znać o zmianie. Pozostałe foldery są sprawdzane tak często, jak ustawiono wyżej.',
+  'Sent mail waits this long in the Outbox. Z takes it back to change it.': 'Wysłana poczta czeka tyle w Skrzynce nadawczej. Z ją cofa, żeby można ją było zmienić.',
   'Type part of a folder’s name': 'Wpisz część nazwy folderu',
   'Folder name': 'Nazwa folderu',
   'Folders': 'Foldery',
@@ -561,6 +567,7 @@ const PL_N = {
   'Moved {n} message to {folder}. Press Z to undo.': ['Przeniesiono {n} wiadomość do folderu {folder}. Z cofa.', 'Przeniesiono {n} wiadomości do folderu {folder}. Z cofa.', 'Przeniesiono {n} wiadomości do folderu {folder}. Z cofa.'],
   'Restored {n} message.': ['Przywrócono {n} wiadomość.', 'Przywrócono {n} wiadomości.', 'Przywrócono {n} wiadomości.'],
   'Move {n} message to': ['Przenieś {n} wiadomość do', 'Przenieś {n} wiadomości do', 'Przenieś {n} wiadomości do'],
+  '{n} second': ['{n} sekunda', '{n} sekundy', '{n} sekund'],
 };
 
 let lang = document.documentElement.lang === 'pl' ? 'pl' : 'en';
