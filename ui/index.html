@@ -62,6 +62,36 @@
   </footer>
 </div>
 
+<dialog class="dlg wide" id="ids-dlg" aria-labelledby="ids-title">
+  <div id="i-list-view">
+    <h2 class="dtitle" id="ids-title">Identities</h2>
+    <p class="dnote">Who your mail is from. Each identity has its own signature and reply and forward headers. A reply is from the identity the message was sent to.</p>
+    <div class="rlist" id="i-list"></div>
+    <p class="derr" id="i-err" role="alert"></p>
+    <div class="cbar">
+      <button class="btn primary" type="button" id="i-new">New identity</button>
+      <button class="btn" type="button" id="i-close">Close <kbd>Esc</kbd></button>
+    </div>
+  </div>
+  <form id="i-form" novalidate hidden>
+    <h2 class="dtitle" id="i-form-title">New identity</h2>
+    <div class="cf df">
+      <label for="i-name">Name</label><input id="i-name" autocomplete="off" placeholder="The name people see">
+      <label for="i-email">Email</label><input id="i-email" type="email" autocomplete="off" spellcheck="false">
+      <label for="i-sig">Signature</label><textarea id="i-sig" rows="4"></textarea>
+      <label for="i-reply">Reply header</label><input id="i-reply" autocomplete="off" spellcheck="false">
+      <label for="i-fwd">Forward header</label><textarea id="i-fwd" rows="4" spellcheck="false"></textarea>
+    </div>
+    <p class="dnote">In the headers, these are filled in from the original message: {name} {email} {from} {date} {time} {subject}.</p>
+    <label class="rcheck"><input type="checkbox" id="i-default"> Default for this account</label>
+    <p class="derr" id="i-form-err" role="alert"></p>
+    <div class="cbar">
+      <button class="btn primary" type="submit">Save identity</button>
+      <button class="btn" type="button" id="i-back">Back to the list</button>
+    </div>
+  </form>
+</dialog>
+
 <dialog class="dlg wide" id="rules-dlg" aria-labelledby="rules-title">
   <div id="r-list-view">
     <h2 class="dtitle" id="rules-title">Rules</h2>

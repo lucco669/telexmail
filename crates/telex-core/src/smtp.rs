@@ -84,22 +84,23 @@ fn build(
     now: DateTime<Local>,
     auto_reply: bool,
 ) -> Result<Composed, String> {
-    let from_address = account
+    let identity = account.identity(draft.identity);
+    let from_address = identity
         .email
         .parse()
-        .map_err(|_| format!("The account address \"{}\" isn't valid.", account.email))?;
+        .map_err(|_| format!("The sender address \"{}\" isn't valid.", identity.email))?;
     let to = parse_recipients(&draft.to, "To")?;
     let cc = parse_recipients(&draft.cc, "Cc")?;
     if to.is_empty() && cc.is_empty() {
         return Err("Add at least one recipient in To.".into());
     }
-    let domain = account
+    let domain = identity
         .email
         .rsplit_once('@')
         .map_or("telex.invalid", |(_, d)| d);
 
     let mut builder = Email::builder()
-        .from(Mailbox::new(Some(account.name.clone()), from_address))
+        .from(Mailbox::new(Some(identity.name.clone()), from_address))
         .subject(draft.subject.clone())
         .date(SystemTime::from(now))
         .message_id(Some(format!("<{}>", new_message_id(domain))));
@@ -385,10 +386,7 @@ mod tests {
             cc: String::new(),
             subject: "Wycena – październik".into(),
             body: "Dzień dobry,\nw załączniku wycena.\n\nPozdrawiam\n".into(),
-            attachments: vec![],
-            reply_to: None,
-            forward_of: None,
-            replaces: None,
+            ..OutgoingDraft::default()
         }
     }
 
@@ -514,6 +512,40 @@ JVBERi0xLjQK\r\n\
         assert_eq!(files[0].name, "makiety.pdf");
         assert_eq!(files[0].content_type, "application/pdf");
         assert_eq!(files[0].data, b"%PDF-1.4\n");
+    }
+
+    #[test]
+    fn mail_is_from_the_chosen_identity() {
+        let mut store = MailStore::in_memory().unwrap();
+        let account = store
+            .upsert_account(&AccountSetup {
+                name: "Studio".into(),
+                email: "biuro@twojastudio.pl".into(),
+                host: "mail.twojastudio.pl".into(),
+                port: 993,
+                ..Default::default()
+            })
+            .unwrap();
+        let mut jan =
+            crate::model::Identity::new(&account.id, "Jan Kowalski", "jan@twojastudio.pl");
+        jan.is_default = false;
+        let jan = store.save_identity(&jan).unwrap();
+        let account = store.account(&account.id).unwrap().clone();
+
+        let mut d = draft("anna@x.pl");
+        d.identity = Some(jan.id);
+        let c = compose(&account, &d, &Originals::default(), now()).unwrap();
+        let parsed = MessageParser::default().parse(&c.raw).unwrap();
+        let from = parsed.from().unwrap().first().unwrap();
+        assert_eq!(
+            (from.name(), from.address()),
+            (Some("Jan Kowalski"), Some("jan@twojastudio.pl"))
+        );
+        assert_eq!(c.env_from, "jan@twojastudio.pl");
+        assert!(parsed.message_id().unwrap().ends_with("@twojastudio.pl"));
+        // No choice: the default identity.
+        let c = compose(&account, &draft("anna@x.pl"), &Originals::default(), now()).unwrap();
+        assert_eq!(c.env_from, "biuro@twojastudio.pl");
     }
 
     #[test]

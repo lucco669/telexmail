@@ -12,13 +12,14 @@ use chrono::Local;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
+use telex_core::drafts::{self, DraftKind, DraftStart};
 use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits};
 use telex_core::imap::{self, SyncProgress};
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::{
-    sample::sample_store, Account, AccountSetup, DeleteOutcome, FolderKind, MailStore, Message,
-    MessageId, OutgoingDraft, Snapshot, StoreError,
+    sample::sample_store, Account, AccountSetup, DeleteOutcome, FolderKind, Identity, MailStore,
+    Message, MessageId, OutgoingDraft, Snapshot, StoreError,
 };
 
 struct AppState {
@@ -177,6 +178,30 @@ async fn get_html(
 #[tauri::command]
 fn trust_sender(state: State<'_, AppState>, email: String, trusted: bool) -> CmdResult<()> {
     with_store(&state, |s| s.set_sender_trusted(&email, trusted))
+}
+
+/// What the compose pane opens with: recipients, subject and text for a new message
+/// (from `account`), or a reply or forward of `of`, with the right identity's signature
+/// and templates.
+#[tauri::command]
+fn start_draft(
+    state: State<'_, AppState>,
+    kind: DraftKind,
+    of: Option<MessageId>,
+    account: String,
+) -> CmdResult<DraftStart> {
+    with_store(&state, |s| drafts::start(s, kind, of, &account))
+}
+
+/// Add (id 0) or update an identity. Mistakes come back as sentences.
+#[tauri::command]
+fn save_identity(state: State<'_, AppState>, identity: Identity) -> CmdResult<Identity> {
+    with_store(&state, |s| s.save_identity(&identity))
+}
+
+#[tauri::command]
+fn delete_identity(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
+    with_store(&state, |s| s.delete_identity(id))
 }
 
 /// Every rule, in the order they run.
@@ -542,6 +567,9 @@ pub fn run() {
             delete_rule,
             move_rule,
             run_rules,
+            start_draft,
+            save_identity,
+            delete_identity,
         ])
         .run(tauri::generate_context!())
         .expect("Telex failed to start");

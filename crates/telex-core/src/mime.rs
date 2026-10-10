@@ -141,6 +141,14 @@ pub fn auto_reply_blocker(raw: &[u8]) -> Option<&'static str> {
     }
 }
 
+/// Where replies should go when the sender asks for that (a Reply-To header), written
+/// like a To line; `None` when there is no such header.
+pub fn reply_to_of(raw: &[u8]) -> Option<String> {
+    let p = MessageParser::default().parse_headers(raw)?;
+    let to = format_addresses(p.reply_to());
+    (!to.is_empty()).then_some(to)
+}
+
 /// The Message-ID and References of a message (without angle brackets), so a reply can
 /// say which conversation it belongs to.
 pub fn thread_ids(raw: &[u8]) -> (Option<String>, Vec<String>) {

@@ -41,6 +41,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      inline cid: images, fetch remote images on request (ureq, public IPs only).
   src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
                      auto-replies with RFC 3834 safeguards.
+  src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
+                     signature and templates: recipients, subject, quoted text.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
@@ -79,6 +81,9 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `delete_rule`    | `id`                         | –                           |
 | `move_rule`      | `id`, `delta` (-1 up, 1 down) | –                          |
 | `run_rules`      | `folder`                     | `{matched, moved, replied, problems}` (no auto-replies on demand) |
+| `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account` | `{account, identity, to, cc, subject, body, attachments, reply_to, forward_of}` |
+| `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
+| `delete_identity`| `id`                         | – (never the account's last one) |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
 | `check_mail`     | –                            | `{new: [ids], sent: [lines], sorted, errors: ["Account: reason"], busy}` |
@@ -86,7 +91,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
 user typed: threading headers, forwarded attachments, and the draft or unsent message it was
-edited from. The changing commands (and `send_message`) apply locally at once; for server
+edited from; and `identity`, who it is from (`null` = the account's default). Accounts in
+`snapshot` carry their `identities`. The changing commands (and `send_message`) apply locally at once; for server
 mail the store also queues the change, and the UI calls `push_changes` 2.5 s after the last
 one. `busy: true` means another check or push was running and nothing started; the UI
 retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progress` events
@@ -145,7 +151,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0 + roadmap steps 1, 1b, 2, 3 and 4)
+## Current state (v0.1.0 + roadmap steps 1, 1b, 2, 3, 4 and 6)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
@@ -204,6 +210,17 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   sender at most once per rule every 4 days (`filters::AUTO_REPLY_EVERY`); `check_mail`
   sends them in the same check. Notes look like information; in Spam and the Outbox like
   warnings.
+- Identities (schema version 6): each account has one or more (name, address, signature,
+  reply header, forward header), one of them the default; the last one can't be deleted.
+  Existing and new accounts start with one: the account's name and address, "Pozdrawiam",
+  the Polish quote header. Templates take {name} {email} {from} {date} {time} {subject} of
+  the original. `drafts::start` builds every draft except edits: a reply goes to Reply-To
+  when there is one, reply all leaves out your own addresses and repeats nobody, the
+  identity is the one the message was sent to (an alias) or the default, and Re:/Fwd:/Odp:/
+  PD: prefixes don't pile up. Compose has a From picker (all identities, by account);
+  switching swaps the signature in the text. Sent mail and drafts are from the chosen
+  identity (From header and SMTP envelope). Managed per account: Identities in the account
+  dialog.
 - Mail is stored in full (`messages.raw`), so attachments can be opened later without
   downloading again.
 - Before an account is added: the built-in sample mailbox. "Get mail" delivers one sample
@@ -224,8 +241,12 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 4. ~~**Filters ("Sorting Office").**~~ Done; see Current state. Not yet: regular expressions,
    conditions on headers and attachments, actions that copy or forward, rules that run on
    a schedule.
-5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP).
-6. **Templates and identities.** Quote templates, signatures, multiple identities per account.
+5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP). Waiting
+   for the owner to register OAuth clients with Google (Cloud project; Gmail's scope is
+   restricted, so unverified apps stay in testing mode) and Microsoft (Entra app that allows
+   personal accounts).
+6. ~~**Templates and identities.**~~ Done; see Current state. Not yet: templates for new
+   messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** Auto-update, code signing, a website.
 
 ## Open decisions

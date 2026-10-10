@@ -10,7 +10,8 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > the server. It sends over SMTP (SSL/TLS or STARTTLS) through an Outbox that retries, and
 > keeps a copy in Sent on the server. HTML mail shows in a sandbox where no script can run,
 > with remote images blocked until you allow them. Rules sort, flag and answer new mail and
-> leave a note saying why. Until you add an account it shows a sample mailbox.
+> leave a note saying why. Each account can have several identities, each with its own
+> signature and reply templates. Until you add an account it shows a sample mailbox.
 
 ## Run it on Windows
 

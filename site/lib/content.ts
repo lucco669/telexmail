@@ -251,7 +251,12 @@ export const roadmap: Step[] = [
     notYet: 'Regular expressions, conditions on headers and attachments, rules that forward.',
   },
   { title: 'Gmail and Outlook.com', text: 'OAuth2 sign-in, since both refuse plain passwords over IMAP.', status: 'next' },
-  { title: 'Templates and identities', text: 'Quote templates, signatures and several identities per account.', status: 'later' },
+  {
+    title: 'Templates and identities',
+    text: 'Several identities per account, each with its own signature and reply and forward templates. A reply is from the address it was sent to.',
+    status: 'done',
+    notYet: 'Greeting templates for new messages, HTML signatures.',
+  },
   { title: 'Updates and signing', text: 'Automatic updates and a code-signed installer.', status: 'later' },
 ];
 

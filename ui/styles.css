@@ -174,6 +174,12 @@ tr.empty:hover td{background:none}
 .ctitle span{font-weight:400;font-size:11.5px;color:var(--muted)}
 .cf{display:grid;grid-template-columns:58px minmax(0,1fr);gap:4px 8px;align-items:center;padding:6px 14px 8px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
 .cf label{color:var(--muted);font-size:12px}
+.cf textarea{min-width:0;padding:4px 6px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data);resize:vertical}
+.cf textarea:focus{border-color:var(--accent);outline:0}
+.cf label{align-self:start;padding-top:4px}
+.cfrom{display:inline-flex;align-items:center;gap:6px;font-weight:400;font-size:11.5px;color:var(--muted)}
+.cfrom select{height:22px;max-width:min(360px,60vw);border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12px}
+.tag{margin-left:6px;padding:1px 5px;border-radius:3px;background:var(--chip-bg);color:var(--chip-fg);font:500 10px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;vertical-align:1px}
 .cf input,.cf select{height:24px;min-width:0;padding:0 6px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
 .cf input:focus,.cf select:focus{border-color:var(--accent);outline:0}
 .compose .atts{margin:0;padding:6px 14px;background:var(--panel);border-bottom:1px solid var(--line-soft)}

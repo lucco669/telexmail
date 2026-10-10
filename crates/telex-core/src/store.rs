@@ -9,8 +9,8 @@ use serde::Serialize;
 use crate::filters::Rule;
 use crate::mime::parse_message_id;
 use crate::model::{
-    split_folder_key, Account, AccountSetup, Folder, FolderKind, ImapSettings, Message, MessageId,
-    MessageSummary, OutgoingDraft, SmtpSecurity, SmtpSettings,
+    split_folder_key, Account, AccountSetup, Folder, FolderKind, Identity, ImapSettings, Message,
+    MessageId, MessageSummary, OutgoingDraft, SmtpSecurity, SmtpSettings,
 };
 
 /// Schema steps, oldest first: step n brings a database to version n. A released step is
@@ -21,6 +21,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/003_sending.sql"),
     include_str!("migrations/004_trusted_senders.sql"),
     include_str!("migrations/005_rules.sql"),
+    include_str!("migrations/006_identities.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -215,6 +216,7 @@ impl MailStore {
             for (fpos, f) in a.folders.iter().enumerate() {
                 insert_folder(&tx, &a.id, f, fpos)?;
             }
+            insert_identity(&tx, &Identity::new(&a.id, &a.name, &a.email), 0)?;
         }
         for m in &messages {
             insert_message(&tx, &m.folder, None, m, None, None)?;
@@ -460,13 +462,14 @@ impl MailStore {
         }
         let account = self.account(&draft.account)?.clone();
         let folder = self.folder_key_of_kind(&account.id, kind)?;
+        let identity = account.identity(draft.identity);
         let attachments_kb: u32 = draft.attachments.iter().map(|a| a.size_kb).sum();
         let body_kb = u32::try_from(draft.body.len().div_ceil(1024)).unwrap_or(u32::MAX);
         let message = Message {
             id: 0,
             folder: folder.clone(),
-            from_name: account.name.clone(),
-            from_email: account.email.clone(),
+            from_name: identity.name,
+            from_email: identity.email,
             to: draft.to,
             cc: draft.cc,
             subject: draft.subject,
@@ -689,6 +692,84 @@ impl MailStore {
         Ok(())
     }
 
+    // ---- Identities ----
+
+    /// Add an identity (id 0) or update one. Making it the default takes that from the
+    /// account's other identities.
+    pub fn save_identity(&mut self, identity: &Identity) -> Result<Identity, StoreError> {
+        identity.check().map_err(StoreError::Invalid)?;
+        self.account(&identity.account)?;
+        let tx = self.db.transaction()?;
+        let id = if identity.id == 0 {
+            let position: i64 = tx.query_row(
+                "SELECT COALESCE(MAX(position) + 1, 0) FROM identities WHERE account = ?1",
+                [&identity.account],
+                |r| r.get(0),
+            )?;
+            insert_identity(&tx, identity, usize::try_from(position).unwrap_or_default())?
+        } else {
+            let changed = tx.execute(
+                "UPDATE identities SET name = ?2, email = ?3, signature = ?4, reply_header = ?5,
+                     forward_header = ?6, is_default = ?7
+                 WHERE id = ?1 AND account = ?8",
+                params![
+                    identity.id,
+                    identity.name.trim(),
+                    identity.email.trim(),
+                    identity.signature,
+                    identity.reply_header,
+                    identity.forward_header,
+                    identity.is_default,
+                    identity.account
+                ],
+            )?;
+            if changed == 0 {
+                return Err(StoreError::Invalid(
+                    "That identity no longer exists.".into(),
+                ));
+            }
+            identity.id
+        };
+        if identity.is_default {
+            tx.execute(
+                "UPDATE identities SET is_default = 0 WHERE account = ?1 AND id <> ?2",
+                params![identity.account, id],
+            )?;
+        }
+        ensure_a_default(&tx, &identity.account)?;
+        tx.commit()?;
+        self.reload_accounts()?;
+        self.account(&identity.account)?
+            .identities
+            .iter()
+            .find(|i| i.id == id)
+            .cloned()
+            .ok_or_else(|| StoreError::Invalid("That identity no longer exists.".into()))
+    }
+
+    /// Remove an identity. The last one of an account stays: mail has to be from someone.
+    pub fn delete_identity(&mut self, id: i64) -> Result<(), StoreError> {
+        let account: Option<String> = self
+            .db
+            .query_row("SELECT account FROM identities WHERE id = ?1", [id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        let Some(account) = account else {
+            return Ok(());
+        };
+        if self.account(&account)?.identities.len() <= 1 {
+            return Err(StoreError::Invalid(
+                "An account needs at least one identity. Change this one instead.".into(),
+            ));
+        }
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM identities WHERE id = ?1", [id])?;
+        ensure_a_default(&tx, &account)?;
+        tx.commit()?;
+        self.reload_accounts()
+    }
+
     // ---- Rules ----
 
     /// Every rule, in the order they run.
@@ -893,6 +974,7 @@ impl MailStore {
                 "INSERT INTO folders (account, id, position, name, kind) VALUES (?1, ?2, 1, 'Outbox', 'outbox')",
                 params![id, OUTBOX_ID],
             )?;
+            insert_identity(&tx, &Identity::new(&id, &setup.name, &setup.email), 0)?;
             tx.commit()?;
             id
         };
@@ -1473,9 +1555,32 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
                 folders: Vec::new(),
                 imap,
                 smtp,
+                identities: Vec::new(),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    let mut stmt = db.prepare(
+        "SELECT id, account, name, email, signature, reply_header, forward_header, is_default
+         FROM identities ORDER BY position, id",
+    )?;
+    let identities = stmt.query_map([], |r| {
+        Ok(Identity {
+            id: r.get(0)?,
+            account: r.get(1)?,
+            name: r.get(2)?,
+            email: r.get(3)?,
+            signature: r.get(4)?,
+            reply_header: r.get(5)?,
+            forward_header: r.get(6)?,
+            is_default: r.get(7)?,
+        })
+    })?;
+    for identity in identities {
+        let identity = identity?;
+        if let Some(a) = accounts.iter_mut().find(|a| a.id == identity.account) {
+            a.identities.push(identity);
+        }
+    }
     let mut stmt =
         db.prepare("SELECT account, id, name, kind, remote FROM folders ORDER BY position, id")?;
     let rows = stmt.query_map([], |r| {
@@ -1501,6 +1606,36 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
         a.folders.sort_by_key(|f| f.kind.rank());
     }
     Ok(accounts)
+}
+
+/// If none of the account's identities is the default, the first one becomes it.
+fn ensure_a_default(db: &Connection, account: &str) -> Result<(), StoreError> {
+    db.execute(
+        "UPDATE identities SET is_default = 1
+         WHERE id = (SELECT id FROM identities WHERE account = ?1 ORDER BY position, id LIMIT 1)
+           AND NOT EXISTS (SELECT 1 FROM identities WHERE account = ?1 AND is_default)",
+        [account],
+    )?;
+    Ok(())
+}
+
+fn insert_identity(db: &Connection, i: &Identity, position: usize) -> Result<i64, StoreError> {
+    db.execute(
+        "INSERT INTO identities (account, position, name, email, signature, reply_header,
+             forward_header, is_default)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            i.account,
+            position as i64,
+            i.name.trim(),
+            i.email.trim(),
+            i.signature,
+            i.reply_header,
+            i.forward_header,
+            i.is_default
+        ],
+    )?;
+    Ok(db.last_insert_rowid())
 }
 
 fn insert_account(db: &Connection, a: &Account, position: usize) -> Result<(), StoreError> {
@@ -2131,6 +2266,14 @@ mod tests {
         let account = store.account("studio").unwrap();
         assert!(account.folder_of_kind(FolderKind::Outbox).is_some());
         assert!(account.smtp.is_none());
+        // Version 6: one identity, sending as before.
+        let me = account.identity(None);
+        assert_eq!(
+            (me.name.as_str(), me.email.as_str()),
+            ("Studio", "biuro@x.pl")
+        );
+        assert_eq!(me.signature, "Pozdrawiam");
+        assert!(me.forward_header.contains("\nOd: {from}\n"));
         // Changes to old mail are queued like any other.
         store.set_unread(id, false).unwrap();
         assert!(store.has_pending_changes("studio").unwrap());
@@ -2142,6 +2285,37 @@ mod tests {
         assert_eq!(slug("INBOX.Faktury 2026"), "inbox-faktury-2026");
         assert_eq!(slug("  --Wysłane--  "), "wysłane");
         assert_eq!(slug("..."), "");
+    }
+
+    #[test]
+    fn identities_have_one_default_and_never_run_out() {
+        let (mut store, account) = store_with_server_account();
+        let first = account.identity(None);
+        assert_eq!(account.identities.len(), 1);
+        assert!(first.is_default && first.signature == "Pozdrawiam");
+
+        let jan = store
+            .save_identity(&Identity::new(
+                &account.id,
+                "Jan Kowalski",
+                "jan@twojastudio.pl",
+            ))
+            .unwrap();
+        let a = store.account(&account.id).unwrap();
+        assert_eq!(a.identities.iter().filter(|i| i.is_default).count(), 1);
+        assert_eq!(a.identity(None).id, jan.id, "the new default");
+
+        store.delete_identity(jan.id).unwrap();
+        let a = store.account(&account.id).unwrap();
+        assert_eq!(a.identities.len(), 1);
+        assert!(a.identities[0].is_default, "the other one took over");
+        assert!(matches!(
+            store.delete_identity(first.id),
+            Err(StoreError::Invalid(_))
+        ));
+        let mut bad = first;
+        bad.email = "jan".into();
+        assert!(store.save_identity(&bad).is_err());
     }
 
     #[test]

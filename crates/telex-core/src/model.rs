@@ -94,6 +94,10 @@ pub struct Account {
     /// existed; the UI asks the user to edit the account then.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub smtp: Option<SmtpSettings>,
+    /// Who mail from this account can be from. The first default one is used unless the
+    /// user picks another.
+    #[serde(default)]
+    pub identities: Vec<Identity>,
 }
 
 impl Account {
@@ -104,6 +108,79 @@ impl Account {
 
     pub fn folder_of_kind(&self, kind: FolderKind) -> Option<&Folder> {
         self.folders.iter().find(|f| f.kind == kind)
+    }
+
+    /// The identity with this id, or the default one. An account without identities
+    /// (never stored ones) sends as its own name and address.
+    pub fn identity(&self, id: Option<i64>) -> Identity {
+        id.and_then(|id| self.identities.iter().find(|i| i.id == id))
+            .or_else(|| self.identities.iter().find(|i| i.is_default))
+            .or_else(|| self.identities.first())
+            .cloned()
+            .unwrap_or_else(|| Identity::new(&self.id, &self.name, &self.email))
+    }
+}
+
+/// Who a message is from: a name and an address, with a signature and the templates for
+/// replying and forwarding. Templates use {name}, {email}, {from}, {date}, {time} and
+/// {subject} of the original message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Identity {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub account: String,
+    pub name: String,
+    pub email: String,
+    #[serde(default)]
+    pub signature: String,
+    #[serde(default = "default_reply_header")]
+    pub reply_header: String,
+    #[serde(default = "default_forward_header")]
+    pub forward_header: String,
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+pub const DEFAULT_SIGNATURE: &str = "Pozdrawiam";
+
+fn default_reply_header() -> String {
+    "Dnia {date} o {time}, {name} napisał(a):".to_owned()
+}
+
+fn default_forward_header() -> String {
+    "-------- Przekazana wiadomość --------\nOd: {from}\nData: {date} {time}\nTemat: {subject}"
+        .to_owned()
+}
+
+impl Identity {
+    /// A default identity with the Polish templates.
+    pub fn new(account: &str, name: &str, email: &str) -> Self {
+        Self {
+            id: 0,
+            account: account.to_owned(),
+            name: name.to_owned(),
+            email: email.to_owned(),
+            signature: DEFAULT_SIGNATURE.to_owned(),
+            reply_header: default_reply_header(),
+            forward_header: default_forward_header(),
+            is_default: true,
+        }
+    }
+
+    /// Catch mistakes before saving, in words for the identity editor.
+    pub fn check(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("Enter the name people see.".into());
+        }
+        let email = self.email.trim();
+        let valid = email
+            .split_once('@')
+            .is_some_and(|(l, d)| !l.is_empty() && d.contains('.') && !d.contains('@'));
+        if !valid || email.contains(char::is_whitespace) {
+            return Err(format!("\"{email}\" doesn't look like an email address."));
+        }
+        Ok(())
     }
 }
 
@@ -363,6 +440,9 @@ pub struct OutgoingDraft {
     /// The draft or unsent message this was edited from. It is removed once this is saved.
     #[serde(default)]
     pub replaces: Option<MessageId>,
+    /// Who it is from; `None` is the account's default identity.
+    #[serde(default)]
+    pub identity: Option<i64>,
 }
 
 #[cfg(test)]

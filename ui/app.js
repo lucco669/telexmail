@@ -426,58 +426,61 @@ previewEl.addEventListener('click', async e => {
 });
 
 /* ---------- compose ---------- */
-const stripPrefix = s => s.replace(/^((re|fwd?):\s*)+/i, '');
-function quoted(m){
-  const head = `Dnia ${dmy(parseDate(m.date))} o ${hm(parseDate(m.date))}, ${m.from_name} napisał(a):`;
-  const lines = m.body.split('\n').filter(l => !/^\[img:/.test(l)).map(l => l.startsWith('>') ? '>' + l : '> ' + l);
-  return head + '\n' + lines.join('\n');
-}
-// kind: new, reply, replyall, forward, or edit (a draft or an unsent message in the Outbox).
+// kind: new, reply, replyall or forward, started by the core with the identity's signature
+// and templates; or edit, which reopens a draft or an unsent message in the Outbox.
 async function openCompose(kind, preset = {}){
   const s = current();
   if (kind !== 'new' && !s){ say('Select a message first.'); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say('Only drafts and unsent messages in the Outbox can be edited.'); return; }
-  const c = {kind, account:acctId(state.folder), to:'', cc:'', subject:'', body:'\n\nPozdrawiam\n', attachments:[],
-    replyTo:null, forwardOf:null, replaces:null};
-  if (kind !== 'new'){
-    let m;
-    try { m = await full(s.id); } catch (e){ say(String(e)); return; }
-    const out = isOut(s.f);
+  let c;
+  try {
     if (kind === 'edit'){
+      const m = await full(s.id), account = acctId(s.f), ids = ACCT[account]?.identities ?? [];
+      const me = ids.find(i => i.email.toLowerCase() === m.from_email.toLowerCase()) ?? ids.find(i => i.is_default) ?? ids[0];
       // Attachments come from the old message itself, which Send replaces.
-      Object.assign(c, {to:m.to, cc:m.cc, subject:m.subject, body:m.body, attachments:m.attachments.slice(), forwardOf:m.id, replaces:m.id});
-    } else if (kind === 'reply' || kind === 'replyall'){
-      c.to = out ? m.to : `${m.from_name} <${m.from_email}>`;
-      if (kind === 'replyall') c.cc = m.cc;
-      c.subject = 'Re: ' + stripPrefix(m.subject);
-      c.body = '\n\nPozdrawiam\n\n' + quoted(m);
-      c.replyTo = m.id;
+      c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, subject:m.subject, body:m.body,
+        attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id};
     } else {
-      c.subject = 'Fwd: ' + stripPrefix(m.subject);
-      c.attachments = m.attachments.slice();
-      c.forwardOf = m.id;
-      c.body = `\n\n-------- Przekazana wiadomość --------\nOd: ${m.from_name} <${m.from_email}>\nData: ${fmtFull(parseDate(m.date))}\nTemat: ${m.subject}\n\n`
-        + m.body.split('\n').filter(l => !/^\[img:/.test(l)).join('\n');
+      const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder)});
+      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, subject:d.subject, body:d.body,
+        attachments:d.attachments, replyTo:d.reply_to, forwardOf:d.forward_of, replaces:null};
     }
-  }
+  } catch (e){ say(String(e), 8000); return; }
   Object.assign(c, preset); // e.g. {to} from a mailto: link
   state.compose = c;
   renderCompose();
 }
+const allIdentities = () => ACCOUNTS.flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
+const composeNote = c => SAMPLE ? 'Sample mailbox: Send only files the message in Sent.'
+  : !ACCT[c.account]?.smtp ? 'This account has no SMTP server yet: edit it under Add account to send.' : '';
+function fromOptions(c){
+  return ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + (a.identities || []).map(i =>
+    `<option value="${i.id}"${i.id === c.identity ? ' selected' : ''}>${esc(i.name)} &lt;${esc(i.email)}&gt;</option>`).join('') + '</optgroup>').join('');
+}
+// Another identity: the account follows it, and its signature replaces the old one.
+function changeIdentity(id){
+  const c = readCompose(), next = allIdentities().find(i => i.id === id);
+  if (!next) return;
+  const before = (allIdentities().find(i => i.id === c.identity)?.signature || '').trim(), after = (next.signature || '').trim();
+  if (before && before !== after && c.body.includes(before)) c.body = c.body.replace(before, after);
+  Object.assign(c, {identity:next.id, account:next.account});
+  $('c-body').value = c.body;
+  previewEl.querySelector('.cnote').textContent = composeNote(c);
+}
 function renderCompose(){
   const c = state.compose, a = ACCT[c.account];
   const title = {new:'New message', reply:'Reply', replyall:'Reply to all', forward:'Forward', edit:'Edit'}[c.kind];
-  const note = SAMPLE ? 'Sample mailbox: Send only files the message in Sent.'
-    : !a.smtp ? 'This account has no SMTP server yet: edit it under Add account to send.' : '';
+  const note = composeNote(c);
   previewEl.innerHTML = `<form class="compose" id="cform" novalidate>
-<div class="ctitle">${title}<span>from ${esc(a.email)}</span></div>
+<div class="ctitle">${title}<label class="cfrom">from <select id="c-from" aria-label="From">${fromOptions(c)}</select></label></div>
 <div class="cf">
   <label for="c-to">To</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false">
   <label for="c-cc">Cc</label><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false">
   <label for="c-subj">Subject</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off">
 </div>
 ${attsHtml(c.attachments)}
-<textarea id="c-body" aria-label="Message text">${esc(c.body)}</textarea>
+<textarea id="c-body" aria-label="Message text">
+${esc(c.body)}</textarea>
 <div class="cbar">
   <button class="btn primary" type="submit">Send <kbd>Ctrl+Enter</kbd></button>
   <button class="btn" type="button" data-act="draft">Save draft <kbd>Esc</kbd></button>
@@ -485,12 +488,13 @@ ${attsHtml(c.attachments)}
   <span class="cnote">${esc(note)}</span>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
+  $('c-from').addEventListener('change', e => changeIdentity(Number(e.target.value)));
   const t = $('c-body');
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else { t.focus(); t.setSelectionRange(0, 0); t.scrollTop = 0; }
 }
 const draftOf = c => ({account:c.account, to:c.to, cc:c.cc, subject:c.subject || '(no subject)', body:c.body.replace(/^\n+/, ''),
-  attachments:c.attachments, reply_to:c.replyTo, forward_of:c.forwardOf, replaces:c.replaces});
+  attachments:c.attachments, reply_to:c.replyTo, forward_of:c.forwardOf, replaces:c.replaces, identity:c.identity});
 function readCompose(){
   const c = state.compose;
   c.to = $('c-to').value.trim(); c.cc = $('c-cc').value.trim(); c.subject = $('c-subj').value.trim(); c.body = $('c-body').value;
@@ -686,7 +690,7 @@ function renderAccountList(){
   $('a-list').innerHTML = real.length ? '<h3>Connected</h3>' + real.map(a => {
     const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · no SMTP server yet'}`;
     return `<div class="dacct"><span class="nm">${esc(a.name)}</span><span class="em" title="${esc(where)}">${esc(where)}</span>`
-      + `<button type="button" class="btn" data-edit="${esc(a.id)}">Edit</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">Remove</button></div>`;
+      + `<button type="button" class="btn" data-ids="${esc(a.id)}">Identities</button><button type="button" class="btn" data-edit="${esc(a.id)}">Edit</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">Remove</button></div>`;
   }).join('') : '';
 }
 $('a-email').addEventListener('input', () => {
@@ -735,6 +739,8 @@ aForm.addEventListener('submit', async e => {
 $('a-list').addEventListener('click', async e => {
   const ed = e.target.closest('[data-edit]');
   if (ed){ editAccount(ed.dataset.edit); return; }
+  const ids = e.target.closest('[data-ids]');
+  if (ids){ dlg.close(); openIdentities(ids.dataset.ids); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Remove it and its local mail'; return; }
@@ -745,6 +751,62 @@ $('a-list').addEventListener('click', async e => {
   say('Account removed from Telex. The mail on the server is untouched.');
   if (SAMPLE) dlg.close();
 });
+
+/* ---------- identities ---------- */
+const idlg = $('ids-dlg');
+let idAccount = null, identity = null; // identity: the one being edited
+function openIdentities(account){
+  idAccount = account;
+  idlg.showModal();
+  showIdentityList();
+}
+function showIdentityList(){
+  const a = ACCT[idAccount];
+  if (!a){ idlg.close(); return; }
+  $('i-form').hidden = true; $('i-list-view').hidden = false; $('i-err').textContent = '';
+  $('ids-title').textContent = 'Identities · ' + a.name;
+  $('i-list').innerHTML = (a.identities || []).map(i => `<div class="rrule" data-id="${i.id}">
+<div class="rtext"><div class="rname">${esc(i.name)}${i.is_default ? ' <span class="tag">Default</span>' : ''}</div>
+<div class="rsum">${esc(i.email)}${i.signature ? ' · ' + esc(i.signature.split('\n')[0]) : ''}</div></div>
+<button type="button" class="btn" data-i="edit">Edit</button><button type="button" class="btn danger" data-i="delete">Delete</button></div>`).join('');
+  $('i-new').focus();
+}
+function showIdentityForm(existing){
+  const a = ACCT[idAccount], base = a.identities.find(i => i.is_default) ?? a.identities[0] ?? {};
+  identity = existing ? structuredClone(existing) : {id:0, account:idAccount, name:'', email:a.email, signature:base.signature ?? '',
+    reply_header:base.reply_header ?? '', forward_header:base.forward_header ?? '', is_default:false};
+  $('i-list-view').hidden = true; $('i-form').hidden = false; $('i-form-err').textContent = '';
+  $('i-form-title').textContent = existing ? 'Edit identity' : 'New identity';
+  $('i-name').value = identity.name; $('i-email').value = identity.email; $('i-sig').value = identity.signature;
+  $('i-reply').value = identity.reply_header; $('i-fwd').value = identity.forward_header;
+  $('i-default').checked = identity.is_default;
+  $('i-default').disabled = existing?.is_default === true; // switch by making another one the default
+  $('i-name').focus();
+}
+$('i-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  Object.assign(identity, {name:$('i-name').value, email:$('i-email').value, signature:$('i-sig').value,
+    reply_header:$('i-reply').value, forward_header:$('i-fwd').value, is_default:$('i-default').checked});
+  try { await invoke('save_identity', {identity}); } catch (err){ $('i-form-err').textContent = String(err); return; }
+  await load();
+  say(`Saved ${identity.name.trim()}.`);
+  showIdentityList();
+});
+$('i-list').addEventListener('click', async e => {
+  const b = e.target.closest('[data-i]'), row = e.target.closest('[data-id]');
+  if (!b || !row) return;
+  const i = ACCT[idAccount].identities.find(x => x.id === Number(row.dataset.id));
+  if (!i) return;
+  if (b.dataset.i === 'edit'){ showIdentityForm(i); return; }
+  if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Delete it'; return; }
+  try { await invoke('delete_identity', {id:i.id}); } catch (err){ $('i-err').textContent = String(err); return; }
+  await load();
+  showIdentityList();
+});
+$('i-new').addEventListener('click', () => showIdentityForm(null));
+$('i-back').addEventListener('click', showIdentityList);
+$('i-close').addEventListener('click', () => idlg.close());
+idlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 
 /* ---------- rules ---------- */
 const rdlg = $('rules-dlg');
