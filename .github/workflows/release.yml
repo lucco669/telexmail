@@ -1,0 +1,95 @@
+name: Release
+
+# Pushing a tag like v0.2.0 builds the signed Windows installers and the updater's latest.json
+# and puts them in a draft GitHub release. Publishing the draft is what makes the update reach
+# Telex. The whole process is in docs/releasing.md.
+#
+# Needs, under Settings > Secrets and variables > Actions:
+#   secret   TAURI_SIGNING_PRIVATE_KEY           the private key (contents of the .key file)
+#   secret   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password
+#   variable TELEX_UPDATER_PUBKEY                the public key (contents of the .key.pub file)
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows release
+    runs-on: windows-latest
+    env:
+      # Compiled into the app (option_env! in src-tauri/src/updates.rs): without it the build
+      # can't update itself.
+      TELEX_UPDATER_PUBKEY: ${{ vars.TELEX_UPDATER_PUBKEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check the tag matches the version
+        shell: bash
+        run: node scripts/set-version.mjs --check "$GITHUB_REF_NAME"
+
+      # An annotated tag's message becomes the release notes, on GitHub and in Telex's update
+      # dialog. Checkout leaves the tag as a plain ref, so fetch the tag object itself.
+      - name: Release notes from the tag
+        id: notes
+        shell: bash
+        run: |
+          git fetch --force --depth=1 origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          notes=""
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            notes="$(git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME")"
+          fi
+          {
+            echo 'body<<TELEX_NOTES_END'
+            printf '%s\n' "$notes"
+            echo 'TELEX_NOTES_END'
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+
+      # The bundler only warns when the private key doesn't match the public one, and every
+      # installed Telex would refuse such a release. Fail here instead, before the build.
+      - name: Check the signing key pair
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node scripts/check-signing-key.mjs
+
+      # The bundler makes the updater files only with plugins.updater.pubkey in the config. The
+      # key isn't kept in the repository, so this file is written here (it is in .gitignore).
+      - name: Updater settings for the bundler
+        shell: bash
+        run: >-
+          node -e "require('fs').writeFileSync('src-tauri/tauri.updater.conf.json',
+          JSON.stringify({plugins: {updater: {pubkey: process.env.TELEX_UPDATER_PUBKEY}}}))"
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Telex __VERSION__
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          # latest.json, which every Telex checks: version, notes, installers and signatures.
+          # (tauri-action v1 calls this uploadUpdaterJson; v0 called it includeUpdaterJson.)
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
+          args: --config src-tauri/tauri.release.conf.json --config src-tauri/tauri.updater.conf.json

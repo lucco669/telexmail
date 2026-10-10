@@ -15,6 +15,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
 const uiDir = join(repo, 'ui');
 const sample = readFileSync(join(repo, 'crates/telex-core/src/sample.json'), 'utf8');
+const version = JSON.parse(readFileSync(join(repo, 'src-tauri/tauri.conf.json'), 'utf8')).version;
 const outDir = join(here, '../public/screens');
 const W = 1280, H = 800, SCALE = 2;
 
@@ -54,6 +55,8 @@ const MOCK = `
     search: ({query}) => msgs.filter(m => fold([m.subject, m.from_name, m.to, m.body].join(' ')).includes(fold(query))).map(m => m.id),
     check_mail: () => ({new: [], errors: [], busy: false}),
     push_changes: () => ({errors: [], busy: false}),
+    // The version number shows in the status bar; "can't update" keeps the one-time question away.
+    update_info: () => ({version: '${version}', updatable: false}),
   };
   window.__TAURI__ = {
     core: {invoke: async (cmd, args = {}) => commands[cmd] ? commands[cmd](args) ?? null : null},

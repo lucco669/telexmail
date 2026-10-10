@@ -135,6 +135,8 @@ const state = {
   collapsed:{}, compose:null, images:new Set(), lastDeleted:null,
   density: saved.density === 'comfortable' ? 'comfortable' : 'compact',
   preferText: saved.preferText === true, // show plain text even when a message has HTML
+  updates: ['daily', 'off'].includes(saved.updates) ? saved.updates : null, // null: not asked yet
+  updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
 };
 const win = $('win'), rowsEl = $('rows'), listEl = $('list'), previewEl = $('preview'), treeEl = $('tree'), qEl = $('q');
 if (saved.treeW) win.style.setProperty('--tree-w', saved.treeW + 'px');
@@ -144,6 +146,8 @@ const persist = () => store.set({
   listH: parseFloat(win.style.getPropertyValue('--list-h')) || undefined,
   density: state.density,
   preferText: state.preferText || undefined,
+  updates: state.updates || undefined,
+  updateChecked: state.updateChecked || undefined,
 });
 
 /* ---------- toolbar ---------- */
@@ -947,6 +951,108 @@ $('r-run').addEventListener('click', async () => {
 });
 $('b-rules').addEventListener('click', openRules);
 
+/* ---------- updates ---------- */
+// Only release builds can update themselves. Telex checks once a day if the user said yes
+// to that, and whenever they click the version number. The core asks GitHub and installs;
+// the window never goes online.
+const udlg = $('upd-dlg');
+const upd = {build:null, found:null, checking:false, installing:false, text:'', error:''};
+function renderUpdates(){
+  const {build, found} = upd, can = !!build?.updatable;
+  $('st-ver').hidden = !build;
+  if (!build) return;
+  $('st-ver').textContent = build.version;
+  $('st-ver').title = `Telex ${build.version}. ` + (can ? 'Click to check for updates.' : 'This build can’t update itself.');
+  $('st-ask').hidden = !can || state.updates !== null;
+  $('st-update').hidden = !found;
+  if (found) $('st-update').textContent = 'Update to ' + found.version;
+  $('upd-title').textContent = 'Telex ' + build.version;
+  $('u-state').textContent = can ? upd.text : 'This build of Telex can’t update itself. Release builds from telexmail.app can.';
+  $('u-err').textContent = upd.error;
+  $('u-notes').hidden = !found?.notes;
+  $('u-notes').textContent = found?.notes ?? '';
+  $('u-install').hidden = !found;
+  if (found) $('u-install').textContent = `Install ${found.version} and restart`;
+  $('u-install').disabled = $('u-check').disabled = upd.checking || upd.installing;
+  $('u-auto').checked = state.updates === 'daily';
+  ['u-auto-row', 'u-note', 'u-check'].forEach(id => { $(id).hidden = !can; });
+}
+// quiet: the daily check, which speaks up only when there is an update.
+async function checkUpdate({quiet = false} = {}){
+  if (!upd.build?.updatable || upd.checking || upd.installing) return;
+  Object.assign(upd, {checking:true, text:'Checking for updates…', error:''});
+  renderUpdates();
+  try {
+    const found = upd.found = await invoke('check_update');
+    state.updateChecked = Date.now(); persist();
+    upd.text = found ? `Telex ${found.version} is out${found.date ? ', from ' + dmy(parseDate(found.date)) : ''}. You have ${upd.build.version}.`
+      : `You have the newest version. Checked at ${hm(new Date())}.`;
+    if (found && quiet) say(`Telex ${found.version} is out. Click Update in the status bar to see what’s new.`, 10000);
+  } catch (e){
+    Object.assign(upd, {text:'', error:String(e)});
+    if (!quiet && !udlg.open) say(String(e), 8000);
+  } finally {
+    upd.checking = false;
+    renderUpdates();
+  }
+}
+// The installer closes Telex, updates it and opens it again. A message being written is
+// saved to Drafts first.
+async function installUpdate(){
+  if (!upd.found || upd.installing) return;
+  if (state.compose && !await closeCompose(false)) return;
+  Object.assign(upd, {installing:true, text:`Downloading Telex ${upd.found.version}…`, error:''});
+  renderUpdates();
+  let r;
+  try { r = await invoke('install_update'); }
+  catch (e){
+    Object.assign(upd, {installing:false, text:'', error:String(e)}); renderUpdates();
+    if (!udlg.open) say(String(e), 10000); // replaces the download progress
+    return;
+  }
+  if (r.busy){ // a check or a send is running: start when it's done
+    upd.text = 'Waiting for Telex to finish with the mail server…'; renderUpdates();
+    setTimeout(() => { upd.installing = false; installUpdate(); }, 2000);
+  }
+}
+window.__TAURI__?.event?.listen('update-progress', ({payload: p}) => {
+  const mb = n => (n / 1048576).toFixed(1);
+  upd.text = p.total && p.done >= p.total ? 'Checking the signature. Telex will close, update and open again.'
+    : `Downloading Telex ${upd.found?.version ?? ''}: ${mb(p.done)}${p.total ? ' of ' + mb(p.total) : ''} MB`;
+  renderUpdates();
+  if (!udlg.open) say(upd.text, 0);
+});
+function openUpdates(){
+  renderUpdates();
+  udlg.showModal();
+  // Clicking the version number checks right away, unless an update is already known.
+  if (!upd.found && !upd.installing) checkUpdate();
+  $(upd.found ? 'u-install' : 'u-close').focus();
+}
+function autoCheck(){
+  if (state.updates === 'daily' && Date.now() - state.updateChecked >= 864e5) checkUpdate({quiet:true});
+}
+async function bootUpdates(){
+  try { upd.build = await invoke('update_info'); } catch { return; }
+  renderUpdates();
+  if (!upd.build?.updatable) return;
+  setTimeout(autoCheck, 20e3); // after the first mail check
+  setInterval(autoCheck, 60 * 60e3);
+}
+$('st-ask').addEventListener('click', e => {
+  const b = e.target.closest('[data-ask]'); if (!b) return;
+  state.updates = b.dataset.ask; persist(); renderUpdates();
+  if (state.updates === 'daily'){ say('Telex will check for updates once a day.'); autoCheck(); }
+  else say('Telex won’t check for updates. Click the version number to check yourself.', 7000);
+});
+$('u-auto').addEventListener('change', e => { state.updates = e.target.checked ? 'daily' : 'off'; persist(); renderUpdates(); });
+$('st-ver').addEventListener('click', openUpdates);
+$('st-update').addEventListener('click', openUpdates);
+$('u-check').addEventListener('click', () => checkUpdate());
+$('u-install').addEventListener('click', installUpdate);
+$('u-close').addEventListener('click', () => udlg.close());
+udlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
+
 /* ---------- keyboard ---------- */
 // Also attached to the HTML message frame, so keys work after clicking into it.
 function onKey(e){
@@ -1016,6 +1122,7 @@ async function boot(){
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div>This page needs the Rust core. Start Telex with <code>npm run dev</code>.</div></div>`;
     return;
   }
+  bootUpdates(); // first, so a version that can't load the mail can still be updated
   try { await load(); } catch (e){ previewEl.innerHTML = `<div class="pempty">Couldn’t load mail: ${esc(String(e))}</div>`; return; }
   state.folder = homeOf(ACCOUNTS[0]?.id);
   state.sel[state.folder] = visible()[0]?.id;

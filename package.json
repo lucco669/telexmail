@@ -7,7 +7,8 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "test": "cargo test -p telex-core",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "set-version": "node scripts/set-version.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1"

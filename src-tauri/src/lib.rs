@@ -2,6 +2,7 @@
 //! Keep logic out of here; put it in `crates/telex-core` where it can be tested.
 
 mod secrets;
+mod updates;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -531,8 +532,13 @@ async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
 }
 
 pub fn run() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+    let mut context = tauri::generate_context!();
+    let mut app = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    // Release builds only: the others can't update themselves and say so.
+    if let Some(updater) = updates::plugin(&mut context) {
+        app = app.plugin(updater);
+    }
+    app.manage(updates::Found::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -570,7 +576,10 @@ pub fn run() {
             start_draft,
             save_identity,
             delete_identity,
+            updates::update_info,
+            updates::check_update,
+            updates::install_update,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("Telex failed to start");
 }

@@ -98,7 +98,7 @@ export const featureRows: FeatureRow[] = [
     id: 'privacy',
     screen: 'images',
     title: 'Private by default',
-    text: 'Telex talks to your mail servers, and to image servers only when you load a message’s images. There is no account to create, no telemetry, and no Telex server between you and your mail.',
+    text: 'Telex talks to your mail servers, to image servers only when you load a message’s images, and to GitHub for updates only if you allow it. There is no account to create, no telemetry, and no Telex server between you and your mail.',
     points: [
       'Remote images blocked, so senders can’t see when you read',
       'Your password stays in Windows Credential Manager',
@@ -257,7 +257,12 @@ export const roadmap: Step[] = [
     status: 'done',
     notYet: 'Greeting templates for new messages, HTML signatures.',
   },
-  { title: 'Updates and signing', text: 'Automatic updates and a code-signed installer.', status: 'later' },
+  {
+    title: 'Updates',
+    text: 'Telex checks GitHub for a new version once a day if you allow it, or when you click its version number, and installs it with one click and a restart. Updates must carry Telex’s signature.',
+    status: 'done',
+    notYet: 'A code-signed installer, so Windows SmartScreen stops warning.',
+  },
 ];
 
 export type Question = { q: string; a: string };
@@ -293,7 +298,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
     items: [
       {
         q: 'Does Telex send anything about me anywhere?',
-        a: 'No. There is no account, no telemetry and no Telex server. The app talks to your mail servers, and to the servers that host a message’s images only when you choose to load them.',
+        a: 'No. There is no account, no telemetry and no Telex server. The app talks to your mail servers, to the servers that host a message’s images only when you choose to load them, and to GitHub to look for a new version only if you allow it. That check sends nothing about you.',
       },
       {
         q: 'Where is my mail kept?',
@@ -315,6 +320,10 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         q: 'Why does Windows warn me when I run the installer?',
         a: 'The installer isn’t code-signed yet, so SmartScreen doesn’t know it. Choose More info, then Run anyway. Signing is on the roadmap.',
+      },
+      {
+        q: 'How do I update Telex?',
+        a: 'Click the version number at the right end of the status bar. Telex asks GitHub for the newest version and, with your click, installs it and restarts. On first start it also asks whether to check once a day by itself. Installing a newer version over the old one works too; your mail and settings stay.',
       },
       {
         q: 'Is there a Mac or Linux version?',

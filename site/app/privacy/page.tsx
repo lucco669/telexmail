@@ -23,6 +23,7 @@ export default function PrivacyPage() {
           <ul>
             <li>Your mail stays on your PC and your mail server</li>
             <li>The app talks to your mail servers, and to image servers only when you ask</li>
+            <li>Update checks only if you allow them: one file from GitHub, nothing about you</li>
             <li>No cookies or trackers on this site, only cookieless page counts</li>
           </ul>
         </aside>
@@ -45,6 +46,39 @@ export default function PrivacyPage() {
             a referrer, and refuses addresses on your local network; the window that shows the message never goes
             online. Links you click open in your default browser.
           </p>
+          <h3 id="updates">Update checks</h3>
+          <p>
+            Telex looks for a new version only if you allow it. From the first start it asks whether to check once a
+            day; if you say no, it never checks on its own. Clicking the version number in the status bar checks right
+            away. A check is a single request to GitHub, where Telex is published:
+          </p>
+          <ul>
+            <li>
+              It asks for{' '}
+              <code>https://github.com/lucco669/telexmail/releases/latest/download/latest.json</code>, a small file that
+              is the same for everyone. It names the newest version, what’s new in it and where its installers are.
+              GitHub sends the request on to its file servers.
+            </li>
+            <li>
+              Besides the address, the request carries two headers, <code>User-Agent: Telex</code> and{' '}
+              <code>Accept: application/json</code>. No cookies, no identifier, not even your Telex version, and nothing
+              about you or your mail.
+            </li>
+            <li>
+              Like any request on the internet, it shows GitHub your IP address and the time. GitHub handles that under
+              its{' '}
+              <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">
+                privacy statement
+              </a>
+              .
+            </li>
+          </ul>
+          <p>
+            Nothing installs without your click. When you choose <b>Install and restart</b>, Telex downloads the
+            installer from GitHub the same way (with <code>Accept: application/octet-stream</code>), checks that it is
+            signed with Telex’s release key, and only then runs it. A file without that signature is refused. Builds
+            you make yourself from the source can’t update at all.
+          </p>
           <h3>What it doesn’t do</h3>
           <ul>
             <li>No usage statistics, crash reports or telemetry of any kind.</li>
@@ -53,10 +87,7 @@ export default function PrivacyPage() {
               No remote images until you choose to load them, so senders can’t use them to see when you read their
               mail.
             </li>
-            <li>
-              No update checks yet. When automatic updates arrive, this page will say exactly what they send, before
-              they ship.
-            </li>
+            <li>No update checks unless you allow them, and no update installed without your click.</li>
           </ul>
           <h3>Removing your data</h3>
           <p>

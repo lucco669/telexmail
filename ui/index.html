@@ -56,11 +56,28 @@
   <footer class="status">
     <span id="st-folder"></span>
     <span id="st-msg"></span>
+    <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden>Check for updates once a day? <button type="button" class="linkbtn" data-ask="daily">Yes</button> <button type="button" class="linkbtn" data-ask="off">No</button></span>
     <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>R</kbd> reply</span><span><kbd>F</kbd> flag</span><span class="more"><kbd>U</kbd> unread</span><span class="more"><kbd>Del</kbd> delete</span></span>
     <button class="chip" id="st-sample" type="button" title="This is sample mail. Click to add your own account." hidden>Sample mailbox</button>
+    <button class="chip" id="st-update" type="button" hidden></button>
     <span id="st-check"></span>
+    <button class="ver" id="st-ver" type="button" hidden></button>
   </footer>
 </div>
+
+<dialog class="dlg" id="upd-dlg" aria-labelledby="upd-title">
+  <h2 class="dtitle" id="upd-title">Telex</h2>
+  <p class="ustate" id="u-state" role="status"></p>
+  <div class="unotes" id="u-notes" hidden></div>
+  <label class="rcheck" id="u-auto-row"><input type="checkbox" id="u-auto"> Check for updates once a day</label>
+  <p class="dnote" id="u-note">A check downloads one small file from GitHub that names the newest version. It sends nothing about you, your mail or this copy of Telex. An update installs only when you choose, and only if it carries Telex’s signature.</p>
+  <p class="derr" id="u-err" role="alert"></p>
+  <div class="cbar">
+    <button class="btn primary" type="button" id="u-install" hidden>Install and restart</button>
+    <button class="btn" type="button" id="u-check">Check now</button>
+    <button class="btn" type="button" id="u-close">Close <kbd>Esc</kbd></button>
+  </div>
+</dialog>
 
 <dialog class="dlg wide" id="ids-dlg" aria-labelledby="ids-title">
   <div id="i-list-view">

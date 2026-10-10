@@ -17,7 +17,7 @@ plain sentences in your summary.
 - **Powerful filters.** The goal is something like The Bat!'s "Sorting Office": rules that sort,
   flag, move and auto-reply, with the reason shown on each affected message (the `note` field).
 - **Private by default.** Remote images in HTML mail are blocked until the user allows them.
-  Links in spam are not clickable.
+  Links in spam are not clickable. Update checks happen only after the user says yes.
 - **Polish-friendly.** Old charsets (Windows-1250, ISO-8859-2) must decode correctly. Reply quote
   header is Polish by default: `Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):`. The UI itself
   is English for now.
@@ -47,6 +47,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
   src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
+  src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
+  tauri.release.conf.json  Merged in by the release workflow: turns on the updater's files.
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
   fonts/             IBM Plex (OFL) bundled so the app works offline.
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
@@ -54,7 +56,11 @@ site/                The landing page (Next.js 16, deployed on Vercel with Root 
                      sample.json via `npm run screens`; retake them after visible UI changes.
 brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-small.svg (32 px and
                      below). `npm run icons` in site/ makes every app and site icon from them.
-.github/workflows/   CI: core tests on Linux, Windows installer build.
+scripts/             set-version.mjs: sets the version in every file that has it, or checks them.
+                     check-signing-key.mjs: the release key pair belongs together (release.yml).
+docs/releasing.md    The release process, the signing keys, and what an update check sends.
+.github/workflows/   ci.yml: core tests on Linux, Windows installer build (can't update itself).
+                     release.yml: on a v* tag, signed installers + latest.json in a draft release.
 ```
 
 The mail base is `%APPDATA%\app.telexmail.desktop\telex.db`. It is created when the first account
@@ -88,6 +94,9 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `remove_account` | `id`                         | – (local copies and saved password only) |
 | `check_mail`     | –                            | `{new: [ids], sent: [lines], sorted, errors: ["Account: reason"], busy}` |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
+| `update_info`    | –                            | `{version, updatable}` (false: built without the release key) |
+| `check_update`   | –                            | `{version, notes, date}` of a newer release, or null |
+| `install_update` | –                            | `{busy}`; when it works Telex closes, updates and restarts |
 
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
 user typed: threading headers, forwarded attachments, and the draft or unsent message it was
@@ -107,9 +116,11 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the brid
 npm install                  # once: installs the Tauri CLI
 npm run dev                  # run the app with live reload of ui/
 npm run build                # release build + installers in target/release/bundle/
+npm run set-version -- 0.2.0 # before a release; then commit, tag v0.2.0 (docs/releasing.md)
 cargo test -p telex-core     # core tests (run these after every core change)
 cargo test -p telex-core -- --ignored   # also checks TLS against a real server (needs internet)
 cargo clippy -p telex-core --all-targets -- -D warnings
+cargo clippy -p telex --all-targets -- -D warnings
 cargo fmt --all
 ```
 
@@ -151,7 +162,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0 + roadmap steps 1, 1b, 2, 3, 4 and 6)
+## Current state (v0.1.0 + roadmap steps 1, 1b, 2, 3, 4, 6 and 7 without code signing)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
@@ -225,6 +236,20 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   downloading again.
 - Before an account is added: the built-in sample mailbox. "Get mail" delivers one sample
   message there; "Send" only files the message in Sent.
+- Updates (`src-tauri/src/updates.rs`, tauri-plugin-updater): only builds compiled with the
+  release key's public half in `TELEX_UPDATER_PUBKEY` (`option_env!`) register the plugin;
+  its `plugins.updater` config (key, `requireSignedVersion`, passive Windows install) is put
+  into the context at start, so no key is in the repository. Dev and CI builds say "This build
+  can't update itself". The endpoint is set in code: `releases/latest/download/latest.json`
+  of lucco669/telexmail (User-Agent "Telex", nothing else sent). The status bar shows the
+  version; clicking it opens the update dialog and checks. Until answered, an updatable build
+  asks in the status bar "Check for updates once a day?"; the answer and the last check
+  are kept in the window's localStorage (`updates`, `updateChecked`). A found update shows as
+  a status-bar chip; installing saves an open compose to Drafts, waits until no check or send
+  is running (it holds both busy flags), downloads with "update-progress" events, verifies,
+  runs the installer and exits; the installer restarts Telex. Releases: `release.yml` on a
+  `v*` tag (tag must match the version everywhere; the tag message becomes the notes),
+  tauri-action v1 with `uploadUpdaterJson`, draft release; see docs/releasing.md.
 
 ## Roadmap
 
@@ -247,7 +272,9 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
    personal accounts).
 6. ~~**Templates and identities.**~~ Done; see Current state. Not yet: templates for new
    messages (a greeting), HTML signatures, per-folder templates.
-7. **Shipping.** Auto-update, code signing, a website.
+7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
+   yet: code signing (SmartScreen warns about the installer), and the repository must be made
+   public before the first release can be downloaded.
 
 ## Open decisions
 

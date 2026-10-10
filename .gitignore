@@ -14,3 +14,6 @@
 .DS_Store
 Thumbs.db
 *.log
+
+# Written by the release workflow from TELEX_UPDATER_PUBKEY
+/src-tauri/tauri.updater.conf.json
