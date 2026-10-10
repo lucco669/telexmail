@@ -9,6 +9,8 @@ pub type MessageId = u64;
 #[serde(rename_all = "lowercase")]
 pub enum FolderKind {
     Inbox,
+    /// Local only: mail waiting to be sent. Every server account has one.
+    Outbox,
     Drafts,
     Sent,
     Archive,
@@ -20,13 +22,14 @@ pub enum FolderKind {
 impl FolderKind {
     /// Folders whose messages were written by the user, so the list shows "To" instead of "From".
     pub fn is_outgoing(self) -> bool {
-        matches!(self, Self::Sent | Self::Drafts)
+        matches!(self, Self::Sent | Self::Drafts | Self::Outbox)
     }
 
     /// The same lowercase name serde uses, for storing in the database.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Inbox => "inbox",
+            Self::Outbox => "outbox",
             Self::Drafts => "drafts",
             Self::Sent => "sent",
             Self::Archive => "archive",
@@ -40,12 +43,28 @@ impl FolderKind {
     pub fn from_name(name: &str) -> Self {
         match name {
             "inbox" => Self::Inbox,
+            "outbox" => Self::Outbox,
             "drafts" => Self::Drafts,
             "sent" => Self::Sent,
             "archive" => Self::Archive,
             "spam" => Self::Spam,
             "trash" => Self::Trash,
             _ => Self::Custom,
+        }
+    }
+
+    /// Order in the folder tree, as in The Bat!: Inbox, Outbox, Drafts, Sent, the user's
+    /// own folders, then Archive, Spam and Trash.
+    pub fn rank(self) -> u8 {
+        match self {
+            Self::Inbox => 0,
+            Self::Outbox => 1,
+            Self::Drafts => 2,
+            Self::Sent => 3,
+            Self::Custom => 4,
+            Self::Archive => 5,
+            Self::Spam => 6,
+            Self::Trash => 7,
         }
     }
 }
@@ -71,6 +90,10 @@ pub struct Account {
     /// How to reach the account's server. `None` for the sample mailbox.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imap: Option<ImapSettings>,
+    /// How to send. `None` for the sample mailbox and for accounts added before sending
+    /// existed; the UI asks the user to edit the account then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smtp: Option<SmtpSettings>,
 }
 
 impl Account {
@@ -93,10 +116,46 @@ pub struct ImapSettings {
     pub username: String,
 }
 
+/// Where an account sends from. It logs in with the IMAP user name and password.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SmtpSettings {
+    pub host: String,
+    pub port: u16,
+    pub security: SmtpSecurity,
+}
+
+/// How the SMTP connection is encrypted. Both are TLS; they differ in when it starts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SmtpSecurity {
+    /// TLS from the first byte, usually port 465.
+    #[default]
+    Tls,
+    /// Plain greeting, then STARTTLS before anything else, usually port 587.
+    StartTls,
+}
+
+impl SmtpSecurity {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Tls => "tls",
+            Self::StartTls => "starttls",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        if name == "starttls" {
+            Self::StartTls
+        } else {
+            Self::Tls
+        }
+    }
+}
+
 /// What the user types in the account dialog, except the password.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 pub struct AccountSetup {
-    /// Label in the folder list. Defaults to the email's domain.
+    /// Label in the folder list, and the sender name. Defaults to the email's domain.
     #[serde(default)]
     pub name: String,
     pub email: String,
@@ -105,6 +164,35 @@ pub struct AccountSetup {
     /// Login name. Defaults to the email address, which is what most servers expect.
     #[serde(default)]
     pub username: String,
+    /// SMTP server. Defaults to the IMAP server, which is right for most own domains.
+    #[serde(default)]
+    pub smtp_host: String,
+    /// Defaults to 465 for SSL/TLS and 587 for STARTTLS.
+    #[serde(default)]
+    pub smtp_port: u16,
+    #[serde(default)]
+    pub smtp_security: SmtpSecurity,
+}
+
+/// "imaps://Mail.Example.com/" → "mail.example.com", or an error for something that isn't
+/// a host name.
+fn clean_host(input: &str, what: &str) -> Result<String, String> {
+    let host = input.trim();
+    let host = ["imaps://", "imap://", "smtps://", "smtp://"]
+        .iter()
+        .find_map(|p| host.strip_prefix(p))
+        .unwrap_or(host)
+        .trim_end_matches('/')
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        return Err(format!("Enter the {what} server, e.g. mail.example.com."));
+    }
+    if host.contains(|c: char| c.is_whitespace() || matches!(c, '/' | ':' | '@')) {
+        return Err(format!(
+            "\"{host}\" isn't a server name. Enter just the name, e.g. mail.example.com."
+        ));
+    }
+    Ok(host)
 }
 
 impl AccountSetup {
@@ -121,24 +209,20 @@ impl AccountSetup {
         if email.contains(char::is_whitespace) {
             return Err("The email address can't contain spaces.".into());
         }
-        let host = self.host.trim();
-        let host = host
-            .strip_prefix("imaps://")
-            .or_else(|| host.strip_prefix("imap://"))
-            .unwrap_or(host)
-            .trim_end_matches('/')
-            .to_ascii_lowercase();
-        if host.is_empty() {
-            return Err("Enter the IMAP server, e.g. mail.example.com.".into());
-        }
-        if host.contains(|c: char| c.is_whitespace() || matches!(c, '/' | ':' | '@')) {
-            return Err(format!(
-                "\"{host}\" isn't a server name. Enter just the name, e.g. mail.example.com."
-            ));
-        }
+        let host = clean_host(&self.host, "IMAP")?;
         if self.port == 0 {
             return Err("Enter the port. For SSL/TLS it is usually 993.".into());
         }
+        let smtp_host = if self.smtp_host.trim().is_empty() {
+            host.clone()
+        } else {
+            clean_host(&self.smtp_host, "SMTP")?
+        };
+        let smtp_port = match (self.smtp_port, self.smtp_security) {
+            (0, SmtpSecurity::Tls) => 465,
+            (0, SmtpSecurity::StartTls) => 587,
+            (p, _) => p,
+        };
         let name = match self.name.trim() {
             "" => domain,
             n => n.to_owned(),
@@ -153,6 +237,9 @@ impl AccountSetup {
             host,
             port: self.port,
             username,
+            smtp_host,
+            smtp_port,
+            smtp_security: self.smtp_security,
         })
     }
 
@@ -161,6 +248,14 @@ impl AccountSetup {
             host: self.host.clone(),
             port: self.port,
             username: self.username.clone(),
+        }
+    }
+
+    pub fn smtp_settings(&self) -> SmtpSettings {
+        SmtpSettings {
+            host: self.smtp_host.clone(),
+            port: self.smtp_port,
+            security: self.smtp_security,
         }
     }
 }
@@ -247,7 +342,7 @@ impl From<&Message> for MessageSummary {
 }
 
 /// A message the user wrote in the compose pane.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 pub struct OutgoingDraft {
     /// Account id to send from.
     pub account: String,
@@ -256,8 +351,18 @@ pub struct OutgoingDraft {
     pub cc: String,
     pub subject: String,
     pub body: String,
+    /// Attachments carried over from `forward_of`. New files come later.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    /// The message this replies to, for the In-Reply-To and References headers.
+    #[serde(default)]
+    pub reply_to: Option<MessageId>,
+    /// The message this forwards; its attachments are sent along.
+    #[serde(default)]
+    pub forward_of: Option<MessageId>,
+    /// The draft or unsent message this was edited from. It is removed once this is saved.
+    #[serde(default)]
+    pub replaces: Option<MessageId>,
 }
 
 #[cfg(test)]
@@ -271,6 +376,9 @@ mod tests {
             host: host.into(),
             port: 993,
             username: String::new(),
+            smtp_host: String::new(),
+            smtp_port: 0,
+            smtp_security: SmtpSecurity::Tls,
         }
     }
 
@@ -283,6 +391,17 @@ mod tests {
         assert_eq!(s.host, "mail.twojastudio.pl");
         assert_eq!(s.name, "twojastudio.pl");
         assert_eq!(s.username, "biuro@TwojaStudio.pl");
+        assert_eq!(
+            s.smtp_host, "mail.twojastudio.pl",
+            "SMTP defaults to the IMAP server"
+        );
+        assert_eq!(s.smtp_port, 465);
+
+        let mut starttls = setup("biuro@x.pl", "mail.x.pl");
+        starttls.smtp_security = SmtpSecurity::StartTls;
+        starttls.smtp_host = "smtp://SMTP.x.pl".into();
+        let s = starttls.cleaned().unwrap();
+        assert_eq!((s.smtp_host.as_str(), s.smtp_port), ("smtp.x.pl", 587));
     }
 
     #[test]
@@ -293,5 +412,26 @@ mod tests {
         let mut no_port = setup("biuro@x.pl", "mail.x.pl");
         no_port.port = 0;
         assert!(no_port.cleaned().is_err());
+        let mut bad_smtp = setup("biuro@x.pl", "mail.x.pl");
+        bad_smtp.smtp_host = "smtp.x.pl:587".into();
+        assert!(bad_smtp.cleaned().is_err());
+    }
+
+    #[test]
+    fn folder_kinds_round_trip_and_sort() {
+        for kind in [
+            FolderKind::Inbox,
+            FolderKind::Outbox,
+            FolderKind::Drafts,
+            FolderKind::Sent,
+            FolderKind::Archive,
+            FolderKind::Spam,
+            FolderKind::Trash,
+            FolderKind::Custom,
+        ] {
+            assert_eq!(FolderKind::from_name(kind.as_str()), kind);
+        }
+        assert!(FolderKind::Outbox.rank() < FolderKind::Sent.rank());
+        assert!(FolderKind::Custom.rank() < FolderKind::Trash.rank());
     }
 }

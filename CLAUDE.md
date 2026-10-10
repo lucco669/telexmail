@@ -35,6 +35,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      store.rs. Released files are never edited; a change is a new file.
   src/imap.rs        Two-way IMAP sync (async-imap + rustls): download, push queued changes,
                      folder mapping. Tests run it against a fake IMAP server.
+  src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322, send the Outbox.
+                     Tests run it against a fake SMTP server.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
@@ -62,17 +64,21 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `set_flagged`    | `id`, `flagged`              | –                           |
 | `move_message`   | `id`, `folder`               | – (same account only)       |
 | `delete_message` | `id`                         | `moved_to_trash` / `removed`|
-| `save_outgoing`  | `draft`, `send`              | new message id              |
+| `save_outgoing`  | `draft`, `send`              | new message id (a draft; `send` only for the sample mailbox) |
+| `send_message`   | `draft`                      | `{queued, sent: [lines], errors, sample}` |
 | `search`         | `query`                      | ids matching subject, people or body (FTS5) |
-| `add_account`    | `setup`, `password`          | the account (logs in first; same address = update) |
+| `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
-| `check_mail`     | –                            | `{new: [ids], errors: ["Account: reason"], busy}` |
+| `check_mail`     | –                            | `{new: [ids], sent: [lines], errors: ["Account: reason"], busy}` |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
 
-The four changing commands apply locally at once; for server mail the store also queues the
-change, and the UI calls `push_changes` 2.5 s after the last one. `busy: true` means another
-check or push was running and nothing started; the UI retries. `check_mail` emits
-`sync-progress` events (`{account, folder, done, total}`) while it downloads.
+A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
+user typed: threading headers, forwarded attachments, and the draft or unsent message it was
+edited from. The changing commands (and `send_message`) apply locally at once; for server
+mail the store also queues the change, and the UI calls `push_changes` 2.5 s after the last
+one. `busy: true` means another check or push was running and nothing started; the UI
+retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progress` events
+(`{account, folder, done, total}`) while it downloads.
 
 Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the bridge as local
 `YYYY-MM-DDTHH:MM:SS` strings.
@@ -113,6 +119,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Shift+R      | reply to all                   |
 | Shift+F      | forward                        |
 | N            | new message                    |
+| E            | edit a draft or an unsent message in the Outbox |
 | F            | flag / unflag                  |
 | U            | toggle unread                  |
 | Del          | move to Trash (in Trash: press twice to delete for good) |
@@ -121,7 +128,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0 + roadmap steps 1 and 1b)
+## Current state (v0.1.0 + roadmap steps 1, 1b and 2)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
@@ -141,11 +148,23 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   UID comes from COPYUID, else from a Message-ID search, else the next download adopts the
   message instead of duplicating it. A change refused 3 times (`imap::MAX_ATTEMPTS`) is
   dropped, reported, and a refused move puts the message back.
+- Sending: each server account has SMTP settings (server defaults to the IMAP one; SSL/TLS
+  on 465 or STARTTLS on 587; same login as IMAP), checked together with IMAP when the account
+  is saved. Accounts saved before step 2 have none until edited (Edit in the account dialog;
+  an empty password keeps the saved one). Send builds the message (`smtp::compose`: UTF-8
+  plain text, In-Reply-To/References for replies, forwarded attachments from the original's
+  raw), puts it in the account's local Outbox and sends the Outbox at once; `check_mail`
+  sends it too. Accepted mail moves to Sent and its exact bytes go to the server's Sent
+  folder through the change queue (APPEND, kind `append`); the next download adopts the copy
+  by Message-ID. A server refusal (5xx, except login errors) stays in the Outbox with the
+  reason and isn't retried; anything else is retried at every check. E reopens a draft or an
+  unsent message; saving or sending replaces the old one. The status bar says "Sent" only
+  after the SMTP server accepts the message.
 - Quick filter matches headers as you type and bodies through FTS5 (diacritics-insensitive).
 - Mail is stored in full (`messages.raw`), so HTML view and attachments can come later
   without downloading again. The UI still shows the plain-text body.
 - Before an account is added: the built-in sample mailbox. "Get mail" delivers one sample
-  message there. "Send" only files the message in Sent, for every account.
+  message there; "Send" only files the message in Sent.
 
 ## Roadmap
 
@@ -153,7 +172,9 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
    download messages older than the first 300, IMAP IDLE (push).
 1b. ~~**Write back.**~~ Done; see Current state. Not yet: CONDSTORE/QRESYNC (flag changes are
    found by asking for the flags of every stored message, fine for thousands, not millions).
-2. **Sending.** SMTP via `lettre`, outbox with retry, Sent copy via IMAP APPEND.
+2. ~~**Sending.**~~ Done; see Current state. Not yet: attaching new files (needs a file
+   picker), Bcc, drafts on the server's Drafts folder, and skipping the Sent copy for servers
+   that save one themselves (Gmail and Outlook.com do; matters with step 5).
 3. **HTML mail.** Render in a sandboxed iframe (`srcdoc`, no scripts), remote content blocked
    until allowed per message or per sender.
 4. **Filters ("Sorting Office").** Rule editor, run on arrival and on demand, `note` explains why.

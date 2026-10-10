@@ -9,7 +9,7 @@ use serde::Serialize;
 use crate::mime::parse_message_id;
 use crate::model::{
     split_folder_key, Account, AccountSetup, Folder, FolderKind, ImapSettings, Message, MessageId,
-    MessageSummary, OutgoingDraft,
+    MessageSummary, OutgoingDraft, SmtpSecurity, SmtpSettings,
 };
 
 /// Schema steps, oldest first: step n brings a database to version n. A released step is
@@ -17,7 +17,12 @@ use crate::model::{
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_base.sql"),
     include_str!("migrations/002_write_back.sql"),
+    include_str!("migrations/003_sending.sql"),
 ];
+
+/// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
+/// to a server folder.
+pub const OUTBOX_ID: &str = "outbox";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
@@ -110,6 +115,24 @@ pub enum ChangeKind {
     Move(String),
     /// Remove for good (Del in Trash).
     Expunge,
+    /// Save a copy of a sent message in this server folder (IMAP APPEND).
+    Append(String),
+}
+
+/// A message waiting in an Outbox, with what SMTP needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OutgoingMail {
+    pub message: MessageId,
+    pub account: String,
+    /// The SMTP envelope: who it's from, and every recipient (To and Cc).
+    pub env_from: String,
+    pub env_to: Vec<String>,
+    /// The message exactly as it will be sent.
+    pub raw: Vec<u8>,
+    pub subject: String,
+    /// The To header, for "Sent to …".
+    pub to: String,
+    pub attempts: u32,
 }
 
 /// A change the user made that the server hasn't heard about yet.
@@ -356,6 +379,8 @@ impl MailStore {
             "UPDATE messages SET folder = ?1 WHERE id = ?2",
             params![folder, id as i64],
         )?;
+        // Leaving the Outbox means it's no longer to be sent.
+        tx.execute("DELETE FROM outbox WHERE message = ?1", [id as i64])?;
         if let Some(srv) = srv_folder {
             // One move per message: moving again replaces it, moving back cancels it.
             tx.execute(
@@ -404,8 +429,8 @@ impl MailStore {
         Ok(DeleteOutcome::Removed)
     }
 
-    /// Store a message the user wrote, in Sent or Drafts of the sending account.
-    /// Sending over SMTP is not wired up yet, so "Sent" only files the message.
+    /// Store a message the user wrote, in Drafts (or, for the sample mailbox, in Sent:
+    /// it can't really send). A draft edited from another replaces it.
     pub fn save_outgoing(
         &mut self,
         draft: OutgoingDraft,
@@ -413,6 +438,9 @@ impl MailStore {
         now: NaiveDateTime,
     ) -> Result<MessageId, StoreError> {
         debug_assert!(kind.is_outgoing(), "outgoing mail goes to Sent or Drafts");
+        if let Some(old) = draft.replaces {
+            self.remove_local(old)?;
+        }
         let account = self.account(&draft.account)?.clone();
         let folder = self.folder_key_of_kind(&account.id, kind)?;
         let attachments_kb: u32 = draft.attachments.iter().map(|a| a.size_kb).sum();
@@ -436,6 +464,158 @@ impl MailStore {
             message_id: None,
         };
         insert_message(&self.db, &folder, None, &message, None, None)
+    }
+
+    /// Delete a message that exists only here (a draft, an unsent message). Server mail
+    /// and unknown ids are left alone: replacing never deletes anything on a server.
+    fn remove_local(&mut self, id: MessageId) -> Result<(), StoreError> {
+        self.db.execute(
+            "DELETE FROM messages WHERE id = ?1 AND srv_folder IS NULL",
+            [id as i64],
+        )?;
+        Ok(())
+    }
+
+    // ---- Sending ----
+
+    /// Put a composed message in the account's Outbox. `raw` is the message exactly as it
+    /// will be sent; `message` is its parsed form for the list and preview.
+    pub fn queue_outgoing(
+        &mut self,
+        account: &str,
+        message: &Message,
+        raw: &[u8],
+        env_from: &str,
+        env_to: &[String],
+        replaces: Option<MessageId>,
+    ) -> Result<MessageId, StoreError> {
+        let outbox = self.folder_key_of_kind(account, FolderKind::Outbox)?;
+        if let Some(old) = replaces {
+            self.remove_local(old)?;
+        }
+        let env_to =
+            serde_json::to_string(env_to).map_err(|e| StoreError::Database(e.to_string()))?;
+        let tx = self.db.transaction()?;
+        let id = insert_message(&tx, &outbox, None, message, None, Some(raw))?;
+        tx.execute(
+            "INSERT INTO outbox (message, account, env_from, env_to) VALUES (?1, ?2, ?3, ?4)",
+            params![id as i64, account, env_from, env_to],
+        )?;
+        tx.commit()?;
+        Ok(id)
+    }
+
+    /// The oldest message after `after` waiting in the account's Outbox, skipping ones the
+    /// server refused for good. Go through the Outbox by passing back the last id.
+    pub fn next_outgoing(
+        &self,
+        account: &str,
+        after: MessageId,
+    ) -> Result<Option<OutgoingMail>, StoreError> {
+        let outbox = format!("{account}/{OUTBOX_ID}");
+        self.db
+            .query_row(
+                "SELECT o.message, o.env_from, o.env_to, m.raw, m.subject, m.to_addr, o.attempts
+                 FROM outbox o JOIN messages m ON m.id = o.message
+                 WHERE o.account = ?1 AND m.folder = ?2 AND NOT o.refused AND o.message > ?3
+                   AND m.raw IS NOT NULL
+                 ORDER BY o.message LIMIT 1",
+                params![account, outbox, after as i64],
+                |r| {
+                    let env_to: String = r.get(2)?;
+                    Ok(OutgoingMail {
+                        message: r.get::<_, i64>(0)? as MessageId,
+                        account: account.to_owned(),
+                        env_from: r.get(1)?,
+                        env_to: serde_json::from_str(&env_to).unwrap_or_default(),
+                        raw: r.get(3)?,
+                        subject: r.get(4)?,
+                        to: r.get(5)?,
+                        attempts: r.get(6)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+    }
+
+    /// The SMTP server took the message: file it in Sent and queue a copy for the server's
+    /// Sent folder. Without a Sent folder it stays in the Outbox, marked as sent.
+    pub fn outgoing_sent(&mut self, id: MessageId, at: NaiveDateTime) -> Result<(), StoreError> {
+        let (folder, _) = self.locate(id)?;
+        let account = account_of(&folder).to_owned();
+        let sent = self
+            .account(&account)?
+            .folder_of_kind(FolderKind::Sent)
+            .map(|f| (f.id.clone(), f.remote.is_some()));
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM outbox WHERE message = ?1", [id as i64])?;
+        match sent {
+            Some((sent_id, on_server)) => {
+                let key = format!("{account}/{sent_id}");
+                tx.execute(
+                    "UPDATE messages SET folder = ?1, date = ?2, note = NULL WHERE id = ?3",
+                    params![key, at, id as i64],
+                )?;
+                if on_server {
+                    tx.execute(
+                        "INSERT INTO pending_ops (account, message, kind, target) VALUES (?1, ?2, 'append', ?3)",
+                        params![account, id as i64, key],
+                    )?;
+                }
+            }
+            None => {
+                tx.execute(
+                    "UPDATE messages SET note = 'Sent. This account has no Sent folder, so it stays here.'
+                     WHERE id = ?1",
+                    [id as i64],
+                )?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Sending failed. `refused`: the server said no for good (a bad address, say), so it
+    /// isn't retried; otherwise it is, at every check. The reason shows above the message.
+    pub fn outgoing_failed(
+        &mut self,
+        id: MessageId,
+        error: &str,
+        refused: bool,
+    ) -> Result<(), StoreError> {
+        let note = if refused {
+            format!("Not sent: {error}. Press E to fix it and send it again, or Del to drop it.")
+        } else {
+            format!("Not sent yet: {error}. Telex tries again at every check.")
+        };
+        let tx = self.db.transaction()?;
+        tx.execute(
+            "UPDATE outbox SET attempts = attempts + 1, last_error = ?2, refused = ?3 WHERE message = ?1",
+            params![id as i64, error, refused],
+        )?;
+        tx.execute(
+            "UPDATE messages SET note = ?2 WHERE id = ?1",
+            params![id as i64, note],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// True when the account has mail waiting to be sent (refused mail doesn't count).
+    pub fn has_outgoing(&self, account: &str) -> Result<bool, StoreError> {
+        Ok(self.next_outgoing(account, 0)?.is_some())
+    }
+
+    /// The message as it was received or sent, when Telex has it.
+    pub fn raw_of(&self, id: MessageId) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok(self
+            .db
+            .query_row("SELECT raw FROM messages WHERE id = ?1", [id as i64], |r| {
+                r.get(0)
+            })
+            .optional()?
+            .flatten())
     }
 
     /// Deliver waiting sample messages and return their ids.
@@ -480,18 +660,47 @@ impl MailStore {
             .map(|a| a.id.clone());
         let id = if let Some(id) = existing {
             self.db.execute(
-                "UPDATE accounts SET name = ?2, email = ?3, imap_host = ?4, imap_port = ?5, imap_user = ?6
+                "UPDATE accounts SET name = ?2, email = ?3, imap_host = ?4, imap_port = ?5,
+                     imap_user = ?6, smtp_host = ?7, smtp_port = ?8, smtp_security = ?9
                  WHERE id = ?1",
-                params![id, setup.name, setup.email, setup.host, setup.port, setup.username],
+                params![
+                    id,
+                    setup.name,
+                    setup.email,
+                    setup.host,
+                    setup.port,
+                    setup.username,
+                    setup.smtp_host,
+                    setup.smtp_port,
+                    setup.smtp_security.as_str()
+                ],
             )?;
             id
         } else {
             let id = self.unique_account_id(&setup.email);
-            self.db.execute(
-                "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user)
-                 VALUES (?1, (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts), ?2, ?3, ?4, ?5, ?6)",
-                params![id, setup.name, setup.email, setup.host, setup.port, setup.username],
+            let tx = self.db.transaction()?;
+            tx.execute(
+                "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user,
+                     smtp_host, smtp_port, smtp_security)
+                 VALUES (?1, (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts),
+                     ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    id,
+                    setup.name,
+                    setup.email,
+                    setup.host,
+                    setup.port,
+                    setup.username,
+                    setup.smtp_host,
+                    setup.smtp_port,
+                    setup.smtp_security.as_str()
+                ],
             )?;
+            tx.execute(
+                "INSERT INTO folders (account, id, position, name, kind) VALUES (?1, ?2, 1, 'Outbox', 'outbox')",
+                params![id, OUTBOX_ID],
+            )?;
+            tx.commit()?;
             id
         };
         self.reload_accounts()?;
@@ -524,19 +733,22 @@ impl MailStore {
             [id],
         )?;
         tx.execute("DELETE FROM pending_ops WHERE account = ?1", [id])?;
+        tx.execute("DELETE FROM outbox WHERE account = ?1", [id])?;
         tx.execute("DELETE FROM accounts WHERE id = ?1", [id])?;
         tx.commit()?;
         self.reload_accounts()
     }
 
-    /// Replace an account's folder list with what the server has now. Folders that
-    /// disappeared from the server are dropped together with their local copies.
+    /// Replace an account's server folders with what the server has now. Folders that
+    /// disappeared from the server are dropped together with their local copies; local
+    /// folders (the Outbox) stay.
     pub fn set_folders(&mut self, account: &str, folders: &[Folder]) -> Result<(), StoreError> {
         self.account(account)?;
         let keep: HashSet<&str> = folders.iter().map(|f| f.id.as_str()).collect();
         let tx = self.db.transaction()?;
         let existing: Vec<String> = {
-            let mut stmt = tx.prepare("SELECT id FROM folders WHERE account = ?1")?;
+            let mut stmt =
+                tx.prepare("SELECT id FROM folders WHERE account = ?1 AND remote IS NOT NULL")?;
             let ids = stmt
                 .query_map([account], |r| r.get(0))?
                 .collect::<Result<_, _>>()?;
@@ -765,8 +977,9 @@ impl MailStore {
     pub fn pending_changes(&self, account: &str) -> Result<Vec<PendingChange>, StoreError> {
         let mut stmt = self.db.prepare_cached(
             "SELECT p.id, p.message, p.kind, p.value, p.target, p.attempts,
-                    CASE WHEN p.kind = 'expunge' THEN p.srv_folder ELSE m.srv_folder END,
-                    CASE WHEN p.kind = 'expunge' THEN p.uid ELSE m.uid END,
+                    CASE p.kind WHEN 'expunge' THEN p.srv_folder WHEN 'append' THEN p.target
+                         ELSE m.srv_folder END,
+                    CASE p.kind WHEN 'expunge' THEN p.uid WHEN 'append' THEN NULL ELSE m.uid END,
                     COALESCE(m.message_id, p.message_id), COALESCE(m.subject, p.subject, '')
              FROM pending_ops p LEFT JOIN messages m ON m.id = p.message
              WHERE p.account = ?1 ORDER BY p.id",
@@ -778,6 +991,7 @@ impl MailStore {
                 "flagged" => Some(ChangeKind::Flagged(value.unwrap_or_default())),
                 "move" => r.get::<_, Option<String>>(4)?.map(ChangeKind::Move),
                 "expunge" => Some(ChangeKind::Expunge),
+                "append" => r.get::<_, Option<String>>(4)?.map(ChangeKind::Append),
                 _ => None,
             };
             let (op, message, attempts): (i64, Option<i64>, u32) =
@@ -838,6 +1052,24 @@ impl MailStore {
                 [id as i64],
             )?;
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The server saved a copy of a sent message in `folder_key`. Its UID comes with the
+    /// next download, which recognizes it by Message-ID instead of storing it twice.
+    pub fn change_appended(
+        &mut self,
+        op: i64,
+        id: MessageId,
+        folder_key: &str,
+    ) -> Result<(), StoreError> {
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
+        tx.execute(
+            "UPDATE messages SET srv_folder = ?1 WHERE id = ?2 AND srv_folder IS NULL",
+            params![folder_key, id as i64],
+        )?;
         tx.commit()?;
         Ok(())
     }
@@ -1017,7 +1249,8 @@ fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
 
 fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
     let mut stmt = db.prepare(
-        "SELECT id, name, email, imap_host, imap_port, imap_user FROM accounts ORDER BY position, id",
+        "SELECT id, name, email, imap_host, imap_port, imap_user, smtp_host, smtp_port, smtp_security
+         FROM accounts ORDER BY position, id",
     )?;
     let mut accounts = stmt
         .query_map([], |r| {
@@ -1029,12 +1262,23 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
                 }),
                 None => None,
             };
+            let smtp = match r.get::<_, Option<String>>(6)? {
+                Some(host) => Some(SmtpSettings {
+                    host,
+                    port: r.get(7)?,
+                    security: SmtpSecurity::from_name(
+                        &r.get::<_, Option<String>>(8)?.unwrap_or_default(),
+                    ),
+                }),
+                None => None,
+            };
             Ok(Account {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 email: r.get(2)?,
                 folders: Vec::new(),
                 imap,
+                smtp,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -1057,6 +1301,10 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
         if let Some(a) = accounts.iter_mut().find(|a| a.id == account) {
             a.folders.push(folder);
         }
+    }
+    // Server folders arrive in plan order and the Outbox is local; rank puts it in place.
+    for a in &mut accounts {
+        a.folders.sort_by_key(|f| f.kind.rank());
     }
     Ok(accounts)
 }
@@ -1151,7 +1399,7 @@ mod tests {
             cc: String::new(),
             subject: "Re: Poprawki".into(),
             body: "Dzień dobry,\n\nwdrożę do środy.\n".into(),
-            attachments: vec![],
+            ..Default::default()
         }
     }
 
@@ -1165,6 +1413,7 @@ mod tests {
                 host: "mail.twojastudio.pl".into(),
                 port: 993,
                 username: "biuro@twojastudio.pl".into(),
+                ..Default::default()
             })
             .unwrap();
         let folder = |id: &str, kind| Folder {
@@ -1571,12 +1820,17 @@ mod tests {
                 host: "imap.twojastudio.pl".into(),
                 port: 993,
                 username: "biuro".into(),
+                ..Default::default()
             })
             .unwrap();
         assert_eq!(again.id, account.id);
         assert_eq!(again.name, "Biuro");
         assert_eq!(again.imap.unwrap().host, "imap.twojastudio.pl");
-        assert_eq!(again.folders.len(), 4, "folders are kept");
+        assert_eq!(
+            again.folders.len(),
+            5,
+            "server folders and the Outbox are kept"
+        );
         assert_eq!(store.accounts().len(), 1);
     }
 
@@ -1601,7 +1855,18 @@ mod tests {
             .unwrap();
         let inbox = account.folders[0].clone();
         store.set_folders(&account.id, &[inbox]).unwrap();
-        assert_eq!(store.account(&account.id).unwrap().folders.len(), 1);
+        let kinds: Vec<_> = store
+            .account(&account.id)
+            .unwrap()
+            .folders
+            .iter()
+            .map(|f| f.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [FolderKind::Inbox, FolderKind::Outbox],
+            "the local Outbox stays"
+        );
         assert!(store.snapshot().unwrap().messages.is_empty());
     }
 
@@ -1623,6 +1888,7 @@ mod tests {
                     host: "mail.twojastudio.pl".into(),
                     port: 993,
                     username: String::new(),
+                    ..Default::default()
                 })
                 .unwrap();
             assert_eq!(account.id, "twojastudio");
@@ -1667,6 +1933,10 @@ mod tests {
             store.get(id).unwrap().message_id.as_deref(),
             Some("wycena@x.pl")
         );
+        // Version 3: an Outbox, and no SMTP server until the user edits the account.
+        let account = store.account("studio").unwrap();
+        assert!(account.folder_of_kind(FolderKind::Outbox).is_some());
+        assert!(account.smtp.is_none());
         // Changes to old mail are queued like any other.
         store.set_unread(id, false).unwrap();
         assert!(store.has_pending_changes("studio").unwrap());

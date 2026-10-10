@@ -28,7 +28,9 @@ use tokio_rustls::TlsConnector;
 
 use crate::mime::parse_message;
 use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId};
-use crate::store::{slug, ChangeKind, MailStore, PendingChange, StoreError, SyncedMessage};
+use crate::store::{
+    slug, ChangeKind, MailStore, PendingChange, StoreError, SyncedMessage, OUTBOX_ID,
+};
 
 /// How many of the newest messages to download per folder the first time.
 pub const FIRST_SYNC_LIMIT: usize = 300;
@@ -346,21 +348,51 @@ async fn push_queued_after<T: ImapStream>(
     caps: ServerCaps,
     after_op: i64,
 ) -> Result<Vec<String>, SyncError> {
-    let changes = lock(store)?.pending_changes(&account.id)?;
+    let (appends, changes): (Vec<_>, Vec<_>) = lock(store)?
+        .pending_changes(&account.id)?
+        .into_iter()
+        .filter(|c| c.op > after_op)
+        .partition(|c| matches!(c.kind, ChangeKind::Append(_)));
+    let mut refused = Vec::new();
+
+    // Copies of sent mail for the Sent folder. APPEND needs no selected folder.
+    for change in &appends {
+        let (ChangeKind::Append(to), Some(id)) = (&change.kind, change.message) else {
+            continue;
+        };
+        let raw = lock(store)?.raw_of(id)?;
+        let (Some(raw), Some(remote)) = (raw, remote_name(account, to)) else {
+            lock(store)?.change_done(change.op)?; // nothing to save, or nowhere to save it
+            continue;
+        };
+        let result = timeout(
+            FETCH_TIMEOUT,
+            session.append(&remote, Some("(\\Seen)"), None, &raw),
+        )
+        .await
+        .map_err(|_| SyncError::Timeout)?;
+        match result {
+            Ok(()) => lock(store)?.change_appended(change.op, id, to)?,
+            Err(ImapError::No(reason) | ImapError::Bad(reason)) => {
+                note_refusal(store, change, &reason, &mut refused)?;
+            }
+            Err(ImapError::Append) => {
+                note_refusal(store, change, "the server didn't accept it", &mut refused)?;
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
     // Grouped by server folder, so each folder is selected once. A moved message whose
     // new UID isn't known yet waits until a download finds it.
     let mut by_folder: BTreeMap<String, Vec<PendingChange>> = BTreeMap::new();
-    for change in changes
-        .into_iter()
-        .filter(|c| c.op > after_op && c.uid.is_some())
-    {
+    for change in changes.into_iter().filter(|c| c.uid.is_some()) {
         by_folder
             .entry(change.folder.clone())
             .or_default()
             .push(change);
     }
 
-    let mut refused = Vec::new();
     let mut moved_without_uid = Vec::new();
     for (key, mut group) in by_folder {
         // Flags first: they travel with a moved message, but its old UID is useless after.
@@ -638,6 +670,7 @@ async fn apply_change<T: ImapStream>(
             .await
             .map(|()| None),
         ChangeKind::Expunge => expunge(session, uid, caps).await.map(|()| None),
+        ChangeKind::Append(_) => Ok(None), // sent before the folders, in push_queued_after
         ChangeKind::Move(to) => {
             let dest = remote_name(account, to)
                 .ok_or_else(|| ImapError::No("that folder no longer exists".into()))?;
@@ -750,6 +783,7 @@ fn note_refusal(
             ChangeKind::Flagged(false) => "unflag",
             ChangeKind::Move(_) => "move",
             ChangeKind::Expunge => "delete",
+            ChangeKind::Append(_) => "save a copy in Sent of",
         };
         refused.push(format!(
             "the server wouldn't {what} \"{}\" ({})",
@@ -850,7 +884,8 @@ pub fn plan_folders(remote: &[RemoteFolder]) -> Vec<Folder> {
         }
     }
 
-    let mut used = HashSet::from(["inbox".to_owned()]);
+    // "inbox" is the INBOX's; "outbox" is the local Outbox's, never a server folder's.
+    let mut used = HashSet::from(["inbox".to_owned(), OUTBOX_ID.to_owned()]);
     let mut folders: Vec<Folder> = syncable
         .iter()
         .zip(&kinds)
@@ -883,7 +918,7 @@ pub fn plan_folders(remote: &[RemoteFolder]) -> Vec<Folder> {
             }
         })
         .collect();
-    folders.sort_by_key(|f| (kind_rank(f.kind), f.name.to_lowercase()));
+    folders.sort_by_key(|f| (f.kind.rank(), f.name.to_lowercase()));
     folders
 }
 
@@ -917,25 +952,13 @@ fn guess_kind(leaf: &str) -> Option<FolderKind> {
 fn default_name(kind: FolderKind) -> Option<&'static str> {
     match kind {
         FolderKind::Inbox => Some("Inbox"),
+        FolderKind::Outbox => Some("Outbox"),
         FolderKind::Drafts => Some("Drafts"),
         FolderKind::Sent => Some("Sent"),
         FolderKind::Archive => Some("Archive"),
         FolderKind::Spam => Some("Spam"),
         FolderKind::Trash => Some("Trash"),
         FolderKind::Custom => None,
-    }
-}
-
-/// Folder order in the tree, as in The Bat!: Inbox, Drafts, Sent, own folders, then the rest.
-fn kind_rank(kind: FolderKind) -> u8 {
-    match kind {
-        FolderKind::Inbox => 0,
-        FolderKind::Drafts => 1,
-        FolderKind::Sent => 2,
-        FolderKind::Custom => 3,
-        FolderKind::Archive => 4,
-        FolderKind::Spam => 5,
-        FolderKind::Trash => 6,
     }
 }
 
@@ -999,7 +1022,7 @@ mod tests {
     use super::*;
     use crate::model::AccountSetup;
     use std::net::SocketAddr;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpListener;
 
     #[test]
@@ -1208,17 +1231,34 @@ mod tests {
 
     async fn serve(socket: TcpStream, server: Shared) -> std::io::Result<()> {
         let (read, mut write) = socket.into_split();
-        let mut lines = BufReader::new(read).lines();
+        let mut reader = BufReader::new(read);
         write
             .write_all(b"* OK [CAPABILITY IMAP4rev1] Fake IMAP ready\r\n")
             .await?;
         let mut selected = 0;
-        while let Some(line) = lines.next_line().await? {
+        loop {
+            let mut buf = String::new();
+            if reader.read_line(&mut buf).await? == 0 {
+                break;
+            }
+            let line = buf.trim_end_matches(['\r', '\n']).to_owned();
+            // A command ending in {n} sends n more bytes (a literal) after our "+".
+            let literal = match line.rfind('{').filter(|_| line.ends_with('}')) {
+                Some(open) => {
+                    let n: usize = line[open + 1..line.len() - 1].parse().unwrap_or(0);
+                    write.write_all(b"+ Ready for literal data\r\n").await?;
+                    let mut data = vec![0; n];
+                    reader.read_exact(&mut data).await?;
+                    reader.read_line(&mut String::new()).await?; // the CRLF after it
+                    data
+                }
+                None => Vec::new(),
+            };
             let (tag, command) = line.split_once(' ').unwrap_or((&line, ""));
             let reply = {
                 let mut s = server.lock().unwrap();
                 s.commands.push(command.to_owned());
-                respond(&mut s, tag, command, &mut selected)
+                respond(&mut s, tag, command, literal, &mut selected)
             };
             write.write_all(&reply).await?;
             if command.eq_ignore_ascii_case("LOGOUT") {
@@ -1248,7 +1288,13 @@ mod tests {
         }
     }
 
-    fn respond(s: &mut FakeServer, tag: &str, command: &str, selected: &mut usize) -> Vec<u8> {
+    fn respond(
+        s: &mut FakeServer,
+        tag: &str,
+        command: &str,
+        literal: Vec<u8>,
+        selected: &mut usize,
+    ) -> Vec<u8> {
         let upper = command.to_ascii_uppercase();
         let uidplus = s.capabilities.contains("UIDPLUS");
         let mut out = Reply::default();
@@ -1417,6 +1463,34 @@ mod tests {
                 !gone
             });
             out.line(format!("{tag} OK EXPUNGE completed\r\n"));
+        } else if let Some(rest) = upper.strip_prefix("APPEND ").map(|_| &command[7..]) {
+            // APPEND "Sent" (\Seen) {123}
+            let (name, after) = match rest.strip_prefix('"') {
+                Some(quoted) => quoted.split_once('"').unwrap_or((quoted, "")),
+                None => rest.split_once(' ').unwrap_or((rest, "")),
+            };
+            let flags: Vec<String> = after
+                .trim()
+                .strip_prefix('(')
+                .and_then(|f| f.split_once(')'))
+                .map(|(f, _)| f.split_whitespace().map(str::to_owned).collect())
+                .unwrap_or_default();
+            match s.boxes.iter_mut().find(|b| b.name == name) {
+                Some(b) => {
+                    let uid = b.next_uid;
+                    b.next_uid += 1;
+                    b.mail.push(FakeMail {
+                        uid,
+                        flags,
+                        raw: literal,
+                    });
+                    out.line(format!(
+                        "{tag} OK [APPENDUID {} {uid}] APPEND completed\r\n",
+                        b.uid_validity
+                    ));
+                }
+                None => out.line(format!("{tag} NO [TRYCREATE] No such mailbox\r\n")),
+            }
         } else if upper == "LOGOUT" {
             out.line(format!(
                 "* BYE Fake IMAP logging out\r\n{tag} OK LOGOUT completed\r\n"
@@ -1458,6 +1532,7 @@ mod tests {
                 host: "localhost".into(),
                 port: 993,
                 username: "biuro@twojastudio.pl".into(),
+                ..Default::default()
             })
             .unwrap();
         (Mutex::new(store), account)
@@ -1522,6 +1597,7 @@ mod tests {
                 folders,
                 [
                     ("inbox".into(), "Inbox".into(), FolderKind::Inbox),
+                    ("outbox".into(), "Outbox".into(), FolderKind::Outbox),
                     ("wysłane".into(), "Sent".into(), FolderKind::Sent),
                     (
                         "projekty-klinika".into(),
@@ -1837,6 +1913,55 @@ mod tests {
             .unwrap()
             .has_pending_changes(&account.id)
             .unwrap());
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn sent_mail_is_saved_in_sent_once() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        // What smtp::send_outbox leaves behind: the message filed in Sent, a copy queued.
+        let raw = b"Message-ID: <wyslana.1@twojastudio.pl>\r\nFrom: biuro@twojastudio.pl\r\n\
+To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85czeniu.\r\n";
+        let id = {
+            let mut s = store.lock().unwrap();
+            let message = parse_message(raw, "", None);
+            let id = s
+                .queue_outgoing(
+                    &account.id,
+                    &message,
+                    raw,
+                    "biuro@twojastudio.pl",
+                    &["anna@kowalska-architekci.pl".into()],
+                    None,
+                )
+                .unwrap();
+            s.outgoing_sent(id, chrono::Local::now().naive_local())
+                .unwrap();
+            id
+        };
+        let report = sync_all(&mut session, &account, &store, &no_progress)
+            .await
+            .unwrap();
+        assert!(
+            report.refused.is_empty() && report.new.is_empty(),
+            "{report:?}"
+        );
+
+        let copy = server.lock().unwrap().mail("Wys&AUI-ane", "Oferta");
+        assert_eq!(copy.raw, raw, "the exact bytes that were sent");
+        assert!(copy.has("\\Seen"));
+        {
+            let s = store.lock().unwrap();
+            let sent = s.list(&account.folder_key("wysłane")).unwrap();
+            assert_eq!(sent.len(), 2, "the old one and this one, no duplicate");
+            assert!(sent.iter().any(|m| m.id == id));
+            assert_eq!(
+                s.local_uids(&account.folder_key("wysłane")).unwrap().len(),
+                2,
+                "the download gave it its UID"
+            );
+            assert!(!s.has_pending_changes(&account.id).unwrap());
+        }
         logout(&mut session).await;
     }
 

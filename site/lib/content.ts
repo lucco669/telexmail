@@ -40,9 +40,10 @@ export const shortcuts: Shortcut[] = [
   { id: 'replyall', keys: [['Shift', 'R']], action: 'Reply to all', match: [{ key: 'R', shift: true }] },
   { id: 'forward', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }] },
   { id: 'new', keys: [['N']], action: 'New message', match: [{ key: 'n' }] },
+  { id: 'edit', keys: [['E']], action: 'Edit a draft or unsent message', match: [{ key: 'e' }] },
   { id: 'flag', keys: [['F']], action: 'Flag / unflag', match: [{ key: 'f' }] },
   { id: 'unread', keys: [['U']], action: 'Toggle unread', match: [{ key: 'u' }] },
-  { id: 'delete', keys: [['Del']], action: 'Move to Trash', match: [{ key: 'Delete' }] },
+  { id: 'delete', keys: [['Del']], action: 'Move to Trash · in Trash, twice to delete', match: [{ key: 'Delete' }] },
   { id: 'undo', keys: [['Z']], action: 'Undo last delete', match: [{ key: 'z' }] },
   { id: 'filter', keys: [['/']], action: 'Quick filter', match: [{ key: '/' }] },
   { id: 'esc', keys: [['Esc']], action: 'Clear filter · save draft and close', match: [{ key: 'Escape' }] },
@@ -105,11 +106,15 @@ export const roadmap: Step[] = [
     text: 'Reading, flagging, moving and deleting reach the server. Changes wait in a queue that survives restarts and lost connections.',
     status: 'done',
   },
-  { title: 'Sending', text: 'SMTP with an outbox that retries, and a copy in Sent on the server.', status: 'next' },
+  {
+    title: 'Sending',
+    text: 'SMTP over SSL/TLS or STARTTLS, an Outbox that retries, a copy in Sent on the server, and E to fix and resend.',
+    status: 'done',
+  },
   {
     title: 'HTML mail',
     text: 'Rendered in a sandbox without scripts. Remote content stays blocked until you allow it, per message or per sender.',
-    status: 'later',
+    status: 'next',
   },
   {
     title: 'Filters',
@@ -123,8 +128,8 @@ export const roadmap: Step[] = [
 
 export const faq = [
   {
-    q: 'Can Telex send mail yet?',
-    a: 'Not yet. Today Telex reads and organizes your mail, in sync with the server; what you write is filed in Sent or Drafts on your PC. Sending over SMTP is next on the roadmap.',
+    q: 'Can Telex send mail?',
+    a: 'Yes, over SMTP with SSL/TLS or STARTTLS, using the same login as IMAP. Mail goes through an Outbox: if the connection drops, it waits and goes out at the next check, and a copy is saved in Sent on the server. A message only counts as sent once your server has accepted it.',
   },
   {
     q: 'Does it work with Gmail or Outlook.com?',

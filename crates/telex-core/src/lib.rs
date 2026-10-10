@@ -11,6 +11,7 @@ pub mod imap;
 pub mod mime;
 pub mod model;
 pub mod sample;
+pub mod smtp;
 pub mod store;
 
 pub use model::*;

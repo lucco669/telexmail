@@ -26,10 +26,11 @@ const I = {
   sent: sv('<path d="M14 2L2 7l5 2 2 5z"/><path d="M7 9l3-3"/>'),
   archive: sv('<rect x="2" y="3" width="12" height="3" rx=".6"/><path d="M3 6v7h10V6M6.5 8.5h3"/>'),
   spam: sv('<circle cx="8" cy="8" r="5.5"/><path d="M4.2 11.8l7.6-7.6"/>'),
+  outbox: sv('<path d="M2 9h3.5l1 1.5h3l1-1.5H14"/><path d="M2 9v4.5h12V9"/><path d="M8 7.5V1.8M5.6 4.2L8 1.8l2.4 2.4"/>'),
   mail: sv('<rect x="1.5" y="3" width="13" height="10" rx="1.2"/><path d="M2 4l6 5 6-5"/>'),
   plus: sv('<path d="M8 3v10M3 8h10"/>'),
 };
-const KIND_ICON = {inbox:'inbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
+const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
 
 /* ---------- data (filled from Rust) ---------- */
 let ACCOUNTS = [], ACCT = {}, MSGS = [];
@@ -59,7 +60,8 @@ async function load(){
   MSGS = snap.messages.map(fromSummary);
 }
 // Commands that change mail; the core queues them for the server and we push shortly after.
-const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message']);
+// send_message counts: a sent message's copy for the server's Sent folder is queued too.
+const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message']);
 async function call(cmd, args){
   try {
     const result = await invoke(cmd, args);
@@ -115,7 +117,7 @@ const acctId = key => key.split('/')[0];
 const folderOf = key => { const [a, f] = key.split('/'); return ACCT[a]?.folders.find(x => x.id === f); };
 const folderName = key => folderOf(key)?.name ?? key;
 const kindOf = key => folderOf(key)?.kind;
-const isOut = key => kindOf(key) === 'sent' || kindOf(key) === 'drafts';
+const isOut = key => ['sent', 'drafts', 'outbox'].includes(kindOf(key));
 const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.kind === kind); return f ? acct + '/' + f.id : null; };
 const homeOf = acct => keyOfKind(acct, 'inbox') || (ACCT[acct]?.folders[0] ? acct + '/' + ACCT[acct].folders[0].id : '');
 const inFolder = key => MSGS.filter(m => m.f === key);
@@ -176,7 +178,7 @@ function renderTree(){
   treeEl.innerHTML = ACCOUNTS.map(a => {
     const open = !state.collapsed[a.id];
     const items = open ? '<ul>' + a.folders.map(f => {
-      const key = a.id + '/' + f.id, drafts = f.kind === 'drafts';
+      const key = a.id + '/' + f.id, drafts = f.kind === 'drafts' || f.kind === 'outbox'; // these count everything, not unread
       const n = drafts ? inFolder(key).length : unreadIn(key);
       const cnt = n ? `<span class="cnt${drafts ? ' dim' : ''}">${n}</span>` : '';
       const on = key === state.folder;
@@ -344,22 +346,30 @@ function quoted(m){
   const lines = m.body.split('\n').filter(l => !/^\[img:/.test(l)).map(l => l.startsWith('>') ? '>' + l : '> ' + l);
   return head + '\n' + lines.join('\n');
 }
+// kind: new, reply, replyall, forward, or edit (a draft or an unsent message in the Outbox).
 async function openCompose(kind){
   const s = current();
   if (kind !== 'new' && !s){ say('Select a message first.'); return; }
-  const c = {kind, account:acctId(state.folder), to:'', cc:'', subject:'', body:'\n\nPozdrawiam\n', attachments:[]};
+  if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say('Only drafts and unsent messages in the Outbox can be edited.'); return; }
+  const c = {kind, account:acctId(state.folder), to:'', cc:'', subject:'', body:'\n\nPozdrawiam\n', attachments:[],
+    replyTo:null, forwardOf:null, replaces:null};
   if (kind !== 'new'){
     let m;
     try { m = await full(s.id); } catch (e){ say(String(e)); return; }
     const out = isOut(s.f);
-    if (kind === 'reply' || kind === 'replyall'){
+    if (kind === 'edit'){
+      // Attachments come from the old message itself, which Send replaces.
+      Object.assign(c, {to:m.to, cc:m.cc, subject:m.subject, body:m.body, attachments:m.attachments.slice(), forwardOf:m.id, replaces:m.id});
+    } else if (kind === 'reply' || kind === 'replyall'){
       c.to = out ? m.to : `${m.from_name} <${m.from_email}>`;
       if (kind === 'replyall') c.cc = m.cc;
       c.subject = 'Re: ' + stripPrefix(m.subject);
       c.body = '\n\nPozdrawiam\n\n' + quoted(m);
+      c.replyTo = m.id;
     } else {
       c.subject = 'Fwd: ' + stripPrefix(m.subject);
       c.attachments = m.attachments.slice();
+      c.forwardOf = m.id;
       c.body = `\n\n-------- Przekazana wiadomość --------\nOd: ${m.from_name} <${m.from_email}>\nData: ${fmtFull(parseDate(m.date))}\nTemat: ${m.subject}\n\n`
         + m.body.split('\n').filter(l => !/^\[img:/.test(l)).join('\n');
     }
@@ -369,7 +379,9 @@ async function openCompose(kind){
 }
 function renderCompose(){
   const c = state.compose, a = ACCT[c.account];
-  const title = {new:'New message', reply:'Reply', replyall:'Reply to all', forward:'Forward'}[c.kind];
+  const title = {new:'New message', reply:'Reply', replyall:'Reply to all', forward:'Forward', edit:'Edit'}[c.kind];
+  const note = SAMPLE ? 'Sample mailbox: Send only files the message in Sent.'
+    : !a.smtp ? 'This account has no SMTP server yet: edit it under Add account to send.' : '';
   previewEl.innerHTML = `<form class="compose" id="cform" novalidate>
 <div class="ctitle">${title}<span>from ${esc(a.email)}</span></div>
 <div class="cf">
@@ -383,13 +395,15 @@ ${attsHtml(c.attachments)}
   <button class="btn primary" type="submit">Send <kbd>Ctrl+Enter</kbd></button>
   <button class="btn" type="button" data-act="draft">Save draft <kbd>Esc</kbd></button>
   <button class="btn" type="button" data-act="discard">Discard</button>
-  <span class="cnote">Sending isn’t connected yet: Send files the message in Sent.</span>
+  <span class="cnote">${esc(note)}</span>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
   const t = $('c-body');
-  if (c.kind === 'new' || c.kind === 'forward') $('c-to').focus();
+  if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else { t.focus(); t.setSelectionRange(0, 0); t.scrollTop = 0; }
 }
+const draftOf = c => ({account:c.account, to:c.to, cc:c.cc, subject:c.subject || '(no subject)', body:c.body.replace(/^\n+/, ''),
+  attachments:c.attachments, reply_to:c.replyTo, forward_of:c.forwardOf, replaces:c.replaces});
 function readCompose(){
   const c = state.compose;
   c.to = $('c-to').value.trim(); c.cc = $('c-cc').value.trim(); c.subject = $('c-subj').value.trim(); c.body = $('c-body').value;
@@ -397,8 +411,7 @@ function readCompose(){
 }
 // Files the compose content in Sent (send = true) or Drafts. Resolves to true when it worked.
 async function closeCompose(send){
-  const c = readCompose();
-  const draft = {account:c.account, to:c.to, cc:c.cc, subject:c.subject || '(no subject)', body:c.body.replace(/^\n+/, ''), attachments:c.attachments};
+  const draft = draftOf(readCompose());
   try { await call('save_outgoing', {draft, send}); } catch { return false; }
   state.compose = null;
   await load();
@@ -406,9 +419,28 @@ async function closeCompose(send){
   listEl.focus();
   return true;
 }
+// Real mail goes to the Outbox and out at once. It's only called sent once the SMTP
+// server has taken it; otherwise it waits in the Outbox and the status says why.
 async function send(){
-  if (!$('c-to').value.trim()){ say('Add at least one recipient in To.'); $('c-to').focus(); return; }
-  if (await closeCompose(true)) say('Filed in Sent. Sending isn’t connected yet, so nothing left your computer.', 7000);
+  if (!$('c-to').value.trim() && !$('c-cc').value.trim()){ say('Add at least one recipient in To.'); $('c-to').focus(); return; }
+  if (SAMPLE){
+    if (await closeCompose(true)) say('Filed in Sent. This is the sample mailbox, so nothing left your computer.', 7000);
+    return;
+  }
+  const btn = document.querySelector('#cform .btn.primary');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true; btn.firstChild.textContent = 'Sending… ';
+  say('Sending…', 0);
+  let r;
+  try { r = await call('send_message', {draft:draftOf(readCompose())}); }
+  catch { btn.disabled = false; btn.firstChild.textContent = 'Send '; return; } // e.g. a bad address: fix it and try again
+  state.compose = null;
+  await load();
+  renderAll();
+  listEl.focus();
+  const sent = r.sent.length === 1 ? `Sent ${r.sent[0]}.` : r.sent.length ? `Sent ${r.sent.length} messages.` : '';
+  if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
+  else say(sent || 'In the Outbox. It goes out with the next check.', 6000);
 }
 
 /* ---------- actions ---------- */
@@ -485,6 +517,7 @@ async function getMail({quiet = false, first = false} = {}){
       const where = m ? `${ACCT[acctId(m.f)].name} › ${folderName(m.f)}` : '';
       text = `${count}${where ? ' in ' + where : ''}.`;
     } else if (!quiet) text = 'No new messages.';
+    if (r.sent?.length) text = [r.sent.length === 1 ? `Sent ${r.sent[0]}.` : `Sent ${r.sent.length} messages.`, text].filter(Boolean).join(' ');
     if (r.errors.length) text = [r.errors.join(' · '), text].filter(Boolean).join(' · ');
     say(text, r.errors.length ? 15000 : 6000);
   } catch (e){ if (!quiet) say(String(e), 8000); }
@@ -532,26 +565,51 @@ qEl.addEventListener('input', () => {
 
 /* ---------- account dialog ---------- */
 const dlg = $('acct-dlg'), aForm = $('acct-form'), aErr = $('a-err');
+let editing = null; // id of the account being edited, or null when adding
 function openAccountDialog(){
   aForm.reset();
+  editing = null;
   aErr.textContent = '';
+  $('acct-title').textContent = 'Add a mail account';
+  $('a-go').querySelector('span').textContent = 'Connect';
   $('a-host').placeholder = 'mail.example.com';
   $('a-user').placeholder = 'Same as email';
+  $('a-pass').placeholder = '';
   renderAccountList();
   dlg.showModal();
   $('a-email').focus();
 }
+// Fill the form with an account's settings; the password stays empty and is kept if left so.
+function editAccount(id){
+  const a = ACCT[id]; if (!a?.imap) return;
+  editing = id;
+  aErr.textContent = '';
+  $('acct-title').textContent = 'Edit ' + a.name;
+  $('a-go').querySelector('span').textContent = 'Save';
+  $('a-email').value = a.email; $('a-name').value = a.name;
+  $('a-host').value = a.imap.host; $('a-port').value = a.imap.port; $('a-user').value = a.imap.username;
+  $('a-smtp').value = a.smtp?.host ?? ''; $('a-sec').value = a.smtp?.security ?? 'tls';
+  $('a-sport').value = a.smtp?.port ?? 465;
+  $('a-pass').value = ''; $('a-pass').placeholder = 'Leave empty to keep the saved password';
+  $(a.smtp ? 'a-pass' : 'a-smtp').focus();
+}
 function renderAccountList(){
   const real = ACCOUNTS.filter(a => a.imap);
   $('a-list').innerHTML = real.length ? '<h3>Connected</h3>' + real.map(a => {
-    const where = `${a.email} · ${a.imap.host}`;
-    return `<div class="dacct"><span class="nm">${esc(a.name)}</span><span class="em" title="${esc(where)}">${esc(where)}</span><button type="button" class="btn danger" data-remove="${esc(a.id)}">Remove</button></div>`;
-  }).join('') + '<p class="dnote">To change a password or server, add the same address again.</p>' : '';
+    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · no SMTP server yet'}`;
+    return `<div class="dacct"><span class="nm">${esc(a.name)}</span><span class="em" title="${esc(where)}">${esc(where)}</span>`
+      + `<button type="button" class="btn" data-edit="${esc(a.id)}">Edit</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">Remove</button></div>`;
+  }).join('') : '';
 }
 $('a-email').addEventListener('input', () => {
   const email = $('a-email').value.trim(), domain = email.split('@')[1] || '';
   $('a-host').placeholder = domain.includes('.') ? 'e.g. mail.' + domain : 'mail.example.com';
   $('a-user').placeholder = email || 'Same as email';
+});
+// The usual ports follow the security choice, unless the user typed another one.
+$('a-sec').addEventListener('change', () => {
+  const p = $('a-sport');
+  if (['465', '587', ''].includes(p.value)) p.value = $('a-sec').value === 'starttls' ? 587 : 465;
 });
 $('st-sample').addEventListener('click', openAccountDialog);
 $('a-cancel').addEventListener('click', () => dlg.close());
@@ -560,23 +618,35 @@ aForm.addEventListener('submit', async e => {
   e.preventDefault();
   const go = $('a-go'), label = go.querySelector('span');
   if (go.disabled) return;
-  const port = Number($('a-port').value);
-  if (!Number.isInteger(port) || port < 1 || port > 65535){ aErr.textContent = 'The port is a number from 1 to 65535. For SSL/TLS it is usually 993.'; $('a-port').focus(); return; }
-  const setup = {name:$('a-name').value, email:$('a-email').value, host:$('a-host').value, port, username:$('a-user').value};
+  const port = Number($('a-port').value), smtpPort = Number($('a-sport').value || 0);
+  const badPort = p => !Number.isInteger(p) || p < 0 || p > 65535;
+  if (badPort(port) || !port){ aErr.textContent = 'The IMAP port is a number from 1 to 65535. For SSL/TLS it is usually 993.'; $('a-port').focus(); return; }
+  if (badPort(smtpPort)){ aErr.textContent = 'The SMTP port is a number from 1 to 65535: usually 465 for SSL/TLS, 587 for STARTTLS.'; $('a-sport').focus(); return; }
+  const setup = {name:$('a-name').value, email:$('a-email').value, host:$('a-host').value, port, username:$('a-user').value,
+    smtp_host:$('a-smtp').value, smtp_port:smtpPort, smtp_security:$('a-sec').value};
+  const wasEditing = editing;
   aErr.textContent = '';
   go.disabled = true; label.textContent = 'Connecting…';
   let account;
   try { account = await invoke('add_account', {setup, password:$('a-pass').value}); }
   catch (err){ aErr.textContent = String(err); return; }
-  finally { go.disabled = false; label.textContent = 'Connect'; }
+  finally { go.disabled = false; label.textContent = editing ? 'Save' : 'Connect'; }
   aForm.reset();
   dlg.close();
   await load();
+  if (wasEditing){
+    renderAll();
+    say(`Saved ${account.name}.`);
+    getMail({quiet:true}); // the Outbox may have waited for these settings
+    return;
+  }
   setFolder(homeOf(account.id));
   say(`Connected to ${account.email}. Downloading mail…`, 0);
   getMail({first:true});
 });
 $('a-list').addEventListener('click', async e => {
+  const ed = e.target.closest('[data-edit]');
+  if (ed){ editAccount(ed.dataset.edit); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Remove it and its local mail'; return; }
@@ -610,6 +680,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'f') toggleFlag();
   else if (k === 'u' || k === 'U') toggleUnread();
   else if (k === 'n' || k === 'N') openCompose('new');
+  else if (k === 'e' || k === 'E') openCompose('edit');
   else if (k === 'z' || k === 'Z') undo();
   else if (k === '/') qEl.focus();
   else return;

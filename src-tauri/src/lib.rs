@@ -11,6 +11,7 @@ use chrono::Local;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use telex_core::imap::{self, SyncProgress};
+use telex_core::smtp::{self, Originals, SendError};
 use telex_core::{
     sample::sample_store, Account, AccountSetup, DeleteOutcome, FolderKind, MailStore, Message,
     MessageId, OutgoingDraft, Snapshot, StoreError,
@@ -20,9 +21,11 @@ struct AppState {
     store: Mutex<MailStore>,
     /// The user's mail base: %APPDATA%\app.telexmail.desktop\telex.db.
     db_path: PathBuf,
-    /// Telex is talking to the servers (a check or a push). Another one waits its turn
-    /// instead of sending the same changes twice.
+    /// Telex is talking to the IMAP servers (a check or a push). Another one waits its
+    /// turn instead of sending the same changes twice.
     busy: AtomicBool,
+    /// An Outbox is being sent. A second sender would send the same mail twice.
+    sending: AtomicBool,
 }
 
 /// Errors cross the IPC bridge as plain, user-readable strings.
@@ -90,8 +93,8 @@ fn delete_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<Delete
     with_store(&state, |s| s.delete(id))
 }
 
-/// `send: true` files the message in Sent, `false` in Drafts.
-/// SMTP is not connected yet, so nothing actually leaves the computer.
+/// `send: false` saves a draft. `send: true` is for the sample mailbox only, which can't
+/// really send: it files the message in Sent. Real mail goes through `send_message`.
 #[tauri::command]
 fn save_outgoing(
     state: State<'_, AppState>,
@@ -114,9 +117,10 @@ fn search(state: State<'_, AppState>, query: String) -> CmdResult<Vec<MessageId>
     with_store(&state, |s| s.search(&query))
 }
 
-/// Check the settings by logging in, then save the account and its password.
-/// The first account replaces the sample mailbox with the user's own mail base.
-/// Adding an address that already exists updates it (new server or password).
+/// Check the settings by logging in to IMAP and SMTP, then save the account and its
+/// password. The first account replaces the sample mailbox with the user's own mail base.
+/// Adding an address that already exists updates it; an empty password then keeps the
+/// saved one.
 #[tauri::command]
 async fn add_account(
     state: State<'_, AppState>,
@@ -124,12 +128,22 @@ async fn add_account(
     password: String,
 ) -> CmdResult<Account> {
     let setup = setup.cleaned()?;
-    if password.is_empty() {
-        return Err("Enter the password.".into());
-    }
+    let known = with_store(&state, |s| {
+        Ok(s.accounts()
+            .iter()
+            .any(|a| a.imap.is_some() && a.email.eq_ignore_ascii_case(&setup.email)))
+    })?;
+    let password = match (password.is_empty(), known) {
+        (false, _) => password,
+        (true, true) => secrets::load_password(&setup.email).map_err(|e| capitalize(&e))?,
+        (true, false) => return Err("Enter the password.".into()),
+    };
     let folders = imap::check_account(&setup.imap_settings(), &password)
         .await
         .map_err(|e| capitalize(&e.to_string()))?;
+    smtp::check(&setup.smtp_settings(), &setup.username, &password)
+        .await
+        .map_err(|e| format!("IMAP works, but sending doesn't: {e}."))?;
     secrets::save_password(&setup.email, &password)?;
     with_store(&state, |s| {
         if s.is_sample() {
@@ -163,6 +177,8 @@ fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
 struct SyncOutcome {
     /// Ids of messages that arrived.
     new: Vec<MessageId>,
+    /// One line per message sent from an Outbox: `"Re: Wycena" to Anna Kowalska`.
+    sent: Vec<String>,
     /// One line per problem, e.g. "Studio: can't reach mail.x.pl: …".
     errors: Vec<String>,
     /// Another check or push was running, so this one didn't start. Try again shortly.
@@ -229,6 +245,8 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
     };
     let mut outcome = SyncOutcome::default();
     for account in server_accounts(&state)? {
+        // Send first, so the copies for Sent go to the server in this same sync.
+        send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
         let result = match secrets::load_password(&account.email) {
             Ok(password) => imap::sync_account(&account, &password, &state.store, &progress)
                 .await
@@ -247,6 +265,103 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
         }
     }
     Ok(outcome)
+}
+
+#[derive(Debug, Default, Serialize)]
+struct SendOutcome {
+    /// The message's id in the Outbox (or, for the sample mailbox, in Sent).
+    queued: MessageId,
+    /// One line per message the SMTP server accepted, this one and any that waited.
+    sent: Vec<String>,
+    errors: Vec<String>,
+    /// The sample mailbox can't send; the message was only filed in Sent.
+    sample: bool,
+}
+
+/// Send a message: build it, put it in the Outbox and send the Outbox right away. It
+/// only counts as sent once the SMTP server accepts it; until then it waits in the
+/// Outbox and goes out at the next check.
+#[tauri::command]
+async fn send_message(state: State<'_, AppState>, draft: OutgoingDraft) -> CmdResult<SendOutcome> {
+    if with_store(&state, |s| Ok(s.is_sample()))? {
+        let queued = with_store(&state, |s| {
+            s.save_outgoing(draft, FolderKind::Sent, Local::now().naive_local())
+        })?;
+        return Ok(SendOutcome {
+            queued,
+            sample: true,
+            ..SendOutcome::default()
+        });
+    }
+    let (account, originals) = with_store(&state, |s| {
+        let account = s.account(&draft.account)?.clone();
+        let raw = |id: Option<MessageId>| id.map(|id| s.raw_of(id)).transpose();
+        let originals = Originals {
+            replied: raw(draft.reply_to)?.flatten(),
+            forwarded: raw(draft.forward_of)?.flatten(),
+        };
+        Ok((account, originals))
+    })?;
+    let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
+    let queued = with_store(&state, |s| {
+        s.queue_outgoing(
+            &account.id,
+            &composed.message,
+            &composed.raw,
+            &composed.env_from,
+            &composed.env_to,
+            draft.replaces,
+        )
+    })?;
+    let mut outcome = SendOutcome {
+        queued,
+        ..SendOutcome::default()
+    };
+    send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
+    Ok(outcome)
+}
+
+/// Send what waits in the account's Outbox. If another send is running, it picks up
+/// new mail itself, so this one does nothing.
+async fn send_account_outbox(
+    state: &AppState,
+    account: &Account,
+    sent: &mut Vec<String>,
+    errors: &mut Vec<String>,
+) {
+    let Some(_sending) = BusyGuard::take(&state.sending) else {
+        return;
+    };
+    let has_mail = with_store(state, |s| s.has_outgoing(&account.id)).unwrap_or(false);
+    if !has_mail {
+        return;
+    }
+    let mut problem = |e: &str| errors.push(format!("{}: {e}", account.name));
+    let Some(settings) = &account.smtp else {
+        problem("no SMTP server is set, so the Outbox waits. Edit the account (under Add account) to add one");
+        return;
+    };
+    let username = account
+        .imap
+        .as_ref()
+        .map_or(account.email.as_str(), |i| i.username.as_str());
+    let password = match secrets::load_password(&account.email) {
+        Ok(p) => p,
+        Err(e) => return problem(&e),
+    };
+    let transport = match smtp::transport(settings, username, &password) {
+        Ok(t) => t,
+        Err(SendError::Refused(e) | SendError::Failed(e)) => return problem(&e),
+    };
+    match smtp::send_outbox(account, &transport, &state.store).await {
+        Ok(report) => {
+            sent.extend(report.sent);
+            for p in &report.problems {
+                problem(p);
+            }
+        }
+        Err(e) => problem(&e.to_string()),
+    }
 }
 
 /// Send queued changes (read state, flags, moves, deletes) to the servers now, without
@@ -284,6 +399,7 @@ pub fn run() {
                 store: Mutex::new(open_store(&db_path)),
                 db_path,
                 busy: AtomicBool::new(false),
+                sending: AtomicBool::new(false),
             });
             Ok(())
         })
@@ -300,6 +416,7 @@ pub fn run() {
             remove_account,
             check_mail,
             push_changes,
+            send_message,
         ])
         .run(tauri::generate_context!())
         .expect("Telex failed to start");

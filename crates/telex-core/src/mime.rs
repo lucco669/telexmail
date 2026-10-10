@@ -4,9 +4,18 @@
 //! charsets such as Windows-1250 and ISO-8859-2.
 
 use chrono::{DateTime, Local, NaiveDateTime};
-use mail_parser::{Address, MessageParser, MimeHeaders, PartType};
+use mail_parser::{Address, MessageParser, MessagePart, MimeHeaders, PartType};
 
 use crate::model::{Attachment, Message};
+
+/// An attachment's contents, for forwarding it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileAttachment {
+    pub name: String,
+    /// "application/pdf"
+    pub content_type: String,
+    pub data: Vec<u8>,
+}
 
 /// Parse `raw` into a message filed in `folder`. `fallback_date` (the server's
 /// INTERNALDATE) is used when the Date header is missing or unreadable.
@@ -72,17 +81,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
     let attachments = p
         .attachments()
         .map(|a| Attachment {
-            name: a.attachment_name().map_or_else(
-                || {
-                    if a.is_message() {
-                        "message.eml"
-                    } else {
-                        "attachment"
-                    }
-                    .to_owned()
-                },
-                str::to_owned,
-            ),
+            name: file_name(a),
             size_kb: kb(a.contents().len()),
         })
         .collect();
@@ -118,6 +117,54 @@ pub fn parse_message_id(raw: &[u8]) -> Option<String> {
         .parse_headers(raw)?
         .message_id()
         .map(str::to_owned)
+}
+
+/// The Message-ID and References of a message (without angle brackets), so a reply can
+/// say which conversation it belongs to.
+pub fn thread_ids(raw: &[u8]) -> (Option<String>, Vec<String>) {
+    let Some(p) = MessageParser::default().parse_headers(raw) else {
+        return (None, Vec::new());
+    };
+    let references = match (p.references().as_text_list(), p.references().as_text()) {
+        (Some(list), _) => list.iter().map(|r| r.to_string()).collect(),
+        (None, Some(one)) => vec![one.to_owned()],
+        (None, None) => Vec::new(),
+    };
+    (p.message_id().map(str::to_owned), references)
+}
+
+/// The attachments of a message, with their contents, for forwarding.
+pub fn attachments_of(raw: &[u8]) -> Vec<FileAttachment> {
+    let Some(p) = MessageParser::default().parse(raw) else {
+        return Vec::new();
+    };
+    p.attachments()
+        .map(|a| FileAttachment {
+            name: file_name(a),
+            content_type: a.content_type().map_or_else(
+                || "application/octet-stream".to_owned(),
+                |ct| match ct.subtype() {
+                    Some(sub) => format!("{}/{sub}", ct.ctype()),
+                    None => ct.ctype().to_owned(),
+                },
+            ),
+            data: a.contents().to_vec(),
+        })
+        .collect()
+}
+
+fn file_name(part: &MessagePart<'_>) -> String {
+    part.attachment_name().map_or_else(
+        || {
+            if part.is_message() {
+                "message.eml"
+            } else {
+                "attachment"
+            }
+            .to_owned()
+        },
+        str::to_owned,
+    )
 }
 
 /// "Anna Kowalska <anna@x.pl>, piotr@y.pl", the way the compose pane writes recipients.
