@@ -291,6 +291,25 @@ tr.empty:hover td{background:none}
 .rh{margin:12px 14px 6px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .rcheck{display:flex;align-items:center;gap:7px;margin:12px 14px 10px;font-size:12px}
 
+/* Folder picker: M moves, G goes */
+.dlg.pick{width:min(420px,calc(100vw - 32px));margin-top:12vh}
+.pkbox{padding:8px 14px 6px}
+.pkbox input{width:100%;height:28px;padding:0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:13px}
+.pkbox input:focus{border-color:var(--accent);outline:0}
+.pklist{max-height:min(46vh,340px);margin:0;padding:0 6px 6px;overflow:auto;list-style:none}
+.pklist li{display:flex;align-items:center;gap:7px;min-height:26px;padding:0 8px;border-radius:3px;font-size:12.5px;cursor:pointer}
+.pklist li svg{width:14px;height:14px;color:var(--muted)}
+.pklist li .adot{display:inline-block}
+.pklist li .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pklist li .em{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--muted)}
+.pklist li:hover{background:var(--hover)}
+.pklist li[aria-selected="true"]{background:var(--accent);color:var(--accent-fg)}
+.pklist li[aria-selected="true"] svg,.pklist li[aria-selected="true"] .em{color:inherit}
+.pklist li[aria-selected="true"] .adot{box-shadow:0 0 0 1.5px var(--accent-fg)}
+.pklist li.none{color:var(--muted);cursor:default}
+.pklist li.none:hover{background:none}
+.pknote{padding-top:4px}
+
 /* Update dialog */
 .ustate{margin:0;padding:6px 14px 4px;font-size:12.5px}
 .ustate:empty{display:none}
@@ -447,7 +466,8 @@ tr.empty:hover td{background:none}
    selection, pressed choices) gets the system's highlight; labels on tinted bars get borders. */
 @media (forced-colors: active){
   tbody tr.sel td,.list:focus tbody tr.sel td,tbody tr.picked td,.fold.active,.settabs [role="tab"][aria-selected="true"],
-  .seg2 input:checked+span,.langpick button[aria-pressed="true"],.seg button[aria-pressed="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .seg2 input:checked+span,.langpick button[aria-pressed="true"],.seg button[aria-pressed="true"],
+  .pklist li[aria-selected="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText}
   tr.unread .ic .dot{forced-color-adjust:none;background:CanvasText}
   .list:focus tr.sel.unread .ic .dot,tr.sel.unread .ic .dot{background:HighlightText}
   .bar,.whint,.derr,.tag,.chip,.ist,.pill,.qchip,.unote{border:1px solid CanvasText}

@@ -134,6 +134,8 @@ const nameOf = addr => {
 };
 // The core says what was sent as `"Subject" to Name`.
 const sentLine = s => String(s).replace(/^"(.*)" to (.*)$/, (_, subject, who) => t('“{subject}” to {who}', {subject, who}));
+// Lowercase without diacritics, for matching what is typed: "Łódź" → "lodz".
+const fold = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L').toLowerCase();
 const acctId = key => key.split('/')[0];
 const folderOf = key => { const [a, f] = key.split('/'); return ACCT[a]?.folders.find(x => x.id === f); };
 const folderName = key => { const f = folderOf(key); return !f ? key : KIND_NAME[f.kind] ? t(KIND_NAME[f.kind]) : f.name; };
@@ -160,6 +162,7 @@ const state = {
   collapsed:{}, compose:null, images:new Set(), white:new Set(), // white: HTML shown on white
   undo:null, // what Z takes back: {kind:'move', items:[{id, from}]} after a delete or move
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
+  recent: Array.isArray(saved.recent) ? saved.recent.slice(0, 8) : [], // folders last moved to or opened with M and G
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
 };
@@ -174,6 +177,7 @@ const persist = () => store.set({
   offered: state.offered || undefined,
   scope: state.scope === 'all' ? 'all' : undefined,
   more: Object.keys(state.more).length ? state.more : undefined,
+  recent: state.recent.length ? state.recent : undefined,
 });
 
 /* ---------- settings ---------- */
@@ -1187,7 +1191,21 @@ async function del(){
   if (!state.compose) renderPreview();
   await refresh({skip:ids.length === 1 ? ids[0] : undefined});
 }
-// Z: put back what was deleted last.
+// Move the picked messages (or the selected one) to a folder of their account; Z moves them back.
+async function moveChosen(folder){
+  const ids = chosen(); if (!ids.length) return;
+  const next = state.picked.size > 1 ? rowAfterPicked() : null;
+  let places;
+  try { places = await call('move_messages', {ids, folder}); } catch { return; }
+  state.undo = {kind:'move', items:places.filter(([, from]) => from !== folder).map(([id, from]) => ({id, from}))};
+  const n = ids.length, where = folderName(folder);
+  say(n === 1 ? t('Moved to {folder}. Press Z to undo.', {folder:where}) : tn(n, 'Moved {n} message to {folder}. Press Z to undo.', 'Moved {n} messages to {folder}. Press Z to undo.', {n:num(n), folder:where}));
+  unpick();
+  if (next){ state.sel[selKey()] = next.id; selRow = next; }
+  await refresh({skip:n === 1 ? ids[0] : undefined});
+  if (!state.compose) renderPreview();
+}
+// Z: put back what was deleted or moved last.
 async function undo(){
   const u = state.undo; if (!u) return;
   const groups = new Map();
@@ -1201,6 +1219,78 @@ async function undo(){
   await loadView();
   say(u.items.length === 1 ? t('Restored to {folder}.', {folder:folderName(first.from)}) : tn(u.items.length, 'Restored {n} message.', 'Restored {n} messages.', {n:num(u.items.length)}));
 }
+/* ---------- folder picker: M moves, G goes ---------- */
+// Type part of a folder's name (diacritics don't matter), ↑ ↓ to choose, Enter. Folders used
+// last come first. M lists the folders of the selected messages' account; G every folder.
+const pdlg = $('pick-dlg');
+let pick = null; // {mode, items:[{key, name, acct}], shown:[], at}
+function openPicker(mode){
+  if (state.compose || !ACCOUNTS.length) return;
+  let accts = ACCOUNTS.map(a => a.id), skip = null;
+  if (mode === 'move'){
+    const ids = chosen();
+    if (!ids.length){ say(t('Select a message first.')); return; }
+    const rows = state.picked.size > 1 ? pickedRows() : [current()];
+    const from = [...new Set(rows.map(r => acctId(r.f)))];
+    if (from.length > 1){ say(t('Messages from different accounts can’t be moved together.')); return; }
+    accts = from;
+    const folders = new Set(rows.map(r => r.f));
+    if (folders.size === 1) skip = [...folders][0];
+  }
+  const items = accts.flatMap(a => (ACCT[a]?.folders ?? [])
+    .filter(f => mode !== 'move' || f.kind !== 'outbox')
+    .map(f => ({key:a + '/' + f.id, name:folderName(a + '/' + f.id), acct:a}))
+    .filter(it => it.key !== skip));
+  pick = {mode, items, shown:[], at:0};
+  const n = chosen().length;
+  $('pk-title').textContent = mode === 'move' ? tn(n, 'Move {n} message to', 'Move {n} messages to', {n:num(n)}) : t('Go to folder');
+  $('pk-q').value = '';
+  filterPicker();
+  pdlg.showModal();
+  $('pk-q').focus();
+}
+function filterPicker(){
+  const q = fold($('pk-q').value.trim());
+  const ranked = pick.items.map((it, i) => {
+    const name = fold(it.name), recent = state.recent.indexOf(it.key);
+    const r = !q ? (recent >= 0 ? recent : 100 + i)
+      : name.startsWith(q) ? (recent >= 0 ? recent : 20) + i / 1000
+      : name.split(/[\s/._-]+/).some(w => w.startsWith(q)) ? 40 + i / 1000
+      : name.includes(q) ? 60 + i / 1000
+      : fold(ACCT[it.acct]?.email ?? '').startsWith(q) ? 80 + i / 1000 : -1;
+    return {it, r};
+  }).filter(x => x.r >= 0).sort((a, b) => a.r - b.r);
+  pick.shown = ranked.map(x => x.it);
+  pick.at = Math.min(pick.at, Math.max(0, pick.shown.length - 1));
+  const many = new Set(pick.items.map(it => it.acct)).size > 1; // say whose folder only when it isn't obvious
+  $('pk-list').innerHTML = pick.shown.length ? pick.shown.map((it, i) => {
+    const f = folderOf(it.key);
+    return `<li role="option" id="pk-${i}" data-i="${i}" aria-selected="${i === pick.at}">${I[KIND_ICON[f?.kind] || 'folder']}${many ? adot(it.acct) : ''}<span class="nm">${esc(it.name)}</span>${many ? `<span class="em">${esc(ACCT[it.acct]?.email ?? '')}</span>` : ''}</li>`;
+  }).join('') : `<li class="none">${esc(t('No folder matches.'))}</li>`;
+  $('pk-q').setAttribute('aria-activedescendant', pick.shown.length ? 'pk-' + pick.at : '');
+  $('pk-list').querySelector('[aria-selected="true"]')?.scrollIntoView({block:'nearest'});
+}
+function choosePicked(i){
+  const it = pick?.shown[i];
+  if (!it) return;
+  const mode = pick.mode;
+  pdlg.close();
+  state.recent = [it.key, ...state.recent.filter(k => k !== it.key)].slice(0, 8); persist();
+  if (mode === 'move') moveChosen(it.key);
+  else setFolder(it.key).then(() => listEl.focus({preventScroll:true}));
+}
+$('pk-q').addEventListener('input', () => { pick.at = 0; filterPicker(); });
+$('pk-q').addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    const n = pick.shown.length; if (!n) return;
+    pick.at = (pick.at + (e.key === 'ArrowDown' ? 1 : -1) + n) % n;
+    filterPicker();
+  } else if (e.key === 'Enter'){ e.preventDefault(); choosePicked(pick.at); }
+});
+$('pk-list').addEventListener('click', e => { const li = e.target.closest('[data-i]'); if (li) choosePicked(Number(li.dataset.i)); });
+pdlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
+
 // quiet: a background check, which speaks up only for new mail or errors.
 // first: the download right after adding an account.
 let checkAgain = null; // asked for while a check was running; runs when it ends
@@ -2305,6 +2395,8 @@ function onKey(e){
   else if (k === 'n' || k === 'N') openCompose('new');
   else if (k === 'e' || k === 'E') openCompose('edit');
   else if (k === 'h' || k === 'H') setView(!pref().prefer_text);
+  else if (k === 'm' || k === 'M') openPicker('move');
+  else if (k === 'g' || k === 'G') openPicker('go');
   else if (k === 'z' || k === 'Z') undo();
   else if (k === '/') qEl.focus();
   else return;

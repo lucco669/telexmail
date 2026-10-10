@@ -64,7 +64,7 @@
     <span id="st-folder"></span>
     <span id="st-msg"></span>
     <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates once a day? <button type="button" class="linkbtn" data-ask="daily" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
-    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span></span>
+    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span></span>
     <button class="chip" id="st-update" type="button" hidden></button>
     <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
     <span id="st-check"></span>
@@ -308,6 +308,14 @@
       <button class="btn" type="button" id="r-back" data-i18n>Back to the list</button>
     </div>
   </form>
+</dialog>
+
+<!-- M moves the selected messages, G opens a folder: type part of its name. -->
+<dialog class="dlg pick" id="pick-dlg" aria-labelledby="pk-title">
+  <h2 class="dtitle" id="pk-title">Go to folder</h2>
+  <div class="pkbox"><input id="pk-q" role="combobox" aria-expanded="true" aria-controls="pk-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Type part of a folder’s name" aria-label="Folder name" data-i18n></div>
+  <ul class="pklist" id="pk-list" role="listbox" aria-label="Folders" data-i18n></ul>
+  <p class="dnote pknote" data-i18n>↑ ↓ choose, Enter opens or moves, Esc closes.</p>
 </dialog>
 
 <script src="i18n.js"></script>

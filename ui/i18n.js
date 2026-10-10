@@ -463,9 +463,18 @@ const PL = {
   'read or unread': 'przeczytane lub nie',
   'clear the selection': 'odznacz',
   'Everything here was read already.': 'Wszystko tutaj było już przeczytane.',
+  'Moved to {folder}. Press Z to undo.': 'Przeniesiono do folderu {folder}. Z cofa.',
+  'Messages from different accounts can’t be moved together.': 'Wiadomości z różnych kont nie da się przenieść razem.',
+  'Go to folder': 'Przejdź do folderu',
+  'No folder matches.': 'Żaden folder nie pasuje.',
+  'move to': 'przenieś',
   'IMAP security': 'Zabezpieczenia IMAP',
   'SSL/TLS (usually port 993)': 'SSL/TLS (zwykle port 993)',
   'STARTTLS (usually port 143)': 'STARTTLS (zwykle port 143)',
+  'Type part of a folder’s name': 'Wpisz część nazwy folderu',
+  'Folder name': 'Nazwa folderu',
+  'Folders': 'Foldery',
+  '↑ ↓ choose, Enter opens or moves, Esc closes.': '↑ ↓ wybór, Enter otwiera albo przenosi, Esc zamyka.',
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest
@@ -517,7 +526,9 @@ const PL_N = {
   'Press Del again to delete {n} message for good.': ['Naciśnij Del jeszcze raz, żeby usunąć {n} wiadomość na zawsze.', 'Naciśnij Del jeszcze raz, żeby usunąć te {n} wiadomości na zawsze.', 'Naciśnij Del jeszcze raz, żeby usunąć tych {n} wiadomości na zawsze.'],
   'Moved {n} message to Trash. Press Z to undo.': ['Przeniesiono {n} wiadomość do Kosza. Z cofa.', 'Przeniesiono {n} wiadomości do Kosza. Z cofa.', 'Przeniesiono {n} wiadomości do Kosza. Z cofa.'],
   'Deleted {n} message for good.': ['Usunięto na zawsze {n} wiadomość.', 'Usunięto na zawsze {n} wiadomości.', 'Usunięto na zawsze {n} wiadomości.'],
+  'Moved {n} message to {folder}. Press Z to undo.': ['Przeniesiono {n} wiadomość do folderu {folder}. Z cofa.', 'Przeniesiono {n} wiadomości do folderu {folder}. Z cofa.', 'Przeniesiono {n} wiadomości do folderu {folder}. Z cofa.'],
   'Restored {n} message.': ['Przywrócono {n} wiadomość.', 'Przywrócono {n} wiadomości.', 'Przywrócono {n} wiadomości.'],
+  'Move {n} message to': ['Przenieś {n} wiadomość do', 'Przenieś {n} wiadomości do', 'Przenieś {n} wiadomości do'],
 };
 
 let lang = document.documentElement.lang === 'pl' ? 'pl' : 'en';
