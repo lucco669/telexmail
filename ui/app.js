@@ -943,7 +943,7 @@ previewEl.addEventListener('click', async e => {
     readCompose(); state.compose.showBcc = true; renderCompose(); $('c-bcc')?.focus();
   }
   if (act.dataset.act === 'attach' && state.compose) pickFiles();
-  if (act.dataset.act === 'discard'){ state.compose = null; renderPreview(); say(t('Message discarded.')); listEl.focus(); }
+  if (act.dataset.act === 'discard'){ state.compose = null; closeSuggestions(); renderPreview(); say(t('Message discarded.')); listEl.focus(); }
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
 });
@@ -959,6 +959,7 @@ async function openCompose(kind, preset = {}){
   if (kind !== 'new' && !s){ say(t('Select a message first.')); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say(t('Only drafts and unsent messages in the Outbox can be edited.')); return; }
   if (kind !== 'new' && state.picked.size > 1){ unpick(); paintSelection(); }
+  loadRecipients();
   let c;
   try {
     if (kind === 'edit'){
@@ -1018,9 +1019,9 @@ function renderCompose(){
 <div class="ctitle">${esc(title)}<label class="cfrom">${esc(t('from|compose'))} <select id="c-from" aria-label="${esc(t('From'))}">${fromOptions(c)}</select></label>
 <span class="seg cfmt" role="group" aria-label="${esc(t('Format'))}"><button type="button" data-fmt="plain" aria-pressed="${!html}" title="${esc(t('Plain text'))}">${esc(t('Text|view'))}</button><button type="button" data-fmt="html" aria-pressed="${html}" title="${esc(t('HTML: bold, lists, links'))}">HTML</button></span></div>
 <div class="cf">
-  <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false">
-  <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" title="${esc(t('Blind copy: they get it, the others don’t see them'))}">${esc(t('Bcc'))}</button>`}</div>
-  ${bcc ? `<label for="c-bcc">${esc(t('Bcc'))}</label><input id="c-bcc" value="${esc(c.bcc)}" autocomplete="off" spellcheck="false">` : ''}
+  <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">
+  <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" title="${esc(t('Blind copy: they get it, the others don’t see them'))}">${esc(t('Bcc'))}</button>`}</div>
+  ${bcc ? `<label for="c-bcc">${esc(t('Bcc'))}</label><input id="c-bcc" value="${esc(c.bcc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">` : ''}
   <label for="c-subj">${esc(t('Subject'))}</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="${spell}">
 </div>
 <div id="c-attbox">${attsHtml(c.attachments, true)}</div>
@@ -1037,13 +1038,104 @@ ${esc(c.body)}</textarea>`}
   <span class="cnote">${esc(note)}</span>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
+  // Enter in a header field doesn't send: Ctrl+Enter does.
+  $('cform').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && e.target.tagName === 'INPUT') e.preventDefault(); });
   $('c-from').addEventListener('change', e => changeIdentity(Number(e.target.value)));
   previewEl.querySelector('.cfmt').addEventListener('click', e => { const b = e.target.closest('[data-fmt]'); if (b) setFormat(b.dataset.fmt); });
+  ['c-to', 'c-cc', 'c-bcc'].forEach(id => { if ($(id)) wireSuggestions($(id)); });
   const body = html ? $('c-html') : $('c-body');
   if (html){ body.innerHTML = c.html; wireEditor(body); }
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else focusStart(body);
 }
+/* ---------- recipient suggestions ---------- */
+// People come from the mail base (recipients): those written to first, then those who write
+// most. Typing in To, Cc or Bcc shows the ones whose name or address has a word starting with
+// what was typed since the last comma; ↓ ↑ choose, Enter or Tab takes one, Esc closes.
+let RECIPS = null, recipsAsked = null;
+function loadRecipients(){
+  if (!recipsAsked) recipsAsked = invoke('recipients').then(r => { RECIPS = r; }).catch(() => { recipsAsked = null; });
+  return recipsAsked;
+}
+const forgetRecipients = () => { RECIPS = null; recipsAsked = null; };
+// "Kowalska, Anna" needs quotes in an address line; a plain name doesn't.
+const addressOf = p => !p.name ? p.email : /[",;<>@]/.test(p.name) ? `"${p.name.replace(/"/g, "'")}" <${p.email}>` : `${p.name} <${p.email}>`;
+// Where the address being typed starts: after the last comma or semicolon outside quotes.
+function tokenStart(text){
+  let start = 0, quoted = false;
+  for (let i = 0; i < text.length; i++){
+    if (text[i] === '"') quoted = !quoted;
+    else if (!quoted && (text[i] === ',' || text[i] === ';')) start = i + 1;
+  }
+  return start;
+}
+function matchesTyped(p, typed){
+  const words = fold(p.name + ' ' + p.email.replace(/[@.]/g, ' ')).split(/\s+/);
+  return words.some(w => w.startsWith(typed)) || fold(p.email).startsWith(typed);
+}
+const sugg = {input:null, list:[], at:0, el:null};
+function closeSuggestions(){
+  sugg.el?.remove();
+  if (sugg.input) sugg.input.removeAttribute('aria-activedescendant');
+  sugg.input = null; sugg.list = []; sugg.el = null;
+}
+function showSuggestions(input){
+  const text = input.value.slice(0, input.selectionStart ?? input.value.length);
+  const typed = fold(text.slice(tokenStart(text)).trim());
+  if (!typed || !RECIPS){ closeSuggestions(); return; }
+  const taken = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => ($(id)?.value ?? '').toLowerCase().match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []));
+  const found = [];
+  for (const p of RECIPS){
+    if (found.length >= 8) break;
+    if (!taken.has(p.email.toLowerCase()) && matchesTyped(p, typed)) found.push(p);
+  }
+  if (!found.length){ closeSuggestions(); return; }
+  if (sugg.input !== input) closeSuggestions();
+  sugg.input = input; sugg.list = found; sugg.at = Math.min(sugg.at, found.length - 1);
+  if (!sugg.el){
+    sugg.el = document.createElement('ul');
+    sugg.el.className = 'sugg'; sugg.el.id = 'sugg'; sugg.el.setAttribute('role', 'listbox');
+    sugg.el.addEventListener('mousedown', e => {
+      const li = e.target.closest('[data-i]'); if (!li) return;
+      e.preventDefault(); takeSuggestion(Number(li.dataset.i));
+    });
+    input.closest('.cf').append(sugg.el);
+    input.setAttribute('aria-controls', 'sugg');
+  }
+  sugg.el.style.cssText = `top:${input.offsetTop + input.offsetHeight + 2}px;left:${input.offsetLeft}px;width:${Math.max(input.offsetWidth, 260)}px`;
+  sugg.el.innerHTML = found.map((p, i) => `<li role="option" id="sugg-${i}" data-i="${i}" aria-selected="${i === sugg.at}">`
+    + `<span class="nm">${esc(p.name || p.email)}</span>${p.name ? `<span class="em">${esc(p.email)}</span>` : ''}</li>`).join('');
+  input.setAttribute('aria-activedescendant', 'sugg-' + sugg.at);
+}
+function takeSuggestion(i){
+  const input = sugg.input, p = sugg.list[i];
+  if (!input || !p) return;
+  const caret = input.selectionStart ?? input.value.length;
+  const before = input.value.slice(0, caret), after = input.value.slice(caret).replace(/^[^,;]*[,;]?\s*/, '');
+  const start = tokenStart(before);
+  const head = before.slice(0, start).trimEnd();
+  const value = (head ? head + ' ' : '') + addressOf(p) + ', ';
+  input.value = value + after;
+  input.setSelectionRange(value.length, value.length);
+  closeSuggestions();
+}
+function wireSuggestions(input){
+  input.addEventListener('input', () => { sugg.at = 0; loadRecipients().then(() => { if (document.activeElement === input) showSuggestions(input); }); });
+  input.addEventListener('blur', () => setTimeout(() => { if (sugg.input === input) closeSuggestions(); }, 120));
+  input.addEventListener('keydown', e => {
+    if (sugg.input !== input || !sugg.list.length) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+      e.preventDefault();
+      sugg.at = (sugg.at + (e.key === 'ArrowDown' ? 1 : -1) + sugg.list.length) % sugg.list.length;
+      showSuggestions(input);
+    } else if ((e.key === 'Enter' && !e.ctrlKey && !e.metaKey) || (e.key === 'Tab' && !e.shiftKey)){
+      e.preventDefault(); e.stopPropagation(); takeSuggestion(sugg.at);
+    } else if (e.key === 'Escape'){
+      e.preventDefault(); e.stopPropagation(); closeSuggestions(); // Esc here doesn't close the message
+    }
+  });
+}
+
 // The attachments of the message being written, drawn again without touching the text.
 function renderComposeAtts(){
   const box = $('c-attbox');
@@ -1157,6 +1249,7 @@ async function closeCompose(){
   const draft = draftOf(readCompose());
   try { await call('save_outgoing', {draft}); } catch { return false; }
   state.compose = null;
+  closeSuggestions();
   renderPreview();
   await refresh();
   listEl.focus();
@@ -1184,6 +1277,8 @@ async function send(){
   try { r = await call('send_message', {draft:draftOf(readCompose())}); }
   catch { btn.disabled = false; label.textContent = t('Send'); return; } // e.g. a bad address: fix it and try again
   state.compose = null;
+  closeSuggestions();
+  forgetRecipients(); // someone new may be in it
   renderPreview();
   await refresh();
   listEl.focus();
@@ -1385,6 +1480,7 @@ async function getMail({quiet = false, first = false} = {}){
   try {
     const r = await invoke('check_mail');
     if (r.busy){ setTimeout(() => getMail({quiet, first}), 2000); return; } // changes are being sent
+    forgetRecipients();
     lastCheck = new Date();
     await refresh();
     loadUsage(); // the quota and how the sync went came with the check

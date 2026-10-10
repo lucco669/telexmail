@@ -470,6 +470,18 @@ pub(crate) fn split_addresses(input: &str) -> Vec<String> {
         .collect()
 }
 
+/// The name and the address in one entry of an address list: `"Kowalska, Anna" <a@x.pl>` →
+/// ("Kowalska, Anna", "a@x.pl"); a bare address has no name.
+pub(crate) fn mailbox_parts(entry: &str) -> (String, String) {
+    match entry.rsplit_once('<') {
+        Some((name, rest)) => (
+            name.trim().trim_matches('"').trim().to_owned(),
+            rest.trim_end().trim_end_matches('>').trim().to_owned(),
+        ),
+        None => (String::new(), entry.trim().to_owned()),
+    }
+}
+
 /// A Message-ID unique to this message: time, process and a counter, at the sender's domain.
 fn new_message_id(domain: &str) -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);

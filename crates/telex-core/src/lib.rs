@@ -18,6 +18,7 @@ pub mod imap;
 pub mod list;
 pub mod mime;
 pub mod model;
+pub mod recipients;
 pub mod sample;
 pub mod settings;
 pub mod smtp;

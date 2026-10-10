@@ -20,6 +20,7 @@ use telex_core::drafts::{self, DraftKind, DraftStart};
 use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits, Palette, Paper};
 use telex_core::imap::{self, SyncProgress};
+use telex_core::recipients::Recipient;
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::tr;
 use telex_core::usage::Usage;
@@ -171,6 +172,12 @@ fn list_ids(
     to: Option<MessageId>,
 ) -> CmdResult<Vec<MessageId>> {
     with_store(&state, |s| s.ids_between(&view, from, to))
+}
+
+/// The people the user mails with, most likely first, for suggestions in To, Cc and Bcc.
+#[tauri::command]
+fn recipients(state: State<'_, AppState>) -> CmdResult<Vec<Recipient>> {
+    with_store(&state, |s| s.recipients())
 }
 
 /// The account a draft is from, and the raw messages it replies to and forwards.
@@ -730,6 +737,7 @@ pub fn run() {
             delete_messages,
             mark_folder_read,
             list_ids,
+            recipients,
             files::open_attachment,
             files::save_attachment,
             files::save_attachments,
