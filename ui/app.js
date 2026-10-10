@@ -29,6 +29,7 @@ const I = {
   outbox: sv('<path d="M2 9h3.5l1 1.5h3l1-1.5H14"/><path d="M2 9v4.5h12V9"/><path d="M8 7.5V1.8M5.6 4.2L8 1.8l2.4 2.4"/>'),
   mail: sv('<rect x="1.5" y="3" width="13" height="10" rx="1.2"/><path d="M2 4l6 5 6-5"/>'),
   plus: sv('<path d="M8 3v10M3 8h10"/>'),
+  rules: sv('<path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5z"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
 
@@ -61,7 +62,7 @@ async function load(){
 }
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
-const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message']);
+const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message', 'run_rules']);
 async function call(cmd, args){
   try {
     const result = await invoke(cmd, args);
@@ -147,7 +148,7 @@ const persist = () => store.set({
 
 /* ---------- toolbar ---------- */
 [['b-get','get','Get mail'],['b-new','neu','New'],['b-reply','reply','Reply'],['b-replyall','replyall','Reply all'],
- ['b-forward','forward','Forward'],['b-flag','flag','Flag'],['b-delete','trash','Delete']]
+ ['b-forward','forward','Forward'],['b-flag','flag','Flag'],['b-delete','trash','Delete'],['b-rules','rules','Rules']]
   .forEach(([id, ic, label]) => { $(id).innerHTML = I[ic] + `<span class="lbl">${label}</span>`; });
 $('search-ic').innerHTML = I.search;
 function paintDensity(){
@@ -296,7 +297,7 @@ function bodyHtml(m){
     if (img) return `<div class="imgph${loaded ? ' loaded' : ''}">${loaded ? esc(img[1]) : 'Blocked image: ' + esc(img[1])}</div>`;
     const q = line.startsWith('>');
     let h = esc(q ? line.replace(/^> ?/, '') : line);
-    if (!m.note) h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
+    if (kindOf(m.folder) !== 'spam') h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
     return `<div class="ln${q ? ' q' : ''}">${h}</div>`;
   }).join('');
 }
@@ -370,7 +371,7 @@ async function renderPreview(){
     hv = await htmlView(s.id, state.preferText ? false : state.images.has(s.id) ? true : null);
   } catch (e){ if (seq === pvSeq) previewEl.innerHTML = `<div class="pempty">${esc(String(e))}</div>`; return; }
   if (seq !== pvSeq || state.compose) return;
-  const spam = kindOf(s.f) === 'spam' || !!m.note;
+  const spam = kindOf(s.f) === 'spam'; // links and trusted images stay off in Spam
   const asHtml = !!hv && !state.preferText;
   const views = hv ? `<span class="seg" role="group" aria-label="Show as"><button type="button" data-view="html" aria-pressed="${asHtml}" title="Show the HTML (H)">HTML</button><button type="button" data-view="text" aria-pressed="${!asHtml}" title="Show plain text (H)">Text</button></span>` : '';
   const images = asHtml ? imagesBar(m, hv, spam)
@@ -386,7 +387,7 @@ async function renderPreview(){
   </dl>
   ${attsHtml(m.attachments)}
 </header>
-${m.note ? `<div class="bar note">${esc(m.note)}</div>` : ''}
+${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? '<div class="pbody html"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="Message"></iframe></div>' : `<div class="pbody">${bodyHtml(m)}</div>`}
 </article>`;
@@ -603,6 +604,7 @@ async function getMail({quiet = false, first = false} = {}){
       const where = m ? `${ACCT[acctId(m.f)].name} › ${folderName(m.f)}` : '';
       text = `${count}${where ? ' in ' + where : ''}.`;
     } else if (!quiet) text = 'No new messages.';
+    if (r.sorted) text = [text, `Rules sorted ${r.sorted}.`].filter(Boolean).join(' ');
     if (r.sent?.length) text = [r.sent.length === 1 ? `Sent ${r.sent[0]}.` : `Sent ${r.sent.length} messages.`, text].filter(Boolean).join(' ');
     if (r.errors.length) text = [r.errors.join(' · '), text].filter(Boolean).join(' · ');
     say(text, r.errors.length ? 15000 : 6000);
@@ -744,10 +746,149 @@ $('a-list').addEventListener('click', async e => {
   if (SAMPLE) dlg.close();
 });
 
+/* ---------- rules ---------- */
+const rdlg = $('rules-dlg');
+let RULES = [], rule = null; // rule: the one being edited
+const FIELDS = [['from', 'From'], ['to', 'To or Cc'], ['subject', 'Subject'], ['body', 'Text'], ['anywhere', 'Anywhere']];
+const OPS = [['contains', 'contains'], ['not_contains', 'doesn’t contain'], ['is', 'is'], ['starts_with', 'starts with'], ['ends_with', 'ends with']];
+const ACTIONS = [['move', 'Move to folder'], ['mark_read', 'Mark as read'], ['flag', 'Flag'], ['delete', 'Move to Trash'], ['auto_reply', 'Answer automatically']];
+const labelOf = (list, v) => list.find(([k]) => k === v)?.[1] ?? v;
+const options = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('');
+// Folders a rule can move mail to: the account's own, not its Outbox.
+const moveTargets = acct => (ACCT[acct]?.folders ?? []).filter(f => f.kind !== 'outbox').map(f => [acct + '/' + f.id, f.name]);
+
+function ruleSummary(r){
+  const conds = r.conditions.map(c => `${labelOf(FIELDS, c.field)} ${labelOf(OPS, c.op)} “${c.value}”`).join(r.match_all ? ' and ' : ' or ');
+  const acts = r.actions.map(a => a.type === 'move' ? 'move to ' + folderName(a.folder) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
+  return `If ${conds}: ${acts}.` + (r.account ? ` ${ACCT[r.account]?.name ?? r.account} only.` : '') + (r.stop ? ' Then stop.' : '');
+}
+async function openRules(){
+  rdlg.showModal();
+  await showRuleList();
+}
+async function showRuleList(){
+  $('r-form').hidden = true; $('r-list-view').hidden = false; $('r-err').textContent = '';
+  try { RULES = await invoke('list_rules'); } catch (e){ $('r-err').textContent = String(e); return; }
+  $('r-folder').textContent = folderName(state.folder);
+  $('r-list').innerHTML = RULES.length ? RULES.map((r, i) => `<div class="rrule${r.enabled ? '' : ' off'}" data-id="${r.id}">
+<input type="checkbox" data-r="toggle"${r.enabled ? ' checked' : ''} title="On or off" aria-label="Rule ${esc(r.name)} on">
+<div class="rtext"><div class="rname">${esc(r.name)}</div><div class="rsum" title="${esc(ruleSummary(r))}">${esc(ruleSummary(r))}</div></div>
+<button type="button" class="btn icon" data-r="up" title="Run earlier"${i ? '' : ' disabled'}>↑</button>
+<button type="button" class="btn icon" data-r="down" title="Run later"${i < RULES.length - 1 ? '' : ' disabled'}>↓</button>
+<button type="button" class="btn" data-r="edit">Edit</button><button type="button" class="btn danger" data-r="delete">Delete</button></div>`).join('')
+    : '<p class="dnote">No rules yet. A rule can file invoices, flag mail from a client, or answer while you’re away.</p>';
+  $('r-new').focus();
+}
+function showRuleForm(existing){
+  const firstAccount = ACCOUNTS.find(a => a.imap)?.id ?? ACCOUNTS[0]?.id ?? null;
+  rule = existing ? structuredClone(existing) : {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
+    conditions:[{field:'from', op:'contains', value:''}], actions:[{type:'flag'}], stop:false};
+  $('r-list-view').hidden = true; $('r-form').hidden = false; $('r-form-err').textContent = '';
+  $('r-form-title').textContent = existing ? 'Edit rule' : 'New rule';
+  $('r-name').value = rule.name;
+  $('r-acct').innerHTML = '<option value="">All accounts</option>' + ACCOUNTS.map(a => `<option value="${esc(a.id)}"${a.id === rule.account ? ' selected' : ''}>${esc(a.name)} · ${esc(a.email)}</option>`).join('');
+  $('r-match').value = rule.match_all ? 'all' : 'any';
+  $('r-stop').checked = rule.stop;
+  renderConditions(); renderActions();
+  $('r-name').focus();
+}
+function renderConditions(){
+  $('r-conds').innerHTML = rule.conditions.map((c, i) => `<div class="rrow" data-i="${i}">
+<select data-k="field" aria-label="Where">${options(FIELDS, c.field)}</select><select data-k="op" aria-label="How">${options(OPS, c.op)}</select>
+<input data-k="value" value="${esc(c.value)}" placeholder="text to look for" autocomplete="off" spellcheck="false" aria-label="Text">
+<button type="button" class="btn icon" data-x="${i}" title="Remove this condition" aria-label="Remove condition">×</button></div>`).join('');
+}
+function renderActions(){
+  $('r-acts').innerHTML = rule.actions.map((a, i) => {
+    let param = '<span class="none"></span>';
+    if (a.type === 'move'){
+      const targets = rule.account ? moveTargets(rule.account) : [];
+      param = targets.length ? `<select data-k="folder" aria-label="Folder">${options(targets, a.folder)}</select>`
+        : '<span class="none">Pick the rule’s account to choose a folder.</span>';
+    } else if (a.type === 'auto_reply'){
+      param = `<textarea data-k="body" aria-label="Reply text" placeholder="Dzień dobry, jestem na urlopie do 20 października.">${esc(a.body || '')}</textarea>`;
+    }
+    return `<div class="rrow act" data-i="${i}"><select data-k="type" aria-label="Action">${options(ACTIONS, a.type)}</select>${param}
+<button type="button" class="btn icon" data-x="${i}" title="Remove this action" aria-label="Remove action">×</button></div>`;
+  }).join('');
+}
+// A new or changed action gets sensible defaults: a folder to move to, empty reply text.
+function fixAction(a){
+  if (a.type === 'move'){
+    const targets = rule.account ? moveTargets(rule.account) : [];
+    if (!targets.some(([k]) => k === a.folder)) a.folder = (targets.find(([k]) => folderOf(k)?.kind === 'custom') ?? targets[0])?.[0] ?? '';
+  } else delete a.folder;
+  if (a.type === 'auto_reply') a.body = a.body ?? ''; else delete a.body;
+  return a;
+}
+$('r-conds').addEventListener('input', e => {
+  const row = e.target.closest('[data-i]'); if (!row) return;
+  rule.conditions[row.dataset.i][e.target.dataset.k] = e.target.value;
+});
+$('r-acts').addEventListener('input', e => {
+  const row = e.target.closest('[data-i]'); if (!row) return;
+  const a = rule.actions[row.dataset.i];
+  a[e.target.dataset.k] = e.target.value;
+  if (e.target.dataset.k === 'type'){ fixAction(a); renderActions(); }
+});
+$('r-conds').addEventListener('click', e => {
+  const x = e.target.closest('[data-x]'); if (!x) return;
+  rule.conditions.splice(Number(x.dataset.x), 1); renderConditions();
+});
+$('r-acts').addEventListener('click', e => {
+  const x = e.target.closest('[data-x]'); if (!x) return;
+  rule.actions.splice(Number(x.dataset.x), 1); renderActions();
+});
+$('r-add-cond').addEventListener('click', () => {
+  rule.conditions.push({field:'subject', op:'contains', value:''}); renderConditions();
+  $('r-conds').querySelector('.rrow:last-child input')?.focus();
+});
+$('r-add-act').addEventListener('click', () => { rule.actions.push(fixAction({type:'mark_read'})); renderActions(); });
+$('r-acct').addEventListener('change', () => { rule.account = $('r-acct').value || null; rule.actions.forEach(fixAction); renderActions(); });
+$('r-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  Object.assign(rule, {name:$('r-name').value, match_all:$('r-match').value === 'all', stop:$('r-stop').checked});
+  try { await invoke('save_rule', {rule}); } catch (err){ $('r-form-err').textContent = String(err); return; }
+  say(`Rule “${rule.name.trim()}” saved. It runs on new mail as it arrives.`);
+  await showRuleList();
+});
+$('r-back').addEventListener('click', showRuleList);
+$('r-new').addEventListener('click', () => showRuleForm(null));
+$('r-close').addEventListener('click', () => rdlg.close());
+rdlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
+$('r-list').addEventListener('click', async e => {
+  const b = e.target.closest('[data-r]'), row = e.target.closest('[data-id]');
+  if (!b || !row) return;
+  const r = RULES.find(x => x.id === Number(row.dataset.id));
+  if (!r) return;
+  const act = b.dataset.r;
+  try {
+    if (act === 'edit'){ showRuleForm(r); return; }
+    if (act === 'toggle') await invoke('save_rule', {rule:{...r, enabled:b.checked}});
+    if (act === 'up' || act === 'down') await invoke('move_rule', {id:r.id, delta:act === 'up' ? -1 : 1});
+    if (act === 'delete'){
+      if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Delete it'; return; }
+      await invoke('delete_rule', {id:r.id});
+    }
+  } catch (err){ $('r-err').textContent = String(err); return; }
+  await showRuleList();
+});
+$('r-run').addEventListener('click', async () => {
+  const where = folderName(state.folder);
+  let r;
+  try { r = await call('run_rules', {folder:state.folder}); } catch { return; }
+  rdlg.close();
+  await load(); renderAll();
+  const n = r.matched;
+  const text = n ? `Rules changed ${n} ${n === 1 ? 'message' : 'messages'} in ${where}.` : `No rule changed anything in ${where}.`;
+  say([text, ...r.problems].join(' · '), r.problems.length ? 12000 : 6000);
+});
+$('b-rules').addEventListener('click', openRules);
+
 /* ---------- keyboard ---------- */
 // Also attached to the HTML message frame, so keys work after clicking into it.
 function onKey(e){
-  if (dlg.open) return; // the dialog handles its own Enter and Esc
+  if (document.querySelector('dialog[open]')) return; // dialogs handle their own Enter and Esc
   const t = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
   if (e.key === 'Escape'){

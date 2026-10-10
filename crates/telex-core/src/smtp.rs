@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Local};
 use lettre::address::Envelope;
-use lettre::message::header::ContentType;
+use lettre::message::header::{ContentType, HeaderName, HeaderValue};
 use lettre::message::{Attachment as MimeAttachment, Mailbox, MultiPart, SinglePart};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message as Email, Tokio1Executor};
@@ -62,6 +62,27 @@ pub fn compose(
     draft: &OutgoingDraft,
     originals: &Originals,
     now: DateTime<Local>,
+) -> Result<Composed, String> {
+    build(account, draft, originals, now, false)
+}
+
+/// Like [`compose`], marked `Auto-Submitted: auto-replied` (RFC 3834) so other robots
+/// don't answer it back.
+pub fn compose_auto_reply(
+    account: &Account,
+    draft: &OutgoingDraft,
+    originals: &Originals,
+    now: DateTime<Local>,
+) -> Result<Composed, String> {
+    build(account, draft, originals, now, true)
+}
+
+fn build(
+    account: &Account,
+    draft: &OutgoingDraft,
+    originals: &Originals,
+    now: DateTime<Local>,
+    auto_reply: bool,
 ) -> Result<Composed, String> {
     let from_address = account
         .email
@@ -122,6 +143,14 @@ pub fn compose(
         builder.multipart(mixed)
     }
     .map_err(|e| format!("Couldn't build the message: {e}"))?;
+    let mut email = email;
+    if auto_reply {
+        let name =
+            HeaderName::new_from_ascii("Auto-Submitted".to_owned()).expect("a valid header name");
+        email
+            .headers_mut()
+            .insert_raw(HeaderValue::new(name, "auto-replied".to_owned()));
+    }
 
     let raw = email.formatted();
     let envelope = email.envelope();
@@ -264,7 +293,7 @@ fn parse_recipients(input: &str, field: &str) -> Result<Vec<Mailbox>, String> {
 
 /// Split an address list at commas and semicolons, except inside quotes and angle
 /// brackets: `"Kowalska, Anna" <a@x.pl>, b@y.pl` is two addresses.
-fn split_addresses(input: &str) -> Vec<String> {
+pub(crate) fn split_addresses(input: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut current = String::new();
     let (mut quoted, mut angled) = (false, false);

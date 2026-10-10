@@ -121,6 +121,26 @@ pub fn parse_message_id(raw: &[u8]) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Why an automatic reply must not answer this message (RFC 3834), or `None`: it was
+/// itself sent by a robot, it is bulk mail, or it came from a mailing list.
+pub fn auto_reply_blocker(raw: &[u8]) -> Option<&'static str> {
+    let Some(p) = MessageParser::default().parse_headers(raw) else {
+        return Some("its headers can't be read");
+    };
+    let header = |name: &str| p.header_raw(name).map(|v| v.trim().to_ascii_lowercase());
+    if header("Auto-Submitted").is_some_and(|v| v != "no") {
+        Some("it was sent automatically")
+    } else if header("Precedence").is_some_and(|v| matches!(v.as_str(), "bulk" | "list" | "junk")) {
+        Some("it is bulk mail")
+    } else if header("List-Id").is_some() || header("List-Unsubscribe").is_some() {
+        Some("it came from a mailing list")
+    } else if header("X-Autoreply").is_some() || header("X-Autorespond").is_some() {
+        Some("it is an automatic reply")
+    } else {
+        None
+    }
+}
+
 /// The Message-ID and References of a message (without angle brackets), so a reply can
 /// say which conversation it belongs to.
 pub fn thread_ids(raw: &[u8]) -> (Option<String>, Vec<String>) {

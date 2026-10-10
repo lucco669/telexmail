@@ -6,6 +6,7 @@ use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
+use crate::filters::Rule;
 use crate::mime::parse_message_id;
 use crate::model::{
     split_folder_key, Account, AccountSetup, Folder, FolderKind, ImapSettings, Message, MessageId,
@@ -19,6 +20,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/002_write_back.sql"),
     include_str!("migrations/003_sending.sql"),
     include_str!("migrations/004_trusted_senders.sql"),
+    include_str!("migrations/005_rules.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -40,6 +42,9 @@ pub enum StoreError {
         account: String,
         kind: FolderKind,
     },
+    /// Something the user filled in doesn't make sense yet (a rule without actions, say).
+    /// The text is a sentence for the UI.
+    Invalid(String),
     /// SQLite failed: disk full, file locked or damaged.
     Database(String),
 }
@@ -59,6 +64,7 @@ impl fmt::Display for StoreError {
             Self::MissingFolder { account, kind } => {
                 write!(f, "account \"{account}\" has no {kind:?} folder")
             }
+            Self::Invalid(why) => f.write_str(why),
             Self::Database(e) => write!(f, "the mail database failed: {e}"),
         }
     }
@@ -307,14 +313,24 @@ impl MailStore {
         }
     }
 
-    fn folder_kind(&self, key: &str) -> Option<FolderKind> {
+    fn folder(&self, key: &str) -> Option<&Folder> {
         let (acct, folder) = split_folder_key(key)?;
         let account = self.accounts.iter().find(|a| a.id == acct)?;
-        account
-            .folders
-            .iter()
-            .find(|f| f.id == folder)
-            .map(|f| f.kind)
+        account.folders.iter().find(|f| f.id == folder)
+    }
+
+    fn folder_kind(&self, key: &str) -> Option<FolderKind> {
+        self.folder(key).map(|f| f.kind)
+    }
+
+    /// What a folder is for, by its key.
+    pub fn kind_of(&self, key: &str) -> Option<FolderKind> {
+        self.folder_kind(key)
+    }
+
+    /// A folder's display name, by its key; `None` when it doesn't exist.
+    pub fn folder_name(&self, key: &str) -> Option<String> {
+        self.folder(key).map(|f| f.name.clone())
     }
 
     fn folder_key_of_kind(&self, account: &str, kind: FolderKind) -> Result<String, StoreError> {
@@ -644,21 +660,155 @@ impl MailStore {
         )?)
     }
 
-    /// Load the message's remote images without asking: the sender is trusted, and the
-    /// message is neither in Spam nor marked by a filter (`note`).
+    /// Load the message's remote images without asking: the sender is trusted and the
+    /// message isn't in Spam.
     pub fn auto_load_images(&self, id: MessageId) -> Result<bool, StoreError> {
-        let (folder, from, note): (String, String, Option<String>) = self
+        let (folder, from): (String, String) = self
             .db
             .query_row(
-                "SELECT folder, from_email, note FROM messages WHERE id = ?1",
+                "SELECT folder, from_email FROM messages WHERE id = ?1",
                 [id as i64],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?
             .ok_or(StoreError::UnknownMessage(id))?;
-        Ok(note.is_none()
-            && self.folder_kind(&folder) != Some(FolderKind::Spam)
-            && self.is_sender_trusted(&from)?)
+        Ok(self.folder_kind(&folder) != Some(FolderKind::Spam) && self.is_sender_trusted(&from)?)
+    }
+
+    /// Add a line to the note shown above a message (why a rule or check touched it),
+    /// unless it's already there.
+    pub fn add_note(&mut self, id: MessageId, text: &str) -> Result<(), StoreError> {
+        self.db.execute(
+            "UPDATE messages SET note = CASE
+                 WHEN note IS NULL OR note = '' THEN ?2
+                 WHEN instr(note, ?2) > 0 THEN note
+                 ELSE note || ' ' || ?2 END
+             WHERE id = ?1",
+            params![id as i64, text],
+        )?;
+        Ok(())
+    }
+
+    // ---- Rules ----
+
+    /// Every rule, in the order they run.
+    pub fn rules(&self) -> Result<Vec<Rule>, StoreError> {
+        let mut stmt = self.db.prepare_cached(
+            "SELECT id, name, enabled, account, match_all, conditions, actions, stop
+             FROM rules ORDER BY position, id",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            let conditions: String = r.get(5)?;
+            let actions: String = r.get(6)?;
+            Ok(Rule {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                enabled: r.get(2)?,
+                account: r.get(3)?,
+                match_all: r.get(4)?,
+                conditions: serde_json::from_str(&conditions).unwrap_or_default(),
+                actions: serde_json::from_str(&actions).unwrap_or_default(),
+                stop: r.get(7)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Add a rule (id 0, at the end) or update one. It is checked first.
+    pub fn save_rule(&mut self, rule: &Rule) -> Result<Rule, StoreError> {
+        rule.check(&self.accounts).map_err(StoreError::Invalid)?;
+        let not_json = |e: serde_json::Error| StoreError::Database(e.to_string());
+        let conditions = serde_json::to_string(&rule.conditions).map_err(not_json)?;
+        let actions = serde_json::to_string(&rule.actions).map_err(not_json)?;
+        let name = rule.name.trim();
+        let id = if rule.id == 0 {
+            self.db.execute(
+                "INSERT INTO rules (position, name, enabled, account, match_all, conditions, actions, stop)
+                 VALUES ((SELECT COALESCE(MAX(position) + 1, 0) FROM rules), ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![name, rule.enabled, rule.account, rule.match_all, conditions, actions, rule.stop],
+            )?;
+            self.db.last_insert_rowid()
+        } else {
+            let changed = self.db.execute(
+                "UPDATE rules SET name = ?2, enabled = ?3, account = ?4, match_all = ?5,
+                     conditions = ?6, actions = ?7, stop = ?8
+                 WHERE id = ?1",
+                params![
+                    rule.id,
+                    name,
+                    rule.enabled,
+                    rule.account,
+                    rule.match_all,
+                    conditions,
+                    actions,
+                    rule.stop
+                ],
+            )?;
+            if changed == 0 {
+                return Err(StoreError::Invalid("That rule no longer exists.".into()));
+            }
+            rule.id
+        };
+        self.rules()?
+            .into_iter()
+            .find(|r| r.id == id)
+            .ok_or_else(|| StoreError::Invalid("That rule no longer exists.".into()))
+    }
+
+    pub fn delete_rule(&mut self, id: i64) -> Result<(), StoreError> {
+        self.db.execute("DELETE FROM rules WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Move a rule up (`-1`) or down (`1`) in the order.
+    pub fn move_rule(&mut self, id: i64, delta: i64) -> Result<(), StoreError> {
+        let ids: Vec<i64> = self.rules()?.iter().map(|r| r.id).collect();
+        let Some(from) = ids.iter().position(|&r| r == id) else {
+            return Ok(());
+        };
+        let to = (from as i64 + delta).clamp(0, ids.len() as i64 - 1) as usize;
+        let mut order = ids;
+        let moved = order.remove(from);
+        order.insert(to, moved);
+        let tx = self.db.transaction()?;
+        for (pos, rule) in order.iter().enumerate() {
+            tx.execute(
+                "UPDATE rules SET position = ?2 WHERE id = ?1",
+                params![rule, pos as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// When a rule last auto-replied to this sender.
+    pub fn last_auto_reply(
+        &self,
+        rule: i64,
+        sender: &str,
+    ) -> Result<Option<NaiveDateTime>, StoreError> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT sent_at FROM auto_replies WHERE rule = ?1 AND sender = ?2",
+                params![rule, sender],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn record_auto_reply(
+        &mut self,
+        rule: i64,
+        sender: &str,
+        at: NaiveDateTime,
+    ) -> Result<(), StoreError> {
+        self.db.execute(
+            "INSERT INTO auto_replies (rule, sender, sent_at) VALUES (?1, ?2, ?3)
+             ON CONFLICT (rule, sender) DO UPDATE SET sent_at = excluded.sent_at",
+            params![rule, sender, at],
+        )?;
+        Ok(())
     }
 
     /// Deliver waiting sample messages and return their ids.
@@ -777,6 +927,7 @@ impl MailStore {
         )?;
         tx.execute("DELETE FROM pending_ops WHERE account = ?1", [id])?;
         tx.execute("DELETE FROM outbox WHERE account = ?1", [id])?;
+        tx.execute("DELETE FROM rules WHERE account = ?1", [id])?;
         tx.execute("DELETE FROM accounts WHERE id = ?1", [id])?;
         tx.commit()?;
         self.reload_accounts()

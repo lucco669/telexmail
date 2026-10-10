@@ -39,6 +39,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      Tests run it against a fake SMTP server.
   src/html.rs        HTML mail: sanitize (ammonia) into an inert document for a sandboxed frame,
                      inline cid: images, fetch remote images on request (ureq, public IPs only).
+  src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
+                     auto-replies with RFC 3834 safeguards.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
@@ -72,9 +74,14 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `get_html`       | `id`, `loadImages` (true/false/null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trust_sender`   | `email`, `trusted`           | – (that sender's images load without asking, except in Spam) |
 | `open_link`      | `url`                        | – (http/https only, in the default browser) |
+| `list_rules`     | –                            | rules in the order they run |
+| `save_rule`      | `rule` (id 0 = new)          | the saved rule, or a sentence saying what's missing |
+| `delete_rule`    | `id`                         | –                           |
+| `move_rule`      | `id`, `delta` (-1 up, 1 down) | –                          |
+| `run_rules`      | `folder`                     | `{matched, moved, replied, problems}` (no auto-replies on demand) |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
-| `check_mail`     | –                            | `{new: [ids], sent: [lines], errors: ["Account: reason"], busy}` |
+| `check_mail`     | –                            | `{new: [ids], sent: [lines], sorted, errors: ["Account: reason"], busy}` |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
 
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
@@ -138,7 +145,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0 + roadmap steps 1, 1b, 2 and 3)
+## Current state (v0.1.0 + roadmap steps 1, 1b, 2, 3 and 4)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
@@ -182,8 +189,21 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   (`default-src 'none'; img-src data:; style-src 'unsafe-inline'`). The UI shows it in an
   iframe with `sandbox="allow-same-origin"` (no scripts can run; same-origin only lets the
   page size the frame, catch link clicks and pass keys on). Links open in the default
-  browser via `open_link`; mailto: opens compose; links in Spam (or with a filter note) do
-  nothing. H switches to the plain-text body. The canvas is white in both themes.
+  browser via `open_link`; mailto: opens compose; links in Spam do nothing. H switches to
+  the plain-text body. The canvas is white in both themes.
+- Rules (`filters.rs`, schema version 5: `rules`, `auto_replies`): name, account (or all),
+  all/any conditions on From, To/Cc, Subject, Body or anywhere (contains, doesn't contain,
+  is, starts with, ends with; case and diacritics ignored; addresses match by address and
+  by name), actions (move to a folder of the rule's account, mark read, flag, move to Trash,
+  auto-reply) and "stop". They run top to bottom on mail that arrives in an Inbox
+  (`imap::Downloaded::arrived`: never a folder's first download) inside `sync_all`, so
+  their moves and flags go out in the same sync; and on demand on a folder (`run_rules`,
+  no auto-replies). Each message gets a note naming the rule and only what it changed, so
+  running again adds nothing. Auto-replies (`Auto-Submitted: auto-replied`, threaded) skip
+  mailing lists, bulk mail, robots, no-reply and own addresses and Spam, and answer a
+  sender at most once per rule every 4 days (`filters::AUTO_REPLY_EVERY`); `check_mail`
+  sends them in the same check. Notes look like information; in Spam and the Outbox like
+  warnings.
 - Mail is stored in full (`messages.raw`), so attachments can be opened later without
   downloading again.
 - Before an account is added: the built-in sample mailbox. "Get mail" delivers one sample
@@ -201,7 +221,9 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 3. ~~**HTML mail.**~~ Done; see Current state. Not yet: `<style>` blocks (dropped, since CSS
    can load from the network; keeping them needs a CSS sanitizer), opening attachments, a
    way to manage trusted senders other than per message.
-4. **Filters ("Sorting Office").** Rule editor, run on arrival and on demand, `note` explains why.
+4. ~~**Filters ("Sorting Office").**~~ Done; see Current state. Not yet: regular expressions,
+   conditions on headers and attachments, actions that copy or forward, rules that run on
+   a schedule.
 5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP).
 6. **Templates and identities.** Quote templates, signatures, multiple identities per account.
 7. **Shipping.** Auto-update, code signing, a website.

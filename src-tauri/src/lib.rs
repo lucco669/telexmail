@@ -12,6 +12,7 @@ use chrono::Local;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
+use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits};
 use telex_core::imap::{self, SyncProgress};
 use telex_core::smtp::{self, Originals, SendError};
@@ -178,6 +179,39 @@ fn trust_sender(state: State<'_, AppState>, email: String, trusted: bool) -> Cmd
     with_store(&state, |s| s.set_sender_trusted(&email, trusted))
 }
 
+/// Every rule, in the order they run.
+#[tauri::command]
+fn list_rules(state: State<'_, AppState>) -> CmdResult<Vec<Rule>> {
+    with_store(&state, |s| s.rules())
+}
+
+/// Add (id 0) or update a rule. Mistakes come back as sentences for the editor.
+#[tauri::command]
+fn save_rule(state: State<'_, AppState>, rule: Rule) -> CmdResult<Rule> {
+    with_store(&state, |s| s.save_rule(&rule))
+}
+
+#[tauri::command]
+fn delete_rule(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
+    with_store(&state, |s| s.delete_rule(id))
+}
+
+/// Move a rule up (-1) or down (1).
+#[tauri::command]
+fn move_rule(state: State<'_, AppState>, id: i64, delta: i64) -> CmdResult<()> {
+    with_store(&state, |s| s.move_rule(id, delta))
+}
+
+/// Run the rules now on every message in a folder. Auto-replies don't run here: they
+/// answer new mail only.
+#[tauri::command]
+fn run_rules(state: State<'_, AppState>, folder: String) -> CmdResult<RunReport> {
+    with_store(&state, |s| {
+        let ids: Vec<MessageId> = s.list(&folder)?.iter().map(|m| m.id).collect();
+        filters::run(s, &ids, Trigger::OnDemand, Local::now())
+    })
+}
+
 /// Open a web link from a message in the default browser.
 #[tauri::command]
 fn open_link(app: AppHandle, url: String) -> CmdResult<()> {
@@ -253,6 +287,8 @@ struct SyncOutcome {
     new: Vec<MessageId>,
     /// One line per message sent from an Outbox: `"Re: Wycena" to Anna Kowalska`.
     sent: Vec<String>,
+    /// New messages the rules changed.
+    sorted: usize,
     /// One line per problem, e.g. "Studio: can't reach mail.x.pl: …".
     errors: Vec<String>,
     /// Another check or push was running, so this one didn't start. Try again shortly.
@@ -330,10 +366,16 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
         match result {
             Ok(report) => {
                 outcome.new.extend(report.new);
+                outcome.sorted += report.sorted;
                 let refused = report.refused.iter();
                 outcome
                     .errors
                     .extend(refused.map(|r| format!("{}: {r}", account.name)));
+                // Rules may have queued automatic replies: send them now, not next time.
+                if report.answered > 0 {
+                    send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors)
+                        .await;
+                }
             }
             Err(e) => outcome.errors.push(format!("{}: {e}", account.name)),
         }
@@ -495,6 +537,11 @@ pub fn run() {
             get_html,
             trust_sender,
             open_link,
+            list_rules,
+            save_rule,
+            delete_rule,
+            move_rule,
+            run_rules,
         ])
         .run(tauri::generate_context!())
         .expect("Telex failed to start");

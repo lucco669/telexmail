@@ -9,8 +9,8 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > ways: a local, searchable mail base, with reading, flagging, moving and deleting mirrored to
 > the server. It sends over SMTP (SSL/TLS or STARTTLS) through an Outbox that retries, and
 > keeps a copy in Sent on the server. HTML mail shows in a sandbox where no script can run,
-> with remote images blocked until you allow them. Until you add an account it shows a
-> sample mailbox.
+> with remote images blocked until you allow them. Rules sort, flag and answer new mail and
+> leave a note saying why. Until you add an account it shows a sample mailbox.
 
 ## Run it on Windows
 

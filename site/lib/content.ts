@@ -109,9 +109,8 @@ export const featureRows: FeatureRow[] = [
     id: 'rules',
     screen: 'spam',
     title: 'Rules that explain themselves',
-    text: 'When a rule moves or flags a message, the message says which rule did it and why. The rule editor, Telex’s answer to The Bat!’s Sorting Office, is on the roadmap.',
+    text: 'When a rule moves or flags a message, the message says which rule did it and why. The rule editor is Telex’s answer to The Bat!’s Sorting Office.',
     points: ['Sort, flag, move and auto-reply', 'Run on arrival or on demand', 'A note on every message a rule touched'],
-    soon: true,
   },
 ];
 
@@ -248,9 +247,10 @@ export const roadmap: Step[] = [
   {
     title: 'Filters',
     text: 'A Sorting Office: rules that sort, flag, move and auto-reply, run on arrival or on demand, each leaving a note on the message.',
-    status: 'next',
+    status: 'done',
+    notYet: 'Regular expressions, conditions on headers and attachments, rules that forward.',
   },
-  { title: 'Gmail and Outlook.com', text: 'OAuth2 sign-in, since both refuse plain passwords over IMAP.', status: 'later' },
+  { title: 'Gmail and Outlook.com', text: 'OAuth2 sign-in, since both refuse plain passwords over IMAP.', status: 'next' },
   { title: 'Templates and identities', text: 'Quote templates, signatures and several identities per account.', status: 'later' },
   { title: 'Updates and signing', text: 'Automatic updates and a code-signed installer.', status: 'later' },
 ];
@@ -330,8 +330,8 @@ export const faq: Question[] = [faqGroups[0].items[0], faqGroups[0].items[1], fa
 export const ticker = [
   'ZCZC TELEX FOR WINDOWS',
   'FAST KEYBOARD MAIL. LOCAL MAIL BASE. NO TELEMETRY.',
-  'IMAP SYNC, SMTP SENDING AND SAFE HTML MAIL WORK TODAY',
-  'NEXT: FILTERS THAT EXPLAIN THEMSELVES',
+  'IMAP SYNC, SMTP SENDING, SAFE HTML MAIL AND RULES WORK TODAY',
+  'NEXT: GMAIL AND OUTLOOK.COM SIGN-IN',
   'TRY: R = REPLY, F = FLAG, / = FILTER',
   'NNNN',
 ];

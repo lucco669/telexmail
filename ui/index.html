@@ -22,6 +22,7 @@
     <button class="tb" id="b-flag" type="button" title="Flag or unflag (F)"></button>
     <button class="tb" id="b-delete" type="button" title="Move to Trash (Del)"></button>
     <span class="sep"></span>
+    <button class="tb" id="b-rules" type="button" title="Rules that sort, flag and answer mail"></button>
     <button class="tb" id="b-density" type="button" title="Switch row density"></button>
     <label class="search" for="q">
       <span id="search-ic" aria-hidden="true"></span>
@@ -60,6 +61,39 @@
     <span id="st-check"></span>
   </footer>
 </div>
+
+<dialog class="dlg wide" id="rules-dlg" aria-labelledby="rules-title">
+  <div id="r-list-view">
+    <h2 class="dtitle" id="rules-title">Rules</h2>
+    <p class="dnote">Rules run top to bottom on new mail as it arrives in an Inbox. A message a rule changes says so above its text.</p>
+    <div class="rlist" id="r-list"></div>
+    <p class="derr" id="r-err" role="alert"></p>
+    <div class="cbar">
+      <button class="btn primary" type="button" id="r-new">New rule</button>
+      <button class="btn" type="button" id="r-run">Run on <span id="r-folder">Inbox</span> now</button>
+      <button class="btn" type="button" id="r-close">Close <kbd>Esc</kbd></button>
+    </div>
+  </div>
+  <form id="r-form" novalidate hidden>
+    <h2 class="dtitle" id="r-form-title">New rule</h2>
+    <div class="cf df">
+      <label for="r-name">Name</label><input id="r-name" autocomplete="off" placeholder="e.g. Invoices">
+      <label for="r-acct">Account</label><select id="r-acct"></select>
+      <label for="r-match">If</label><select id="r-match"><option value="all">all of these match</option><option value="any">any of these matches</option></select>
+    </div>
+    <div class="rrows" id="r-conds"></div>
+    <button type="button" class="linkbtn radd" id="r-add-cond">+ Condition</button>
+    <h3 class="rh">Then</h3>
+    <div class="rrows" id="r-acts"></div>
+    <button type="button" class="linkbtn radd" id="r-add-act">+ Action</button>
+    <label class="rcheck"><input type="checkbox" id="r-stop"> Don’t run later rules on mail this rule matches</label>
+    <p class="derr" id="r-form-err" role="alert"></p>
+    <div class="cbar">
+      <button class="btn primary" type="submit">Save rule</button>
+      <button class="btn" type="button" id="r-back">Back to the list</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog class="dlg" id="acct-dlg" aria-labelledby="acct-title">
   <form id="acct-form" novalidate>

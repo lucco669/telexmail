@@ -26,6 +26,7 @@ use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_rustls::TlsConnector;
 
+use crate::filters::{self, Trigger};
 use crate::mime::parse_message;
 use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId};
 use crate::store::{
@@ -122,8 +123,21 @@ pub struct SyncProgress {
 pub struct SyncReport {
     /// Ids of messages that arrived.
     pub new: Vec<MessageId>,
-    /// Changes the server refused for good, as sentences for the status bar.
+    /// New Inbox mail the rules changed, and how many automatic replies they queued.
+    pub sorted: usize,
+    pub answered: usize,
+    /// Changes the server refused for good (and rule problems), as sentences.
     pub refused: Vec<String>,
+}
+
+/// What a download brought.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Downloaded {
+    /// Every message stored this time, in every folder.
+    pub new: Vec<MessageId>,
+    /// The new Inbox mail that really arrived: not the first download of a folder, which
+    /// is old mail. Rules run on these.
+    pub arrived: Vec<MessageId>,
 }
 
 /// A folder as the server lists it.
@@ -249,8 +263,21 @@ pub async fn sync_all<T: ImapStream>(
     let caps = server_caps(session).await?;
     let queued_before = lock(store)?.last_change_op(&account.id)?;
     let refused = push_queued_after(session, account, store, caps, 0).await?;
-    let new = sync_session(session, account, store, progress).await?;
-    let mut report = SyncReport { new, refused };
+    let downloaded = sync_session(session, account, store, progress).await?;
+    let mut report = SyncReport {
+        new: downloaded.new,
+        refused,
+        ..SyncReport::default()
+    };
+    if !downloaded.arrived.is_empty() {
+        let run = {
+            let mut s = lock(store)?;
+            filters::run(&mut s, &downloaded.arrived, Trigger::Arrival, Local::now())?
+        };
+        report.sorted = run.matched;
+        report.answered = run.replied;
+        report.refused.extend(run.problems);
+    }
     // Send what the user did during the download, but don't retry what was just refused.
     // The folder list may have changed, so read the account again.
     let account = lock(store)?.account(&account.id)?.clone();
@@ -267,12 +294,12 @@ pub async fn sync_session<T: ImapStream>(
     account: &Account,
     store: &Mutex<MailStore>,
     progress: &(dyn Fn(SyncProgress) + Send + Sync),
-) -> Result<Vec<MessageId>, SyncError> {
+) -> Result<Downloaded, SyncError> {
     let remote = list_folders(session).await?;
     let folders = plan_folders(&remote);
     lock(store)?.set_folders(&account.id, &folders)?;
 
-    let mut new_ids = Vec::new();
+    let mut downloaded = Downloaded::default();
     for folder in &folders {
         let Some(remote_name) = folder.remote.as_deref() else {
             continue;
@@ -288,6 +315,7 @@ pub async fn sync_session<T: ImapStream>(
             Err(e) => return Err(e.into()),
         };
         let state = lock(store)?.begin_folder_sync(&key, mailbox.uid_validity.unwrap_or(0))?;
+        let arriving = folder.kind == FolderKind::Inbox && state.last_uid.is_some();
         let on_server = if mailbox.exists == 0 {
             HashSet::new()
         } else {
@@ -320,12 +348,16 @@ pub async fn sync_session<T: ImapStream>(
         let mut done = 0;
         for chunk in wanted.chunks(FETCH_BATCH) {
             let batch = fetch_batch(session, chunk, &key).await?;
-            new_ids.extend(lock(store)?.add_synced(&key, &batch)?);
+            let ids = lock(store)?.add_synced(&key, &batch)?;
+            if arriving {
+                downloaded.arrived.extend(&ids);
+            }
+            downloaded.new.extend(ids);
             done += chunk.len();
             report(done);
         }
     }
-    Ok(new_ids)
+    Ok(downloaded)
 }
 
 /// Upload: send the account's queued changes. A change the server refuses stays queued
@@ -1582,7 +1614,8 @@ mod tests {
 
         let new = sync_session(&mut session, &account, &store, &progress)
             .await
-            .unwrap();
+            .unwrap()
+            .new;
         assert_eq!(new.len(), 3);
         {
             let s = store.lock().unwrap();
@@ -1629,7 +1662,8 @@ mod tests {
         // Nothing changed on the server: nothing is downloaded.
         let new = sync_session(&mut session, &account, &store, &progress)
             .await
-            .unwrap();
+            .unwrap()
+            .new;
         assert!(new.is_empty());
 
         // New mail arrives and message 1 is deleted elsewhere (say, on the phone).
@@ -1644,7 +1678,8 @@ mod tests {
         }
         let new = sync_session(&mut session, &account, &store, &progress)
             .await
-            .unwrap();
+            .unwrap()
+            .new;
         assert_eq!(new.len(), 1);
         {
             let s = store.lock().unwrap();
@@ -1662,7 +1697,8 @@ mod tests {
         server.lock().unwrap().boxes[0].uid_validity = 8;
         let new = sync_session(&mut session, &account, &store, &progress)
             .await
-            .unwrap();
+            .unwrap()
+            .new;
         assert_eq!(new.len(), 2);
         logout(&mut session).await;
 
@@ -1962,6 +1998,86 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             );
             assert!(!s.has_pending_changes(&account.id).unwrap());
         }
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn rules_sort_arriving_mail_but_not_the_first_download() {
+        use crate::filters::{Action, Condition, Field, Op, Rule};
+        let (addr, server) = start_fake_server("IMAP4rev1 MOVE UIDPLUS").await;
+        let (store, account) = store_with_account();
+        let flag_anna = Rule {
+            id: 0,
+            name: "Anna".into(),
+            enabled: true,
+            account: None,
+            match_all: true,
+            conditions: vec![Condition {
+                field: Field::From,
+                op: Op::Contains,
+                value: "kowalska".into(),
+            }],
+            actions: vec![Action::Flag],
+            stop: false,
+        };
+        store.lock().unwrap().save_rule(&flag_anna).unwrap();
+        let mut session = login(addr, "secret").await.unwrap();
+
+        // The first download is old mail: the rule leaves it alone.
+        let report = sync_all(&mut session, &account, &store, &no_progress)
+            .await
+            .unwrap();
+        assert_eq!(report.sorted, 0);
+        let account = store.lock().unwrap().account(&account.id).unwrap().clone();
+        let wycena = id_of(&store, &account, "inbox", "Wycena");
+        assert!(!store.lock().unwrap().get(wycena).unwrap().flagged);
+
+        // A rule that files invoices, then an invoice arrives.
+        let invoices = Rule {
+            name: "Faktury".into(),
+            account: Some(account.id.clone()),
+            conditions: vec![Condition {
+                field: Field::Subject,
+                op: Op::StartsWith,
+                value: "faktura".into(),
+            }],
+            actions: vec![Action::Move {
+                folder: account.folder_key("projekty-klinika"),
+            }],
+            ..flag_anna
+        };
+        store.lock().unwrap().save_rule(&invoices).unwrap();
+        {
+            let mut srv = server.lock().unwrap();
+            srv.boxes[0]
+                .mail
+                .push(mail(3, &[], "Faktura 10/2026", b"Kwota: 1230 z\xb3"));
+            srv.boxes[0].next_uid = 4;
+        }
+        let report = sync_all(&mut session, &account, &store, &no_progress)
+            .await
+            .unwrap();
+        assert_eq!((report.new.len(), report.sorted), (1, 1), "{report:?}");
+        let invoice = id_of(&store, &account, "projekty-klinika", "Faktura 10/2026");
+        let m = store.lock().unwrap().get(invoice).unwrap();
+        assert!(m.flagged, "the first rule ran too");
+        assert_eq!(
+            m.note.as_deref(),
+            Some("Rule \"Anna\" flagged it. Rule \"Faktury\" moved it to Projekty / Klinika.")
+        );
+        // The same sync moved it on the server.
+        {
+            let srv = server.lock().unwrap();
+            assert_eq!(srv.subjects("Projekty/Klinika"), ["Faktura 10/2026"]);
+            assert!(srv
+                .mail("Projekty/Klinika", "Faktura 10/2026")
+                .has("\\Flagged"));
+        }
+        assert!(!store
+            .lock()
+            .unwrap()
+            .has_pending_changes(&account.id)
+            .unwrap());
         logout(&mut session).await;
     }
 
