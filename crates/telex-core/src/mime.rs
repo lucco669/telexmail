@@ -91,6 +91,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         .map(|a| Attachment {
             name: file_name(a),
             size_kb: kb(a.contents().len()),
+            path: None,
         })
         .collect();
 
@@ -204,13 +205,68 @@ pub fn attachments_of(raw: &[u8]) -> Vec<FileAttachment> {
     let Some(p) = MessageParser::default().parse(raw) else {
         return Vec::new();
     };
-    p.attachments()
-        .map(|a| FileAttachment {
-            name: file_name(a),
-            content_type: mime_type(a),
-            data: a.contents().to_vec(),
-        })
-        .collect()
+    p.attachments().map(file_attachment).collect()
+}
+
+/// One attachment, by its place in the message's list (as [`parse_message`] lists them).
+pub fn attachment_at(raw: &[u8], index: usize) -> Option<FileAttachment> {
+    let p = MessageParser::default().parse(raw)?;
+    let found = p.attachments().nth(index).map(file_attachment);
+    found
+}
+
+fn file_attachment(part: &MessagePart<'_>) -> FileAttachment {
+    FileAttachment {
+        name: file_name(part),
+        content_type: mime_type(part),
+        data: part.contents().to_vec(),
+    }
+}
+
+/// The MIME type a file of this name usually has, for attaching it: "faktura.PDF" →
+/// "application/pdf". Unknown kinds are application/octet-stream, which every mail program
+/// accepts.
+pub fn content_type_for(name: &str) -> &'static str {
+    let ext = name
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "pdf" => "application/pdf",
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "heic" => "image/heic",
+        "txt" | "log" => "text/plain",
+        "csv" => "text/csv",
+        "htm" | "html" => "text/html",
+        "ics" => "text/calendar",
+        "vcf" => "text/vcard",
+        "eml" => "message/rfc822",
+        "zip" => "application/zip",
+        "7z" => "application/x-7z-compressed",
+        "rar" => "application/vnd.rar",
+        "gz" => "application/gzip",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "rtf" => "application/rtf",
+        "doc" => "application/msword",
+        "xls" => "application/vnd.ms-excel",
+        "ppt" => "application/vnd.ms-powerpoint",
+        "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "odt" => "application/vnd.oasis.opendocument.text",
+        "ods" => "application/vnd.oasis.opendocument.spreadsheet",
+        "odp" => "application/vnd.oasis.opendocument.presentation",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        "mov" => "video/quicktime",
+        _ => "application/octet-stream",
+    }
 }
 
 /// A message's HTML body, with the images it embeds.
@@ -418,6 +474,29 @@ References: <a@x.pl>\r\n <b@x.pl>\r\nBcc: Szef <szef@x.pl>\r\nSubject: Re: Re: W
         assert_eq!(answered_ids_of(raw), m.refs);
         assert_eq!(m.bcc, "Szef <szef@x.pl>");
         assert!(answered_ids_of(b"Subject: Hej\r\n\r\nx").is_empty());
+    }
+
+    #[test]
+    fn one_attachment_by_its_place_and_types_by_name() {
+        let raw = b"Subject: Pliki\r\nMIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"b\"\r\n\r\n\
+--b\r\nContent-Type: text/plain\r\n\r\nDwa pliki.\r\n\
+--b\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=\"a.pdf\"\r\n\
+Content-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQK\r\n\
+--b\r\nContent-Type: text/csv\r\nContent-Disposition: attachment; filename=\"b.csv\"\r\n\r\n\
+x;y\r\n--b--\r\n";
+        let listed = parse_message(raw, "x/inbox", None).attachments;
+        assert_eq!(listed.len(), 2);
+        let second = attachment_at(raw, 1).unwrap();
+        assert_eq!(
+            (second.name.as_str(), second.content_type.as_str()),
+            ("b.csv", "text/csv")
+        );
+        assert_eq!(attachment_at(raw, 0).unwrap().data, b"%PDF-1.4\n");
+        assert!(attachment_at(raw, 2).is_none());
+        assert_eq!(content_type_for("Faktura 10.PDF"), "application/pdf");
+        assert_eq!(content_type_for("zdjęcie.jpeg"), "image/jpeg");
+        assert_eq!(content_type_for("README"), "application/octet-stream");
     }
 
     #[test]

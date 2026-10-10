@@ -394,6 +394,10 @@ pub fn split_folder_key(key: &str) -> Option<(&str, &str)> {
 pub struct Attachment {
     pub name: String,
     pub size_kb: u32,
+    /// A file on this PC that goes with a message being written. `None` for attachments
+    /// of stored mail, and for those a forward or an edited draft carries over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 /// A complete message, including its body.
@@ -488,7 +492,8 @@ pub struct OutgoingDraft {
     /// sent or saved, and the plain-text version is made from it.
     #[serde(default)]
     pub html: Option<String>,
-    /// Attachments carried over from `forward_of`. New files come later.
+    /// Attachments: files from this PC (with a `path`), and those carried over from
+    /// `forward_of` (without one), found there by name.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
     /// The message this replies to, for the In-Reply-To and References headers.

@@ -672,6 +672,7 @@ mod tests {
                                 vec![Attachment {
                                     name: "a.pdf".into(),
                                     size_kb: 1,
+                                    path: None,
                                 }]
                             } else {
                                 vec![]

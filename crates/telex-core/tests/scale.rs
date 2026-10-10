@@ -376,6 +376,7 @@ fn message(
         vec![Attachment {
             name: format!("{}.pdf", text(rng, 1)),
             size_kb: 20 + rng.below(60) as u32,
+            path: None,
         }]
     } else {
         Vec::new()

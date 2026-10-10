@@ -12,8 +12,8 @@ use crate::html;
 use crate::list;
 use crate::mime::parse_message_id;
 use crate::model::{
-    split_folder_key, Account, AccountSetup, Folder, FolderKind, Identity, ImapSettings, Message,
-    MessageId, MessageSummary, OutgoingDraft, SmtpSecurity, SmtpSettings,
+    split_folder_key, Account, AccountSetup, Attachment, Folder, FolderKind, Identity,
+    ImapSettings, Message, MessageId, MessageSummary, OutgoingDraft, SmtpSecurity, SmtpSettings,
 };
 use crate::tr;
 
@@ -557,6 +557,12 @@ impl MailStore {
             Some(raw) => u32::try_from(raw.len().div_ceil(1024)).unwrap_or(u32::MAX),
             None => u32::try_from(body.len().div_ceil(1024)).unwrap_or(u32::MAX) + attachments_kb,
         };
+        // Files from this PC are inside `raw` now; the paths they came from don't matter.
+        let attachments = draft
+            .attachments
+            .into_iter()
+            .map(|a| Attachment { path: None, ..a })
+            .collect();
         let message = Message {
             id: 0,
             folder: folder.clone(),
@@ -572,7 +578,7 @@ impl MailStore {
             flagged: false,
             remote_images: false,
             note: None,
-            attachments: draft.attachments,
+            attachments,
             body,
             message_id: None,
             refs: Vec::new(),

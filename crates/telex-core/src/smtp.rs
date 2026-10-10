@@ -18,7 +18,7 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message as Email, Tokio1Executor};
 
 use crate::html;
-use crate::mime::{attachments_of, parse_message, thread_ids};
+use crate::mime::{attachments_of, content_type_for, parse_message, thread_ids, FileAttachment};
 use crate::model::{Account, Message, OutgoingDraft, SmtpSecurity, SmtpSettings};
 use crate::store::{MailStore, OutgoingMail, StoreError};
 use crate::tr;
@@ -135,6 +135,23 @@ fn build(
             "Dodaj co najmniej jednego odbiorcę w polu Do."
         ));
     }
+    // Files from this PC, read now: a file moved or deleted since it was attached is named.
+    let mut files = Vec::new();
+    for a in &draft.attachments {
+        let Some(path) = &a.path else { continue };
+        let data = std::fs::read(path).map_err(|e| {
+            let name = &a.name;
+            tr!(
+                "Couldn't attach \"{name}\": {e}.",
+                "Nie udało się dołączyć pliku „{name}”: {e}."
+            )
+        })?;
+        files.push(FileAttachment {
+            name: a.name.clone(),
+            content_type: content_type_for(&a.name).to_owned(),
+            data,
+        });
+    }
     let domain = identity
         .email
         .rsplit_once('@')
@@ -180,15 +197,21 @@ fn build(
         )),
         None => Body::Plain(SinglePart::plain(draft.body.clone())),
     };
-    // The forwarded message's attachments that are still listed in the draft.
-    let files: Vec<_> = originals
+    // The forwarded message's attachments that are still listed in the draft, then the
+    // files from this PC.
+    let forwarded = originals
         .forwarded
         .as_deref()
         .map(attachments_of)
         .unwrap_or_default()
         .into_iter()
-        .filter(|f| draft.attachments.iter().any(|a| a.name == f.name))
-        .collect();
+        .filter(|f| {
+            draft
+                .attachments
+                .iter()
+                .any(|a| a.path.is_none() && a.name == f.name)
+        });
+    let files: Vec<FileAttachment> = forwarded.chain(files).collect();
     let email = match body {
         Body::Plain(text) if files.is_empty() => builder.singlepart(text),
         Body::Html(alternative) if files.is_empty() => builder.multipart(alternative),
@@ -647,6 +670,7 @@ JVBERi0xLjQK\r\n\
         fwd.attachments = vec![Attachment {
             name: "makiety.pdf".into(),
             size_kb: 1,
+            path: None,
         }];
         let forwarded = Originals {
             replied: None,
@@ -1007,6 +1031,30 @@ JVBERi0xLjQK\r\n\
         let outbox = s.list(&account.folder_key("outbox")).unwrap();
         assert_eq!(outbox.len(), 1);
         assert_eq!(outbox[0].id, new);
+    }
+
+    #[test]
+    fn files_from_this_pc_go_along() {
+        let path = std::env::temp_dir().join(format!("telex-attach-{}.pdf", std::process::id()));
+        std::fs::write(&path, b"%PDF-1.4\n").unwrap();
+        let mut d = draft("anna@kowalska-architekci.pl");
+        d.attachments = vec![Attachment {
+            name: "wycena.pdf".into(),
+            size_kb: 1,
+            path: Some(path.display().to_string()),
+        }];
+        let c = compose(&account(), &d, &Originals::default(), now()).unwrap();
+        let files = attachments_of(&c.raw);
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            (files[0].name.as_str(), files[0].content_type.as_str()),
+            ("wycena.pdf", "application/pdf")
+        );
+        assert_eq!(files[0].data, b"%PDF-1.4\n");
+        // A file gone since it was attached is named.
+        std::fs::remove_file(&path).unwrap();
+        let err = compose(&account(), &d, &Originals::default(), now()).unwrap_err();
+        assert!(err.contains("Couldn't attach \"wycena.pdf\""), "{err}");
     }
 
     /// Needs the internet: `cargo test -p telex-core -- --ignored`. Checks that lettre's TLS

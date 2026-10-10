@@ -7,6 +7,7 @@
 //! `MailStore` is the local mail base in SQLite. `imap` fills it from a server,
 //! read-only for now; `mime` turns raw messages into `Message`s.
 
+pub mod attachments;
 pub mod autoconfig;
 mod colors;
 pub mod drafts;

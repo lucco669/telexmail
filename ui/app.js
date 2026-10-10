@@ -807,9 +807,44 @@ function imagesBar(m, hv, spam){
   if (hv.loaded && hv.blocked) return `<div class="bar quiet">${esc(tn(hv.blocked, 'One image couldn’t be loaded.', '{n} images couldn’t be loaded.'))}</div>`;
   return '';
 }
-function attsHtml(atts){
+// A message's attachments: click opens one in its app, the arrow saves it. In compose
+// (`writing`), × takes one off, and the total says when it gets large.
+const BIG_KB = 20 * 1024; // above this, some servers refuse a message
+function attsHtml(atts, writing = false){
   if (!atts.length) return '';
-  return `<div class="atts">${atts.map((a, i) => `<button type="button" class="att" data-att="${i}" title="${esc(a.name)}">${I.clip}<span class="nm">${esc(a.name)}</span><small>${fmtSize(a.size_kb)}</small></button>`).join('')}</div>`;
+  const chips = atts.map((a, i) => writing
+    ? `<span class="att" title="${esc(a.name)}">${I.clip}<span class="nm">${esc(a.name)}</span><small>${fmtSize(a.size_kb)}</small><button type="button" class="attx" data-unattach="${i}" title="${esc(t('Remove {name}', {name:a.name}))}" aria-label="${esc(t('Remove {name}', {name:a.name}))}">×</button></span>`
+    : `<span class="att"><button type="button" class="attopen" data-att="${i}" title="${esc(t('Open {name}', {name:a.name}))}">${I.clip}<span class="nm">${esc(a.name)}</span><small>${fmtSize(a.size_kb)}</small></button><button type="button" class="attx" data-save="${i}" title="${esc(t('Save {name}…', {name:a.name}))}" aria-label="${esc(t('Save {name}…', {name:a.name}))}">${I.get}</button></span>`).join('');
+  const kb = atts.reduce((n, a) => n + a.size_kb, 0);
+  const tail = writing
+    ? (kb > BIG_KB ? `<small class="attwarn">${esc(t('{size} in all: some servers refuse mail over 25 MB.', {size:fmtSize(kb)}))}</small>` : '')
+    : atts.length > 1 ? `<button type="button" class="linkbtn" data-saveall>${esc(t('Save all…'))}</button>` : '';
+  return `<div class="atts"${writing ? ' id="c-atts"' : ''}>${chips}${tail}</div>`;
+}
+// Open an attachment in its app. Programs and anything from Spam open on a second click.
+let armedAtt = null; // {id, index, at}
+async function openAttachment(id, index){
+  const m = await full(id), a = m.attachments[index];
+  if (!a) return;
+  const sure = armedAtt?.id === id && armedAtt.index === index && Date.now() - armedAtt.at < 8000;
+  let r;
+  try { r = await invoke('open_attachment', {id, index, sure}); } catch (e){ say(tr(e), 8000); return; }
+  armedAtt = null;
+  if (r === 'opened'){ say(t('Opened {name}.', {name:a.name}), 3000); return; }
+  armedAtt = {id, index, at:Date.now()};
+  say(r === 'risky' ? t('“{name}” can run programs on this PC. Open it only if you trust the sender: click it again to open it.', {name:a.name})
+    : t('This came in Spam. Click the attachment again to open it anyway.'), 8000);
+}
+async function saveAttachment(id, index){
+  let path;
+  try { path = await invoke('save_attachment', {id, index, words:{title:t('Save attachment')}}); } catch (e){ say(tr(e), 8000); return; }
+  if (path) say(t('Saved to {path}.', {path}), 6000);
+}
+async function saveAttachments(id){
+  const n = (await full(id)).attachments.length;
+  let dir;
+  try { dir = await invoke('save_attachments', {id, words:{title:t('Save attachments to')}}); } catch (e){ say(tr(e), 8000); return; }
+  if (dir) say(tn(n, 'Saved {n} file to {dir}.', 'Saved {n} files to {dir}.', {dir}), 6000);
 }
 let pvSeq = 0;
 async function renderPreview(){
@@ -874,8 +909,16 @@ previewEl.addEventListener('click', async e => {
   if (link){ e.preventDefault(); const s = current(); followLink(link.getAttribute('href'), s && (kindOf(s.f) === 'spam')); return; }
   const view = e.target.closest('[data-view]');
   if (view){ setView(view.dataset.view === 'text'); return; }
-  const att = e.target.closest('[data-att]'), act = e.target.closest('[data-act]');
-  if (att){ say(t('Opening attachments isn’t built yet ({name}).', {name:att.title})); return; }
+  const att = e.target.closest('[data-att]'), save = e.target.closest('[data-save]'), act = e.target.closest('[data-act]');
+  if (!state.compose && (att || save || e.target.closest('[data-saveall]'))){
+    const m = current(); if (!m) return;
+    if (att) openAttachment(m.id, Number(att.dataset.att));
+    else if (save) saveAttachment(m.id, Number(save.dataset.save));
+    else saveAttachments(m.id);
+    return;
+  }
+  const off = e.target.closest('[data-unattach]');
+  if (off && state.compose){ state.compose.attachments.splice(Number(off.dataset.unattach), 1); renderComposeAtts(); return; }
   if (!act) return;
   const m = current();
   if (act.dataset.act === 'images' && m){
@@ -895,6 +938,7 @@ previewEl.addEventListener('click', async e => {
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
     renderPreview();
   }
+  if (act.dataset.act === 'attach' && state.compose) pickFiles();
   if (act.dataset.act === 'discard'){ state.compose = null; renderPreview(); say(t('Message discarded.')); listEl.focus(); }
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
@@ -973,7 +1017,7 @@ function renderCompose(){
   <label for="c-cc">${esc(t('Cc'))}</label><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false">
   <label for="c-subj">${esc(t('Subject'))}</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="${spell}">
 </div>
-${attsHtml(c.attachments)}
+<div id="c-attbox">${attsHtml(c.attachments, true)}</div>
 ${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
     `<button type="button" class="fb" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">${label}</button>`).join('')}<span class="flink" hidden><input id="c-url" type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>
 <div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="${spell}"></div>`
@@ -982,6 +1026,7 @@ ${esc(c.body)}</textarea>`}
 <div class="cbar">
   <button class="btn primary" type="submit"><span>${esc(t('Send'))}</span> <kbd>Ctrl+Enter</kbd></button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
+  <button class="btn" type="button" data-act="attach" title="${esc(t('Attach files from this PC. You can also drop them on the window.'))}">${I.clip}<span>${esc(t('Attach…'))}</span></button>
   <button class="btn" type="button" data-act="discard">${esc(t('Discard'))}</button>
   <span class="cnote">${esc(note)}</span>
 </div></form>`;
@@ -993,6 +1038,34 @@ ${esc(c.body)}</textarea>`}
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else focusStart(body);
 }
+// The attachments of the message being written, drawn again without touching the text.
+function renderComposeAtts(){
+  const box = $('c-attbox');
+  if (box && state.compose) box.innerHTML = attsHtml(state.compose.attachments, true);
+}
+// Files chosen in the Open dialog or dropped on the window. Dropped with no message open, they
+// start a new one.
+async function addFiles(files){
+  if (!files?.length) return;
+  if (!state.compose){
+    await openCompose('new');
+    if (!state.compose) return;
+  }
+  const c = state.compose, have = new Set(c.attachments.map(a => a.path).filter(Boolean));
+  const fresh = files.filter(f => !have.has(f.path));
+  c.attachments.push(...fresh);
+  renderComposeAtts();
+  say(fresh.length === 1 ? t('Attached {name}.', {name:fresh[0].name}) : tn(fresh.length, 'Attached {n} file.', 'Attached {n} files.'), 3000);
+}
+async function pickFiles(){
+  let files;
+  try { files = await invoke('pick_files', {words:{title:t('Attach files')}}); } catch (e){ say(tr(e), 8000); return; }
+  await addFiles(files);
+}
+window.__TAURI__?.event?.listen('files-dropped', ({payload}) => {
+  if (document.querySelector('dialog[open]')) return; // not while a dialog is open
+  addFiles(payload);
+});
 // The caret at the very start, above the quote, as in the plain-text editor.
 function focusStart(body){
   body.focus();

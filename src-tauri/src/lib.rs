@@ -1,6 +1,7 @@
 //! Tauri shell: exposes `telex_core::MailStore` to the UI as commands.
 //! Keep logic out of here; put it in `crates/telex-core` where it can be tested.
 
+mod files;
 mod secrets;
 mod settings;
 mod updates;
@@ -12,7 +13,7 @@ use std::sync::Mutex;
 
 use chrono::Local;
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::drafts::{self, DraftKind, DraftStart};
@@ -26,6 +27,8 @@ use telex_core::{
     Account, AccountSetup, DeleteOutcome, DeleteReport, FolderKind, FolderTree, Identity, ListView,
     MailStore, Message, MessageId, OutgoingDraft, Page, PageAt, StoreError,
 };
+
+use crate::files::FilesState;
 
 struct AppState {
     store: Mutex<MailStore>,
@@ -184,7 +187,12 @@ fn draft_context(s: &MailStore, draft: &OutgoingDraft) -> Result<(Account, Origi
 /// Save the compose pane's content as a draft, kept as a whole message so its HTML and
 /// forwarded files stay with it. Sending goes through `send_message`.
 #[tauri::command]
-fn save_outgoing(state: State<'_, AppState>, draft: OutgoingDraft) -> CmdResult<MessageId> {
+fn save_outgoing(
+    state: State<'_, AppState>,
+    files: State<'_, FilesState>,
+    draft: OutgoingDraft,
+) -> CmdResult<MessageId> {
+    files.check(&draft.attachments)?;
     with_store(&state, |s| {
         let (account, originals) = draft_context(s, &draft)?;
         let raw = smtp::compose_draft(&account, &draft, &originals, Local::now()).ok();
@@ -573,7 +581,12 @@ struct SendOutcome {
 /// only counts as sent once the SMTP server accepts it; until then it waits in the
 /// Outbox and goes out at the next check.
 #[tauri::command]
-async fn send_message(state: State<'_, AppState>, draft: OutgoingDraft) -> CmdResult<SendOutcome> {
+async fn send_message(
+    state: State<'_, AppState>,
+    files: State<'_, FilesState>,
+    draft: OutgoingDraft,
+) -> CmdResult<SendOutcome> {
+    files.check(&draft.attachments)?;
     let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
     let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
     let queued = with_store(&state, |s| {
@@ -682,6 +695,7 @@ pub fn run() {
         app = app.plugin(updater);
     }
     app.manage(updates::Found::default())
+        .manage(FilesState::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -693,7 +707,14 @@ pub fn run() {
                 busy: AtomicBool::new(false),
                 sending: AtomicBool::new(false),
             });
+            // Attachments opened last time; files still open elsewhere stay.
+            telex_core::attachments::clear_opened(&std::env::temp_dir());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event {
+                files::dropped(window.app_handle(), paths);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             folder_tree,
@@ -709,6 +730,11 @@ pub fn run() {
             delete_messages,
             mark_folder_read,
             list_ids,
+            files::open_attachment,
+            files::save_attachment,
+            files::save_attachments,
+            files::show_saved,
+            files::pick_files,
             save_outgoing,
             draft_html,
             html_to_text,
