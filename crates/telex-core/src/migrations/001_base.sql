@@ -1,5 +1,6 @@
--- Telex mail database, schema version 1.
--- Opened by MailStore; bump PRAGMA user_version in store.rs when this changes.
+-- Telex mail database, version 1: the base schema.
+-- Released: never edit this file. Every change is a new numbered file next to it,
+-- listed in MIGRATIONS in store.rs. A new database runs them all in order.
 
 CREATE TABLE accounts (
     id        TEXT PRIMARY KEY,

@@ -207,6 +207,9 @@ pub struct Message {
     pub attachments: Vec<Attachment>,
     /// Plain-text body. HTML bodies come later, rendered in a sandboxed frame.
     pub body: String,
+    /// The Message-ID header, used by sync to recognize a moved message. Not sent to the UI.
+    #[serde(default, skip_serializing)]
+    pub message_id: Option<String>,
 }
 
 /// One row of the message list. Everything except the body.

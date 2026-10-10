@@ -29,9 +29,12 @@ Anti-goals: Electron, AI features by default, a web-app look, anything that phon
 
 ```
 crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
-  src/store.rs       MailStore: the local mail base in SQLite (+ FTS5). Same API for sample and real mail.
-  src/schema.sql     Database schema. Bump SCHEMA_VERSION in store.rs when it changes.
-  src/imap.rs        Read-only IMAP sync (async-imap + rustls), folder mapping. Tests use a fake server.
+  src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
+                     for the server (pending_ops). Same API for sample and real mail.
+  src/migrations/    Database schema, one numbered file per version, listed in MIGRATIONS in
+                     store.rs. Released files are never edited; a change is a new file.
+  src/imap.rs        Two-way IMAP sync (async-imap + rustls): download, push queued changes,
+                     folder mapping. Tests run it against a fake IMAP server.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
@@ -50,17 +53,21 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 |------------------|------------------------------|-----------------------------|
 | `snapshot`       | –                            | accounts + all summaries + `sample` flag |
 | `get_message`    | `id`                         | full message with body      |
-| `set_unread`     | `id`, `unread`               | – (local only for server mail) |
-| `set_flagged`    | `id`, `flagged`              | – (local only for server mail) |
-| `move_message`   | `id`, `folder`               | – (same account only; refused for server mail) |
-| `delete_message` | `id`                         | `moved_to_trash` / `removed` (refused for server mail) |
+| `set_unread`     | `id`, `unread`               | –                           |
+| `set_flagged`    | `id`, `flagged`              | –                           |
+| `move_message`   | `id`, `folder`               | – (same account only)       |
+| `delete_message` | `id`                         | `moved_to_trash` / `removed`|
 | `save_outgoing`  | `draft`, `send`              | new message id              |
 | `search`         | `query`                      | ids matching subject, people or body (FTS5) |
 | `add_account`    | `setup`, `password`          | the account (logs in first; same address = update) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
-| `check_mail`     | –                            | `{new: [ids], errors: ["Account: reason"]}` |
+| `check_mail`     | –                            | `{new: [ids], errors: ["Account: reason"], busy}` |
+| `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
 
-`check_mail` emits `sync-progress` events (`{account, folder, done, total}`) while it downloads.
+The four changing commands apply locally at once; for server mail the store also queues the
+change, and the UI calls `push_changes` 2.5 s after the last one. `busy: true` means another
+check or push was running and nothing started; the UI retries. `check_mail` emits
+`sync-progress` events (`{account, folder, done, total}`) while it downloads.
 
 Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the bridge as local
 `YYYY-MM-DDTHH:MM:SS` strings.
@@ -103,24 +110,32 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | N            | new message                    |
 | F            | flag / unflag                  |
 | U            | toggle unread                  |
-| Del          | move to Trash (from Trash: remove) |
+| Del          | move to Trash (in Trash: press twice to delete for good) |
 | Z            | undo last delete               |
 | /            | quick filter                   |
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0 + roadmap step 1)
+## Current state (v0.1.0 + roadmap steps 1 and 1b)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
-- Real IMAP accounts, read-only: account dialog ("Add account" under the folder tree), SSL/TLS
-  on port 993 only (no STARTTLS yet), password login. Folders come from the server; special
-  folders are recognized by RFC 6154 flags, then by common English/Polish names.
-- Sync: on start, on "Get mail" and every 10 minutes. The first sync takes the newest 300
-  messages per folder (`imap::FIRST_SYNC_LIMIT`); later syncs take everything new. Mail deleted
-  on the server disappears locally; a UIDVALIDITY change re-downloads the folder.
-- Server mail can't be moved or deleted (`StoreError::ReadOnly`). Read state and flags change
-  only the local copy; the server's flags are read once, at download.
+- Real IMAP accounts: account dialog ("Add account" under the folder tree), SSL/TLS on port
+  993 only (no STARTTLS yet), password login. Folders come from the server; special folders
+  are recognized by RFC 6154 flags, then by common English/Polish names.
+- Two-way sync on start, on "Get mail" and every 10 minutes: push queued changes, download,
+  push what changed meanwhile. The first sync takes the newest 300 messages per folder
+  (`imap::FIRST_SYNC_LIMIT`); later syncs take everything new. Downloading uses EXAMINE and
+  BODY.PEEK only. Mail deleted on the server disappears locally; flags changed elsewhere come
+  down unless a local change to the same flag is still queued; a UIDVALIDITY change
+  re-downloads the folder.
+- Changes to server mail (read, flag, move, delete) apply locally at once and wait in
+  `pending_ops`, which survives restarts and lost connections. Each message keeps its
+  server location (`srv_folder`, `uid`) apart from the folder the UI shows, until the move
+  reaches the server. Moves use UID MOVE, or COPY + \Deleted + EXPUNGE without MOVE; the new
+  UID comes from COPYUID, else from a Message-ID search, else the next download adopts the
+  message instead of duplicating it. A change refused 3 times (`imap::MAX_ATTEMPTS`) is
+  dropped, reported, and a refused move puts the message back.
 - Quick filter matches headers as you type and bodies through FTS5 (diacritics-insensitive).
 - Mail is stored in full (`messages.raw`), so HTML view and attachments can come later
   without downloading again. The UI still shows the plain-text body.
@@ -131,8 +146,8 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 
 1. ~~**Real mail, read-only.**~~ Done; see Current state. Not yet: STARTTLS, a way to
    download messages older than the first 300, IMAP IDLE (push).
-1b. **Write back.** Read state, flags, moves and deletes reach the server (UID STORE,
-   UID MOVE or COPY + EXPUNGE). Filters (step 4) need this to move mail.
+1b. ~~**Write back.**~~ Done; see Current state. Not yet: CONDSTORE/QRESYNC (flag changes are
+   found by asking for the flags of every stored message, fine for thousands, not millions).
 2. **Sending.** SMTP via `lettre`, outbox with retry, Sent copy via IMAP APPEND.
 3. **HTML mail.** Render in a sandboxed iframe (`srcdoc`, no scripts), remote content blocked
    until allowed per message or per sender.

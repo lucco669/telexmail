@@ -5,9 +5,10 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 
 ![Telex main window](docs/screenshot.png)
 
-> **Status: early prototype.** Telex reads real mail over IMAP (SSL/TLS, password login) into a
-> local, searchable mail base, but it doesn't change anything on the server yet and can't send:
-> "Send" only files the message in Sent. Until you add an account it shows a sample mailbox.
+> **Status: early prototype.** Telex syncs real mail over IMAP (SSL/TLS, password login) both
+> ways: a local, searchable mail base, with reading, flagging, moving and deleting mirrored to
+> the server. It can't send yet: "Send" only files the message in Sent. Until you add an
+> account it shows a sample mailbox.
 
 ## Run it on Windows
 

@@ -29,6 +29,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
             note: Some("Telex couldn't read this message's structure.".into()),
             attachments: Vec::new(),
             body: String::from_utf8_lossy(raw).into_owned(),
+            message_id: None,
         };
     };
 
@@ -107,7 +108,16 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         note: None,
         attachments,
         body,
+        message_id: p.message_id().map(str::to_owned),
     }
+}
+
+/// Just the Message-ID header, without parsing the body.
+pub fn parse_message_id(raw: &[u8]) -> Option<String> {
+    MessageParser::default()
+        .parse_headers(raw)?
+        .message_id()
+        .map(str::to_owned)
 }
 
 /// "Anna Kowalska <anna@x.pl>, piotr@y.pl", the way the compose pane writes recipients.
@@ -240,6 +250,17 @@ JVBERi0xLjQK\r\n\
         assert_eq!(m.attachments.len(), 1);
         assert_eq!(m.attachments[0].name, "makiety v3 żółte.pdf");
         assert_eq!(m.attachments[0].size_kb, 1);
+    }
+
+    #[test]
+    fn message_id_is_read_with_and_without_the_body() {
+        let raw = b"Message-ID: <abc.123@x.pl>\r\nSubject: Hej\r\n\r\nTre\xc5\x9b\xc4\x87\r\n";
+        assert_eq!(
+            parse_message(raw, "x/inbox", None).message_id.as_deref(),
+            Some("abc.123@x.pl")
+        );
+        assert_eq!(parse_message_id(raw).as_deref(), Some("abc.123@x.pl"));
+        assert_eq!(parse_message_id(b"Subject: none\r\n\r\n"), None);
     }
 
     #[test]

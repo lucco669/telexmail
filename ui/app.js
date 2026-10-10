@@ -58,9 +58,31 @@ async function load(){
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   MSGS = snap.messages.map(fromSummary);
 }
+// Commands that change mail; the core queues them for the server and we push shortly after.
+const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message']);
 async function call(cmd, args){
-  try { return await invoke(cmd, args); }
-  catch (e){ say(String(e), 8000); throw e; }
+  try {
+    const result = await invoke(cmd, args);
+    if (CHANGES.has(cmd)) schedulePush();
+    return result;
+  } catch (e){ say(String(e), 8000); throw e; }
+}
+
+// Changes reach the server a moment after the last one, so a burst of keys is one connection.
+// They are saved in the mail base first, so closing Telex or losing the network loses nothing.
+let pushTimer;
+function schedulePush(delay = 2500){
+  if (SAMPLE) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushNow, delay);
+}
+async function pushNow(){
+  let r;
+  try { r = await invoke('push_changes'); } catch (e){ say(String(e), 8000); return; }
+  if (r.busy){ schedulePush(4000); return; } // a check is running; try again after it
+  if (r.errors.length) say(r.errors.join(' · '), 15000);
+  // A refused move puts the message back; one deleted elsewhere disappears.
+  try { await load(); renderAll(); } catch {}
 }
 async function full(id){
   if (!bodies.has(id)) bodies.set(id, await invoke('get_message', {id}));
@@ -406,15 +428,25 @@ function toggleUnread(){
     say(next ? 'Marked as unread.' : 'Marked as read.', 2000);
   }).catch(() => {});
 }
+// Deleting from Trash can't be undone (on the server either), so it takes a second Del.
+let armedDelete = null; // {id, at}
 async function del(){
   const m = current(); if (!m) return;
+  if (kindOf(m.f) === 'trash'){
+    if (armedDelete?.id !== m.id || Date.now() - armedDelete.at > 5000){
+      armedDelete = {id:m.id, at:Date.now()};
+      say('Press Del again to delete this message for good.', 5000);
+      return;
+    }
+    armedDelete = null;
+  }
   const v = visible(), i = v.findIndex(x => x.id === m.id);
   const next = v[i + 1] || v[i - 1];
   let outcome;
   try { outcome = await call('delete_message', {id:m.id}); } catch { return; }
   if (outcome === 'removed'){
     MSGS.splice(MSGS.indexOf(m), 1); bodies.delete(m.id); state.lastDeleted = null;
-    say('Removed from Trash.');
+    say('Deleted for good.');
   } else {
     state.lastDeleted = {m, from:m.f};
     m.f = keyOfKind(acctId(m.f), 'trash');
@@ -441,6 +473,7 @@ async function getMail({quiet = false, first = false} = {}){
   if (!quiet) say(`Checking ${n} ${n === 1 ? 'account' : 'accounts'}…`, 0);
   try {
     const r = await invoke('check_mail');
+    if (r.busy){ setTimeout(() => getMail({quiet, first}), 2000); return; } // changes are being sent
     lastCheck = new Date();
     await load();
     renderAll();

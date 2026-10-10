@@ -6,14 +6,18 @@ use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
+use crate::mime::parse_message_id;
 use crate::model::{
     split_folder_key, Account, AccountSetup, Folder, FolderKind, ImapSettings, Message, MessageId,
     MessageSummary, OutgoingDraft,
 };
 
-const SCHEMA: &str = include_str!("schema.sql");
-/// Bump together with schema.sql, and add a migration in `MailStore::with_connection`.
-const SCHEMA_VERSION: i32 = 1;
+/// Schema steps, oldest first: step n brings a database to version n. A released step is
+/// never edited; a change is a new file in migrations/ added here.
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/001_base.sql"),
+    include_str!("migrations/002_write_back.sql"),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
@@ -29,10 +33,6 @@ pub enum StoreError {
     MissingFolder {
         account: String,
         kind: FolderKind,
-    },
-    /// The message is a copy of mail on a server, and Telex doesn't change the server yet.
-    ReadOnly {
-        account: String,
     },
     /// SQLite failed: disk full, file locked or damaged.
     Database(String),
@@ -53,10 +53,6 @@ impl fmt::Display for StoreError {
             Self::MissingFolder { account, kind } => {
                 write!(f, "account \"{account}\" has no {kind:?} folder")
             }
-            Self::ReadOnly { account } => write!(
-                f,
-                "Telex only reads {account} for now. Moving and deleting server mail comes later."
-            ),
             Self::Database(e) => write!(f, "the mail database failed: {e}"),
         }
     }
@@ -105,10 +101,42 @@ pub struct SyncedMessage {
     pub raw: Vec<u8>,
 }
 
+/// What a queued change does on the server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChangeKind {
+    Seen(bool),
+    Flagged(bool),
+    /// Move to this folder key of the same account.
+    Move(String),
+    /// Remove for good (Del in Trash).
+    Expunge,
+}
+
+/// A change the user made that the server hasn't heard about yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingChange {
+    pub op: i64,
+    /// The local message; `None` for an expunge, whose message is already gone here.
+    pub message: Option<MessageId>,
+    /// Where the message is on the server: folder key and UID. The UID is `None` for a
+    /// moved message whose new UID isn't known yet.
+    pub folder: String,
+    pub uid: Option<u32>,
+    pub message_id: Option<String>,
+    /// For error messages.
+    pub subject: String,
+    pub kind: ChangeKind,
+    pub attempts: u32,
+}
+
 /// The local mail base: accounts, folders and messages in SQLite.
 ///
 /// The public API is what the UI talks to. Accounts and folders are few, so they are
 /// also kept in memory; messages are always read from the database.
+///
+/// A message from a server has a server location (`srv_folder`, `uid`) besides the folder
+/// the UI shows. Changes to server mail are applied here at once and queued in
+/// `pending_ops`; `imap::push_changes` sends them and reports back.
 #[derive(Debug)]
 pub struct MailStore {
     db: Connection,
@@ -119,7 +147,7 @@ pub struct MailStore {
 }
 
 impl MailStore {
-    /// Open the mail database at `path`, creating it if needed.
+    /// Open the mail database at `path`, creating or upgrading it if needed.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         let db = Connection::open(path)?;
         // WAL lets the UI read while a sync writes, and survives crashes well.
@@ -134,21 +162,7 @@ impl MailStore {
 
     fn with_connection(db: Connection, sample: bool) -> Result<Self, StoreError> {
         db.pragma_update(None, "foreign_keys", true)?;
-        let version: i32 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
-        match version {
-            0 => {
-                let tx = db.unchecked_transaction()?;
-                tx.execute_batch(SCHEMA)?;
-                tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
-                tx.commit()?;
-            }
-            SCHEMA_VERSION => {}
-            v => {
-                return Err(StoreError::Database(format!(
-                    "it was made by a newer version of Telex (schema {v})"
-                )))
-            }
-        }
+        migrate(&db)?;
         let accounts = load_accounts(&db)?;
         Ok(Self {
             db,
@@ -173,7 +187,7 @@ impl MailStore {
             }
         }
         for m in &messages {
-            insert_message(&tx, &m.folder, m, None, None)?;
+            insert_message(&tx, &m.folder, None, m, None, None)?;
         }
         tx.commit()?;
         store.reload_accounts()?;
@@ -245,28 +259,16 @@ impl MailStore {
             .ok_or(StoreError::UnknownMessage(id))
     }
 
-    /// Folder key and IMAP UID of a message.
-    fn locate(&self, id: MessageId) -> Result<(String, Option<u32>), StoreError> {
+    /// The folder the UI shows, and the server folder if the message lives on a server.
+    fn locate(&self, id: MessageId) -> Result<(String, Option<String>), StoreError> {
         self.db
             .query_row(
-                "SELECT folder, uid FROM messages WHERE id = ?1",
+                "SELECT folder, srv_folder FROM messages WHERE id = ?1",
                 [id as i64],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?
             .ok_or(StoreError::UnknownMessage(id))
-    }
-
-    /// Server mail can't be moved or deleted until Telex learns to change the server.
-    fn check_writable(&self, folder: &str, uid: Option<u32>) -> Result<(), StoreError> {
-        if uid.is_none() {
-            return Ok(());
-        }
-        let account = split_folder_key(folder).map_or(folder, |(a, _)| a);
-        let email = self
-            .account(account)
-            .map_or_else(|_| account.to_owned(), |a| a.email.clone());
-        Err(StoreError::ReadOnly { account: email })
     }
 
     /// Check that "<account>/<folder>" exists and return the account id.
@@ -301,66 +303,105 @@ impl MailStore {
             })
     }
 
-    /// Read state and flags change only the local copy for now; the server keeps its own.
     pub fn set_unread(&mut self, id: MessageId, unread: bool) -> Result<(), StoreError> {
-        self.set_column(id, "unread", unread)
+        self.set_flag(id, "unread", "seen", unread, !unread)
     }
 
     pub fn set_flagged(&mut self, id: MessageId, flagged: bool) -> Result<(), StoreError> {
-        self.set_column(id, "flagged", flagged)
+        self.set_flag(id, "flagged", "flagged", flagged, flagged)
     }
 
-    fn set_column(&mut self, id: MessageId, column: &str, value: bool) -> Result<(), StoreError> {
-        let changed = self.db.execute(
+    /// Change a flag here and, for server mail, queue the change. Only the latest value of
+    /// each flag is kept in the queue.
+    fn set_flag(
+        &mut self,
+        id: MessageId,
+        column: &str,
+        op_kind: &str,
+        value: bool,
+        server_value: bool,
+    ) -> Result<(), StoreError> {
+        let (_, srv_folder) = self.locate(id)?;
+        let tx = self.db.transaction()?;
+        tx.execute(
             &format!("UPDATE messages SET {column} = ?1 WHERE id = ?2"),
             params![value, id as i64],
         )?;
-        if changed == 0 {
-            Err(StoreError::UnknownMessage(id))
-        } else {
-            Ok(())
+        if let Some(srv) = srv_folder {
+            tx.execute(
+                "DELETE FROM pending_ops WHERE message = ?1 AND kind = ?2",
+                params![id as i64, op_kind],
+            )?;
+            tx.execute(
+                "INSERT INTO pending_ops (account, message, kind, value) VALUES (?1, ?2, ?3, ?4)",
+                params![account_of(&srv), id as i64, op_kind, server_value],
+            )?;
         }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Move a message to another folder of the same account.
     pub fn move_to(&mut self, id: MessageId, folder: &str) -> Result<(), StoreError> {
         let target_acct = self.check_folder(folder)?.to_owned();
-        let (source, uid) = self.locate(id)?;
-        let source_acct = split_folder_key(&source)
-            .map(|(a, _)| a)
-            .unwrap_or_default();
-        if source_acct != target_acct {
+        let (source, srv_folder) = self.locate(id)?;
+        if account_of(&source) != target_acct {
             return Err(StoreError::CrossAccountMove {
                 from: source,
                 to: folder.to_owned(),
             });
         }
-        self.check_writable(&source, uid)?;
-        self.db.execute(
+        let tx = self.db.transaction()?;
+        tx.execute(
             "UPDATE messages SET folder = ?1 WHERE id = ?2",
             params![folder, id as i64],
         )?;
+        if let Some(srv) = srv_folder {
+            // One move per message: moving again replaces it, moving back cancels it.
+            tx.execute(
+                "DELETE FROM pending_ops WHERE message = ?1 AND kind = 'move'",
+                [id as i64],
+            )?;
+            if srv != folder {
+                tx.execute(
+                    "INSERT INTO pending_ops (account, message, kind, target) VALUES (?1, ?2, 'move', ?3)",
+                    params![target_acct, id as i64, folder],
+                )?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
     /// Delete like a mail client does: first to Trash, and from Trash for good.
     pub fn delete(&mut self, id: MessageId) -> Result<DeleteOutcome, StoreError> {
-        let (folder, uid) = self.locate(id)?;
-        self.check_writable(&folder, uid)?;
-        if self.folder_kind(&folder) == Some(FolderKind::Trash) {
-            self.db
-                .execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
-            return Ok(DeleteOutcome::Removed);
+        let (folder, srv_folder) = self.locate(id)?;
+        if self.folder_kind(&folder) != Some(FolderKind::Trash) {
+            let trash = self.folder_key_of_kind(account_of(&folder), FolderKind::Trash)?;
+            self.move_to(id, &trash)?;
+            return Ok(DeleteOutcome::MovedToTrash);
         }
-        let account = split_folder_key(&folder)
-            .map(|(a, _)| a.to_owned())
-            .unwrap_or_default();
-        let trash = self.folder_key_of_kind(&account, FolderKind::Trash)?;
-        self.db.execute(
-            "UPDATE messages SET folder = ?1 WHERE id = ?2",
-            params![trash, id as i64],
-        )?;
-        Ok(DeleteOutcome::MovedToTrash)
+        let tx = self.db.transaction()?;
+        if let Some(srv) = srv_folder {
+            // The row goes now; the queued expunge remembers where the message is on the server.
+            let (uid, message_id, subject): (Option<u32>, Option<String>, String) = tx.query_row(
+                "SELECT uid, message_id, subject FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )?;
+            tx.execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
+            if uid.is_some() || message_id.is_some() {
+                tx.execute(
+                    "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject)
+                     VALUES (?1, 'expunge', ?2, ?3, ?4, ?5)",
+                    params![account_of(&srv), srv, uid, message_id, subject],
+                )?;
+            }
+        } else {
+            tx.execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
+        }
+        tx.commit()?;
+        Ok(DeleteOutcome::Removed)
     }
 
     /// Store a message the user wrote, in Sent or Drafts of the sending account.
@@ -392,8 +433,9 @@ impl MailStore {
             note: None,
             attachments: draft.attachments,
             body: draft.body,
+            message_id: None,
         };
-        insert_message(&self.db, &folder, &message, None, None)
+        insert_message(&self.db, &folder, None, &message, None, None)
     }
 
     /// Deliver waiting sample messages and return their ids.
@@ -403,7 +445,7 @@ impl MailStore {
         let tx = self.db.transaction()?;
         let ids = arrived
             .iter()
-            .map(|m| insert_message(&tx, &m.folder, m, None, None))
+            .map(|m| insert_message(&tx, &m.folder, None, m, None, None))
             .collect::<Result<Vec<_>, _>>()?;
         tx.commit()?;
         Ok(ids)
@@ -426,7 +468,7 @@ impl MailStore {
         Ok(ids)
     }
 
-    // ---- Accounts and sync ----
+    // ---- Accounts and folders ----
 
     /// Add an account from the setup dialog, or update the one with the same address.
     /// Updating is how the user fixes a server name or a changed password.
@@ -472,7 +514,8 @@ impl MailStore {
         id
     }
 
-    /// Remove an account and every local copy of its mail. The server is not touched.
+    /// Remove an account, every local copy of its mail and its queued changes.
+    /// The server is not touched.
     pub fn remove_account(&mut self, id: &str) -> Result<(), StoreError> {
         self.account(id)?;
         let tx = self.db.transaction()?;
@@ -480,6 +523,7 @@ impl MailStore {
             "DELETE FROM messages WHERE substr(folder, 1, length(?1) + 1) = ?1 || '/'",
             [id],
         )?;
+        tx.execute("DELETE FROM pending_ops WHERE account = ?1", [id])?;
         tx.execute("DELETE FROM accounts WHERE id = ?1", [id])?;
         tx.commit()?;
         self.reload_accounts()
@@ -499,9 +543,14 @@ impl MailStore {
             ids
         };
         for gone in existing.iter().filter(|id| !keep.contains(id.as_str())) {
+            let key = format!("{account}/{gone}");
             tx.execute(
-                "DELETE FROM messages WHERE folder = ?1",
-                [format!("{account}/{gone}")],
+                "DELETE FROM messages WHERE folder = ?1 OR srv_folder = ?1",
+                [&key],
+            )?;
+            tx.execute(
+                "DELETE FROM pending_ops WHERE srv_folder = ?1 OR target = ?1",
+                [&key],
             )?;
             tx.execute(
                 "DELETE FROM folders WHERE account = ?1 AND id = ?2",
@@ -521,6 +570,8 @@ impl MailStore {
         tx.commit()?;
         self.reload_accounts()
     }
+
+    // ---- Downloading (server → here) ----
 
     pub fn folder_sync_state(&self, folder_key: &str) -> Result<FolderSyncState, StoreError> {
         let (account, folder) = split_folder_key(folder_key)
@@ -555,7 +606,7 @@ impl MailStore {
         let (account, folder) = split_folder_key(folder_key).unwrap_or_default();
         let tx = self.db.transaction()?;
         tx.execute(
-            "DELETE FROM messages WHERE folder = ?1 AND uid IS NOT NULL",
+            "DELETE FROM messages WHERE srv_folder = ?1 AND uid IS NOT NULL",
             [folder_key],
         )?;
         tx.execute(
@@ -569,38 +620,69 @@ impl MailStore {
         })
     }
 
+    /// UIDs of the messages stored from one server folder.
+    pub fn local_uids(&self, folder_key: &str) -> Result<HashSet<u32>, StoreError> {
+        let mut stmt = self
+            .db
+            .prepare_cached("SELECT uid FROM messages WHERE srv_folder = ?1 AND uid IS NOT NULL")?;
+        let uids = stmt
+            .query_map([folder_key], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(uids)
+    }
+
     /// Drop local copies of messages that are no longer on the server. Returns how many.
     pub fn forget_vanished(
         &mut self,
         folder_key: &str,
         on_server: &HashSet<u32>,
     ) -> Result<usize, StoreError> {
-        let local: Vec<(i64, u32)> = {
-            let mut stmt = self
-                .db
-                .prepare("SELECT id, uid FROM messages WHERE folder = ?1 AND uid IS NOT NULL")?;
-            let rows = stmt
-                .query_map([folder_key], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<Result<_, _>>()?;
-            rows
-        };
-        let gone: Vec<i64> = local
+        let gone: Vec<u32> = self
+            .local_uids(folder_key)?
             .into_iter()
-            .filter(|(_, uid)| !on_server.contains(uid))
-            .map(|(id, _)| id)
+            .filter(|uid| !on_server.contains(uid))
             .collect();
         if !gone.is_empty() {
             let tx = self.db.transaction()?;
-            for id in &gone {
-                tx.execute("DELETE FROM messages WHERE id = ?1", [id])?;
+            for uid in &gone {
+                tx.execute(
+                    "DELETE FROM messages WHERE srv_folder = ?1 AND uid = ?2",
+                    params![folder_key, uid],
+                )?;
             }
             tx.commit()?;
         }
         Ok(gone.len())
     }
 
+    /// Take read state and flags from the server, `(uid, seen, flagged)` per message,
+    /// except where a local change is still queued: that one wins. Returns how many changed.
+    pub fn refresh_flags(
+        &mut self,
+        folder_key: &str,
+        flags: &[(u32, bool, bool)],
+    ) -> Result<usize, StoreError> {
+        let tx = self.db.transaction()?;
+        let mut changed = 0;
+        for &(uid, seen, flagged) in flags {
+            changed += tx.execute(
+                "UPDATE messages SET unread = ?3 WHERE srv_folder = ?1 AND uid = ?2 AND unread <> ?3
+                 AND NOT EXISTS (SELECT 1 FROM pending_ops WHERE message = messages.id AND kind = 'seen')",
+                params![folder_key, uid, !seen],
+            )?;
+            changed += tx.execute(
+                "UPDATE messages SET flagged = ?3 WHERE srv_folder = ?1 AND uid = ?2 AND flagged <> ?3
+                 AND NOT EXISTS (SELECT 1 FROM pending_ops WHERE message = messages.id AND kind = 'flagged')",
+                params![folder_key, uid, flagged],
+            )?;
+        }
+        tx.commit()?;
+        Ok(changed)
+    }
+
     /// Store messages downloaded from one folder and remember the highest UID seen.
-    /// A message already stored (same folder and UID) is skipped. Returns the new ids.
+    /// A message already stored is skipped, and one that Telex moved here itself (same
+    /// Message-ID, UID not yet known) gets its UID instead of a duplicate. Returns new ids.
     pub fn add_synced(
         &mut self,
         folder_key: &str,
@@ -612,18 +694,39 @@ impl MailStore {
         let mut ids = Vec::new();
         for item in batch {
             let stored: bool = tx.query_row(
-                "SELECT EXISTS (SELECT 1 FROM messages WHERE folder = ?1 AND uid = ?2)",
+                "SELECT EXISTS (SELECT 1 FROM messages WHERE srv_folder = ?1 AND uid = ?2)",
                 params![folder_key, item.uid],
                 |r| r.get(0),
             )?;
-            if !stored {
-                ids.push(insert_message(
+            if stored {
+                continue;
+            }
+            let moved_here: Option<i64> = match &item.message.message_id {
+                Some(mid) => tx
+                    .query_row(
+                        "SELECT id FROM messages WHERE srv_folder = ?1 AND uid IS NULL AND message_id = ?2
+                         ORDER BY id LIMIT 1",
+                        params![folder_key, mid],
+                        |r| r.get(0),
+                    )
+                    .optional()?,
+                None => None,
+            };
+            match moved_here {
+                Some(id) => {
+                    tx.execute(
+                        "UPDATE messages SET uid = ?1 WHERE id = ?2",
+                        params![item.uid, id],
+                    )?;
+                }
+                None => ids.push(insert_message(
                     &tx,
                     folder_key,
+                    Some(folder_key),
                     &item.message,
                     Some(item.uid),
                     Some(&item.raw),
-                )?);
+                )?),
             }
         }
         if let Some(max) = batch.iter().map(|m| m.uid).max() {
@@ -636,6 +739,211 @@ impl MailStore {
         tx.commit()?;
         Ok(ids)
     }
+
+    // ---- Uploading (here → server) ----
+
+    /// True when the account has changes the server hasn't heard about.
+    pub fn has_pending_changes(&self, account: &str) -> Result<bool, StoreError> {
+        Ok(self.db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM pending_ops WHERE account = ?1)",
+            [account],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Position of the newest queued change (0 when there is none). A change made later
+    /// gets a higher number, also when it replaces an older one.
+    pub fn last_change_op(&self, account: &str) -> Result<i64, StoreError> {
+        Ok(self.db.query_row(
+            "SELECT COALESCE(MAX(id), 0) FROM pending_ops WHERE account = ?1",
+            [account],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// The account's queued changes, oldest first, with each message's current server location.
+    pub fn pending_changes(&self, account: &str) -> Result<Vec<PendingChange>, StoreError> {
+        let mut stmt = self.db.prepare_cached(
+            "SELECT p.id, p.message, p.kind, p.value, p.target, p.attempts,
+                    CASE WHEN p.kind = 'expunge' THEN p.srv_folder ELSE m.srv_folder END,
+                    CASE WHEN p.kind = 'expunge' THEN p.uid ELSE m.uid END,
+                    COALESCE(m.message_id, p.message_id), COALESCE(m.subject, p.subject, '')
+             FROM pending_ops p LEFT JOIN messages m ON m.id = p.message
+             WHERE p.account = ?1 ORDER BY p.id",
+        )?;
+        let rows = stmt.query_map([account], |r| {
+            let value: Option<bool> = r.get(3)?;
+            let kind = match r.get::<_, String>(2)?.as_str() {
+                "seen" => Some(ChangeKind::Seen(value.unwrap_or_default())),
+                "flagged" => Some(ChangeKind::Flagged(value.unwrap_or_default())),
+                "move" => r.get::<_, Option<String>>(4)?.map(ChangeKind::Move),
+                "expunge" => Some(ChangeKind::Expunge),
+                _ => None,
+            };
+            let (op, message, attempts): (i64, Option<i64>, u32) =
+                (r.get(0)?, r.get(1)?, r.get(5)?);
+            let (folder, uid, message_id, subject): (Option<String>, _, _, _) =
+                (r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?);
+            // A row without a server folder can't be sent anywhere; skip it.
+            Ok(kind.zip(folder).map(|(kind, folder)| PendingChange {
+                op,
+                message: message.map(|id| id as MessageId),
+                folder,
+                uid,
+                message_id,
+                subject,
+                kind,
+                attempts,
+            }))
+        })?;
+        let mut changes = Vec::new();
+        for row in rows {
+            changes.extend(row?);
+        }
+        Ok(changes)
+    }
+
+    /// The server has applied the change.
+    pub fn change_done(&mut self, op: i64) -> Result<(), StoreError> {
+        self.db
+            .execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
+        Ok(())
+    }
+
+    /// The server refused the change. Returns how many times it has failed so far.
+    pub fn change_failed(&mut self, op: i64, error: &str) -> Result<u32, StoreError> {
+        self.db.execute(
+            "UPDATE pending_ops SET attempts = attempts + 1, last_error = ?2 WHERE id = ?1",
+            params![op, error],
+        )?;
+        Ok(self
+            .db
+            .query_row(
+                "SELECT attempts FROM pending_ops WHERE id = ?1",
+                [op],
+                |r| r.get(0),
+            )
+            .optional()?
+            .unwrap_or_default())
+    }
+
+    /// Stop trying a change the server keeps refusing. A refused move puts the message
+    /// back where it really is; flags are corrected by the next download.
+    pub fn give_up_change(&mut self, change: &PendingChange) -> Result<(), StoreError> {
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM pending_ops WHERE id = ?1", [change.op])?;
+        if let (ChangeKind::Move(_), Some(id)) = (&change.kind, change.message) {
+            tx.execute(
+                "UPDATE messages SET folder = srv_folder WHERE id = ?1 AND srv_folder IS NOT NULL",
+                [id as i64],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The server moved the message to `folder_key`, where its UID is `uid` if known.
+    pub fn change_moved(
+        &mut self,
+        op: i64,
+        id: MessageId,
+        folder_key: &str,
+        uid: Option<u32>,
+    ) -> Result<(), StoreError> {
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
+        set_server_location(&tx, id, folder_key, uid)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The UID of a moved message, found later by its Message-ID.
+    pub fn set_server_uid(
+        &mut self,
+        id: MessageId,
+        folder_key: &str,
+        uid: u32,
+    ) -> Result<(), StoreError> {
+        let tx = self.db.transaction()?;
+        set_server_location(&tx, id, folder_key, Some(uid))?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The message is gone from the server, so its local copy and queued changes go too.
+    pub fn forget_message(&mut self, id: MessageId) -> Result<(), StoreError> {
+        self.db
+            .execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
+        Ok(())
+    }
+}
+
+/// Bring the database up to the newest schema, one step at a time.
+fn migrate(db: &Connection) -> Result<(), StoreError> {
+    let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
+    let version = usize::try_from(version).unwrap_or_default();
+    if version > MIGRATIONS.len() {
+        return Err(StoreError::Database(format!(
+            "it was made by a newer version of Telex (schema {version})"
+        )));
+    }
+    for (step, sql) in MIGRATIONS.iter().enumerate().skip(version) {
+        let reached = step + 1;
+        let tx = db.unchecked_transaction()?;
+        tx.execute_batch(sql)?;
+        if reached == 2 {
+            backfill_message_ids(&tx)?;
+        }
+        tx.pragma_update(None, "user_version", reached as i64)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+/// Version 2 added `message_id`; fill it in for mail downloaded before.
+fn backfill_message_ids(db: &Connection) -> Result<(), StoreError> {
+    let rows: Vec<(i64, Vec<u8>)> = {
+        let mut stmt = db.prepare("SELECT id, raw FROM messages WHERE raw IS NOT NULL")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        rows
+    };
+    for (id, raw) in rows {
+        if let Some(mid) = parse_message_id(&raw) {
+            db.execute(
+                "UPDATE messages SET message_id = ?1 WHERE id = ?2",
+                params![mid, id],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Point a message at its new server location. A second copy already stored there
+/// (downloaded before Telex learned the UID) is dropped.
+fn set_server_location(
+    db: &Connection,
+    id: MessageId,
+    folder_key: &str,
+    uid: Option<u32>,
+) -> Result<(), StoreError> {
+    if let Some(uid) = uid {
+        db.execute(
+            "DELETE FROM messages WHERE srv_folder = ?1 AND uid = ?2 AND id <> ?3",
+            params![folder_key, uid, id as i64],
+        )?;
+    }
+    db.execute(
+        "UPDATE messages SET srv_folder = ?1, uid = ?2 WHERE id = ?3",
+        params![folder_key, uid, id as i64],
+    )?;
+    Ok(())
+}
+
+/// "firma/inbox" → "firma".
+fn account_of(folder_key: &str) -> &str {
+    split_folder_key(folder_key).map_or(folder_key, |(a, _)| a)
 }
 
 /// Lowercase, letters and digits only, words joined by "-": "Faktury 2026" → "faktury-2026".
@@ -652,7 +960,7 @@ pub(crate) fn slug(s: &str) -> String {
 }
 
 /// Turn what the user typed into a safe FTS5 query: each word quoted, matched as a prefix.
-/// ł is folded to l, as the index triggers in schema.sql do.
+/// ł is folded to l, as the index triggers in migrations/001_base.sql do.
 fn fts_query(input: &str) -> String {
     input
         .split_whitespace()
@@ -683,7 +991,7 @@ fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> {
 }
 
 const MESSAGE_COLUMNS: &str = "id, folder, from_name, from_email, to_addr, cc, subject, date, \
-     size_kb, unread, flagged, remote_images, note, attachments, body";
+     size_kb, unread, flagged, remote_images, note, attachments, body, message_id";
 
 fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
     let attachments: String = r.get(13)?;
@@ -703,6 +1011,7 @@ fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
         note: r.get(12)?,
         attachments: serde_json::from_str(&attachments).unwrap_or_default(),
         body: r.get(14)?,
+        message_id: r.get(15)?,
     })
 }
 
@@ -783,9 +1092,11 @@ fn insert_folder(
     Ok(())
 }
 
+/// `srv_folder` and `uid` are set for mail from a server, `None` for mail that exists only here.
 fn insert_message(
     db: &Connection,
     folder: &str,
+    srv_folder: Option<&str>,
     m: &Message,
     uid: Option<u32>,
     raw: Option<&[u8]>,
@@ -793,12 +1104,14 @@ fn insert_message(
     let attachments =
         serde_json::to_string(&m.attachments).map_err(|e| StoreError::Database(e.to_string()))?;
     db.execute(
-        "INSERT INTO messages (folder, uid, from_name, from_email, to_addr, cc, subject, date,
-             size_kb, unread, flagged, remote_images, note, attachments, body, raw)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        "INSERT INTO messages (folder, srv_folder, uid, message_id, from_name, from_email, to_addr,
+             cc, subject, date, size_kb, unread, flagged, remote_images, note, attachments, body, raw)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![
             folder,
+            srv_folder,
             uid,
+            m.message_id,
             m.from_name,
             m.from_email,
             m.to,
@@ -842,7 +1155,7 @@ mod tests {
         }
     }
 
-    /// A store with one real (IMAP) account that has an Inbox, Sent and Trash.
+    /// A store with one real (IMAP) account that has an Inbox, Sent, Archive and Trash.
     fn store_with_server_account() -> (MailStore, Account) {
         let mut store = MailStore::in_memory().unwrap();
         let account = store
@@ -866,6 +1179,7 @@ mod tests {
                 &[
                     folder("inbox", FolderKind::Inbox),
                     folder("sent", FolderKind::Sent),
+                    folder("archive", FolderKind::Archive),
                     folder("trash", FolderKind::Trash),
                 ],
             )
@@ -893,9 +1207,27 @@ mod tests {
                 note: None,
                 attachments: vec![],
                 body: "Dzień dobry, przesyłam żółwia.".into(),
+                message_id: Some(format!("{uid}.{subject}@kowalska-architekci.pl")),
             },
-            raw: b"Subject: x\r\n\r\nx".to_vec(),
+            raw: format!("Message-ID: <{uid}.{subject}@kowalska-architekci.pl>\r\nSubject: {subject}\r\n\r\nx")
+                .into_bytes(),
         }
+    }
+
+    /// One server message in the Inbox; returns its id.
+    fn one_in_inbox(store: &mut MailStore, account: &Account, uid: u32) -> MessageId {
+        store
+            .add_synced(&account.folder_key("inbox"), &[synced(uid, "Poprawki")])
+            .unwrap()[0]
+    }
+
+    fn kinds(store: &MailStore, account: &Account) -> Vec<ChangeKind> {
+        store
+            .pending_changes(&account.id)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.kind)
+            .collect()
     }
 
     #[test]
@@ -1014,6 +1346,15 @@ mod tests {
     }
 
     #[test]
+    fn sample_mail_queues_nothing() {
+        let mut store = sample_store();
+        let id = store.list("firma/inbox").unwrap()[0].id;
+        store.set_unread(id, false).unwrap();
+        store.delete(id).unwrap();
+        assert!(!store.has_pending_changes("firma").unwrap());
+    }
+
+    #[test]
     fn search_finds_words_in_bodies_without_diacritics() {
         let store = sample_store();
         let hits = store.search("dzien dob").unwrap();
@@ -1028,24 +1369,148 @@ mod tests {
     }
 
     #[test]
-    fn server_mail_is_read_only() {
+    fn flag_changes_are_queued_once_with_the_latest_value() {
         let (mut store, account) = store_with_server_account();
-        let key = account.folder_key("inbox");
-        let ids = store.add_synced(&key, &[synced(7, "Poprawki")]).unwrap();
-        let id = ids[0];
-        assert!(matches!(store.delete(id), Err(StoreError::ReadOnly { .. })));
-        assert!(matches!(
-            store.move_to(id, &account.folder_key("sent")),
-            Err(StoreError::ReadOnly { .. })
-        ));
-        // Read state and flags are local, so they still work.
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.set_unread(id, false).unwrap();
+        store.set_unread(id, true).unwrap();
         store.set_unread(id, false).unwrap();
         store.set_flagged(id, true).unwrap();
-        // Mail written here exists only here, so it can be deleted.
-        let draft = store
-            .save_outgoing(draft(&account.id), FolderKind::Sent, now())
+        assert_eq!(
+            kinds(&store, &account),
+            [ChangeKind::Seen(true), ChangeKind::Flagged(true)]
+        );
+        let change = &store.pending_changes(&account.id).unwrap()[0];
+        assert_eq!(change.folder, account.folder_key("inbox"));
+        assert_eq!(change.uid, Some(7));
+        assert_eq!(change.message, Some(id));
+    }
+
+    #[test]
+    fn moving_back_cancels_the_move() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        assert_eq!(store.delete(id), Ok(DeleteOutcome::MovedToTrash));
+        assert_eq!(
+            kinds(&store, &account),
+            [ChangeKind::Move(account.folder_key("trash"))]
+        );
+        store.move_to(id, &account.folder_key("archive")).unwrap();
+        assert_eq!(
+            kinds(&store, &account),
+            [ChangeKind::Move(account.folder_key("archive"))]
+        );
+        store.move_to(id, &account.folder_key("inbox")).unwrap();
+        assert!(kinds(&store, &account).is_empty());
+    }
+
+    #[test]
+    fn deleting_from_trash_queues_an_expunge_that_outlives_the_row() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.set_flagged(id, true).unwrap();
+        store.delete(id).unwrap();
+        assert_eq!(store.delete(id), Ok(DeleteOutcome::Removed));
+        assert!(store.get(id).is_err());
+        let changes = store.pending_changes(&account.id).unwrap();
+        assert_eq!(changes.len(), 1, "the flag and the move are moot");
+        assert_eq!(changes[0].kind, ChangeKind::Expunge);
+        assert_eq!(
+            changes[0].folder,
+            account.folder_key("inbox"),
+            "still there on the server"
+        );
+        assert_eq!(changes[0].uid, Some(7));
+        assert_eq!(changes[0].subject, "Poprawki");
+        assert_eq!(changes[0].message, None);
+    }
+
+    #[test]
+    fn a_done_move_updates_the_server_location() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        let archive = account.folder_key("archive");
+        store.move_to(id, &archive).unwrap();
+        let change = store.pending_changes(&account.id).unwrap().remove(0);
+        store
+            .change_moved(change.op, id, &archive, Some(31))
             .unwrap();
-        assert_eq!(store.delete(draft), Ok(DeleteOutcome::MovedToTrash));
+        assert!(kinds(&store, &account).is_empty());
+        assert_eq!(store.local_uids(&archive).unwrap(), HashSet::from([31]));
+        assert!(store
+            .local_uids(&account.folder_key("inbox"))
+            .unwrap()
+            .is_empty());
+        // The next download of Archive sees UID 31 and doesn't store it twice.
+        assert!(store
+            .add_synced(&archive, &[synced(31, "Poprawki")])
+            .unwrap()
+            .is_empty());
+        assert_eq!(store.list(&archive).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_moved_message_without_a_known_uid_is_recognized_by_message_id() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        let archive = account.folder_key("archive");
+        store.move_to(id, &archive).unwrap();
+        let change = store.pending_changes(&account.id).unwrap().remove(0);
+        store.change_moved(change.op, id, &archive, None).unwrap();
+        // The server gives it UID 40 in Archive; same Message-ID as before the move.
+        let mut arrived = synced(7, "Poprawki");
+        arrived.uid = 40;
+        assert!(
+            store.add_synced(&archive, &[arrived]).unwrap().is_empty(),
+            "no duplicate"
+        );
+        assert_eq!(store.local_uids(&archive).unwrap(), HashSet::from([40]));
+        assert_eq!(
+            store.list(&archive).unwrap()[0].id,
+            id,
+            "same message, same id"
+        );
+    }
+
+    #[test]
+    fn giving_up_a_move_puts_the_message_back() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.move_to(id, &account.folder_key("archive")).unwrap();
+        let change = store.pending_changes(&account.id).unwrap().remove(0);
+        assert_eq!(
+            store
+                .change_failed(change.op, "NO Permission denied")
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            store
+                .change_failed(change.op, "NO Permission denied")
+                .unwrap(),
+            2
+        );
+        store.give_up_change(&change).unwrap();
+        assert_eq!(store.get(id).unwrap().folder, account.folder_key("inbox"));
+        assert!(kinds(&store, &account).is_empty());
+    }
+
+    #[test]
+    fn server_flags_win_unless_a_local_change_is_queued() {
+        let (mut store, account) = store_with_server_account();
+        let key = account.folder_key("inbox");
+        let a = one_in_inbox(&mut store, &account, 1);
+        let b = one_in_inbox(&mut store, &account, 2);
+        store.set_flagged(b, true).unwrap(); // queued, not sent yet
+        let changed = store
+            .refresh_flags(&key, &[(1, true, true), (2, true, false)])
+            .unwrap();
+        assert_eq!(changed, 3, "a: read and flagged; b: read");
+        let a = store.get(a).unwrap();
+        assert!(!a.unread && a.flagged);
+        let b = store.get(b).unwrap();
+        assert!(!b.unread);
+        assert!(b.flagged, "the queued local flag wins");
     }
 
     #[test]
@@ -1084,6 +1549,19 @@ mod tests {
     }
 
     #[test]
+    fn a_message_gone_from_the_server_takes_its_changes_along() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.set_unread(id, false).unwrap();
+        store.move_to(id, &account.folder_key("archive")).unwrap();
+        store
+            .forget_vanished(&account.folder_key("inbox"), &HashSet::new())
+            .unwrap();
+        assert!(store.get(id).is_err());
+        assert!(!store.has_pending_changes(&account.id).unwrap());
+    }
+
+    #[test]
     fn adding_the_same_address_updates_the_account() {
         let (mut store, account) = store_with_server_account();
         let again = store
@@ -1098,20 +1576,21 @@ mod tests {
         assert_eq!(again.id, account.id);
         assert_eq!(again.name, "Biuro");
         assert_eq!(again.imap.unwrap().host, "imap.twojastudio.pl");
-        assert_eq!(again.folders.len(), 3, "folders are kept");
+        assert_eq!(again.folders.len(), 4, "folders are kept");
         assert_eq!(store.accounts().len(), 1);
     }
 
     #[test]
-    fn removing_an_account_removes_its_mail() {
+    fn removing_an_account_removes_its_mail_and_changes() {
         let (mut store, account) = store_with_server_account();
-        store
-            .add_synced(&account.folder_key("inbox"), &[synced(1, "a")])
-            .unwrap();
+        let id = one_in_inbox(&mut store, &account, 1);
+        store.delete(id).unwrap();
+        store.delete(id).unwrap(); // queues an expunge, which has no message row
         store.remove_account(&account.id).unwrap();
         assert!(store.accounts().is_empty());
         assert!(store.snapshot().unwrap().messages.is_empty());
         assert!(store.search("zolwia").unwrap().is_empty());
+        assert!(!store.has_pending_changes(&account.id).unwrap());
     }
 
     #[test]
@@ -1155,6 +1634,43 @@ mod tests {
         for ext in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{ext}", path.display()));
         }
+    }
+
+    #[test]
+    fn a_version_1_database_is_upgraded() {
+        // A database as the first release left it, with one downloaded message.
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(MIGRATIONS[0]).unwrap();
+        db.pragma_update(None, "user_version", 1).unwrap();
+        db.execute_batch(
+            "INSERT INTO accounts VALUES ('studio', 0, 'Studio', 'biuro@x.pl', 'mail.x.pl', 993, 'biuro@x.pl');
+             INSERT INTO folders VALUES ('studio', 'inbox', 0, 'Inbox', 'inbox', 'INBOX', 7, 5);
+             INSERT INTO messages (folder, uid, from_name, from_email, to_addr, cc, subject, date,
+                 size_kb, unread, flagged, remote_images, attachments, body, raw)
+             VALUES ('studio/inbox', 5, 'Anna', 'anna@x.pl', '', '', 'Wycena', '2026-10-09 14:30:00',
+                 1, 1, 0, 0, '[]', 'Dzień dobry', CAST('Message-ID: <wycena@x.pl>' || char(13, 10) || char(13, 10) AS BLOB));",
+        )
+        .unwrap();
+
+        let mut store = MailStore::with_connection(db, false).unwrap();
+        let version: i64 = store
+            .db
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, MIGRATIONS.len() as i64);
+        assert_eq!(
+            store.local_uids("studio/inbox").unwrap(),
+            HashSet::from([5])
+        );
+        let id = store.list("studio/inbox").unwrap()[0].id;
+        assert_eq!(
+            store.get(id).unwrap().message_id.as_deref(),
+            Some("wycena@x.pl")
+        );
+        // Changes to old mail are queued like any other.
+        store.set_unread(id, false).unwrap();
+        assert!(store.has_pending_changes("studio").unwrap());
+        assert_eq!(store.search("dzien").unwrap(), [id]);
     }
 
     #[test]

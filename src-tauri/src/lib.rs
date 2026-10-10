@@ -20,8 +20,9 @@ struct AppState {
     store: Mutex<MailStore>,
     /// The user's mail base: %APPDATA%\app.telexmail.desktop\telex.db.
     db_path: PathBuf,
-    /// A mail check is running. A second one is refused instead of doubling the work.
-    checking: AtomicBool,
+    /// Telex is talking to the servers (a check or a push). Another one waits its turn
+    /// instead of sending the same changes twice.
+    busy: AtomicBool,
 }
 
 /// Errors cross the IPC bridge as plain, user-readable strings.
@@ -143,8 +144,8 @@ async fn add_account(
 /// Remove an account, its local mail and its saved password. The server is not touched.
 #[tauri::command]
 fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    if state.checking.load(Ordering::SeqCst) {
-        return Err("Telex is checking mail. Try again when it has finished.".into());
+    if state.busy.load(Ordering::SeqCst) {
+        return Err("Telex is talking to the mail server. Try again in a moment.".into());
     }
     let email = with_store(&state, |s| {
         let email = s.account(&id)?.email.clone();
@@ -159,57 +160,118 @@ fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
 }
 
 #[derive(Debug, Default, Serialize)]
-struct CheckReport {
+struct SyncOutcome {
     /// Ids of messages that arrived.
     new: Vec<MessageId>,
-    /// One line per account that failed, e.g. "Studio: can't reach mail.x.pl: …".
+    /// One line per problem, e.g. "Studio: can't reach mail.x.pl: …".
     errors: Vec<String>,
+    /// Another check or push was running, so this one didn't start. Try again shortly.
+    busy: bool,
 }
 
-/// Clears the "checking" flag however the check ends, even on an early return.
-struct CheckingGuard<'a>(&'a AtomicBool);
+impl SyncOutcome {
+    fn busy() -> Self {
+        Self {
+            busy: true,
+            ..Self::default()
+        }
+    }
+}
 
-impl Drop for CheckingGuard<'_> {
+/// Holds the "busy" flag while Telex talks to the servers, and clears it however that
+/// ends, even on an early return.
+struct BusyGuard<'a>(&'a AtomicBool);
+
+impl<'a> BusyGuard<'a> {
+    fn take(flag: &'a AtomicBool) -> Option<Self> {
+        (!flag.swap(true, Ordering::SeqCst)).then_some(Self(flag))
+    }
+}
+
+impl Drop for BusyGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::SeqCst);
     }
 }
 
-/// Download new mail for every account, one after another. Progress reaches the UI
-/// as "sync-progress" events. One account failing doesn't stop the others.
+/// The accounts that live on a server; none while the sample mailbox is showing.
+fn server_accounts(state: &AppState) -> CmdResult<Vec<Account>> {
+    with_store(state, |s| {
+        Ok(if s.is_sample() {
+            Vec::new()
+        } else {
+            s.accounts()
+                .iter()
+                .filter(|a| a.imap.is_some())
+                .cloned()
+                .collect()
+        })
+    })
+}
+
+/// Full sync of every account, one after another: send queued changes, download new
+/// mail and flag changes, send what changed meanwhile. Progress reaches the UI as
+/// "sync-progress" events. One account failing doesn't stop the others.
 #[tauri::command]
-async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<CheckReport> {
-    if state.checking.swap(true, Ordering::SeqCst) {
-        return Err("Already checking mail.".into());
-    }
-    let _guard = CheckingGuard(&state.checking);
-    let accounts = with_store(&state, |s| {
-        Ok((!s.is_sample()).then(|| s.accounts().to_vec()))
-    })?;
-    let Some(accounts) = accounts else {
-        let new = with_store(&state, |s| s.fetch_new())?;
-        return Ok(CheckReport {
-            new,
-            errors: Vec::new(),
-        });
+async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
+    let Some(_busy) = BusyGuard::take(&state.busy) else {
+        return Ok(SyncOutcome::busy());
     };
+    if with_store(&state, |s| Ok(s.is_sample()))? {
+        let new = with_store(&state, |s| s.fetch_new())?;
+        return Ok(SyncOutcome {
+            new,
+            ..SyncOutcome::default()
+        });
+    }
     let progress = |p: SyncProgress| {
         let _ = app.emit("sync-progress", p);
     };
-    let mut report = CheckReport::default();
-    for account in accounts.iter().filter(|a| a.imap.is_some()) {
+    let mut outcome = SyncOutcome::default();
+    for account in server_accounts(&state)? {
         let result = match secrets::load_password(&account.email) {
-            Ok(password) => imap::sync_account(account, &password, &state.store, &progress)
+            Ok(password) => imap::sync_account(&account, &password, &state.store, &progress)
                 .await
                 .map_err(|e| e.to_string()),
             Err(e) => Err(e),
         };
         match result {
-            Ok(ids) => report.new.extend(ids),
-            Err(e) => report.errors.push(format!("{}: {e}", account.name)),
+            Ok(report) => {
+                outcome.new.extend(report.new);
+                let refused = report.refused.iter();
+                outcome
+                    .errors
+                    .extend(refused.map(|r| format!("{}: {r}", account.name)));
+            }
+            Err(e) => outcome.errors.push(format!("{}: {e}", account.name)),
         }
     }
-    Ok(report)
+    Ok(outcome)
+}
+
+/// Send queued changes (read state, flags, moves, deletes) to the servers now, without
+/// downloading. The UI calls this a few seconds after the user changes something.
+#[tauri::command]
+async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
+    let Some(_busy) = BusyGuard::take(&state.busy) else {
+        return Ok(SyncOutcome::busy());
+    };
+    let mut outcome = SyncOutcome::default();
+    for account in server_accounts(&state)? {
+        let result = match secrets::load_password(&account.email) {
+            Ok(password) => imap::push_account(&account, &password, &state.store)
+                .await
+                .map_err(|e| format!("{e}. Your changes are kept and sent at the next check")),
+            Err(e) => Err(e),
+        };
+        match result {
+            Ok(refused) => outcome
+                .errors
+                .extend(refused.iter().map(|r| format!("{}: {r}", account.name))),
+            Err(e) => outcome.errors.push(format!("{}: {e}", account.name)),
+        }
+    }
+    Ok(outcome)
 }
 
 pub fn run() {
@@ -221,7 +283,7 @@ pub fn run() {
             app.manage(AppState {
                 store: Mutex::new(open_store(&db_path)),
                 db_path,
-                checking: AtomicBool::new(false),
+                busy: AtomicBool::new(false),
             });
             Ok(())
         })
@@ -237,6 +299,7 @@ pub fn run() {
             add_account,
             remove_account,
             check_mail,
+            push_changes,
         ])
         .run(tauri::generate_context!())
         .expect("Telex failed to start");
