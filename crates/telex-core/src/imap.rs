@@ -12,8 +12,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use async_imap::error::Error as ImapError;
+use async_imap::extensions::idle::IdleResponse;
 use async_imap::imap_proto::{Response, ResponseCode, Status, UidSetMember};
-use async_imap::types::{Capability, Fetch, Flag, Name, NameAttribute, QuotaResourceName};
+use async_imap::types::{
+    Capability, Fetch, Flag, Name, NameAttribute, QuotaResourceName, UnsolicitedResponse,
+};
 use async_imap::{Client, Session};
 use chrono::Local;
 use futures_util::TryStreamExt;
@@ -136,8 +139,11 @@ pub struct SyncProgress {
 /// What one sync of an account did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SyncReport {
-    /// Ids of messages that arrived.
+    /// Ids of messages downloaded, in every folder.
     pub new: Vec<MessageId>,
+    /// The new Inbox mail that really arrived (not a folder's first download), for a
+    /// notification.
+    pub arrived: Vec<MessageId>,
     /// New Inbox mail the rules changed, and how many automatic replies they queued.
     pub sorted: usize,
     pub answered: usize,
@@ -225,6 +231,16 @@ pub async fn check_account(
     folders
 }
 
+/// Which folders a sync downloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Scope {
+    /// Every folder, after asking the server for its folder list.
+    #[default]
+    All,
+    /// Only the Inbox: when IDLE says something changed there.
+    Inbox,
+}
+
 /// Full sync of one account: send queued changes, download what's new, then send
 /// whatever the user changed meanwhile.
 ///
@@ -234,12 +250,13 @@ pub async fn sync_account(
     password: &str,
     store: &Mutex<MailStore>,
     progress: &(dyn Fn(SyncProgress) + Send + Sync),
+    scope: Scope,
 ) -> Result<SyncReport, SyncError> {
     let Some(settings) = &account.imap else {
         return Ok(SyncReport::default());
     };
     let mut session = connect_and_login(settings, password).await?;
-    let result = sync_all(&mut session, account, store, progress).await;
+    let result = sync_all(&mut session, account, store, progress, scope).await;
     logout(&mut session).await;
     result
 }
@@ -345,11 +362,12 @@ pub async fn sync_all<T: ImapStream>(
     account: &Account,
     store: &Mutex<MailStore>,
     progress: &(dyn Fn(SyncProgress) + Send + Sync),
+    scope: Scope,
 ) -> Result<SyncReport, SyncError> {
     let caps = server_caps(session).await?;
     let queued_before = lock(store)?.last_change_op(&account.id)?;
     let refused = push_queued_after(session, account, store, caps, 0).await?;
-    let downloaded = sync_session(session, account, store, progress).await?;
+    let downloaded = sync_session(session, account, store, progress, scope).await?;
     let quota = if caps.quota {
         storage_quota(session).await
     } else {
@@ -358,6 +376,7 @@ pub async fn sync_all<T: ImapStream>(
     lock(store)?.set_quota(&account.id, quota)?;
     let mut report = SyncReport {
         new: downloaded.new,
+        arrived: downloaded.arrived.clone(),
         refused,
         ..SyncReport::default()
     };
@@ -380,16 +399,29 @@ pub async fn sync_all<T: ImapStream>(
 }
 
 /// Download: refresh the folder list, then for every folder drop what was deleted on
-/// the server, take flag changes made elsewhere, and fetch new messages.
+/// the server, take flag changes made elsewhere, and fetch new messages. With
+/// [`Scope::Inbox`] only the Inbox, from the folder list Telex already has.
 pub async fn sync_session<T: ImapStream>(
     session: &mut Session<T>,
     account: &Account,
     store: &Mutex<MailStore>,
     progress: &(dyn Fn(SyncProgress) + Send + Sync),
+    scope: Scope,
 ) -> Result<Downloaded, SyncError> {
-    let remote = list_folders(session).await?;
-    let folders = plan_folders(&remote);
-    lock(store)?.set_folders(&account.id, &folders)?;
+    let folders = match scope {
+        Scope::All => {
+            let remote = list_folders(session).await?;
+            let folders = plan_folders(&remote);
+            lock(store)?.set_folders(&account.id, &folders)?;
+            folders
+        }
+        Scope::Inbox => account
+            .folders
+            .iter()
+            .filter(|f| f.kind == FolderKind::Inbox)
+            .cloned()
+            .collect(),
+    };
 
     let mut downloaded = Downloaded::default();
     for folder in &folders {
@@ -463,6 +495,69 @@ pub async fn push_changes<T: ImapStream>(
     caps: ServerCaps,
 ) -> Result<Vec<String>, SyncError> {
     push_queued_after(session, account, store, caps, 0).await
+}
+
+/// How long one IDLE lasts before Telex renews it: servers may end one after 30 minutes of
+/// silence (RFC 2177), and renewing also finds out when a connection quietly died.
+pub const IDLE_RENEW: Duration = Duration::from_secs(25 * 60);
+
+/// Why watching an Inbox ended without an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Watched {
+    /// The server doesn't support IDLE; regular checks will have to do.
+    NoIdle,
+}
+
+/// Watch an account's Inbox with IDLE (RFC 2177) on a connection of its own, and call
+/// `changed` whenever the server says something happened there: new mail, mail deleted,
+/// flags changed elsewhere. The caller then syncs the Inbox. Runs until the connection
+/// breaks (an error: the caller tries again after a pause) or the server turns out not to
+/// support IDLE. The Inbox is opened read-only, so watching never changes anything.
+pub async fn watch_inbox(
+    settings: &ImapSettings,
+    password: &str,
+    changed: &(dyn Fn() + Send + Sync),
+) -> Result<Watched, SyncError> {
+    let session = connect_and_login(settings, password).await?;
+    watch_session(session, changed, IDLE_RENEW).await
+}
+
+/// [`watch_inbox`] over a session that is already logged in. IDLE takes the session and
+/// gives it back after DONE, so this owns it.
+async fn watch_session<T: ImapStream>(
+    mut session: Session<T>,
+    changed: &(dyn Fn() + Send + Sync),
+    renew: Duration,
+) -> Result<Watched, SyncError> {
+    let caps = timeout(COMMAND_TIMEOUT, session.capabilities())
+        .await
+        .map_err(|_| SyncError::Timeout)??;
+    if !caps.has_str("IDLE") {
+        logout(&mut session).await;
+        return Ok(Watched::NoIdle);
+    }
+    timeout(COMMAND_TIMEOUT, session.examine("INBOX"))
+        .await
+        .map_err(|_| SyncError::Timeout)??;
+    loop {
+        let mut idle = session.idle();
+        timeout(COMMAND_TIMEOUT, idle.init())
+            .await
+            .map_err(|_| SyncError::Timeout)??;
+        let (wait, _stop) = idle.wait_with_timeout(renew);
+        let response = wait.await?;
+        session = timeout(COMMAND_TIMEOUT, idle.done())
+            .await
+            .map_err(|_| SyncError::Timeout)??;
+        let mut news = matches!(response, IdleResponse::NewData(_));
+        // Whatever the server said around DONE waits in the session's queue.
+        while let Ok(r) = session.unsolicited_responses.try_recv() {
+            news |= !matches!(r, UnsolicitedResponse::Status { .. });
+        }
+        if news {
+            changed();
+        }
+    }
 }
 
 /// [`push_changes`] for the changes queued after `after_op` only.
@@ -1502,6 +1597,8 @@ mod tests {
         boxes: Vec<FakeBox>,
         /// Every command the client sent, without its tag.
         commands: Vec<String>,
+        /// Wakes a client in IDLE: the server tells it how many messages the Inbox has.
+        idle: Arc<tokio::sync::Notify>,
     }
 
     impl FakeServer {
@@ -1590,11 +1687,12 @@ mod tests {
             capabilities,
             boxes: fake_boxes(),
             commands: Vec::new(),
+            idle: Arc::new(tokio::sync::Notify::new()),
         }));
         let shared = server.clone();
         tokio::spawn(async move {
             while let Ok((socket, _)) = listener.accept().await {
-                let _ = serve(socket, shared.clone()).await;
+                tokio::spawn(serve(socket, shared.clone()));
             }
         });
         (addr, server)
@@ -1626,6 +1724,33 @@ mod tests {
                 None => Vec::new(),
             };
             let (tag, command) = line.split_once(' ').unwrap_or((&line, ""));
+            if command.eq_ignore_ascii_case("IDLE") {
+                // Wait for DONE; meanwhile say so whenever the test pokes the Inbox.
+                let wake = {
+                    let mut s = server.lock().unwrap();
+                    s.commands.push("IDLE".into());
+                    s.idle.clone()
+                };
+                write.write_all(b"+ idling\r\n").await?;
+                loop {
+                    let mut done = String::new();
+                    tokio::select! {
+                        read = reader.read_line(&mut done) => {
+                            if read? == 0 {
+                                return Ok(());
+                            }
+                            server.lock().unwrap().commands.push(done.trim().to_owned());
+                            write.write_all(format!("{tag} OK IDLE terminated\r\n").as_bytes()).await?;
+                            break;
+                        }
+                        () = wake.notified() => {
+                            let n = server.lock().unwrap().boxes[0].mail.len();
+                            write.write_all(format!("* {n} EXISTS\r\n").as_bytes()).await?;
+                        }
+                    }
+                }
+                continue;
+            }
             let reply = {
                 let mut s = server.lock().unwrap();
                 s.commands.push(command.to_owned());
@@ -1946,7 +2071,7 @@ mod tests {
         let (addr, server) = start_fake_server(capabilities).await;
         let (store, account) = store_with_account();
         let mut session = login(addr, "secret").await.unwrap();
-        sync_all(&mut session, &account, &store, &no_progress)
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         let account = store.lock().unwrap().account(&account.id).unwrap().clone();
@@ -1979,7 +2104,7 @@ mod tests {
         let progress = |p: SyncProgress| events.lock().unwrap().push(p);
         let mut session = login(addr, "secret").await.unwrap();
 
-        let new = sync_session(&mut session, &account, &store, &progress)
+        let new = sync_session(&mut session, &account, &store, &progress, Scope::All)
             .await
             .unwrap()
             .new;
@@ -2027,7 +2152,7 @@ mod tests {
         );
 
         // Nothing changed on the server: nothing is downloaded.
-        let new = sync_session(&mut session, &account, &store, &progress)
+        let new = sync_session(&mut session, &account, &store, &progress, Scope::All)
             .await
             .unwrap()
             .new;
@@ -2043,7 +2168,7 @@ mod tests {
                 .push(mail(3, &[], "Nowa wiadomo\u{15b}\u{107}", b"Hej"));
             inbox.next_uid = 4;
         }
-        let new = sync_session(&mut session, &account, &store, &progress)
+        let new = sync_session(&mut session, &account, &store, &progress, Scope::All)
             .await
             .unwrap()
             .new;
@@ -2062,7 +2187,7 @@ mod tests {
 
         // The server renumbers the Inbox: its mail is downloaded again.
         server.lock().unwrap().boxes[0].uid_validity = 8;
-        let new = sync_session(&mut session, &account, &store, &progress)
+        let new = sync_session(&mut session, &account, &store, &progress, Scope::All)
             .await
             .unwrap()
             .new;
@@ -2117,7 +2242,7 @@ mod tests {
             s.set_flagged(poprawki, false).unwrap();
             s.delete(wycena).unwrap(); // to Trash ("Kosz")
         }
-        let report = sync_all(&mut session, &account, &store, &no_progress)
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert!(
@@ -2146,7 +2271,7 @@ mod tests {
 
         // Del in Trash removes it on the server too.
         store.lock().unwrap().delete(wycena).unwrap();
-        sync_all(&mut session, &account, &store, &no_progress)
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert!(server.lock().unwrap().subjects("Kosz").is_empty());
@@ -2177,7 +2302,7 @@ mod tests {
             .unwrap()
             .move_to(poprawki, &account.folder_key("kosz"))
             .unwrap();
-        let report = sync_all(&mut session, &account, &store, &no_progress)
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert!(
@@ -2224,7 +2349,7 @@ mod tests {
             let m = srv.boxes[0].mail.iter_mut().find(|m| m.uid == 2).unwrap();
             m.flags = vec!["\\Seen".into()];
         }
-        sync_all(&mut session, &account, &store, &no_progress)
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         let m = store.lock().unwrap().get(poprawki).unwrap();
@@ -2240,7 +2365,7 @@ mod tests {
             .unwrap()
             .boxes
             .push(fake_box("Zablokowane", "\\HasNoChildren", vec![]));
-        sync_all(&mut session, &account, &store, &no_progress)
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         let account = store.lock().unwrap().account(&account.id).unwrap().clone();
@@ -2252,7 +2377,7 @@ mod tests {
             .unwrap();
 
         for attempt in 1..=MAX_ATTEMPTS {
-            let report = sync_all(&mut session, &account, &store, &no_progress)
+            let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
                 .await
                 .unwrap();
             let s = store.lock().unwrap();
@@ -2295,7 +2420,7 @@ mod tests {
             .move_to(wycena, &account.folder_key("kosz"))
             .unwrap();
         server.lock().unwrap().boxes[0].mail.retain(|m| m.uid != 1);
-        let report = sync_all(&mut session, &account, &store, &no_progress)
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert!(report.refused.is_empty());
@@ -2319,7 +2444,7 @@ mod tests {
         }
         // The user reads "Poprawki" while the new message downloads.
         let progress = |_: SyncProgress| store.lock().unwrap().set_unread(poprawki, false).unwrap();
-        let report = sync_all(&mut session, &account, &store, &progress)
+        let report = sync_all(&mut session, &account, &store, &progress, Scope::All)
             .await
             .unwrap();
         assert_eq!(report.new.len(), 1);
@@ -2359,7 +2484,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
                 .unwrap();
             id
         };
-        let report = sync_all(&mut session, &account, &store, &no_progress)
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert!(
@@ -2408,7 +2533,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
         let mut session = login(addr, "secret").await.unwrap();
 
         // The first download is old mail: the rule leaves it alone.
-        let report = sync_all(&mut session, &account, &store, &no_progress)
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert_eq!(report.sorted, 0);
@@ -2438,7 +2563,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
                 .push(mail(3, &[], "Faktura 10/2026", b"Kwota: 1230 z\xb3"));
             srv.boxes[0].next_uid = 4;
         }
-        let report = sync_all(&mut session, &account, &store, &no_progress)
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert_eq!((report.new.len(), report.sorted), (1, 1), "{report:?}");
@@ -2486,7 +2611,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
         more_inbox_mail(&server, 3..=6);
         let (store, account) = store_with_account();
         let mut session = login(addr, "secret").await.unwrap();
-        sync_all(&mut session, &account, &store, &no_progress)
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         let account = store.lock().unwrap().account(&account.id).unwrap().clone();
@@ -2508,7 +2633,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             s.move_many(&numbered, &account.folder_key("kosz")).unwrap();
         }
         let from = server.lock().unwrap().commands.len();
-        let report = sync_all(&mut session, &account, &store, &no_progress)
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         assert!(report.refused.is_empty(), "{report:?}");
@@ -2563,7 +2688,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             .unwrap()
             .boxes
             .push(fake_box("Zablokowane", "\\HasNoChildren", vec![]));
-        sync_all(&mut session, &account, &store, &no_progress)
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         let account = store.lock().unwrap().account(&account.id).unwrap().clone();
@@ -2582,7 +2707,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             .unwrap();
         let mut refused = Vec::new();
         for _ in 0..MAX_ATTEMPTS {
-            refused = sync_all(&mut session, &account, &store, &no_progress)
+            refused = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
                 .await
                 .unwrap()
                 .refused;
@@ -2608,7 +2733,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
         more_inbox_mail(&server, 3..=(FIRST_SYNC_LIMIT as u32 + 4));
         let (store, account) = store_with_account();
         let mut session = login(addr, "secret").await.unwrap();
-        sync_all(&mut session, &account, &store, &no_progress)
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
             .await
             .unwrap();
         let account = store.lock().unwrap().account(&account.id).unwrap().clone();
@@ -2665,6 +2790,86 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             older_to_fetch(&on_server, &local, None, 99).is_empty(),
             "not before a first sync"
         );
+    }
+
+    #[tokio::test]
+    async fn an_inbox_check_looks_at_the_inbox_only() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        more_inbox_mail(&server, 3..=3);
+        {
+            let mut srv = server.lock().unwrap();
+            srv.boxes[1]
+                .mail
+                .push(mail(6, &["\\Seen"], "Re: Nr 3", b"OK"));
+            srv.boxes[1].next_uid = 7;
+        }
+        let from = server.lock().unwrap().commands.len();
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::Inbox)
+            .await
+            .unwrap();
+        assert_eq!(report.new.len(), 1);
+        let commands = commands_since(&server, from);
+        assert!(
+            !commands.iter().any(|c| c.starts_with("LIST")),
+            "{commands:?}"
+        );
+        assert!(!commands.iter().any(|c| c.contains("Wys")), "{commands:?}");
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn idle_says_when_the_inbox_changes() {
+        let (addr, server) = start_fake_server("IMAP4rev1 IDLE").await;
+        let session = login(addr, "secret").await.unwrap();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let watcher = tokio::spawn(async move {
+            let changed = move || {
+                let _ = tx.send(());
+            };
+            watch_session(session, &changed, Duration::from_millis(300)).await
+        });
+        let idles = |server: &Shared| {
+            server
+                .lock()
+                .unwrap()
+                .commands
+                .iter()
+                .filter(|c| *c == "IDLE")
+                .count()
+        };
+        for _ in 0..100 {
+            if idles(&server) > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(server
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .any(|c| c == "EXAMINE \"INBOX\""));
+        more_inbox_mail(&server, 3..=3);
+        let wake = server.lock().unwrap().idle.clone();
+        wake.notify_one();
+        timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("told within 5 s")
+            .expect("still watching");
+        // A quiet spell: DONE, then IDLE again.
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert!(idles(&server) >= 2, "{:?}", server.lock().unwrap().commands);
+        assert!(server.lock().unwrap().commands.iter().any(|c| c == "DONE"));
+        assert!(!watcher.is_finished());
+        watcher.abort();
+    }
+
+    #[tokio::test]
+    async fn without_idle_watching_ends_quietly() {
+        let (addr, _server) = start_fake_server("IMAP4rev1").await;
+        let session = login(addr, "secret").await.unwrap();
+        let outcome = watch_session(session, &|| {}, IDLE_RENEW).await.unwrap();
+        assert_eq!(outcome, Watched::NoIdle);
     }
 
     #[tokio::test]

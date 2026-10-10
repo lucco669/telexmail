@@ -52,6 +52,8 @@ const KEYS: &[&str] = &[
     "prefer_text",
     "mark_read",
     "check_every",
+    "push_mail",
+    "notify",
     "mail_paper",
     "compose_format",
     "reply_format",
@@ -74,6 +76,11 @@ pub struct Settings {
     pub mark_read: MarkRead,
     /// Minutes, one of [`CHECK_INTERVALS`].
     pub check_every: u16,
+    /// New mail in an Inbox shows at once: Telex keeps a connection open (IMAP IDLE) to
+    /// each server that offers it.
+    pub push_mail: bool,
+    /// A system notification for new mail while Telex's window isn't the active one.
+    pub notify: bool,
     /// HTML mail in a dark theme: on the theme's dark paper, or on white as sent.
     pub mail_paper: MailPaper,
     /// What a new message is written in.
@@ -155,6 +162,8 @@ impl Default for Settings {
             prefer_text: false,
             mark_read: MarkRead::Moment,
             check_every: 10,
+            push_mail: true,
+            notify: true,
             mail_paper: MailPaper::Theme,
             compose_format: ComposeFormat::Plain,
             reply_format: ReplyFormat::Same,

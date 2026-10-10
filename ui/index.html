@@ -203,6 +203,14 @@
           <select id="s-every" class="sselect"></select>
         </div>
         <fieldset class="sgroup">
+          <legend data-i18n>New mail</legend>
+          <div class="sopts">
+            <label class="sopt"><input type="checkbox" id="s-push"><span data-i18n>Show new mail at once</span></label>
+            <label class="sopt"><input type="checkbox" id="s-notify"><span data-i18n>Notify me of new mail while Telex is in the background</span></label>
+          </div>
+          <p class="dnote snote" data-i18n>At once: Telex keeps one connection open to each server that allows it (IMAP IDLE) and checks the Inbox when the server says something changed. The other folders are checked as often as set above.</p>
+        </fieldset>
+        <fieldset class="sgroup">
           <legend data-i18n>Mark messages as read</legend>
           <div class="sopts" id="s-read"></div>
         </fieldset>

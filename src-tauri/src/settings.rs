@@ -66,6 +66,11 @@ impl SettingsState {
         Ok(lock(&self.settings)?.clone())
     }
 
+    /// The settings now, for the rest of the shell (the defaults if the lock broke).
+    pub fn get(&self) -> Settings {
+        self.current().unwrap_or_default()
+    }
+
     /// Save the settings to disk, then make them current.
     fn replace(&self, next: Settings) -> CmdResult<SettingsView> {
         let mut current = lock(&self.settings)?;
@@ -109,11 +114,18 @@ pub fn get_settings(settings: State<'_, SettingsState>) -> CmdResult<SettingsVie
 /// this version doesn't know leaves that setting as it was.
 #[tauri::command]
 pub fn update_settings(
+    app: AppHandle,
     settings: State<'_, SettingsState>,
     changes: Value,
 ) -> CmdResult<SettingsView> {
-    let (next, _) = settings.current()?.merged(&changes);
-    settings.replace(next)
+    let before = settings.current()?;
+    let (next, _) = before.merged(&changes);
+    let push = next.push_mail != before.push_mail;
+    let view = settings.replace(next)?;
+    if push {
+        crate::watch::restart(&app);
+    }
+    Ok(view)
 }
 
 /// The words of the Save and Open dialogs, in the interface's language.
@@ -230,6 +242,7 @@ pub struct ImportOutcome {
 /// rules or accounts changed meanwhile.
 #[tauri::command]
 pub fn apply_import(
+    app: AppHandle,
     store: State<'_, AppState>,
     settings: State<'_, SettingsState>,
     choice: ImportChoice,
@@ -247,7 +260,14 @@ pub fn apply_import(
         Ok(import.apply(s, choice))
     })?;
     let view = match next {
-        Some(next) => settings.replace(next)?,
+        Some(next) => {
+            let push = next.push_mail != current.push_mail;
+            let view = settings.replace(next)?;
+            if push {
+                crate::watch::restart(&app);
+            }
+            view
+        }
         None => settings.view(current),
     };
     Ok(ImportOutcome {

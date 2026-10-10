@@ -5,6 +5,7 @@ mod files;
 mod secrets;
 mod settings;
 mod updates;
+mod watch;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::drafts::{self, DraftKind, DraftStart};
 use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits, Palette, Paper};
-use telex_core::imap::{self, SyncProgress};
+use telex_core::imap::{self, Scope, SyncProgress};
 use telex_core::recipients::Recipient;
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::tr;
@@ -420,6 +421,7 @@ fn open_link(app: AppHandle, url: String) -> CmdResult<()> {
 /// saved one.
 #[tauri::command]
 async fn add_account(
+    app: AppHandle,
     state: State<'_, AppState>,
     setup: AccountSetup,
     password: String,
@@ -447,19 +449,21 @@ async fn add_account(
             )
         })?;
     secrets::save_password(&setup.email, &password)?;
-    with_store(&state, |s| {
+    let account = with_store(&state, |s| {
         if s.is_in_memory() {
             *s = MailStore::open(&state.db_path)?;
         }
         let account = s.upsert_account(&setup)?;
         s.set_folders(&account.id, &imap::plan_folders(&folders))?;
         s.account(&account.id).cloned()
-    })
+    })?;
+    watch::restart(&app);
+    Ok(account)
 }
 
 /// Remove an account, its local mail and its saved password. The server is not touched.
 #[tauri::command]
-fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+fn remove_account(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
     if state.busy.load(Ordering::SeqCst) {
         return Err(tr!(
             "Telex is talking to the mail server. Try again in a moment.",
@@ -472,6 +476,7 @@ fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
         Ok(email)
     })?;
     secrets::delete_password(&email);
+    watch::restart(&app);
     Ok(())
 }
 
@@ -517,7 +522,7 @@ impl Drop for BusyGuard<'_> {
 }
 
 /// The accounts that live on a server.
-fn server_accounts(state: &AppState) -> CmdResult<Vec<Account>> {
+pub(crate) fn server_accounts(state: &AppState) -> CmdResult<Vec<Account>> {
     with_store(state, |s| {
         Ok(s.accounts()
             .iter()
@@ -529,21 +534,35 @@ fn server_accounts(state: &AppState) -> CmdResult<Vec<Account>> {
 
 /// Full sync of every account, one after another: send queued changes, download new
 /// mail and flag changes, send what changed meanwhile. Progress reaches the UI as
-/// "sync-progress" events. One account failing doesn't stop the others.
+/// "sync-progress" events. One account failing doesn't stop the others. With `account`,
+/// only that account's Inbox: what IDLE said changed.
 #[tauri::command]
-async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
+async fn check_mail(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    account: Option<String>,
+) -> CmdResult<SyncOutcome> {
     let Some(_busy) = BusyGuard::take(&state.busy) else {
         return Ok(SyncOutcome::busy());
     };
     let progress = |p: SyncProgress| {
         let _ = app.emit("sync-progress", p);
     };
+    let scope = if account.is_some() {
+        Scope::Inbox
+    } else {
+        Scope::All
+    };
     let mut outcome = SyncOutcome::default();
-    for account in server_accounts(&state)? {
+    let mut arrived = Vec::new();
+    let accounts = server_accounts(&state)?
+        .into_iter()
+        .filter(|a| account.as_ref().is_none_or(|only| &a.id == only));
+    for account in accounts {
         // Send first, so the copies for Sent go to the server in this same sync.
         send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
         let result = match secrets::load_password(&account.email) {
-            Ok(password) => imap::sync_account(&account, &password, &state.store, &progress)
+            Ok(password) => imap::sync_account(&account, &password, &state.store, &progress, scope)
                 .await
                 .map_err(|e| e.to_string()),
             Err(e) => Err(e),
@@ -555,6 +574,7 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
         match result {
             Ok(report) => {
                 outcome.new.extend(report.new);
+                arrived.extend(report.arrived);
                 outcome.sorted += report.sorted;
                 let refused = report.refused.iter();
                 outcome
@@ -572,6 +592,7 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
     if let Some(&newest) = outcome.new.last() {
         outcome.new_in = with_store(&state, |s| s.folder_of(newest)).unwrap_or_default();
     }
+    watch::announce(&app, &arrived);
     Ok(outcome)
 }
 
@@ -741,13 +762,15 @@ pub fn run() {
     let mut context = tauri::generate_context!();
     let mut app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_dialog::init());
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init());
     // Release builds only: the others can't update themselves and say so.
     if let Some(updater) = updates::plugin(&mut context) {
         app = app.plugin(updater);
     }
     app.manage(updates::Found::default())
         .manage(FilesState::default())
+        .manage(watch::Watchers::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -761,6 +784,7 @@ pub fn run() {
             });
             // Attachments opened last time; files still open elsewhere stay.
             telex_core::attachments::clear_opened(&std::env::temp_dir());
+            watch::restart(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {

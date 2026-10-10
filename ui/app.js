@@ -197,7 +197,8 @@ const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light')
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', check_every:10,
-    mail_paper:'theme', compose_format:'plain', reply_format:'same', ask_subject:true, spell_check:true, updates:'ask'},
+    push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', ask_subject:true,
+    spell_check:true, updates:'ask'},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -1517,17 +1518,22 @@ function leaveThread(){
 
 // quiet: a background check, which speaks up only for new mail or errors.
 // first: the download right after adding an account.
+// account: only that account's Inbox, because IDLE said something changed there.
 let checkAgain = null; // asked for while a check was running; runs when it ends
-async function getMail({quiet = false, first = false} = {}){
+async function getMail({quiet = false, first = false, account = null} = {}){
   const n = ACCOUNTS.filter(a => a.imap).length;
   if (!n){ if (!quiet) openAccountDialog(); return; } // nothing to check yet
   const b = $('b-get');
-  if (b.classList.contains('busy')){ if (first || !quiet) checkAgain = {quiet, first}; return; }
+  if (b.classList.contains('busy')){
+    // A full check waiting covers an Inbox one.
+    if (first || !quiet || account) checkAgain = checkAgain && !checkAgain.account ? checkAgain : {quiet, first, account};
+    return;
+  }
   b.classList.add('busy');
   if (!quiet) say(tn(n, 'Checking {n} account…', 'Checking {n} accounts…'), 0);
   try {
-    const r = await invoke('check_mail');
-    if (r.busy){ setTimeout(() => getMail({quiet, first}), 2000); return; } // changes are being sent
+    const r = await invoke('check_mail', {account});
+    if (r.busy){ setTimeout(() => getMail({quiet, first, account}), 2000); return; } // changes are being sent
     forgetRecipients();
     lastCheck = new Date();
     await refresh();
@@ -1550,6 +1556,14 @@ async function getMail({quiet = false, first = false} = {}){
     if (checkAgain){ const next = checkAgain; checkAgain = null; getMail(next); }
   }
 }
+
+// IDLE: the server said something changed in an account's Inbox. Several notices in a row are
+// one check.
+let inboxTimer;
+window.__TAURI__?.event?.listen('inbox-changed', ({payload: account}) => {
+  clearTimeout(inboxTimer);
+  inboxTimer = setTimeout(() => getMail({quiet:true, account}), 800);
+});
 
 // Progress while a folder downloads; each finished folder shows up right away.
 let reloadTimer;
@@ -2131,6 +2145,7 @@ function renderSettings(keepFocus){
   $('s-format').innerHTML = radios('compose_format', [['plain', esc(t('Plain text'))], ['html', esc(t('HTML'))]], s.compose_format);
   $('s-reply').innerHTML = radios('reply_format', [['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))], ['html', esc(t('Always HTML'))]], s.reply_format);
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
+  $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   const can = !!upd.build?.updatable;
   $('s-updates').checked = s.updates === 'daily'; $('s-updates').disabled = !can;
   $('s-upd-none').hidden = can; $('s-check').hidden = !can;
@@ -2158,6 +2173,7 @@ function syncSettings(){
   $('s-every').value = String(s.check_every);
   $('s-updates').checked = s.updates === 'daily';
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
+  $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
 }
 function openSettings(tab){
   if (tab) setTab = tab;
@@ -2199,6 +2215,8 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
   else if (el.id === 's-spell') changeSettings({spell_check:el.checked});
   else if (el.id === 's-every') changeSettings({check_every:Number(v)});
+  else if (el.id === 's-push') changeSettings({push_mail:el.checked});
+  else if (el.id === 's-notify') changeSettings({notify:el.checked});
   else if (el.id === 's-updates') changeSettings({updates:el.checked ? 'daily' : 'off'});
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
@@ -2218,7 +2236,8 @@ sdlg.addEventListener('close', () => {
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   mark_read:N_('Mark messages as read'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
-  spell_check:N_('Underline spelling mistakes'), updates:N_('Updates')};
+  spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
+  notify:N_('Notify me of new mail while Telex is in the background')};
 function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
@@ -2232,7 +2251,7 @@ function settingValue(key, v){
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
-    case 'ask_subject': case 'spell_check': return v ? t('On') : t('Off');
+    case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
     default: return String(v);
   }
 }
