@@ -117,7 +117,8 @@ function shoot(browser, file, out, size = [W, H], scale = SCALE) {
 // The link preview (Open Graph image, 1200×630): the inbox screenshot next to the headline.
 function ogPage() {
   const shot = pathToFileURL(join(outDir, 'inbox-light.png')).href;
-  const mark = '<svg width="44" height="44" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#2453a6"/><rect x="7" y="9.5" width="18" height="13" rx="1.8" fill="none" stroke="#fff" stroke-width="2.2"/><path d="M8.2 10.8 16 17l7.8-6.2" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const mark = (size) => readFileSync(join(repo, size < 40 ? 'brand/telex-mark-small.svg' : 'brand/telex-mark.svg'), 'utf8')
+    .replace('<title>Telex</title>', '').replace('<svg ', `<svg width="${size}" height="${size}" `);
   return `<!doctype html><html><head><meta charset="utf-8"><base href="${pathToFileURL(uiDir + '/').href}">
 <link rel="stylesheet" href="fonts.css"><style>
 *{box-sizing:border-box;margin:0}
@@ -133,10 +134,10 @@ p{margin-top:22px;font-size:24px;line-height:1.4;color:#59636e}
 .tb{height:34px;display:flex;align-items:center;gap:8px;padding-left:12px;font-size:13px;border-bottom:1px solid #d2d7de}
 .win img{display:block;width:100%}
 </style></head><body><div class="band"></div>
-<div class="text"><div class="logo">${mark}Telex</div><h1>Email at the speed of your keyboard.</h1>
-<p>A compact, fast mail client for Windows.</p></div>
+<div class="text"><div class="logo">${mark(44)}Telex</div><h1>Email at the speed of your keyboard.</h1>
+<p>A compact, fast email client for Windows.</p></div>
 <div class="facts">Rust · WebView2 · Offline search · No telemetry</div>
-<div class="win"><div class="tb">${mark.replace(/44/g, '15')}Inbox · biuro@twojastudio.pl – Telex</div><img src="${shot}"></div>
+<div class="win"><div class="tb">${mark(15)}Inbox · biuro@twojastudio.pl – Telex</div><img src="${shot}"></div>
 </body></html>`;
 }
 

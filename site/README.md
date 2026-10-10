@@ -9,6 +9,7 @@ npm install
 npm run dev        # http://localhost:3000
 npm run build      # what Vercel runs
 npm run screens    # retake the screenshots from ../ui (needs Edge or Chrome)
+npm run icons      # rebuild every app and site icon from ../brand
 ```
 
 ## Where things are
@@ -20,6 +21,26 @@ npm run screens    # retake the screenshots from ../ui (needs Edge or Chrome)
 - `components/`: one file per section, each with its CSS module. Tokens are in `app/globals.css`.
 - `public/screens/`: screenshots, `<scene>-light.png` and `<scene>-dark.png`, 1280×800 at 2×.
 - `app/opengraph-image.png`: the link preview, also made by `npm run screens`.
+- `components/JsonLd.tsx`: structured data for search engines (app, site, FAQ).
+
+## Logo and icons
+
+The logo lives in `../brand`: `telex-mark.svg` for 48 px and up, `telex-mark-small.svg` (no faint
+dot grid, bigger dots) for 32 px and below. `npm run icons` renders both with sharp into:
+
+- the desktop app: `src-tauri/icons/` (PNG sizes and a 16–256 px `icon.ico`),
+- the site: `app/favicon.ico`, `app/icon.svg`, `app/apple-icon.png` (full-bleed, iOS rounds it),
+  `public/icon-192.png`, `public/icon-512.png`, `public/icon-maskable-512.png` (for Android).
+
+The header mark in `components/Logo.tsx` draws the small variant inline; keep it in step.
+
+## SEO
+
+Title, description and keywords are in `lib/site.ts`; `app/layout.tsx` turns them into meta, Open
+Graph and Twitter tags with the canonical URL. Next.js also generates `robots.txt`, `sitemap.xml`
+(with the screenshots as image entries) and `manifest.webmanifest` from the files in `app/`. With
+a custom domain attached, the `*.vercel.app` address answers with `X-Robots-Tag: noindex`, so
+only your domain gets indexed.
 
 ## Screenshots
 

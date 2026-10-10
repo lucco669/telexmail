@@ -3,11 +3,11 @@ import { Tape } from './Tape';
 import s from './Footer.module.css';
 
 const links = [
-  ['#features', 'Features'],
-  ['#keyboard', 'Keyboard'],
-  ['#screens', 'Screens'],
-  ['#roadmap', 'Roadmap'],
-  ['#download', 'Download'],
+  ['/#features', 'Features'],
+  ['/#keyboard', 'Keyboard'],
+  ['/#screens', 'Screens'],
+  ['/#roadmap', 'Roadmap'],
+  ['/#download', 'Download'],
 ];
 
 export function Footer() {

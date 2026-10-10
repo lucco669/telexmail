@@ -22,7 +22,7 @@ export function Hero({ release }: { release: Release | null }) {
           Email at the speed <span className={s.nowrap}>of your keyboard.</span>
         </h1>
         <p className={s.lead}>
-          Telex is a compact, fast mail client for Windows. Dense lists, one key for every action, and all your mail on
+          Telex is a compact, fast email client for Windows. Dense lists, one key for every action, and all your mail on
           your own disk, searchable offline.
         </p>
         <div className={s.actions}>

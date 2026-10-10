@@ -44,6 +44,8 @@ ui/                  The interface. index.html + styles.css + app.js, no build s
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
                      sample.json via `npm run screens`; retake them after visible UI changes.
+brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-small.svg (32 px and
+                     below). `npm run icons` in site/ makes every app and site icon from them.
 .github/workflows/   CI: core tests on Linux, Windows installer build.
 ```
 
@@ -163,8 +165,8 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 
 - License (none chosen yet).
 - Final product name and domain. "Telex" is the working name; the repo is `telexmail`.
-- App icon is a placeholder (`src-tauri/icons/`, generated). Regenerate all sizes with
-  `npm run tauri icon path/to/icon.png` once there is a real one.
+- App icon: the dot-matrix T in `brand/`. `src-tauri/icons/` is generated from it with
+  `npm run icons` in `site/` (not `tauri icon`, which can't use the small-size variant).
 
 ## Prior art worth reading
 
