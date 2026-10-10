@@ -27,6 +27,7 @@
     <label class="search" for="q">
       <span id="search-ic" aria-hidden="true"></span>
       <input id="q" type="search" placeholder="Quick filter" autocomplete="off" spellcheck="false">
+      <button type="button" class="scope" id="q-scope" aria-pressed="false" title="Look in this folder or in all mail (Tab)">This folder</button>
       <kbd>/</kbd>
     </label>
   </div>
@@ -41,7 +42,8 @@
             <th class="c-ic" scope="col"><button type="button" data-sort="flag" aria-label="Sort by status">
               <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg><span class="arr"></span></button></th>
             <th class="c-from" scope="col"><button type="button" data-sort="from"><span id="from-label">From</span><span class="arr"></span></button></th>
-            <th class="c-subj" scope="col"><button type="button" data-sort="subj">Subject<span class="arr"></span></button></th>
+            <th class="c-subj" scope="col"><button type="button" data-sort="subject">Subject<span class="arr"></span></button></th>
+            <th class="c-where" scope="col"><span class="th-lbl">Folder</span></th>
             <th class="c-date" scope="col"><button type="button" data-sort="date">Received<span class="arr"></span></button></th>
             <th class="c-size" scope="col"><button type="button" data-sort="size">Size<span class="arr"></span></button></th>
           </tr></thead>

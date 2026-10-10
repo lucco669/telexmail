@@ -316,12 +316,10 @@ mod tests {
     #[test]
     fn a_forward_carries_the_text_and_attachments() {
         let store = sample_store();
-        let m = store
-            .snapshot()
-            .unwrap()
-            .messages
-            .into_iter()
-            .find(|s| s.has_attachments && s.folder.ends_with("/inbox"))
+        let m = ["firma/inbox", "gmail/inbox"]
+            .iter()
+            .flat_map(|f| store.list(f).unwrap())
+            .find(|s| s.has_attachments)
             .map(|s| store.get(s.id).unwrap())
             .unwrap();
         let d = start(&store, DraftKind::Forward, Some(m.id), "firma").unwrap();

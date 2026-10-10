@@ -20,8 +20,8 @@ use telex_core::html::{self, FetchLimits};
 use telex_core::imap::{self, SyncProgress};
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::{
-    Account, AccountSetup, DeleteOutcome, FolderKind, Identity, MailStore, Message, MessageId,
-    OutgoingDraft, Snapshot, StoreError,
+    Account, AccountSetup, DeleteOutcome, FolderKind, FolderTree, Identity, ListView, MailStore,
+    Message, MessageId, OutgoingDraft, Page, PageAt, StoreError,
 };
 
 struct AppState {
@@ -68,10 +68,22 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-/// Accounts, folders and every message summary, for the first paint and after bulk changes.
+/// Accounts and their folders, with how many messages and unread ones each folder holds.
 #[tauri::command]
-fn snapshot(state: State<'_, AppState>) -> CmdResult<Snapshot> {
-    with_store(&state, |s| s.snapshot())
+fn folder_tree(state: State<'_, AppState>) -> CmdResult<FolderTree> {
+    with_store(&state, |s| s.folder_tree())
+}
+
+/// One page of a message list (a folder, or all mail) in the chosen order, with the
+/// quick filter. The window asks for the rows it is about to show.
+#[tauri::command]
+fn list_page(
+    state: State<'_, AppState>,
+    view: ListView,
+    at: PageAt,
+    limit: usize,
+) -> CmdResult<Page> {
+    with_store(&state, |s| s.page(&view, at, limit))
 }
 
 #[tauri::command]
@@ -316,6 +328,8 @@ fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
 struct SyncOutcome {
     /// Ids of messages that arrived.
     new: Vec<MessageId>,
+    /// The folder the newest of them is in now, after the rules.
+    new_in: Option<String>,
     /// One line per message sent from an Outbox: `"Re: Wycena" to Anna Kowalska`.
     sent: Vec<String>,
     /// New messages the rules changed.
@@ -399,6 +413,9 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
             }
             Err(e) => outcome.errors.push(format!("{}: {e}", account.name)),
         }
+    }
+    if let Some(&newest) = outcome.new.last() {
+        outcome.new_in = with_store(&state, |s| s.folder_of(newest)).unwrap_or_default();
     }
     Ok(outcome)
 }
@@ -534,7 +551,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            snapshot,
+            folder_tree,
+            list_page,
             get_message,
             set_unread,
             set_flagged,
@@ -564,6 +582,16 @@ pub fn run() {
             updates::check_update,
             updates::install_update,
         ])
-        .run(context)
-        .expect("Telex failed to start");
+        .build(context)
+        .expect("Telex failed to start")
+        .run(|app, event| {
+            // The process may end without dropping the store: tidy the statistics now.
+            if let tauri::RunEvent::Exit = event {
+                if let Some(state) = app.try_state::<AppState>() {
+                    if let Ok(store) = state.store.lock() {
+                        store.optimize();
+                    }
+                }
+            }
+        });
 }

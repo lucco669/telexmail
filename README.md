@@ -13,7 +13,9 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > leave a note saying why. Each account can have several identities, each with its own
 > signature and reply templates. Release builds update themselves from GitHub Releases, but
 > only check after you say yes (or click the version number). Adding an account takes a name,
-> an address and a password: Telex finds the server settings itself.
+> an address and a password: Telex finds the server settings itself. The message list loads a
+> page at a time, so a mail base of 100,000 messages opens and scrolls as quickly as a small
+> one, and the quick filter looks in one folder or in all your mail.
 
 ## Run it on Windows
 
@@ -59,6 +61,7 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 | F | flag | N | new message |
 | U | toggle unread | Del / Z | delete / undo |
 | / | quick filter | Ctrl+Enter | send |
+| Tab (in the filter) | this folder / all mail | Enter | open an all-mail result in its folder |
 
 ## Project layout
 

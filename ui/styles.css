@@ -9,6 +9,8 @@
   --flag:#c2410c; --warn-bg:#fbf0d4; --warn-fg:#6b4a00; --note-bg:#fbe3e1; --note-fg:#8a1f17;
   --chip-bg:#dfe6f2; --chip-fg:#2c4a80; --img-a:#c9d7ee; --img-b:#eef2f8;
   --scrim:rgb(15 20 28 / .32); --shadow:rgb(15 20 28 / .22);
+  /* One color per account, by position: a dot in the tree, the status bar and All mail. */
+  --acct-0:#2453a6; --acct-1:#0e7f63; --acct-2:#b4541a; --acct-3:#7a47b5; --acct-4:#b3305a; --acct-5:#5b6b7a;
   /* HTML mail is designed for white paper, so its canvas stays white in the dark theme too. */
   --mail-bg:#ffffff;
   --font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
@@ -26,6 +28,7 @@
     --flag:#f08a4b; --warn-bg:#352b13; --warn-fg:#f0d697; --note-bg:#3a1c1c; --note-fg:#f2b6b2;
     --chip-bg:#26304a; --chip-fg:#b8c8e8; --img-a:#26365a; --img-b:#1a2233;
     --scrim:rgb(0 0 0 / .5); --shadow:rgb(0 0 0 / .5);
+    --acct-0:#6f9de6; --acct-1:#4cc29f; --acct-2:#f08a4b; --acct-3:#b28be8; --acct-4:#ec7a9c; --acct-5:#9aa8b5;
     color-scheme:dark;
   }
 }
@@ -37,6 +40,7 @@
   --flag:#f08a4b; --warn-bg:#352b13; --warn-fg:#f0d697; --note-bg:#3a1c1c; --note-fg:#f2b6b2;
   --chip-bg:#26304a; --chip-fg:#b8c8e8; --img-a:#26365a; --img-b:#1a2233;
   --scrim:rgb(0 0 0 / .5); --shadow:rgb(0 0 0 / .5);
+  --acct-0:#6f9de6; --acct-1:#4cc29f; --acct-2:#f08a4b; --acct-3:#b28be8; --acct-4:#ec7a9c; --acct-5:#9aa8b5;
   color-scheme:dark;
 }
 
@@ -67,6 +71,11 @@ svg{flex:none}
 .search:focus-within{border-color:var(--accent)}
 .search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:12px}
 .search kbd{flex:none}
+.scope{display:none;flex:none;height:18px;padding:0 6px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--muted);font:500 10.5px var(--font-ui);white-space:nowrap;cursor:pointer}
+.scope:hover{color:var(--fg);border-color:var(--accent)}
+.scope[aria-pressed="true"]{background:var(--chip-bg);border-color:var(--chip-bg);color:var(--chip-fg)}
+.search:focus-within .scope,.search.active .scope{display:inline-flex;align-items:center}
+.search:focus-within kbd,.search.active kbd{display:none}
 .search svg{width:13px;height:13px}
 #folder-select{display:none;height:24px;max-width:150px;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:12px;flex:none}
 
@@ -84,14 +93,22 @@ svg{flex:none}
 .acct{display:flex;align-items:center;gap:5px;width:100%;height:var(--row-tree);padding:0 8px 0 6px;border:0;background:none;cursor:pointer;text-align:left;min-width:0}
 .acct svg{width:12px;height:12px;color:var(--muted);transition:transform .12s}
 .acct[aria-expanded="true"] svg{transform:rotate(90deg)}
-.acct-name{font-weight:600;font-size:12px}
-.acct-mail{color:var(--faint);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.acct-mail{flex:1;min-width:0;font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.adot{display:none;flex:none;width:7px;height:7px;border-radius:50%;background:var(--acct-0)}
+.multi .adot{display:inline-block}
+.adot.a1{background:var(--acct-1)} .adot.a2{background:var(--acct-2)} .adot.a3{background:var(--acct-3)}
+.adot.a4{background:var(--acct-4)} .adot.a5{background:var(--acct-5)}
 .fold{display:flex;align-items:center;gap:7px;width:100%;height:var(--row-tree);padding:0 10px 0 24px;border:0;background:none;cursor:pointer;text-align:left;font-size:12.5px}
 .fold svg{width:14px;height:14px;color:var(--muted)}
 .fold:hover{background:var(--hover)}
 .fold.active{background:var(--sel);font-weight:500}
 .fold .cnt{margin-left:auto;font:600 11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--accent)}
 .fold .cnt.dim{color:var(--faint);font-weight:400}
+.fold.more{color:var(--muted);font-size:11.5px}
+.fold.more:hover{color:var(--fg)}
+.fold.more svg{width:12px;height:12px;margin:0 1px;transition:transform .12s}
+.fold.more[aria-expanded="true"] svg{transform:rotate(-90deg)}
+.fold.more[aria-expanded="false"] svg{transform:rotate(90deg)}
 .add-acct{display:flex;align-items:center;gap:7px;width:100%;height:var(--row-tree);margin-top:6px;padding:0 10px 0 24px;border:0;background:none;color:var(--muted);cursor:pointer;text-align:left;font-size:12px}
 .add-acct:hover{background:var(--hover);color:var(--fg)}
 .add-acct svg{width:14px;height:14px}
@@ -110,6 +127,13 @@ th.c-from{width:27%}
 th.c-date{width:96px}
 th.c-size{width:64px}
 th.c-size button{justify-content:flex-end}
+th.c-where{width:132px}
+th .th-lbl{display:block;padding:0 6px;font:500 11.5px/21px var(--font-ui);color:var(--muted);white-space:nowrap}
+th.c-where,td.c-where{display:none}
+.allmail th.c-where,.allmail td.c-where{display:table-cell}
+.allmail th.c-size,.allmail td.c-size{display:none}
+td.c-where{color:var(--muted)}
+td.c-where .adot{display:inline-block;margin-right:5px;vertical-align:1px}
 tbody td{height:var(--row);padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line-soft);cursor:default}
 tbody tr:hover td{background:var(--hover)}
 tbody tr.unread td.c-from,tbody tr.unread td.c-subj{font-weight:600}
@@ -127,6 +151,8 @@ tr.unread .ic .dot{background:var(--accent)}
 .ic .flag{color:var(--flag)}
 .ic .clip{color:var(--muted)}
 .list:focus tr.sel .ic .clip{color:inherit}
+tbody tr.pad td{height:auto;padding:0;border:0}
+tbody tr.pad:hover td,tbody tr.ph:hover td{background:none}
 tr.empty td{height:auto;padding:22px 12px;color:var(--muted);font-family:var(--font-ui);white-space:normal;text-align:center}
 tr.empty:hover td{background:none}
 
@@ -261,6 +287,7 @@ tr.empty:hover td{background:none}
 
 /* Status bar */
 .status{display:flex;align-items:center;gap:14px;height:23px;padding:0 10px;background:var(--chrome);border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;min-width:0}
+#st-folder .adot{margin-right:5px;vertical-align:1px}
 #st-msg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 #st-check{font-variant-numeric:tabular-nums}
 .hint{display:flex;align-items:center;gap:8px}

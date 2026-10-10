@@ -31,6 +31,8 @@ Anti-goals: Electron, AI features by default, a web-app look, anything that phon
 crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
                      for the server (pending_ops).
+  src/list.rs        The message list a page at a time: folder counts, keyset pages in every
+                     sort, the quick filter (one folder or all mail) and its SQL functions.
   src/migrations/    Database schema, one numbered file per version, listed in MIGRATIONS in
                      store.rs. Released files are never edited; a change is a new file.
   src/imap.rs        Two-way IMAP sync (async-imap + rustls): download, push queued changes,
@@ -47,6 +49,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
                      the domain's autoconfig file, SRV and MX records (Windows DNS), probing.
   src/sample.rs      A Polish sample mailbox for the tests. Never in the app.
+  tests/scale.rs     Benchmark on a synthetic 100k-message mail base (ignored; see Commands).
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
   src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
@@ -74,7 +77,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `snapshot`       | –                            | accounts + all summaries    |
+| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread}}}` (empty folders left out) |
+| `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `get_message`    | `id`                         | full message with body      |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -82,7 +86,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `delete_message` | `id`                         | `moved_to_trash` / `removed`|
 | `save_outgoing`  | `draft`                      | new message id (a draft)    |
 | `send_message`   | `draft`                      | `{queued, sent: [lines], errors}` |
-| `search`         | `query`                      | ids matching subject, people or body (FTS5) |
+| `search`         | `query`                      | ids matching subject, people or body (FTS5), best first, at most 5000 |
 | `get_html`       | `id`, `loadImages` (true/false/null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trust_sender`   | `email`, `trusted`           | – (that sender's images load without asking, except in Spam) |
 | `open_link`      | `url`                        | – (http/https only, in the default browser) |
@@ -98,7 +102,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help}` or null; emits `detect-progress` |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
-| `check_mail`     | –                            | `{new: [ids], sent: [lines], sorted, errors: ["Account: reason"], busy}` |
+| `check_mail`     | –                            | `{new: [ids], new_in, sent: [lines], sorted, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest) |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
 | `update_info`    | –                            | `{version, updatable}` (false: built without the release key) |
 | `check_update`   | –                            | `{version, notes, date}` of a newer release, or null |
@@ -107,11 +111,20 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
 user typed: threading headers, forwarded attachments, and the draft or unsent message it was
 edited from; and `identity`, who it is from (`null` = the account's default). Accounts in
-`snapshot` carry their `identities`. The changing commands (and `send_message`) apply locally at once; for server
+`folder_tree` carry their `identities`. The changing commands (and `send_message`) apply locally at once; for server
 mail the store also queues the change, and the UI calls `push_changes` 2.5 s after the last
 one. `busy: true` means another check or push was running and nothing started; the UI
 retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progress` events
 (`{account, folder, done, total}`) while it downloads.
+
+The window never loads all mail. `list_page` takes a `view` `{folder, sort, ascending, filter,
+bodies}` (`folder: null` = all mail except Spam and Trash; `sort`: date, size, flag, from,
+subject; `filter`: the quick filter, `bodies` also searching the text) and `at`: `"first"`,
+`"last"`, `{after: id}`, `{before: id}` (scrolling, keyset on (sort key, id)), `{around: id}`
+(the selection after a change) or `{row: n}` (a jump with the scroll bar). `start` is the
+position of the first row and `total` the list's length. A filtered list is worked out once and
+paged from memory until the mail base changes. After any change (a check, rules, sending, a
+push) the UI asks for `folder_tree` and the open page again, nothing else.
 
 Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the bridge as local
 `YYYY-MM-DDTHH:MM:SS` strings.
@@ -125,6 +138,7 @@ npm run build                # release build + installers in target/release/bund
 npm run set-version -- 0.2.0 # before a release; then commit, tag v0.2.0 (docs/releasing.md)
 cargo test -p telex-core     # core tests (run these after every core change)
 cargo test -p telex-core -- --ignored   # also checks TLS against a real server (needs internet)
+cargo test -p telex-core --release --test scale -- --ignored --nocapture   # 100k-message benchmark
 cargo clippy -p telex-core --all-targets -- -D warnings
 cargo clippy -p telex --all-targets -- -D warnings
 cargo fmt --all
@@ -164,11 +178,13 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Del          | move to Trash (in Trash: press twice to delete for good) |
 | Z            | undo last delete               |
 | /            | quick filter                   |
+| Tab          | in the quick filter: this folder / all mail |
+| Enter        | in all-mail results: open the message's folder |
 | H            | switch HTML / plain text view (remembered) |
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.2.0 and after: roadmap steps 1, 1b, 2, 3, 4, 6 and 7 without code signing)
+## Current state (v0.2.1 and after: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, and storage phase 1)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
@@ -203,7 +219,26 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   reason and isn't retried; anything else is retried at every check. E reopens a draft or an
   unsent message; saving or sending replaces the old one. The status bar says "Sent" only
   after the SMTP server accepts the message.
-- Quick filter matches headers as you type and bodies through FTS5 (diacritics-insensitive).
+- Quick filter: sender, recipients and subject match as you type (any part, case ignored),
+  message text a moment later through FTS5 (whole words as prefixes, diacritics ignored). It
+  looks in the open folder or, toggled with Tab or the chip in the box, in all mail (every
+  account, not Spam or Trash), where a Folder column with the account's dot replaces Size.
+- The window loads mail a page at a time (`list.rs`; storage phase 1): `folder_tree` for the
+  tree and counts, `list_page` for the list. The list draws only the rows on screen plus 20
+  above and below, in a table whose spacer rows keep the full scroll height; it keeps up to 600
+  rows near the screen and asks for the next or previous page while scrolling. Sorting and
+  ties are as before (newest first within equal keys). On the 100k benchmark: first list in
+  about 60 ms, folder switch under 10 ms, an arrow key about 5 ms (docs/storage.md).
+- Folder tree: one line per account, its address (the name is in the tooltip); with more than
+  one account, each has a color dot (`--acct-0..5` tokens), also in the status bar and all-mail
+  results. Each account shows Inbox and Sent, Drafts and the Outbox when they hold mail, and the
+  open folder; the rest are behind "N more" (with their unread count), opened per account and
+  remembered (localStorage `telex-ui`: `more`, and `scope` for the filter).
+- Mail base (schema version 7): `messages` holds the summaries; body and raw message live in
+  `message_content` (same id, removed with the message); `messages_fts` is a contentless FTS5
+  index (`contentless_delete=1`) filled by triggers. The upgrade from version 6 moves the text
+  row by row, so the file grows little. SQLite runs with WAL, `synchronous=NORMAL`, a 32 MiB
+  cache, 256 MiB memory map and temp tables in memory, and `PRAGMA optimize` on close.
 - HTML mail: `get_html` renders the stored raw message (`html::render`): ammonia keeps
   formatting, tables and inline styles and drops scripts, forms, iframes, event handlers,
   `<style>` blocks, javascript: links and relative URLs; cid: images become data: URIs.
@@ -291,11 +326,11 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer). The repository is public and
-   v0.2.0 is released; docs/releasing.md has the process.
-8. **Storage** (plan in docs/storage.md). Phase 1, next: fast at any size (large columns in
-   their own table, paged per-folder loading instead of `snapshot`, a virtual message list,
-   SQLite settings, a 100k-message benchmark). Then backup and restore with a movable mail
-   base, local folders with .eml/mbox export and import, and POP3.
+   v0.2.1 is released; docs/releasing.md has the process.
+8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~: done, see Current state
+   and the numbers in docs/storage.md. Next: "download older messages" (beyond the first 300
+   per folder), then backup and restore with a movable mail base, local folders with .eml/mbox
+   export and import, and POP3.
 
 ## Open decisions
 

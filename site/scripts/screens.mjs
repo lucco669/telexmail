@@ -70,6 +70,50 @@ function installMock({ data, scene, empty, version, frame }) {
   });
   const byId = (id) => msgs.find((m) => m.id === id);
 
+  // The message list as crates/telex-core/src/list.rs answers it: one folder (or all mail
+  // but Spam and Trash), sorted, filtered on headers as typed and, with `bodies`, on the text.
+  const kindOf = (key) => { const [a, f] = key.split('/'); return accounts.find((x) => x.id === a)?.folders.find((x) => x.id === f)?.kind; };
+  const nameOf = (addr) => { const s = String(addr || '').trim(); if (!s) return '(no recipient)'; const m = s.match(/^\s*"?([^"<]+?)"?\s*</); return m ? m[1] : s; };
+  function listed({ folder, sort, ascending, filter, bodies }) {
+    const q = filter.trim().toLowerCase();
+    const out = (m) => ['sent', 'drafts', 'outbox'].includes(kindOf(m.folder));
+    const key = {
+      date: (m) => m.date, size: (m) => m.size_kb, flag: (m) => (m.flagged ? 2 : 0) + (m.unread ? 1 : 0),
+      from: (m) => (out(m) ? nameOf(m.to) : m.from_name).toLowerCase(),
+      subject: (m) => m.subject.toLowerCase().replace(/^((re|fwd?):\s*)+/i, ''),
+    }[sort];
+    const dir = ascending ? 1 : -1;
+    return (empty ? [] : msgs)
+      .filter((m) => (folder ? m.folder === folder : !['spam', 'trash'].includes(kindOf(m.folder))))
+      .filter((m) => !q || [m.from_name, m.from_email, m.subject, m.to].join(' ').toLowerCase().includes(q)
+        || (bodies && fold([m.subject, m.from_name, m.to, m.body].join(' ')).includes(fold(q))))
+      .sort((a, b) => {
+        const x = key(a), y = key(b), c = (x < y ? -1 : x > y ? 1 : 0) * dir;
+        if (c) return c;
+        return sort === 'date' ? (a.id - b.id) * dir : a.date < b.date ? 1 : a.date > b.date ? -1 : b.id - a.id;
+      });
+  }
+  function listPage({ view, at, limit }) {
+    const all = listed(view), place = (id) => all.findIndex((m) => m.id === id);
+    let start = 0, end;
+    if (at === 'last') start = Math.max(0, all.length - limit);
+    else if (at.after != null) start = place(at.after) + 1;
+    else if (at.before != null) { end = Math.max(0, place(at.before)); start = Math.max(0, end - limit); }
+    else if (at.around != null) start = Math.max(0, place(at.around) - (limit >> 1));
+    else if (at.row != null) start = Math.min(at.row, Math.max(0, all.length - limit));
+    end ??= Math.min(all.length, start + limit);
+    return { total: all.length, start, rows: all.slice(start, end).map(summary) };
+  }
+  function folderTree() {
+    const counts = {};
+    for (const m of empty ? [] : msgs) {
+      const c = (counts[m.folder] ??= { total: 0, unread: 0 });
+      c.total++;
+      if (m.unread) c.unread++;
+    }
+    return { accounts, counts };
+  }
+
   // drafts::start: the identity the message was sent to (else the default), its signature,
   // then the quote under its reply header.
   function startDraft({ kind, of, account }) {
@@ -100,11 +144,11 @@ function installMock({ data, scene, empty, version, frame }) {
   }
 
   const commands = {
-    snapshot: () => ({ accounts, messages: empty ? [] : msgs.map(summary) }),
+    folder_tree: folderTree,
+    list_page: listPage,
     get_message: ({ id }) => byId(id),
     set_unread: ({ id, unread }) => { byId(id).unread = unread; },
     set_flagged: ({ id, flagged }) => { byId(id).flagged = flagged; },
-    search: ({ query }) => msgs.filter((m) => fold([m.subject, m.from_name, m.to, m.body].join(' ')).includes(fold(query))).map((m) => m.id),
     // html::render: remote images are left out and counted until the user loads them.
     get_html: ({ id }) => {
       const m = byId(id);
@@ -143,7 +187,8 @@ const ui = {
   wait: ms => new Promise(r => setTimeout(r, ms)),
   key(k, opts = {}){ (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', {key:k, bubbles:true, ...opts})); },
   click(sel){ document.querySelector(sel).click(); },
-  folder(key){ ui.click('[data-folder="' + key + '"]'); },
+  // A folder behind "more" is opened from the folder menu, so the tree stays as it starts.
+  folder(key){ const b = document.querySelector('[data-folder="' + key + '"]'); if (b) b.click(); else { const s = document.getElementById('folder-select'); s.value = key; s.dispatchEvent(new Event('change')); } },
   pane(listPercent){ document.getElementById('win').style.setProperty('--list-h', listPercent + '%'); },
   row(subject){ [...document.querySelectorAll('#rows tr[data-id]')].find(r => r.textContent.includes(subject)).click(); },
   async type(text){ const q = document.getElementById('q'); q.focus(); q.value = text; q.dispatchEvent(new Event('input')); },
@@ -157,10 +202,12 @@ function page(scene, theme) {
   const html = readFileSync(join(uiDir, 'index.html'), 'utf8');
   const { run = '', empty = false } = scenes[scene];
   const mock = `<script>(${installMock})(${scriptJson({ data: demo, scene, empty, version, frame: FRAME })});</script>`;
-  // The folder tree's "Add account" button is drawn with the first render, with or without accounts.
+  // The folder tree's "Add account" button is drawn with the first render, with or without
+  // accounts; with accounts, the list's first page comes right after.
   const play = `<script>${SCENE_HELPERS}
 (async () => {
   for (let i = 0; i < 200 && !document.querySelector('#tree .add-acct'); i++) await ui.wait(20);
+  for (let i = 0; i < 200 && ${!empty} && !document.querySelector('#rows tr.sel'); i++) await ui.wait(20);
   ${run}
   document.body.dataset.ready = '1';
 })();</script>`;

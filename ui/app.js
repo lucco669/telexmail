@@ -34,7 +34,8 @@ const I = {
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
 
 /* ---------- data (filled from Rust) ---------- */
-let ACCOUNTS = [], ACCT = {}, MSGS = [];
+// The folder tree and its counts; the message list asks the core for pages (see "list").
+let ACCOUNTS = [], ACCT = {}, COUNTS = {};
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -48,11 +49,12 @@ const fromSummary = s => ({
   id:s.id, f:s.folder, from:s.from_name, email:s.from_email, to:s.to, subj:s.subject,
   date:parseDate(s.date), kb:s.size_kb, unread:s.unread, flagged:s.flagged, hasAtt:s.has_attachments,
 });
-async function load(){
-  const snap = await invoke('snapshot');
-  ACCOUNTS = snap.accounts;
+// Accounts, folders and how many messages each folder holds (the core counts them).
+async function loadTree(){
+  const t = await invoke('folder_tree');
+  ACCOUNTS = t.accounts;
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
-  MSGS = snap.messages.map(fromSummary);
+  COUNTS = t.counts;
 }
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
@@ -79,7 +81,7 @@ async function pushNow(){
   if (r.busy){ schedulePush(4000); return; } // a check is running; try again after it
   if (r.errors.length) say(r.errors.join(' · '), 15000);
   // A refused move puts the message back; one deleted elsewhere disappears.
-  try { await load(); renderAll(); } catch {}
+  refresh();
 }
 async function full(id){
   if (!bodies.has(id)) bodies.set(id, await invoke('get_message', {id}));
@@ -115,8 +117,10 @@ const kindOf = key => folderOf(key)?.kind;
 const isOut = key => ['sent', 'drafts', 'outbox'].includes(kindOf(key));
 const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.kind === kind); return f ? acct + '/' + f.id : null; };
 const homeOf = acct => keyOfKind(acct, 'inbox') || (ACCT[acct]?.folders[0] ? acct + '/' + ACCT[acct].folders[0].id : '');
-const inFolder = key => MSGS.filter(m => m.f === key);
-const unreadIn = key => MSGS.filter(m => m.f === key && m.unread).length;
+const countOf = key => COUNTS[key] ?? {total:0, unread:0};
+const num = n => n.toLocaleString('en');
+// Each account has a color, shown as a dot once there is more than one account.
+const adot = acct => { const i = ACCOUNTS.findIndex(a => a.id === acct); return i < 0 ? '' : `<i class="adot a${i % 6}" aria-hidden="true"></i>`; };
 const store = {
   get(){ try { return JSON.parse(localStorage.getItem('telex-ui') || '{}'); } catch { return {}; } },
   set(v){ try { localStorage.setItem('telex-ui', JSON.stringify(v)); } catch {} },
@@ -125,7 +129,9 @@ const store = {
 /* ---------- state ---------- */
 const saved = store.get();
 const state = {
-  folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', hits:new Set(),
+  folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', inText:false,
+  scope: saved.scope === 'all' ? 'all' : 'folder', // the quick filter looks in this folder or in all mail
+  more: saved.more && typeof saved.more === 'object' ? saved.more : {}, // accounts showing all their folders
   collapsed:{}, compose:null, images:new Set(), lastDeleted:null,
   density: saved.density === 'comfortable' ? 'comfortable' : 'compact',
   preferText: saved.preferText === true, // show plain text even when a message has HTML
@@ -142,6 +148,8 @@ const persist = () => store.set({
   preferText: state.preferText || undefined,
   updates: state.updates || undefined,
   updateChecked: state.updateChecked || undefined,
+  scope: state.scope === 'all' ? 'all' : undefined,
+  more: Object.keys(state.more).length ? state.more : undefined,
 });
 
 /* ---------- toolbar ---------- */
@@ -162,9 +170,10 @@ function say(text, ms = 4500){
   if (ms) stTimer = setTimeout(() => { $('st-msg').textContent = ''; }, ms);
 }
 function renderStatus(){
-  const all = inFolder(state.folder), n = unreadIn(state.folder);
-  $('st-folder').textContent = !ACCOUNTS.length ? 'No account yet'
-    : `${folderName(state.folder)} · ${all.length} ${all.length === 1 ? 'message' : 'messages'}${n ? `, ${n} unread` : ''}`;
+  const {total, unread} = countOf(state.folder), found = list.total;
+  $('st-folder').innerHTML = !ACCOUNTS.length ? 'No account yet'
+    : allMail() ? `All mail · ${num(found)} ${found === 1 ? 'match' : 'matches'}`
+    : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${num(total)} ${total === 1 ? 'message' : 'messages'}${unread ? `, ${num(unread)} unread` : ''}`;
   $('st-check').textContent = lastCheck ? 'Last check ' + hm(lastCheck) : '';
   const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex` : 'Telex';
   if (title !== lastTitle){
@@ -175,82 +184,241 @@ function renderStatus(){
 }
 
 /* ---------- tree ---------- */
+// Each account shows its Inbox and Sent, Drafts and the Outbox when they hold something,
+// and the open folder. The rest wait behind a quiet "more" line, remembered per account.
+const MAIN_KINDS = new Set(['inbox', 'sent']);
+const COUNT_ALL = new Set(['drafts', 'outbox']); // these count everything, not unread
+function folderButton(a, f){
+  const key = a.id + '/' + f.id, c = countOf(key), all = COUNT_ALL.has(f.kind);
+  const n = all ? c.total : c.unread;
+  const cnt = n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
+  const on = key === state.folder;
+  return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(f.name)}</span>${cnt}</button></li>`;
+}
 function renderTree(){
+  win.classList.toggle('noacct', !ACCOUNTS.length); // the welcome takes the whole right side
+  win.classList.toggle('multi', ACCOUNTS.length > 1);
   treeEl.innerHTML = ACCOUNTS.map(a => {
     const open = !state.collapsed[a.id];
-    const items = open ? '<ul>' + a.folders.map(f => {
-      const key = a.id + '/' + f.id, drafts = f.kind === 'drafts' || f.kind === 'outbox'; // these count everything, not unread
-      const n = drafts ? inFolder(key).length : unreadIn(key);
-      const cnt = n ? `<span class="cnt${drafts ? ' dim' : ''}">${n}</span>` : '';
-      const on = key === state.folder;
-      return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(f.name)}</span>${cnt}</button></li>`;
-    }).join('') + '</ul>' : '';
-    return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}">${I.caret}<span class="acct-name">${esc(a.name)}</span><span class="acct-mail">${esc(a.email)}</span></button>${items}`;
+    let items = '';
+    if (open){
+      const shown = f => MAIN_KINDS.has(f.kind) || a.id + '/' + f.id === state.folder || (COUNT_ALL.has(f.kind) && countOf(a.id + '/' + f.id).total > 0);
+      const main = a.folders.filter(shown), rest = a.folders.filter(f => !shown(f)), more = !!state.more[a.id];
+      items = '<ul>' + (more ? a.folders : main).map(f => folderButton(a, f)).join('');
+      if (rest.length){
+        const unread = more ? 0 : rest.reduce((n, f) => n + (COUNT_ALL.has(f.kind) ? 0 : countOf(a.id + '/' + f.id).unread), 0);
+        items += `<li><button type="button" class="fold more" data-more="${esc(a.id)}" aria-expanded="${more}">${I.caret}<span>${more ? 'Fewer folders' : `${rest.length} more`}</span>${unread ? `<span class="cnt">${num(unread)}</span>` : ''}</button></li>`;
+      }
+      items += '</ul>';
+    }
+    return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span></button>${items}`;
   }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${ACCOUNTS.length ? 'Add account' : 'Add your account'}</span></button>`;
-  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + a.folders.map(f => {
-    const key = a.id + '/' + f.id, n = unreadIn(key);
+  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(a.email)}">` + a.folders.map(f => {
+    const key = a.id + '/' + f.id, n = countOf(key).unread;
     return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(f.name)}${n ? ` (${n})` : ''}</option>`;
   }).join('') + '</optgroup>').join('');
 }
 treeEl.addEventListener('click', e => {
-  const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]');
+  const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]'), m = e.target.closest('[data-more]');
   if (e.target.closest('[data-act="add-account"]')) openAccountDialog();
   else if (f) setFolder(f.dataset.folder);
+  else if (m){ state.more[m.dataset.more] = !state.more[m.dataset.more]; if (!state.more[m.dataset.more]) delete state.more[m.dataset.more]; persist(); renderTree(); }
   else if (a){ state.collapsed[a.dataset.acct] = !state.collapsed[a.dataset.acct]; renderTree(); }
 });
 $('folder-select').addEventListener('change', e => setFolder(e.target.value));
 
 function setFolder(key){
-  state.folder = key; state.q = ''; qEl.value = ''; state.hits = new Set();
-  const v = visible();
-  if (!v.some(m => m.id === state.sel[key])) state.sel[key] = v[0]?.id;
-  renderAll();
+  state.folder = key; state.q = ''; qEl.value = ''; state.inText = false;
+  paintScope(); renderTree(); renderStatus();
+  return loadView({top:true});
 }
 
 /* ---------- list ---------- */
-function visible(){
-  const q = state.q.trim().toLowerCase();
-  // Header fields match as you type; bodies match through the core's full-text search (state.hits).
-  const arr = MSGS.filter(m => m.f === state.folder &&
-    (!q || state.hits.has(m.id) || [m.from, m.email, m.subj, m.to].join(' ').toLowerCase().includes(q)));
-  const {key, dir} = state.sort, out = isOut(state.folder);
-  const who = m => (out ? nameOf(m.to) : m.from || '').toLowerCase();
-  const val = m => key === 'date' ? +m.date : key === 'size' ? m.kb
-    : key === 'flag' ? (m.flagged ? 2 : 0) + (m.unread ? 1 : 0)
-    : key === 'from' ? who(m) : m.subj.toLowerCase().replace(/^((re|fwd?):\s*)+/i, '');
-  return arr.sort((a, b) => { const x = val(a), y = val(b); return (x < y ? -1 : x > y ? 1 : 0) * dir || (b.date - a.date); });
-}
-const current = () => MSGS.find(m => m.id === state.sel[state.folder] && m.f === state.folder);
+// The list holds one stretch of the current view (a folder, or all mail while filtering; an
+// order; the quick filter): `rows`, starting at position `start` of `total`. The core sends
+// pages of it: the next or previous page while scrolling (keyset, "after this message"), the
+// page at a row after a jump with the scroll bar. Only the rows on screen and a margin are
+// drawn; spacer rows above and below give the table its full height.
+const PAGE = 100, MARGIN = 20, KEEP = 600;
+const list = {total:0, start:0, rows:[], seq:0};
+let rowH = 21, selRow = null; // selRow: the selected message, also when its row isn't loaded
+const allMail = () => state.scope === 'all' && !!state.q.trim();
+const selKey = () => allMail() ? '*' : state.folder;
+const viewArgs = () => ({folder:allMail() ? null : state.folder, sort:state.sort.key, ascending:state.sort.dir > 0,
+  filter:state.q, bodies:state.inText});
+const current = () => selRow && selRow.id === state.sel[selKey()] && (allMail() || selRow.f === state.folder) ? selRow : null;
 
-function renderList(){
-  const arr = visible(), sel = state.sel[state.folder], out = isOut(state.folder);
+// A page of the current view, or null when the view changed while the core answered.
+async function fetchPage(at, limit = PAGE){
+  const args = viewArgs(), key = JSON.stringify(args);
+  const p = await invoke('list_page', {view:args, at, limit});
+  if (key !== JSON.stringify(viewArgs())) return null;
+  return {total:p.total, start:p.start, rows:p.rows.map(fromSummary)};
+}
+// Put a page in the list: after or before the loaded stretch when it fits there, else instead of it.
+function merge(p, how = 'replace'){
+  const s = list.start, e = s + list.rows.length;
+  list.total = p.total;
+  if (how === 'after' && p.start === e) list.rows = list.rows.concat(p.rows);
+  else if (how === 'before' && p.start + p.rows.length === s){ list.rows = p.rows.concat(list.rows); list.start = p.start; }
+  else { list.rows = p.rows; list.start = p.start; } // a jump, or mail came and went meanwhile
+  if (list.rows.length > KEEP){ // keep only the part near the screen
+    const from = Math.max(0, Math.min(visibleRange()[0] - MARGIN - list.start, list.rows.length - KEEP));
+    list.rows = list.rows.slice(from, from + KEEP); list.start += from;
+  }
+  const fresh = selRow && list.rows.find(r => r.id === selRow.id);
+  if (fresh) selRow = fresh;
+}
+const posOf = id => { const i = list.rows.findIndex(r => r.id === id); return i < 0 ? -1 : list.start + i; };
+const headH = () => listEl.querySelector('thead').offsetHeight;
+function visibleRange(){
+  const top = listEl.scrollTop, h = Math.max(0, listEl.clientHeight - headH());
+  return [Math.floor(top / rowH), Math.ceil((top + h) / rowH)];
+}
+// Scroll so the row at `pos` is on screen. True when the list moved.
+function reveal(pos){
+  const top = pos * rowH, h = listEl.clientHeight - headH();
+  if (top < listEl.scrollTop) listEl.scrollTop = top;
+  else if (top + rowH > listEl.scrollTop + h) listEl.scrollTop = top + rowH - h;
+  else return false;
+  return true;
+}
+
+function rowHtml(m, sel){
+  // In all mail, Sent and Drafts say who they went to.
+  const out = isOut(m.f), who = out ? (allMail() ? 'To: ' : '') + nameOf(m.to) : m.from, tip = out ? m.to : `${m.from} <${m.email}>`;
+  const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel' : '');
+  return `<tr data-id="${m.id}" class="${cls}" aria-selected="${m.id === sel}">
+<td class="c-ic"><span class="ic"><i class="dot"></i>${m.flagged ? I.flagFill : '<i class="sp"></i>'}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
+<td class="c-from" title="${esc(tip)}">${esc(who)}</td>
+<td class="c-subj" title="${esc(m.subj)}">${esc(m.subj)}</td>
+<td class="c-where" title="${esc(ACCT[acctId(m.f)]?.email ?? '')} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(folderName(m.f))}</td>
+<td class="c-date">${fmtList(m.date)}</td>
+<td class="c-size">${fmtSize(m.kb)}</td></tr>`;
+}
+// Rows that span the visible columns: more would add an empty column to the table.
+const cols = () => [...listEl.querySelectorAll('thead th')].filter(th => th.offsetWidth > 0).length || 5;
+const spacer = (px, n) => px > 0 ? `<tr class="pad" aria-hidden="true"><td colspan="${n}" style="height:${px}px"></td></tr>` : '';
+// Draw the rows on screen and a margin; ask for the pages that are missing.
+function drawRows(){
+  if (!list.total){
+    rowsEl.innerHTML = !ACCOUNTS.length || list.seq === 0 ? '' : `<tr class="empty"><td colspan="${cols()}">${state.q ? `No messages match “${esc(state.q)}”${allMail() ? ' in any account' : ''}. Press Esc to clear the filter.` : 'This folder is empty.'}</td></tr>`;
+    return;
+  }
+  const [va, vb] = visibleRange(), a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN);
+  const s = list.start, e = s + list.rows.length, sel = state.sel[selKey()], n = cols();
+  let html = spacer(a * rowH, n);
+  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel) : `<tr class="ph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
+  rowsEl.innerHTML = html + spacer((list.total - b) * rowH, n);
+  const r = rowsEl.querySelector('tr[data-id]'), h = r?.getBoundingClientRect().height;
+  if (h && Math.abs(h - rowH) > 0.01){ // the density changed: keep the same rows on screen
+    listEl.scrollTop = listEl.scrollTop * h / rowH; rowH = h; drawRows(); return;
+  }
+  fill(a, b);
+}
+let drawQueued = false;
+const drawSoon = () => { if (!drawQueued){ drawQueued = true; requestAnimationFrame(() => { drawQueued = false; drawRows(); }); } };
+listEl.addEventListener('scroll', drawSoon);
+new ResizeObserver(drawSoon).observe(listEl);
+
+// Load what rows [a, b) need, one page at a time, then draw again.
+let filling = false;
+async function fill(a, b){
+  const s = list.start, e = s + list.rows.length;
+  if (filling || (a >= s && b <= e)) return;
+  const near = list.rows.length > 0;
+  const [at, how] = near && a >= s && a <= e + PAGE && b > e ? [{after:list.rows[list.rows.length - 1].id}, 'after']
+    : near && b <= e && b >= s - PAGE && a < s ? [{before:list.rows[0].id}, 'before']
+    : [{row:a}, 'replace'];
+  const seq = list.seq;
+  filling = true;
+  let p = null;
+  try { p = await fetchPage(at); }
+  catch { try { p = await fetchPage({row:a}); } catch {} } // the message we paged from is gone
+  filling = false;
+  if (!p || seq !== list.seq) return;
+  merge(p, p && at.row === undefined ? how : 'replace');
+  if (p.rows.length) drawRows();
+}
+// The row at position `pos`, loading its page if needed.
+async function rowAt(pos){
+  if (pos < 0 || pos >= list.total) return null;
+  const s = list.start, e = s + list.rows.length;
+  if (pos >= s && pos < e) return list.rows[pos - s];
+  const [at, how] = pos === 0 ? ['first'] : pos === list.total - 1 ? ['last']
+    : pos === e && e > s ? [{after:list.rows[list.rows.length - 1].id}, 'after']
+    : pos === s - 1 && e > s ? [{before:list.rows[0].id}, 'before']
+    : [{row:Math.max(0, pos - MARGIN)}];
+  const p = await fetchPage(at);
+  if (!p) return null;
+  merge(p, how);
+  return list.rows[pos - list.start] ?? null;
+}
+
+// Load the view again with the selection in it (or from the top), e.g. after a folder
+// switch, a new order or filter. `top`: a different folder, so start at its top.
+async function loadView({top = false} = {}){
+  const seq = ++list.seq, key = selKey();
+  let id = state.sel[key], p;
+  try { p = await fetchPage(id != null ? {around:id} : 'first'); }
+  catch { try { p = await fetchPage('first'); } catch (e){ say(String(e), 8000); return; } }
+  if (!p || seq !== list.seq) return;
+  merge(p);
+  // Like before: a folder opens on its first message; a filter leaves the selection alone.
+  if (!list.rows.some(r => r.id === id) && (!state.q.trim() || key === '*')) id = state.sel[key] = list.rows[0]?.id;
+  selRow = list.rows.find(r => r.id === id) ?? (state.q.trim() ? selRow : null);
+  renderHead();
+  if (top) listEl.scrollTop = 0;
+  drawRows();
+  const pos = posOf(id);
+  if (pos >= 0 && reveal(pos)) drawRows();
+  renderStatus();
+  if (!state.compose) renderPreview();
+}
+// After mail changed (a check, rules, sending, a push): new counts, and the open page again,
+// keeping the first row on screen where it was. `skip`: a message that just went away.
+async function refresh({skip} = {}){
+  try { await loadTree(); } catch { return; }
+  if (!folderOf(state.folder)){ setFolder(homeOf(ACCOUNTS[0]?.id)); return; } // e.g. the folder is gone from the server
+  renderTree(); renderStatus();
+  const [va] = visibleRange(), seq = ++list.seq;
+  const anchor = list.rows.slice(Math.max(0, va - list.start)).find(r => r.id !== skip);
+  const before = selRow?.id;
+  let p = null;
+  try { p = await fetchPage(anchor ? {around:anchor.id} : 'first'); } catch {}
+  if (!p || seq !== list.seq) return;
+  const was = anchor ? posOf(anchor.id) : -1;
+  merge(p);
+  const now = anchor ? posOf(anchor.id) : -1;
+  if (was >= 0 && now >= 0) listEl.scrollTop += (now - was) * rowH;
+  if (!current()){ // the selection is gone: the first row, as when mail arrives in an empty folder
+    selRow = list.rows.find(r => r.id === state.sel[selKey()]) ?? null;
+    if (!selRow && !state.q.trim()){ selRow = list.rows[0] ?? null; state.sel[selKey()] = selRow?.id; }
+  }
+  drawRows(); renderStatus();
+  if (selRow?.id !== before && !state.compose) renderPreview();
+}
+
+function renderHead(){
+  const out = !allMail() && isOut(state.folder);
   $('from-label').textContent = out ? 'To' : 'From';
   document.querySelectorAll('th button[data-sort]').forEach(b => {
     const on = b.dataset.sort === state.sort.key, th = b.parentElement;
     if (on) th.setAttribute('aria-sort', state.sort.dir > 0 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
     b.querySelector('.arr').textContent = on ? (state.sort.dir > 0 ? '▲' : '▼') : '';
   });
-  if (!arr.length){
-    rowsEl.innerHTML = !ACCOUNTS.length ? '' : `<tr class="empty"><td colspan="5">${state.q ? `No messages match “${esc(state.q)}”. Press Esc to clear the filter.` : 'This folder is empty.'}</td></tr>`;
-    return;
-  }
-  rowsEl.innerHTML = arr.map(m => {
-    const who = out ? nameOf(m.to) : m.from;
-    const tip = out ? m.to : `${m.from} <${m.email}>`;
-    const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel' : '');
-    return `<tr data-id="${m.id}" class="${cls}" aria-selected="${m.id === sel}">
-<td class="c-ic"><span class="ic"><i class="dot"></i>${m.flagged ? I.flagFill : '<i class="sp"></i>'}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
-<td class="c-from" title="${esc(tip)}">${esc(who)}</td>
-<td class="c-subj" title="${esc(m.subj)}">${esc(m.subj)}</td>
-<td class="c-date">${fmtList(m.date)}</td>
-<td class="c-size">${fmtSize(m.kb)}</td></tr>`;
-  }).join('');
-  const r = rowsEl.querySelector('tr.sel');
-  if (r){
-    const head = 22, top = r.offsetTop, h = r.offsetHeight;
-    if (top - head < listEl.scrollTop) listEl.scrollTop = top - head;
-    else if (top + h > listEl.scrollTop + listEl.clientHeight) listEl.scrollTop = top + h - listEl.clientHeight;
-  }
+}
+// Show the selection without drawing the rows again.
+function paintSelection(){
+  const sel = state.sel[selKey()];
+  rowsEl.querySelectorAll('tr.sel').forEach(r => { r.classList.remove('sel'); r.setAttribute('aria-selected', 'false'); });
+  const r = rowsEl.querySelector(`tr[data-id="${sel}"]`);
+  if (r){ r.classList.add('sel'); r.setAttribute('aria-selected', 'true'); }
+}
+// Change fields of a message wherever the list keeps it.
+function patch(id, fields){
+  for (const r of list.rows) if (r.id === id) Object.assign(r, fields);
+  if (selRow?.id === id) Object.assign(selRow, fields);
 }
 rowsEl.addEventListener('click', e => {
   const tr = e.target.closest('tr[data-id]');
@@ -258,33 +426,61 @@ rowsEl.addEventListener('click', e => {
   select(Number(tr.dataset.id));
   listEl.focus({preventScroll:true});
 });
+rowsEl.addEventListener('dblclick', e => { if (e.target.closest('tr[data-id]') && allMail()) openInFolder(); });
 document.querySelectorAll('th button[data-sort]').forEach(b => b.addEventListener('click', () => {
   const k = b.dataset.sort;
   state.sort = state.sort.key === k ? {key:k, dir:-state.sort.dir} : {key:k, dir:(k === 'date' || k === 'size' || k === 'flag') ? -1 : 1};
-  renderList();
+  loadView();
 }));
+// All mail: go to the selected message in its folder.
+function openInFolder(){
+  const m = current(); if (!m) return;
+  state.sel[m.f] = m.id;
+  setFolder(m.f).then(() => listEl.focus({preventScroll:true}));
+}
 
 // Mark as read after the message has been on screen for a moment, so arrowing past doesn't.
 let readTimer;
 function select(id, silent){
-  state.sel[state.folder] = id;
+  state.sel[selKey()] = id;
+  selRow = list.rows.find(r => r.id === id) ?? (selRow?.id === id ? selRow : null);
   clearTimeout(readTimer);
   const m = current();
   if (m && m.unread && !silent){
     readTimer = setTimeout(() => {
-      call('set_unread', {id:m.id, unread:false})
-        .then(() => { m.unread = false; renderTree(); renderList(); renderStatus(); })
-        .catch(() => {});
+      call('set_unread', {id:m.id, unread:false}).then(() => { changed(m, {unread:false}); reorder(); }).catch(() => {});
     }, 600);
   }
-  renderList();
+  paintSelection();
   if (!state.compose) renderPreview();
 }
-function move(delta){
-  const v = visible(); if (!v.length) return;
-  const i = v.findIndex(m => m.id === state.sel[state.folder]);
-  const n = delta === Infinity ? v.length - 1 : delta === -Infinity ? 0 : Math.max(0, Math.min(v.length - 1, (i < 0 ? 0 : i + delta)));
-  select(v[n].id);
+// A message's read or flag state changed here: its row and the counts.
+function changed(m, fields){
+  if ('unread' in fields && fields.unread !== m.unread){
+    const c = COUNTS[m.f] ??= {total:0, unread:0};
+    c.unread = Math.max(0, c.unread + (fields.unread ? 1 : -1));
+  }
+  patch(m.id, fields);
+  renderTree(); renderStatus(); drawRows();
+}
+// In the order by status, a changed message moves: once the core has the change, load again.
+const reorder = () => { if (state.sort.key === 'flag') loadView(); };
+// Arrow keys, Home and End. Steps wait for each other, so a held key never skips a row.
+let moving = Promise.resolve();
+const move = delta => { moving = moving.then(() => moveBy(delta)).catch(() => {}); };
+async function moveBy(delta){
+  if (!list.total) return;
+  const id = state.sel[selKey()];
+  let pos = posOf(id);
+  if (pos < 0 && current() && Number.isFinite(delta)){ // scrolled far from the selection: find it again
+    const p = await fetchPage({around:id});
+    if (p){ merge(p); pos = posOf(id); }
+  }
+  const to = delta === -Infinity ? 0 : delta === Infinity ? list.total - 1 : pos < 0 ? 0 : Math.max(0, Math.min(list.total - 1, pos + delta));
+  const row = await rowAt(to);
+  if (!row) return;
+  select(row.id);
+  if (reveal(to)) drawRows();
 }
 
 /* ---------- preview ---------- */
@@ -366,7 +562,7 @@ async function renderPreview(){
     return;
   }
   if (!s){
-    previewEl.innerHTML = `<div class="pempty">${I.mail}<div>${inFolder(state.folder).length ? 'Select a message to read it here.' : 'Nothing in ' + esc(folderName(state.folder)) + '.'}</div></div>`;
+    previewEl.innerHTML = `<div class="pempty">${I.mail}<div>${list.total || allMail() ? 'Select a message to read it here.' : 'Nothing in ' + esc(folderName(state.folder)) + '.'}</div></div>`;
     return;
   }
   let m, hv;
@@ -510,8 +706,8 @@ async function closeCompose(){
   const draft = draftOf(readCompose());
   try { await call('save_outgoing', {draft}); } catch { return false; }
   state.compose = null;
-  await load();
-  renderAll();
+  renderPreview();
+  await refresh();
   listEl.focus();
   return true;
 }
@@ -527,8 +723,8 @@ async function send(){
   try { r = await call('send_message', {draft:draftOf(readCompose())}); }
   catch { btn.disabled = false; btn.firstChild.textContent = 'Send '; return; } // e.g. a bad address: fix it and try again
   state.compose = null;
-  await load();
-  renderAll();
+  renderPreview();
+  await refresh();
   listEl.focus();
   const sent = r.sent.length === 1 ? `Sent ${r.sent[0]}.` : r.sent.length ? `Sent ${r.sent.length} messages.` : '';
   if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
@@ -538,18 +734,19 @@ async function send(){
 /* ---------- actions ---------- */
 function toggleFlag(){
   const m = current(); if (!m) return;
-  m.flagged = !m.flagged; renderList(); if (!state.compose) renderPreview();
-  call('set_flagged', {id:m.id, flagged:m.flagged})
-    .then(() => say(m.flagged ? 'Flagged.' : 'Flag removed.', 2000))
-    .catch(() => { m.flagged = !m.flagged; renderList(); if (!state.compose) renderPreview(); });
+  const flagged = !m.flagged;
+  changed(m, {flagged}); if (!state.compose) renderPreview();
+  call('set_flagged', {id:m.id, flagged})
+    .then(() => { say(flagged ? 'Flagged.' : 'Flag removed.', 2000); reorder(); })
+    .catch(() => { changed(m, {flagged:!flagged}); if (!state.compose) renderPreview(); });
 }
 function toggleUnread(){
   const m = current(); if (!m) return;
   clearTimeout(readTimer);
-  const next = !m.unread;
-  call('set_unread', {id:m.id, unread:next}).then(() => {
-    m.unread = next; renderTree(); renderList(); renderStatus();
-    say(next ? 'Marked as unread.' : 'Marked as read.', 2000);
+  const unread = !m.unread;
+  call('set_unread', {id:m.id, unread}).then(() => {
+    changed(m, {unread}); reorder();
+    say(unread ? 'Marked as unread.' : 'Marked as read.', 2000);
   }).catch(() => {});
 }
 // Deleting from Trash can't be undone (on the server either), so it takes a second Del.
@@ -564,27 +761,32 @@ async function del(){
     }
     armedDelete = null;
   }
-  const v = visible(), i = v.findIndex(x => x.id === m.id);
-  const next = v[i + 1] || v[i - 1];
+  // The next one gets the selection, or the one above at the end of the list.
+  const pos = posOf(m.id);
+  const next = pos < 0 ? null : (await rowAt(pos + 1)) ?? (await rowAt(pos - 1));
   let outcome;
   try { outcome = await call('delete_message', {id:m.id}); } catch { return; }
   if (outcome === 'removed'){
-    MSGS.splice(MSGS.indexOf(m), 1); bodies.delete(m.id); state.lastDeleted = null;
+    bodies.delete(m.id); state.lastDeleted = null;
     say('Deleted for good.');
   } else {
-    state.lastDeleted = {m, from:m.f};
-    m.f = keyOfKind(acctId(m.f), 'trash');
+    state.lastDeleted = {id:m.id, from:m.f};
     say('Moved to Trash. Press Z to undo.');
   }
-  state.sel[state.folder] = next ? next.id : undefined;
-  renderAll();
+  state.sel[selKey()] = next?.id;
+  selRow = next;
+  if (!state.compose) renderPreview();
+  await refresh({skip:m.id});
 }
 async function undo(){
   const d = state.lastDeleted; if (!d) return;
-  try { await call('move_message', {id:d.m.id, folder:d.from}); } catch { return; }
-  d.m.f = d.from; state.lastDeleted = null;
-  if (state.folder === d.from) state.sel[state.folder] = d.m.id;
-  renderAll(); say('Restored to ' + folderName(d.from) + '.');
+  try { await call('move_message', {id:d.id, folder:d.from}); } catch { return; }
+  state.lastDeleted = null;
+  if (allMail() || state.folder === d.from){ state.sel[selKey()] = d.id; selRow = null; }
+  await loadTree().catch(() => {});
+  renderTree();
+  await loadView();
+  say('Restored to ' + folderName(d.from) + '.');
 }
 // quiet: a background check, which speaks up only for new mail or errors.
 // first: the download right after adding an account.
@@ -600,14 +802,12 @@ async function getMail({quiet = false, first = false} = {}){
     const r = await invoke('check_mail');
     if (r.busy){ setTimeout(() => getMail({quiet, first}), 2000); return; } // changes are being sent
     lastCheck = new Date();
-    await load();
-    renderAll();
+    await refresh();
     const ids = r.new, count = `${ids.length} ${first ? '' : 'new '}${ids.length === 1 ? 'message' : 'messages'}`;
     let text = '';
     if (first) text = `${count} downloaded.`;
     else if (ids.length){
-      const m = MSGS.find(x => x.id === ids[ids.length - 1]);
-      const where = m ? `${ACCT[acctId(m.f)].name} › ${folderName(m.f)}` : '';
+      const where = r.new_in && folderOf(r.new_in) ? `${ACCT[acctId(r.new_in)].email} › ${folderName(r.new_in)}` : '';
       text = `${count}${where ? ' in ' + where : ''}.`;
     } else if (!quiet) text = 'No new messages.';
     if (r.sorted) text = [text, `Rules sorted ${r.sorted}.`].filter(Boolean).join(' ');
@@ -627,7 +827,7 @@ window.__TAURI__?.event?.listen('sync-progress', ({payload: p}) => {
   say(`${p.account} › ${p.folder}: ${p.done} of ${p.total}`, 0);
   if (p.done === p.total){
     clearTimeout(reloadTimer);
-    reloadTimer = setTimeout(() => load().then(renderAll).catch(() => {}), 200);
+    reloadTimer = setTimeout(refresh, 200);
   }
 });
 
@@ -638,24 +838,32 @@ $('b-replyall').addEventListener('click', () => openCompose('replyall'));
 $('b-forward').addEventListener('click', () => openCompose('forward'));
 $('b-flag').addEventListener('click', toggleFlag);
 $('b-delete').addEventListener('click', del);
-$('b-density').addEventListener('click', () => { state.density = state.density === 'compact' ? 'comfortable' : 'compact'; paintDensity(); persist(); });
-// The filter matches headers at once, then message bodies when the full-text search answers.
-let searchTimer, searchSeq = 0;
-qEl.addEventListener('input', () => {
-  state.q = qEl.value;
-  renderList();
+$('b-density').addEventListener('click', () => { state.density = state.density === 'compact' ? 'comfortable' : 'compact'; paintDensity(); persist(); drawRows(); });
+// The filter matches senders, recipients and subjects at once, then also message text a
+// moment later (the core's full-text index). In all mail it looks in every account.
+let searchTimer;
+function setFilter(text){
+  state.q = text; state.inText = false;
+  paintScope();
   clearTimeout(searchTimer);
-  const q = state.q.trim();
-  if (!q){ state.hits = new Set(); return; }
-  searchTimer = setTimeout(async () => {
-    const seq = ++searchSeq;
-    let ids;
-    try { ids = await invoke('search', {query:q}); } catch { return; }
-    if (seq !== searchSeq || state.q.trim() !== q) return;
-    state.hits = new Set(ids);
-    renderList();
-  }, 150);
-});
+  loadView();
+  if (state.q.trim()) searchTimer = setTimeout(() => { state.inText = true; loadView(); }, 150);
+}
+qEl.addEventListener('input', () => setFilter(qEl.value));
+function paintScope(){
+  const all = state.scope === 'all';
+  win.classList.toggle('allmail', allMail());
+  $('q').closest('.search').classList.toggle('active', !!state.q);
+  $('q-scope').textContent = all ? 'All mail' : 'This folder';
+  $('q-scope').setAttribute('aria-pressed', String(all));
+}
+// This folder or all mail. Remembered; matters only while there is something to filter by.
+function toggleScope(){
+  state.scope = state.scope === 'all' ? 'folder' : 'all'; persist();
+  paintScope();
+  if (state.q.trim()) loadView();
+}
+$('q-scope').addEventListener('click', () => { toggleScope(); qEl.focus(); });
 
 /* ---------- account dialog ---------- */
 // Adding is a wizard: name, email and password. The core finds the servers (its provider
@@ -875,9 +1083,9 @@ aForm.addEventListener('submit', async e => {
 async function connected(account, wasEditing){
   wForm.reset(); aForm.reset();
   dlg.close();
-  await load();
+  await loadTree();
   if (wasEditing){
-    renderAll();
+    refresh();
     say(`Saved ${account.name}.`);
     getMail({quiet:true}); // the Outbox may have waited for these settings
     return;
@@ -895,8 +1103,7 @@ $('a-list').addEventListener('click', async e => {
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Remove it and its local mail'; return; }
   try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ wErr.textContent = String(err); return; }
-  await load();
-  if (!ACCT[acctId(state.folder)]) setFolder(homeOf(ACCOUNTS[0]?.id)); else renderAll();
+  await refresh();
   renderAccountList();
   say('Account removed from Telex. The mail on the server is untouched.');
 });
@@ -937,7 +1144,7 @@ $('i-form').addEventListener('submit', async e => {
   Object.assign(identity, {name:$('i-name').value, email:$('i-email').value, signature:$('i-sig').value,
     reply_header:$('i-reply').value, forward_header:$('i-fwd').value, is_default:$('i-default').checked});
   try { await invoke('save_identity', {identity}); } catch (err){ $('i-form-err').textContent = String(err); return; }
-  await load();
+  await loadTree();
   say(`Saved ${identity.name.trim()}.`);
   showIdentityList();
 });
@@ -949,7 +1156,7 @@ $('i-list').addEventListener('click', async e => {
   if (b.dataset.i === 'edit'){ showIdentityForm(i); return; }
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Delete it'; return; }
   try { await invoke('delete_identity', {id:i.id}); } catch (err){ $('i-err').textContent = String(err); return; }
-  await load();
+  await loadTree();
   showIdentityList();
 });
 $('i-new').addEventListener('click', () => showIdentityForm(null));
@@ -971,7 +1178,7 @@ const moveTargets = acct => (ACCT[acct]?.folders ?? []).filter(f => f.kind !== '
 function ruleSummary(r){
   const conds = r.conditions.map(c => `${labelOf(FIELDS, c.field)} ${labelOf(OPS, c.op)} “${c.value}”`).join(r.match_all ? ' and ' : ' or ');
   const acts = r.actions.map(a => a.type === 'move' ? 'move to ' + folderName(a.folder) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
-  return `If ${conds}: ${acts}.` + (r.account ? ` ${ACCT[r.account]?.name ?? r.account} only.` : '') + (r.stop ? ' Then stop.' : '');
+  return `If ${conds}: ${acts}.` + (r.account ? ` ${ACCT[r.account]?.email ?? r.account} only.` : '') + (r.stop ? ' Then stop.' : '');
 }
 async function openRules(){
   rdlg.showModal();
@@ -1089,7 +1296,7 @@ $('r-run').addEventListener('click', async () => {
   let r;
   try { r = await call('run_rules', {folder:state.folder}); } catch { return; }
   rdlg.close();
-  await load(); renderAll();
+  await refresh();
   const n = r.matched;
   const text = n ? `Rules changed ${n} ${n === 1 ? 'message' : 'messages'} in ${where}.` : `No rule changed anything in ${where}.`;
   say([text, ...r.problems].join(' · '), r.problems.length ? 12000 : 6000);
@@ -1206,8 +1413,10 @@ function onKey(e){
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
   if (e.key === 'Escape'){
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say('Saved to Drafts.')); return; }
-    if (t === qEl){ qEl.value = ''; state.q = ''; state.hits = new Set(); renderList(); listEl.focus(); return; }
+    if (t === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
   }
+  // Tab in the filter box: this folder or all mail, while there is something to look for.
+  if (t === qEl && e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && qEl.value.trim()){ e.preventDefault(); toggleScope(); return; }
   if (t.closest && (t.closest('input, textarea, select') || t.closest('.split'))) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key;
@@ -1216,6 +1425,7 @@ function onKey(e){
   else if (k === 'Home') move(-Infinity);
   else if (k === 'End') move(Infinity);
   else if (k === 'Delete') del();
+  else if (k === 'Enter' && allMail()) openInFolder();
   else if (k === 'r' || k === 'R') openCompose(e.shiftKey ? 'replyall' : 'reply');
   else if (k === 'F' && e.shiftKey) openCompose('forward');
   else if (k === 'f') toggleFlag();
@@ -1256,12 +1466,6 @@ splitter($('split-h'),
   });
 
 /* ---------- boot ---------- */
-function renderAll(){
-  win.classList.toggle('noacct', !ACCOUNTS.length); // the welcome takes the whole right side
-  if (!folderOf(state.folder)) state.folder = homeOf(ACCOUNTS[0]?.id); // folder deleted on the server
-  if (!current()) state.sel[state.folder] = visible()[0]?.id; // e.g. mail just arrived in an empty folder
-  renderTree(); renderList(); if (!state.compose) renderPreview(); renderStatus();
-}
 async function boot(){
   paintDensity();
   if (!invoke){
@@ -1269,10 +1473,9 @@ async function boot(){
     return;
   }
   bootUpdates(); // first, so a version that can't load the mail can still be updated
-  try { await load(); } catch (e){ previewEl.innerHTML = `<div class="pempty">Couldn’t load mail: ${esc(String(e))}</div>`; return; }
-  state.folder = homeOf(ACCOUNTS[0]?.id);
-  state.sel[state.folder] = visible()[0]?.id;
-  renderAll();
+  try { await loadTree(); } catch (e){ previewEl.innerHTML = `<div class="pempty">Couldn’t load mail: ${esc(String(e))}</div>`; return; }
+  paintScope();
+  await setFolder(homeOf(ACCOUNTS[0]?.id));
   listEl.focus({preventScroll:true});
   // Real accounts: check now and every 10 minutes, quietly.
   if (ACCOUNTS.length) getMail({quiet:true});

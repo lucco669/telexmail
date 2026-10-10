@@ -12,11 +12,13 @@ pub mod drafts;
 pub mod filters;
 pub mod html;
 pub mod imap;
+pub mod list;
 pub mod mime;
 pub mod model;
 pub mod sample;
 pub mod smtp;
 pub mod store;
 
+pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey};
 pub use model::*;
-pub use store::{DeleteOutcome, FolderSyncState, MailStore, Snapshot, StoreError, SyncedMessage};
+pub use store::{DeleteOutcome, FolderSyncState, MailStore, StoreError, SyncedMessage};

@@ -10,7 +10,7 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
-rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "functions"] }
 mail-parser = "0.11.9"
 async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
 tokio = { version = "1.53.2", features = ["net", "time", "rt", "io-util"] }

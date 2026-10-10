@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
@@ -7,6 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
 use crate::filters::Rule;
+use crate::list;
 use crate::mime::parse_message_id;
 use crate::model::{
     split_folder_key, Account, AccountSetup, Folder, FolderKind, Identity, ImapSettings, Message,
@@ -22,6 +24,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/004_trusted_senders.sql"),
     include_str!("migrations/005_rules.sql"),
     include_str!("migrations/006_identities.sql"),
+    include_str!("migrations/007_message_content.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -86,15 +89,6 @@ pub enum DeleteOutcome {
     MovedToTrash,
     /// The message was already in Trash and is gone for good.
     Removed,
-}
-
-/// Everything the UI needs to draw the folder tree and message lists.
-#[derive(Debug, Clone, Serialize)]
-pub struct Snapshot {
-    pub accounts: Vec<Account>,
-    pub messages: Vec<MessageSummary>,
-    /// This is the built-in sample mailbox, not the user's mail.
-    pub sample: bool,
 }
 
 /// Where the last sync of one folder stopped.
@@ -170,19 +164,28 @@ pub struct PendingChange {
 /// `pending_ops`; `imap::push_changes` sends them and reports back.
 #[derive(Debug)]
 pub struct MailStore {
-    db: Connection,
+    pub(crate) db: Connection,
     accounts: Vec<Account>,
     sample: bool,
     /// Sample messages waiting for "Get mail". Always empty for real accounts.
     incoming: Vec<Message>,
+    /// The last filtered list the UI paged through (see `list`).
+    pub(crate) found: RefCell<Option<list::Found>>,
 }
 
 impl MailStore {
     /// Open the mail database at `path`, creating or upgrading it if needed.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         let db = Connection::open(path)?;
-        // WAL lets the UI read while a sync writes, and survives crashes well.
+        // WAL lets the UI read while a sync writes, and survives crashes well. With WAL,
+        // synchronous=NORMAL is still safe: a power cut can lose the last commits, never
+        // damage the file. A larger cache, memory-mapped reads and temporary tables in
+        // memory keep lists and searches off the disk.
         db.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))?;
+        db.pragma_update(None, "synchronous", "NORMAL")?;
+        db.pragma_update(None, "cache_size", -32_768)?; // KiB: 32 MiB
+        db.pragma_update_and_check(None, "mmap_size", 256 * 1024 * 1024, |_| Ok(()))?;
+        db.pragma_update(None, "temp_store", "MEMORY")?;
         Self::with_connection(db, false)
     }
 
@@ -193,6 +196,7 @@ impl MailStore {
 
     fn with_connection(db: Connection, sample: bool) -> Result<Self, StoreError> {
         db.pragma_update(None, "foreign_keys", true)?;
+        list::register_functions(&db)?;
         migrate(&db)?;
         let accounts = load_accounts(&db)?;
         Ok(Self {
@@ -200,6 +204,7 @@ impl MailStore {
             accounts,
             sample,
             incoming: Vec::new(),
+            found: RefCell::new(None),
         })
     }
 
@@ -254,18 +259,11 @@ impl MailStore {
         Ok(())
     }
 
-    pub fn snapshot(&self) -> Result<Snapshot, StoreError> {
-        let mut stmt = self
-            .db
-            .prepare_cached(&format!("SELECT {SUMMARY_COLUMNS} FROM messages"))?;
-        let messages = stmt
-            .query_map([], summary_from_row)?
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(Snapshot {
-            accounts: self.accounts.clone(),
-            messages,
-            sample: self.sample,
-        })
+    /// Let SQLite update its statistics for the query planner. Runs when the store closes;
+    /// the app also calls it when its window closes, because the process may end without
+    /// dropping the store.
+    pub fn optimize(&self) {
+        let _ = self.db.execute_batch("PRAGMA optimize");
     }
 
     /// Messages in one folder, newest first.
@@ -290,11 +288,31 @@ impl MailStore {
 
     pub fn get(&self, id: MessageId) -> Result<Message, StoreError> {
         let mut stmt = self.db.prepare_cached(&format!(
-            "SELECT {MESSAGE_COLUMNS} FROM messages WHERE id = ?1"
+            "SELECT {MESSAGE_COLUMNS} FROM messages m LEFT JOIN message_content c ON c.id = m.id
+             WHERE m.id = ?1"
         ))?;
         stmt.query_row([id as i64], message_from_row)
             .optional()?
             .ok_or(StoreError::UnknownMessage(id))
+    }
+
+    /// One row of the message list.
+    pub fn summary(&self, id: MessageId) -> Result<MessageSummary, StoreError> {
+        let mut stmt = self.db.prepare_cached(&format!(
+            "SELECT {SUMMARY_COLUMNS} FROM messages WHERE id = ?1"
+        ))?;
+        stmt.query_row([id as i64], summary_from_row)
+            .optional()?
+            .ok_or(StoreError::UnknownMessage(id))
+    }
+
+    /// The folder a message is in now, or `None` when it no longer exists.
+    pub fn folder_of(&self, id: MessageId) -> Result<Option<String>, StoreError> {
+        match self.locate(id) {
+            Ok((folder, _)) => Ok(Some(folder)),
+            Err(StoreError::UnknownMessage(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     /// The folder the UI shows, and the server folder if the message lives on a server.
@@ -541,10 +559,11 @@ impl MailStore {
         let outbox = format!("{account}/{OUTBOX_ID}");
         self.db
             .query_row(
-                "SELECT o.message, o.env_from, o.env_to, m.raw, m.subject, m.to_addr, o.attempts
+                "SELECT o.message, o.env_from, o.env_to, c.raw, m.subject, m.to_addr, o.attempts
                  FROM outbox o JOIN messages m ON m.id = o.message
+                     JOIN message_content c ON c.id = o.message
                  WHERE o.account = ?1 AND m.folder = ?2 AND NOT o.refused AND o.message > ?3
-                   AND m.raw IS NOT NULL
+                   AND c.raw IS NOT NULL
                  ORDER BY o.message LIMIT 1",
                 params![account, outbox, after as i64],
                 |r| {
@@ -637,9 +656,11 @@ impl MailStore {
     pub fn raw_of(&self, id: MessageId) -> Result<Option<Vec<u8>>, StoreError> {
         Ok(self
             .db
-            .query_row("SELECT raw FROM messages WHERE id = ?1", [id as i64], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT raw FROM message_content WHERE id = ?1",
+                [id as i64],
+                |r| r.get(0),
+            )
             .optional()?
             .flatten())
     }
@@ -1392,6 +1413,12 @@ impl MailStore {
     }
 }
 
+impl Drop for MailStore {
+    fn drop(&mut self) {
+        self.optimize();
+    }
+}
+
 /// Bring the database up to the newest schema, one step at a time.
 fn migrate(db: &Connection) -> Result<(), StoreError> {
     let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
@@ -1474,8 +1501,8 @@ pub(crate) fn slug(s: &str) -> String {
 }
 
 /// Turn what the user typed into a safe FTS5 query: each word quoted, matched as a prefix.
-/// ł is folded to l, as the index triggers in migrations/001_base.sql do.
-fn fts_query(input: &str) -> String {
+/// ł is folded to l, as the index triggers in migrations/007_message_content.sql do.
+pub(crate) fn fts_query(input: &str) -> String {
     input
         .split_whitespace()
         .map(|w| w.replace('"', "").replace('ł', "l").replace('Ł', "L"))
@@ -1485,10 +1512,11 @@ fn fts_query(input: &str) -> String {
         .join(" ")
 }
 
-const SUMMARY_COLUMNS: &str = "id, folder, from_name, from_email, to_addr, subject, date, \
+pub(crate) const SUMMARY_COLUMNS: &str =
+    "id, folder, from_name, from_email, to_addr, subject, date, \
      size_kb, unread, flagged, attachments <> '[]'";
 
-fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> {
+pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> {
     Ok(MessageSummary {
         id: r.get::<_, i64>(0)? as MessageId,
         folder: r.get(1)?,
@@ -1504,8 +1532,9 @@ fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> {
     })
 }
 
-const MESSAGE_COLUMNS: &str = "id, folder, from_name, from_email, to_addr, cc, subject, date, \
-     size_kb, unread, flagged, remote_images, note, attachments, body, message_id";
+const MESSAGE_COLUMNS: &str = "m.id, m.folder, m.from_name, m.from_email, m.to_addr, m.cc, \
+     m.subject, m.date, m.size_kb, m.unread, m.flagged, m.remote_images, m.note, m.attachments, \
+     COALESCE(c.body, ''), m.message_id";
 
 fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
     let attachments: String = r.get(13)?;
@@ -1686,32 +1715,34 @@ fn insert_message(
 ) -> Result<MessageId, StoreError> {
     let attachments =
         serde_json::to_string(&m.attachments).map_err(|e| StoreError::Database(e.to_string()))?;
-    db.execute(
+    db.prepare_cached(
         "INSERT INTO messages (folder, srv_folder, uid, message_id, from_name, from_email, to_addr,
-             cc, subject, date, size_kb, unread, flagged, remote_images, note, attachments, body, raw)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
-        params![
-            folder,
-            srv_folder,
-            uid,
-            m.message_id,
-            m.from_name,
-            m.from_email,
-            m.to,
-            m.cc,
-            m.subject,
-            m.date,
-            m.size_kb,
-            m.unread,
-            m.flagged,
-            m.remote_images,
-            m.note,
-            attachments,
-            m.body,
-            raw,
-        ],
-    )?;
-    Ok(db.last_insert_rowid() as MessageId)
+             cc, subject, date, size_kb, unread, flagged, remote_images, note, attachments)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+    )?
+    .execute(params![
+        folder,
+        srv_folder,
+        uid,
+        m.message_id,
+        m.from_name,
+        m.from_email,
+        m.to,
+        m.cc,
+        m.subject,
+        m.date,
+        m.size_kb,
+        m.unread,
+        m.flagged,
+        m.remote_images,
+        m.note,
+        attachments,
+    ])?;
+    let id = db.last_insert_rowid();
+    // The text goes in second: its trigger indexes it together with the summary.
+    db.prepare_cached("INSERT INTO message_content (id, body, raw) VALUES (?1, ?2, ?3)")?
+        .execute(params![id, m.body, raw])?;
+    Ok(id as MessageId)
 }
 
 #[cfg(test)]
@@ -1819,15 +1850,12 @@ mod tests {
         let store = sample_store();
         assert!(store.is_sample());
         assert_eq!(store.accounts().len(), 2);
-        let snap = store.snapshot().unwrap();
-        assert!(snap.messages.len() >= 20);
-        let ids: HashSet<_> = snap.messages.iter().map(|m| m.id).collect();
-        assert_eq!(ids.len(), snap.messages.len(), "ids are unique");
-        for m in &snap.messages {
+        let counts = store.folder_tree().unwrap().counts;
+        assert!(counts.values().map(|c| c.total).sum::<usize>() >= 20);
+        for folder in counts.keys() {
             assert!(
-                store.check_folder(&m.folder).is_ok(),
-                "{} points to a real folder",
-                m.folder
+                store.check_folder(folder).is_ok(),
+                "{folder} is a real folder"
             );
         }
     }
@@ -2177,7 +2205,7 @@ mod tests {
         store.delete(id).unwrap(); // queues an expunge, which has no message row
         store.remove_account(&account.id).unwrap();
         assert!(store.accounts().is_empty());
-        assert!(store.snapshot().unwrap().messages.is_empty());
+        assert!(store.folder_tree().unwrap().counts.is_empty());
         assert!(store.search("zolwia").unwrap().is_empty());
         assert!(!store.has_pending_changes(&account.id).unwrap());
     }
@@ -2202,7 +2230,7 @@ mod tests {
             [FolderKind::Inbox, FolderKind::Outbox],
             "the local Outbox stays"
         );
-        assert!(store.snapshot().unwrap().messages.is_empty());
+        assert!(store.folder_tree().unwrap().counts.is_empty());
     }
 
     #[test]
@@ -2286,6 +2314,105 @@ mod tests {
         store.set_unread(id, false).unwrap();
         assert!(store.has_pending_changes("studio").unwrap());
         assert_eq!(store.search("dzien").unwrap(), [id]);
+    }
+
+    #[test]
+    fn version_7_moves_the_text_and_finds_the_same_mail() {
+        // A version 6 database, where the text and raw message are in `messages`.
+        let db = Connection::open_in_memory().unwrap();
+        for sql in &MIGRATIONS[..6] {
+            db.execute_batch(sql).unwrap();
+        }
+        db.pragma_update(None, "user_version", 6).unwrap();
+        db.execute_batch(
+            "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user)
+                 VALUES ('studio', 0, 'Studio', 'biuro@x.pl', 'mail.x.pl', 993, 'biuro@x.pl');
+             INSERT INTO folders (account, id, position, name, kind, remote)
+                 VALUES ('studio', 'inbox', 0, 'Inbox', 'inbox', 'INBOX');",
+        )
+        .unwrap();
+        let words = [
+            "wycena", "żółw", "Łódź", "faktura", "projekt", "dzień", "dobry",
+        ];
+        for i in 0..40 {
+            let body: Vec<&str> = (0..i % 7 + 1).map(|j| words[(i + j) % 7]).collect();
+            db.execute(
+                "INSERT INTO messages (folder, srv_folder, uid, message_id, from_name, from_email,
+                     to_addr, cc, subject, date, size_kb, unread, flagged, remote_images,
+                     attachments, body, raw)
+                 VALUES ('studio/inbox', 'studio/inbox', ?1, ?2, ?3, 'a@x.pl', 'biuro@x.pl', '',
+                     ?4, '2026-10-09 14:30:00', 1, 1, 0, 0, '[]', ?5, ?6)",
+                params![
+                    i as i64,
+                    format!("{i}@x.pl"),
+                    format!("Łucja {}", words[i % 7]),
+                    format!("Temat {}", words[(i * 3) % 7]),
+                    body.join(" "),
+                    format!("raw {i}").into_bytes()
+                ],
+            )
+            .unwrap();
+        }
+        let queries = [
+            "wycena",
+            "zolw",
+            "lodz",
+            "faktura projekt",
+            "dz",
+            "łucja",
+            "nic",
+        ];
+        let before: Vec<Vec<MessageId>> = queries
+            .iter()
+            .map(|q| {
+                db.prepare(
+                    "SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1 ORDER BY rank LIMIT 5000",
+                )
+                .unwrap()
+                .query_map([fts_query(q)], |r| r.get::<_, i64>(0))
+                .unwrap()
+                .map(|id| id.unwrap() as MessageId)
+                .collect()
+            })
+            .collect();
+        assert!(before.iter().filter(|hits| hits.len() > 5).count() >= 3);
+
+        let mut store = MailStore::with_connection(db, false).unwrap();
+        for (q, hits) in queries.iter().zip(&before) {
+            assert_eq!(
+                &store.search(q).unwrap(),
+                hits,
+                "same hits, same order: {q}"
+            );
+        }
+        let columns: Vec<String> = store
+            .db
+            .prepare("SELECT name FROM pragma_table_info('messages')")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert!(!columns.iter().any(|c| c == "body" || c == "raw"));
+        let id = store.list("studio/inbox").unwrap()[0].id;
+        assert!(!store.get(id).unwrap().body.is_empty());
+        assert!(store.raw_of(id).unwrap().unwrap().starts_with(b"raw "));
+
+        // A message that goes takes its text and its place in the index along.
+        let hits = store.search("dobry").unwrap();
+        let gone = hits[0];
+        store.forget_message(gone).unwrap();
+        assert!(!store.search("dobry").unwrap().contains(&gone));
+        assert_eq!(store.raw_of(gone).unwrap(), None);
+        let orphans: i64 = store
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM message_content WHERE id NOT IN (SELECT id FROM messages)",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(orphans, 0);
     }
 
     #[test]
