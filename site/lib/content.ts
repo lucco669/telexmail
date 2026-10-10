@@ -17,7 +17,7 @@ export const features = [
   },
   {
     title: 'Private by default',
-    text: 'No account and no telemetry. Remote images stay blocked until you allow them, and your password stays in Windows Credential Manager.',
+    text: 'No account and no telemetry. Remote images stay blocked until you allow them, and your password stays in your system’s password store.',
   },
   {
     title: 'Light on your PC',
@@ -49,11 +49,13 @@ export const featureRows: FeatureRow[] = [
   },
   {
     id: 'writing',
-    screen: 'reply',
-    title: 'Plain text, written fast',
-    text: 'R opens the reply right in the reading pane, quoted and signed. Compose is plain text in a mono face, the way mail between people reads best.',
+    screen: 'writing',
+    title: 'Plain text, or HTML when it helps',
+    text: 'R opens the reply right in the reading pane, quoted and signed. Compose is plain text in a mono face, the way mail between people reads best; switch a message to HTML for bold, lists and links, and it still goes out with a plain-text copy.',
     points: [
       'Reply, reply to all and forward, each one key',
+      'Plain text or HTML, as a default or per message; replies can follow the original',
+      'Pasted web pages lose their styles and scripts: only formatting goes in',
       'A From picker with all your identities; the signature follows',
       'Ctrl+Enter sends, Esc saves a draft and closes',
       'E reopens a draft or a message still in the Outbox',
@@ -127,8 +129,21 @@ export const featureRows: FeatureRow[] = [
     points: [
       'HTML mail in a sandbox where no script can run',
       'Remote images blocked, so senders can’t see when you read',
-      'Your password stays in Windows Credential Manager',
+      'Your password stays in your system’s password store',
       'Your mail base is one file on your disk',
+      'In a dark theme, HTML mail takes the theme’s colors; one click shows it on white',
+    ],
+  },
+  {
+    id: 'usage',
+    screen: 'usage',
+    title: 'See where your mail goes',
+    text: 'A quiet bar in the status bar shows how full the open account is on the server. Settings › Usage shows each account the way a phone shows its storage: what takes the space, and how mail comes and goes.',
+    points: [
+      'The server’s storage, when it reports a quota, with a warning before it fills up',
+      'This PC by kind of folder: Inbox, Sent, your folders, Spam and Trash',
+      'Mail received, sent and caught as spam, day by day for 30 days',
+      'Who sends the most, and the largest messages, one click away',
     ],
   },
   {
@@ -150,7 +165,8 @@ export const featureRows: FeatureRow[] = [
     text: 'Eight themes, from plain light to a green phosphor screen, each measured against WCAG 2.2. The interface speaks English and Polish. Settings save as you change them, and travel to another PC in one file.',
     points: [
       'Every theme meets AA contrast; the two high-contrast ones meet AAA',
-      'English or Polish, as in Windows or as you pick',
+      'English or Polish, as in Windows or as you pick, down to the error messages',
+      'Accounts, identities and servers in the same window',
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
       'Export settings, rules, identities and servers to a file, never passwords',
       'Import shows what would change, part by part, before anything does',
@@ -234,6 +250,12 @@ export const screens: Screen[] = [
     caption: 'R opens the reply right in the reading pane: plain text in a mono face, quoted and signed, from the identity you pick.',
   },
   {
+    id: 'writing',
+    label: 'HTML compose',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'A message in HTML: bold, lists, quotes and links from a small bar or the usual keys. It goes out with a plain-text copy.',
+  },
+  {
     id: 'filter',
     label: 'Quick filter',
     title: 'Inbox · sam@lindenstudio.com – Telex',
@@ -280,6 +302,18 @@ export const screens: Screen[] = [
     label: 'Themes',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Settings: eight themes, each card drawn in its own colors. Every one meets WCAG 2.2 AA contrast.',
+  },
+  {
+    id: 'accounts',
+    label: 'Accounts',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Every account in Settings: its servers, how its last check went, its identities.',
+  },
+  {
+    id: 'usage',
+    label: 'Usage',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Settings › Usage: the server’s storage, what takes the space on this PC, and 30 days of mail in and out.',
   },
   {
     id: 'polish',
@@ -344,7 +378,13 @@ export const roadmap: Step[] = [
     title: 'Settings, themes and Polish',
     text: 'A settings window, eight themes that all meet WCAG 2.2 AA contrast (two at AAA), text up to 200%, the whole interface in Polish, and settings, rules and identities exported to one file and imported with a preview.',
     status: 'done',
-    notYet: 'More languages, and messages from the mail engine in Polish.',
+    notYet: 'More languages.',
+  },
+  {
+    title: 'HTML compose and usage',
+    text: 'Write in plain text or HTML, with a plain-text copy always going along. HTML mail takes a dark theme’s colors. A Usage page shows each account’s server storage and how its mail comes and goes.',
+    status: 'done',
+    notYet: 'Images and colors in HTML compose, HTML signatures.',
   },
   {
     title: 'Archive and backup',
@@ -381,7 +421,11 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Can it read HTML newsletters?',
-        a: 'Yes. HTML mail is shown in a sandbox where no script can run. Remote images stay blocked until you load them for that message, or for everything from a sender you trust (never automatically in Spam). H switches to plain text.',
+        a: 'Yes. HTML mail is shown in a sandbox where no script can run. Remote images stay blocked until you load them for that message, or for everything from a sender you trust (never automatically in Spam). H switches to plain text. In a dark theme the message takes the theme’s colors, or stays white if you prefer.',
+      },
+      {
+        q: 'Can I write in HTML?',
+        a: 'Yes. Plain text is the default, and Settings › Writing or the Text | HTML switch in a message turns on bold, italics, lists, quotes and links. Every HTML message goes out with a plain-text copy, and pasted web pages lose their styles and scripts.',
       },
     ],
   },
@@ -394,7 +438,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Where is my mail kept?',
-        a: 'In one file on your disk: %APPDATA%\\app.telexmail.desktop\\telex.db. Your settings sit next to it in settings.json. Passwords are stored separately, in Windows Credential Manager.',
+        a: 'In one file on your disk: %APPDATA%\\app.telexmail.desktop\\telex.db on Windows, ~/.local/share/app.telexmail.desktop/telex.db on Linux. Your settings sit next to it in settings.json. Passwords are stored separately, in Windows Credential Manager or your Linux keyring.',
       },
       {
         q: 'Can I move Telex to another PC?',
@@ -427,7 +471,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Is there a Mac or Linux version?',
-        a: 'No. Telex is made for Windows first.',
+        a: 'For Linux there is an AppImage for 64-bit PCs, next to the Windows installer on the download page; it updates itself like the Windows version. There is no Mac version. Telex is made for Windows first.',
       },
       {
         q: 'Is it like The Bat!?',

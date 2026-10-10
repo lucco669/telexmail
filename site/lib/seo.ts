@@ -55,7 +55,7 @@ export function appLd(release: Release | null) {
     description: site.description,
     url: abs('/'),
     applicationCategory: 'CommunicationApplication',
-    operatingSystem: 'Windows 10, Windows 11',
+    operatingSystem: release?.appimage ? 'Windows 10, Windows 11, Linux' : 'Windows 10, Windows 11',
     image: abs('/icon-512.png'),
     screenshot: [hero, ...screens].map((s) => abs(`/screens/${s.id}-light.png`)),
     featureList: features.map((f) => f.title),

@@ -5,7 +5,11 @@
 //! message carries itself (`cid:`) become data: URIs. Remote images and CSS backgrounds are
 //! left out, unless their contents are passed in: [`fetch_images`] downloads them when the
 //! user allows it, so the window itself never talks to the network. The document also
-//! carries its own Content-Security-Policy that forbids any network load.
+//! carries its own Content-Security-Policy that forbids any network load. On dark paper
+//! the message's own colors are turned around to match (`colors`).
+//!
+//! [`compose_clean`], [`to_text`] and [`from_text`] serve HTML compose: what the editor
+//! may send, and the plain-text version that goes along with it.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -17,7 +21,76 @@ use ammonia::{Builder, UrlRelative};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
+use serde::Deserialize;
+
+use crate::colors::{self, Role, Target};
 use crate::mime::html_body;
+
+/// The paper a message is shown on.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum Paper {
+    /// White, as the sender designed it.
+    #[default]
+    Light,
+    /// A dark theme's paper, with the message's colors recolored to match.
+    Dark(Palette),
+}
+
+/// The colors of the dark theme a message is shown in, as `#rrggbb`: the window sends its
+/// theme's tokens. Anything that isn't a plain hex color is replaced by Telex's Dark theme,
+/// since these go into the frame's style as they are.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Palette {
+    /// The background: what white paper becomes.
+    pub paper: String,
+    /// The text: what black ink becomes.
+    pub ink: String,
+    pub link: String,
+    /// Quotes: their bar and their text.
+    pub line: String,
+    pub muted: String,
+}
+
+impl Default for Palette {
+    /// Telex's Dark theme.
+    fn default() -> Self {
+        Self {
+            paper: "#14171b".into(),
+            ink: "#e2e6eb".into(),
+            link: "#6f9de6".into(),
+            line: "#2e343c".into(),
+            muted: "#9aa3ad".into(),
+        }
+    }
+}
+
+impl Palette {
+    /// Every color a plain hex color, and dark paper with light ink; else Telex's Dark.
+    fn checked(&self) -> (Palette, Target) {
+        let fallback = Palette::default();
+        let pick = |mine: &String, theirs: String| {
+            if colors::is_plain_hex(mine) {
+                mine.clone()
+            } else {
+                theirs
+            }
+        };
+        let p = Palette {
+            paper: pick(&self.paper, fallback.paper.clone()),
+            ink: pick(&self.ink, fallback.ink.clone()),
+            link: pick(&self.link, fallback.link.clone()),
+            line: pick(&self.line, fallback.line.clone()),
+            muted: pick(&self.muted, fallback.muted.clone()),
+        };
+        match Target::new(&p.paper, &p.ink) {
+            Some(target) => (p, target),
+            None => {
+                let target = Target::new(&fallback.paper, &fallback.ink).expect("Dark is dark");
+                (fallback, target)
+            }
+        }
+    }
+}
 
 /// An HTML message ready for the frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +105,7 @@ pub struct Rendered {
 
 /// Render a message's HTML body, or `None` for plain-text mail. `images` maps remote
 /// image URLs to data: URIs; anything remote not in it is left out.
-pub fn render(raw: &[u8], images: &HashMap<String, String>) -> Option<Rendered> {
+pub fn render(raw: &[u8], images: &HashMap<String, String>, paper: &Paper) -> Option<Rendered> {
     let body = html_body(raw)?;
     let inline = body
         .inline
@@ -40,19 +113,30 @@ pub fn render(raw: &[u8], images: &HashMap<String, String>) -> Option<Rendered> 
         .filter(|(_, (mime, _))| mime.starts_with("image/"))
         .map(|(cid, (mime, data))| (cid.clone(), data_uri(mime, data)))
         .collect();
-    let (html, remote) = sanitize(&body.html, inline, images.clone());
+    let dark = match paper {
+        Paper::Light => None,
+        Paper::Dark(palette) => Some(palette.checked()),
+    };
+    let (html, remote) = sanitize(
+        &body.html,
+        inline,
+        images.clone(),
+        dark.as_ref().map(|d| d.1),
+    );
     let blocked = remote.iter().filter(|u| !images.contains_key(*u)).count();
     Some(Rendered {
-        document: wrap(&html),
+        document: wrap(&html, dark.as_ref().map(|d| &d.0)),
         remote,
         blocked,
     })
 }
 
-/// Where image references can be resolved: images in the message, and fetched ones.
+/// Where image references can be resolved: images in the message, and fetched ones. And
+/// where colors go on dark paper (`None` on white).
 struct Sources {
     inline: HashMap<String, String>,
     images: HashMap<String, String>,
+    dark: Option<Target>,
 }
 
 /// Clean an HTML fragment. Returns the safe HTML and the remote image URLs it referenced.
@@ -60,9 +144,14 @@ fn sanitize(
     html: &str,
     inline: HashMap<String, String>,
     images: HashMap<String, String>,
+    dark: Option<Target>,
 ) -> (String, Vec<String>) {
     let found = Arc::new(Mutex::new(Vec::new()));
-    let sources = Sources { inline, images };
+    let sources = Sources {
+        inline,
+        images,
+        dark,
+    };
     let seen = Arc::clone(&found);
     let mut builder = Builder::default();
     builder
@@ -116,7 +205,21 @@ fn filter<'u>(
                 .any(|s| lower.starts_with(s));
             ok.then_some(Cow::Borrowed(value))
         }
-        (_, "style") => Some(Cow::Owned(clean_style(sources, found, value))),
+        (_, "style") => {
+            let style = clean_style(sources, found, value);
+            Some(Cow::Owned(match &sources.dark {
+                None => style,
+                Some(to) => colors::recolor_style(&style, to),
+            }))
+        }
+        (_, "bgcolor") => Some(match &sources.dark {
+            None => Cow::Borrowed(value),
+            Some(to) => Cow::Owned(colors::recolor_attribute(value, Role::Background, to)),
+        }),
+        (_, "color") => Some(match &sources.dark {
+            None => Cow::Borrowed(value),
+            Some(to) => Cow::Owned(colors::recolor_attribute(value, Role::Text, to)),
+        }),
         _ => Some(Cow::Borrowed(value)),
     }
 }
@@ -187,18 +290,40 @@ fn clean_style(sources: &Sources, found: &Mutex<Vec<String>>, style: &str) -> St
 const FRAME_CSP: &str =
     "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:";
 
-/// Mail is designed for white paper, so the frame stays light in the dark theme too.
+/// Mail is designed for white paper: the light frame, in the app's light colors.
 const FRAME_STYLE: &str = "html{background:#fff;color-scheme:light}\
 body{margin:0;padding:12px 14px 28px;font:14px/1.5 'Segoe UI',system-ui,sans-serif;color:#1a1e23;overflow-wrap:anywhere}\
 img{max-width:100%;height:auto}table{max-width:100%}a{color:#2453a6}pre{white-space:pre-wrap}\
 blockquote{margin:0 0 0 2px;padding-left:10px;border-left:2px solid #d2d7de;color:#59636e}";
 
-fn wrap(body: &str) -> String {
+/// The dark frame, in the theme's colors (already checked to be plain hex colors).
+fn dark_style(p: &Palette) -> String {
+    let Palette {
+        paper,
+        ink,
+        link,
+        line,
+        muted,
+    } = p;
+    format!(
+        "html{{background:{paper};color-scheme:dark}}\
+body{{margin:0;padding:12px 14px 28px;font:14px/1.5 'Segoe UI',system-ui,sans-serif;color:{ink};overflow-wrap:anywhere}}\
+img{{max-width:100%;height:auto}}table{{max-width:100%}}a{{color:{link}}}pre{{white-space:pre-wrap}}\
+blockquote{{margin:0 0 0 2px;padding-left:10px;border-left:2px solid {line};color:{muted}}}"
+    )
+}
+
+/// `dark`: the checked palette of dark paper, or `None` for white.
+fn wrap(body: &str, dark: Option<&Palette>) -> String {
+    let style = match dark {
+        None => FRAME_STYLE.to_owned(),
+        Some(p) => dark_style(p),
+    };
     format!(
         "<!doctype html><html><head><meta charset=\"utf-8\">\
          <meta http-equiv=\"Content-Security-Policy\" content=\"{FRAME_CSP}\">\
          <meta name=\"referrer\" content=\"no-referrer\">\
-         <style>{FRAME_STYLE}</style></head><body>{body}</body></html>"
+         <style>{style}</style></head><body>{body}</body></html>"
     )
 }
 
@@ -208,6 +333,394 @@ fn data_uri(mime: &str, data: &[u8]) -> String {
         .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '+' | '-' | '.'))
         .collect();
     format!("data:{mime};base64,{}", STANDARD.encode(data))
+}
+
+// ---- HTML compose ----
+
+/// What a message written in Telex may contain: text formatting, links, lists, quotes.
+/// No styles, classes, images or anything else pasted in from a web page.
+const COMPOSE_TAGS: [&str; 22] = [
+    "a",
+    "b",
+    "strong",
+    "i",
+    "em",
+    "u",
+    "s",
+    "strike",
+    "br",
+    "p",
+    "div",
+    "span",
+    "ul",
+    "ol",
+    "li",
+    "blockquote",
+    "pre",
+    "code",
+    "h1",
+    "h2",
+    "h3",
+    "hr",
+];
+
+/// The editor's HTML, cleaned to what Telex sends. Also takes a whole document (a saved
+/// draft) and keeps only its body's content.
+pub fn compose_clean(html: &str) -> String {
+    let mut builder = Builder::empty();
+    builder
+        .add_tags(COMPOSE_TAGS)
+        .add_tag_attributes("a", &["href"])
+        .url_schemes(HashSet::from(["http", "https", "mailto"]))
+        .url_relative(UrlRelative::Deny)
+        .link_rel(None)
+        .strip_comments(true)
+        .clean_content_tags(HashSet::from(["script", "style", "head", "title"]));
+    builder.clean(html).to_string().trim().to_owned()
+}
+
+/// The text/html part of a message written in Telex: the cleaned HTML in a small document,
+/// quotes marked the way mail programs show them.
+pub fn compose_document(clean: &str) -> String {
+    let body = clean.replace(
+        "<blockquote>",
+        "<blockquote type=\"cite\" style=\"margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex\">",
+    );
+    format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"></head>\
+         <body><div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px\">{body}</div></body></html>"
+    )
+}
+
+/// Plain text for HTML written in Telex: lines for blocks, "- " and "1. " for lists, ">"
+/// for quotes, a link's address after its text. Takes cleaned HTML ([`compose_clean`]).
+pub fn to_text(html: &str) -> String {
+    let mut w = TextWriter::default();
+    let mut rest = html;
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix('<') {
+            let end = tag_end(after);
+            w.tag(&after[..end]);
+            rest = after.get(end + 1..).unwrap_or_default();
+        } else {
+            let end = rest.find('<').unwrap_or(rest.len());
+            w.text(&decode_entities(&rest[..end]));
+            rest = &rest[end..];
+        }
+    }
+    w.finish()
+}
+
+/// HTML for plain text: a line per `<div>`, blank lines kept, `>` quotes as blockquotes,
+/// web addresses as links. How a reply or a plain draft opens in the HTML editor.
+pub fn from_text(text: &str) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].starts_with('>') {
+            let start = i;
+            while i < lines.len() && lines[i].starts_with('>') {
+                i += 1;
+            }
+            let inner: Vec<&str> = lines[start..i]
+                .iter()
+                .map(|l| {
+                    let l = &l[1..];
+                    l.strip_prefix(' ').unwrap_or(l)
+                })
+                .collect();
+            out.push_str("<blockquote>");
+            out.push_str(&from_text(&inner.join("\n")));
+            out.push_str("</blockquote>");
+        } else {
+            let line = lines[i];
+            if line.trim().is_empty() {
+                out.push_str("<div><br></div>");
+            } else {
+                out.push_str("<div>");
+                out.push_str(&linkify(&escape(line)));
+                out.push_str("</div>");
+            }
+            i += 1;
+        }
+    }
+    out
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Web addresses in escaped text become links.
+fn linkify(escaped: &str) -> String {
+    let mut out = String::new();
+    let mut rest = escaped;
+    while let Some(i) = ["https://", "http://"]
+        .iter()
+        .filter_map(|p| rest.find(p))
+        .min()
+    {
+        out.push_str(&rest[..i]);
+        let url_len = rest[i..]
+            .find(|c: char| c.is_whitespace() || c == '<')
+            .unwrap_or(rest.len() - i);
+        // A sentence's full stop or a closing bracket isn't part of the address.
+        let url = rest[i..i + url_len].trim_end_matches(['.', ',', ')', ';', ':', '!', '?']);
+        out.push_str(&format!("<a href=\"{url}\">{url}</a>"));
+        rest = &rest[i + url.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Where a tag that starts after `<` ends (the `>`), skipping quoted attribute values.
+fn tag_end(after: &str) -> usize {
+    let mut quote = None;
+    for (i, c) in after.char_indices() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '>') => return i,
+            _ => {}
+        }
+    }
+    after.len()
+}
+
+fn decode_entities(s: &str) -> Cow<'_, str> {
+    if !s.contains('&') {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let end = rest.find(';').filter(|&e| e <= 10);
+        let decoded = end.and_then(|e| match &rest[1..e] {
+            "amp" => Some('&'),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            "nbsp" => Some(' '),
+            n => n
+                .strip_prefix("#x")
+                .or_else(|| n.strip_prefix("#X"))
+                .map(|h| u32::from_str_radix(h, 16).ok())
+                .unwrap_or_else(|| n.strip_prefix('#').and_then(|d| d.parse().ok()))
+                .and_then(char::from_u32),
+        });
+        match (decoded, end) {
+            (Some(c), Some(e)) => {
+                out.push(c);
+                rest = &rest[e + 1..];
+            }
+            _ => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    Cow::Owned(out)
+}
+
+/// Builds the plain text of [`to_text`] one tag and one run of text at a time.
+#[derive(Default)]
+struct TextWriter {
+    lines: Vec<String>,
+    /// The line being written, and whether it has text yet (a list bullet isn't text).
+    line: String,
+    has_text: bool,
+    quote: usize,
+    /// One entry per open list: `None` for bullets, the next number for numbered lists.
+    lists: Vec<Option<u32>>,
+    pre: usize,
+    /// A paragraph ended: a blank line comes before the next text.
+    blank: bool,
+    /// Open links: the address, and where the link's text starts in `line`.
+    links: Vec<(String, usize)>,
+}
+
+impl TextWriter {
+    fn tag(&mut self, tag: &str) {
+        let closing = tag.starts_with('/');
+        let name: String = tag
+            .trim_start_matches('/')
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect::<String>()
+            .to_ascii_lowercase();
+        match (name.as_str(), closing) {
+            ("br", _) => self.newline(),
+            ("p", _) => {
+                self.block();
+                self.blank = self.blank || closing || !self.lines.is_empty();
+            }
+            ("div" | "h1" | "h2" | "h3", _) => self.block(),
+            ("pre", false) => {
+                self.block();
+                self.pre += 1;
+            }
+            ("pre", true) => {
+                self.block();
+                self.pre = self.pre.saturating_sub(1);
+            }
+            ("hr", _) => {
+                self.block();
+                self.line.push_str("----------");
+                self.has_text = true;
+                self.newline();
+            }
+            ("blockquote", false) => {
+                self.block();
+                // A paragraph's blank line goes before the quote, not inside it.
+                if self.blank && self.lines.last().is_some_and(|l| !l.is_empty()) {
+                    self.emit(String::new());
+                }
+                self.blank = false;
+                self.quote += 1;
+            }
+            ("blockquote", true) => {
+                self.block();
+                self.quote = self.quote.saturating_sub(1);
+            }
+            ("ul", false) => {
+                self.block();
+                self.lists.push(None);
+            }
+            ("ol", false) => {
+                self.block();
+                self.lists.push(Some(1));
+            }
+            ("ul" | "ol", true) => {
+                self.block();
+                self.lists.pop();
+            }
+            ("li", false) => {
+                self.block();
+                let depth = self.lists.len().max(1);
+                let bullet = match self.lists.last_mut() {
+                    Some(Some(n)) => {
+                        *n += 1;
+                        format!("{}. ", *n - 1)
+                    }
+                    _ => "- ".to_owned(),
+                };
+                self.line.push_str(&"   ".repeat(depth - 1));
+                self.line.push_str(&bullet);
+            }
+            ("li", true) => self.block(),
+            ("a", false) => {
+                let href = attribute(tag, "href").unwrap_or_default();
+                self.links.push((href, self.line.len()));
+            }
+            ("a", true) => {
+                if let Some((href, start)) = self.links.pop() {
+                    let text = self.line.get(start..).unwrap_or_default().trim().to_owned();
+                    let bare = href.strip_prefix("mailto:").unwrap_or(&href);
+                    if !href.is_empty() && text != href && text != bare {
+                        self.text(&format!(" <{bare}>"));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn text(&mut self, s: &str) {
+        if s.is_empty() {
+            return;
+        }
+        if self.pre > 0 {
+            let mut parts = s.split('\n');
+            if let Some(first) = parts.next() {
+                self.push(first);
+            }
+            for part in parts {
+                self.newline();
+                self.push(part);
+            }
+            return;
+        }
+        let mut collapsed = String::new();
+        for c in s.chars() {
+            if c.is_whitespace() {
+                let at_start = !self.has_text && collapsed.is_empty();
+                if !at_start && !collapsed.ends_with(' ') && !self.line.ends_with(' ') {
+                    collapsed.push(' ');
+                }
+            } else {
+                collapsed.push(c);
+            }
+        }
+        if !collapsed.trim().is_empty() || self.has_text {
+            self.push(&collapsed);
+        }
+    }
+
+    fn push(&mut self, s: &str) {
+        if self.blank && !s.trim().is_empty() {
+            self.blank = false;
+            if !self.has_text && self.lines.last().is_some_and(|l| !l.is_empty()) {
+                self.emit(String::new());
+            }
+        }
+        if !s.is_empty() {
+            self.line.push_str(s);
+            self.has_text = self.has_text || !s.trim().is_empty();
+        }
+    }
+
+    /// End the line here: a `<br>`, or a line of `<pre>`.
+    fn newline(&mut self) {
+        let line = std::mem::take(&mut self.line);
+        self.emit(line);
+        self.has_text = false;
+    }
+
+    /// A block starts or ends: end the line if it has text.
+    fn block(&mut self) {
+        if self.has_text {
+            self.newline();
+        }
+    }
+
+    fn emit(&mut self, line: String) {
+        let marks = if self.quote > 0 {
+            format!("{} ", ">".repeat(self.quote))
+        } else {
+            String::new()
+        };
+        self.lines
+            .push(format!("{marks}{}", line.trim_end()).trim_end().to_owned());
+    }
+
+    fn finish(mut self) -> String {
+        self.block();
+        while self.lines.last().is_some_and(String::is_empty) {
+            self.lines.pop();
+        }
+        self.lines.join("\n")
+    }
+}
+
+/// An attribute's value in a tag's source, e.g. `a href="https://x.pl"`.
+fn attribute(tag: &str, name: &str) -> Option<String> {
+    let lower = tag.to_ascii_lowercase();
+    let at = lower.find(&format!("{name}="))? + name.len() + 1;
+    let rest = &tag[at..];
+    let value = match rest.chars().next()? {
+        q @ ('"' | '\'') => rest[1..].split(q).next()?,
+        _ => rest.split(|c: char| c.is_whitespace()).next()?,
+    };
+    Some(decode_entities(value).into_owned())
 }
 
 // ---- Remote images ----
@@ -429,7 +942,7 @@ Content-Type: text/html; charset=utf-8\r\n\
     }
 
     fn render_html(html: &str) -> Rendered {
-        render(&html_mail(html, ""), &HashMap::new()).unwrap()
+        render(&html_mail(html, ""), &HashMap::new(), &Paper::Light).unwrap()
     }
 
     fn body_of(r: &Rendered) -> &str {
@@ -440,7 +953,12 @@ Content-Type: text/html; charset=utf-8\r\n\
 
     #[test]
     fn plain_text_mail_has_no_html_view() {
-        assert!(render(b"Subject: x\r\n\r\nJust text\r\n", &HashMap::new()).is_none());
+        assert!(render(
+            b"Subject: x\r\n\r\nJust text\r\n",
+            &HashMap::new(),
+            &Paper::Light
+        )
+        .is_none());
     }
 
     #[test]
@@ -520,7 +1038,7 @@ Content-Type: text/html; charset=utf-8\r\n\
             "https://sklep.pl/logo.png".to_owned(),
             "data:image/png;base64,AAAA".to_owned(),
         )]);
-        let r = render(&html_mail(html, ""), &images).unwrap();
+        let r = render(&html_mail(html, ""), &images, &Paper::Light).unwrap();
         let body = body_of(&r);
         assert!(
             body.contains("src=\"data:image/png;base64,AAAA\""),
@@ -541,6 +1059,7 @@ iVBORw0KGgo=\r\n";
         let r = render(
             &html_mail("<img src=\"cid:logo@sklep.pl\" alt=\"Logo\">", png),
             &HashMap::new(),
+            &Paper::Light,
         )
         .unwrap();
         let body = body_of(&r);
@@ -592,6 +1111,124 @@ iVBORw0KGgo=\r\n";
             Some("https://cdn.pl/i.png")
         );
         assert_eq!(redirect_target("https://t.pl/a", "//evil/x"), None);
+    }
+
+    #[test]
+    fn dark_paper_turns_the_colors_around() {
+        let html = "<table bgcolor=\"#ffffff\"><tr><td style=\"color:#222222;background:url('cid:x') #f4f4f4\">\
+                    <font color=\"black\">Faktura</font></td></tr></table><img src=\"cid:x\">";
+        let light = render(&html_mail(html, ""), &HashMap::new(), &Paper::Light).unwrap();
+        assert!(body_of(&light).contains("bgcolor=\"#ffffff\""));
+        assert!(light
+            .document
+            .contains("html{background:#fff;color-scheme:light}"));
+
+        // Fjord: white becomes its blue-slate paper, links take its frost-cyan.
+        let fjord = Palette {
+            paper: "#151e28".into(),
+            ink: "#e3ebf3".into(),
+            link: "#6cc4dc".into(),
+            line: "#2d3b4b".into(),
+            muted: "#a0b1c3".into(),
+        };
+        let dark = render(&html_mail(html, ""), &HashMap::new(), &Paper::Dark(fjord)).unwrap();
+        let body = body_of(&dark);
+        assert!(body.contains("bgcolor=\"#151e28\""), "{body}");
+        for gone in ["#ffffff", "#222222", "#f4f4f4", "\"black\""] {
+            assert!(!body.contains(gone), "{gone} is still there: {body}");
+        }
+        assert!(dark
+            .document
+            .contains("html{background:#151e28;color-scheme:dark}"));
+        assert!(dark.document.contains("a{color:#6cc4dc}"));
+        assert_eq!(dark.remote, light.remote, "the same images either way");
+    }
+
+    #[test]
+    fn a_palette_cant_inject_css() {
+        let evil = Palette {
+            paper: "#000;}*{background:url(https://x.pl/t.gif)".into(),
+            link: "red".into(),
+            ..Palette::default()
+        };
+        let r = render(
+            &html_mail("<p>x</p>", ""),
+            &HashMap::new(),
+            &Paper::Dark(evil),
+        )
+        .unwrap();
+        assert!(!r.document.contains("x.pl") && !r.document.contains("red"));
+        assert!(r
+            .document
+            .contains("html{background:#14171b;color-scheme:dark}"));
+    }
+
+    #[test]
+    fn compose_html_keeps_formatting_and_drops_the_rest() {
+        let clean = compose_clean(
+            "<html><head><title>x</title><style>p{color:red}</style></head><body>\
+             <div style=\"color:red\" class=\"x\"><b>Dzień</b> <i>dobry</i>, \
+             <a href=\"https://firma.pl\" onclick=\"x()\">firma</a> \
+             <a href=\"javascript:alert(1)\">zła</a><img src=\"https://t.pl/a.gif\"></div>\
+             <script>alert(1)</script><ul><li>raz</li></ul></body></html>",
+        );
+        assert_eq!(
+            clean,
+            "<div><b>Dzień</b> <i>dobry</i>, <a href=\"https://firma.pl\">firma</a> \
+             <a>zła</a></div><ul><li>raz</li></ul>"
+        );
+        let doc = compose_document("<blockquote><div>x</div></blockquote>");
+        assert!(doc.contains("<blockquote type=\"cite\" style="), "{doc}");
+        assert!(doc.starts_with("<!doctype html>"));
+    }
+
+    #[test]
+    fn html_becomes_readable_plain_text() {
+        let text = to_text(&compose_clean(
+            "<div>Dzień dobry,</div><div><br></div>\
+             <div>oto <b>lista</b>:</div><ul><li>pierwsza</li><li>druga<ul><li>pod</li></ul></li></ul>\
+             <ol><li>raz</li><li>dwa</li></ol>\
+             <div>Strona: <a href=\"https://firma.pl/oferta\">oferta</a>, \
+             <a href=\"https://firma.pl\">https://firma.pl</a>, \
+             <a href=\"mailto:anna@firma.pl\">anna@firma.pl</a></div>\
+             <p>Akapit&nbsp;pierwszy</p><p>drugi &amp; ostatni</p>\
+             <blockquote><div>cytat</div><blockquote><div>starszy</div></blockquote></blockquote>\
+             <div>Pozdrawiam<br>Anna</div>",
+        ));
+        assert_eq!(
+            text,
+            "Dzień dobry,\n\
+             \n\
+             oto lista:\n\
+             - pierwsza\n\
+             - druga\n   - pod\n\
+             1. raz\n\
+             2. dwa\n\
+             Strona: oferta <https://firma.pl/oferta>, https://firma.pl, anna@firma.pl\n\
+             \n\
+             Akapit pierwszy\n\
+             \n\
+             drugi & ostatni\n\
+             \n\
+             > cytat\n\
+             >> starszy\n\
+             Pozdrawiam\n\
+             Anna"
+        );
+    }
+
+    #[test]
+    fn plain_text_opens_as_html_and_comes_back() {
+        let text = "Dzień dobry,\n\nzobacz https://firma.pl/a?b=1&c=2.\n> cytat <tag>\n>> starszy\nPozdrawiam";
+        let html = from_text(text);
+        assert_eq!(
+            html,
+            "<div>Dzień dobry,</div><div><br></div>\
+             <div>zobacz <a href=\"https://firma.pl/a?b=1&amp;c=2\">https://firma.pl/a?b=1&amp;c=2</a>.</div>\
+             <blockquote><div>cytat &lt;tag&gt;</div><blockquote><div>starszy</div></blockquote></blockquote>\
+             <div>Pozdrawiam</div>"
+        );
+        assert_eq!(to_text(&compose_clean(&html)), text);
     }
 
     /// A tiny HTTP server: /logo.png, /page (HTML), /big (too large), /moved (to /logo.png).

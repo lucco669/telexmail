@@ -1,6 +1,8 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
+use crate::tr;
+
 /// Stable id of a message inside one store.
 pub type MessageId = u64;
 
@@ -50,6 +52,21 @@ impl FolderKind {
             "spam" => Self::Spam,
             "trash" => Self::Trash,
             _ => Self::Custom,
+        }
+    }
+
+    /// The name the Polish interface gives a special folder ("Kosz"), for sentences the core
+    /// writes in Polish; `None` for the user's own folders, which keep their names.
+    pub fn pl_name(self) -> Option<&'static str> {
+        match self {
+            Self::Inbox => Some("Odebrane"),
+            Self::Outbox => Some("Skrzynka nadawcza"),
+            Self::Drafts => Some("Szkice"),
+            Self::Sent => Some("Wysłane"),
+            Self::Archive => Some("Archiwum"),
+            Self::Spam => Some("Spam"),
+            Self::Trash => Some("Kosz"),
+            Self::Custom => None,
         }
     }
 
@@ -171,14 +188,20 @@ impl Identity {
     /// Catch mistakes before saving, in words for the identity editor.
     pub fn check(&self) -> Result<(), String> {
         if self.name.trim().is_empty() {
-            return Err("Enter the name people see.".into());
+            return Err(tr!(
+                "Enter the name people see.",
+                "Wpisz nazwę, którą widzą inni."
+            ));
         }
         let email = self.email.trim();
         let valid = email
             .split_once('@')
             .is_some_and(|(l, d)| !l.is_empty() && d.contains('.') && !d.contains('@'));
         if !valid || email.contains(char::is_whitespace) {
-            return Err(format!("\"{email}\" doesn't look like an email address."));
+            return Err(tr!(
+                "\"{email}\" doesn't look like an email address.",
+                "„{email}” nie wygląda na adres e-mail."
+            ));
         }
         Ok(())
     }
@@ -262,11 +285,15 @@ fn clean_host(input: &str, what: &str) -> Result<String, String> {
         .trim_end_matches('/')
         .to_ascii_lowercase();
     if host.is_empty() {
-        return Err(format!("Enter the {what} server, e.g. mail.example.com."));
+        return Err(tr!(
+            "Enter the {what} server, e.g. mail.example.com.",
+            "Wpisz serwer {what}, np. mail.example.com."
+        ));
     }
     if host.contains(|c: char| c.is_whitespace() || matches!(c, '/' | ':' | '@')) {
-        return Err(format!(
-            "\"{host}\" isn't a server name. Enter just the name, e.g. mail.example.com."
+        return Err(tr!(
+            "\"{host}\" isn't a server name. Enter just the name, e.g. mail.example.com.",
+            "„{host}” nie jest nazwą serwera. Wpisz samą nazwę, np. mail.example.com."
         ));
     }
     Ok(host)
@@ -282,13 +309,24 @@ impl AccountSetup {
                 !local.is_empty() && domain.contains('.') && !domain.contains('@')
             })
             .map(|(_, domain)| domain.to_ascii_lowercase())
-            .ok_or_else(|| format!("\"{email}\" doesn't look like an email address."))?;
+            .ok_or_else(|| {
+                tr!(
+                    "\"{email}\" doesn't look like an email address.",
+                    "„{email}” nie wygląda na adres e-mail."
+                )
+            })?;
         if email.contains(char::is_whitespace) {
-            return Err("The email address can't contain spaces.".into());
+            return Err(tr!(
+                "The email address can't contain spaces.",
+                "Adres e-mail nie może zawierać spacji."
+            ));
         }
         let host = clean_host(&self.host, "IMAP")?;
         if self.port == 0 {
-            return Err("Enter the port. For SSL/TLS it is usually 993.".into());
+            return Err(tr!(
+                "Enter the port. For SSL/TLS it is usually 993.",
+                "Wpisz port. Dla SSL/TLS zwykle 993."
+            ));
         }
         let smtp_host = if self.smtp_host.trim().is_empty() {
             host.clone()
@@ -427,7 +465,13 @@ pub struct OutgoingDraft {
     #[serde(default)]
     pub cc: String,
     pub subject: String,
+    /// The text as typed in plain-text compose. Ignored when `html` is set.
+    #[serde(default)]
     pub body: String,
+    /// The editor's HTML when the message is written in HTML. It is cleaned before it is
+    /// sent or saved, and the plain-text version is made from it.
+    #[serde(default)]
+    pub html: Option<String>,
     /// Attachments carried over from `forward_of`. New files come later.
     #[serde(default)]
     pub attachments: Vec<Attachment>,
@@ -495,6 +539,25 @@ mod tests {
         let mut bad_smtp = setup("biuro@x.pl", "mail.x.pl");
         bad_smtp.smtp_host = "smtp.x.pl:587".into();
         assert!(bad_smtp.cleaned().is_err());
+    }
+
+    #[test]
+    fn typos_are_explained_in_polish_too() {
+        use crate::i18n::{self, Lang};
+        let polish = |s: AccountSetup| i18n::with(Lang::Pl, || s.cleaned().unwrap_err());
+        assert_eq!(
+            polish(setup("biuro", "mail.x.pl")),
+            "„biuro” nie wygląda na adres e-mail."
+        );
+        assert_eq!(
+            polish(setup("biuro@x.pl", " ")),
+            "Wpisz serwer IMAP, np. mail.example.com."
+        );
+        assert_eq!(
+            setup("biuro@x.pl", " ").cleaned().unwrap_err(),
+            "Enter the IMAP server, e.g. mail.example.com.",
+            "English stays the default"
+        );
     }
 
     #[test]

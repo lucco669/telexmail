@@ -17,9 +17,11 @@ use tauri_plugin_opener::OpenerExt;
 use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::drafts::{self, DraftKind, DraftStart};
 use telex_core::filters::{self, Rule, RunReport, Trigger};
-use telex_core::html::{self, FetchLimits};
+use telex_core::html::{self, FetchLimits, Palette, Paper};
 use telex_core::imap::{self, SyncProgress};
 use telex_core::smtp::{self, Originals, SendError};
+use telex_core::tr;
+use telex_core::usage::Usage;
 use telex_core::{
     Account, AccountSetup, DeleteOutcome, FolderKind, FolderTree, Identity, ListView, MailStore,
     Message, MessageId, OutgoingDraft, Page, PageAt, StoreError,
@@ -43,10 +45,12 @@ fn with_store<T>(
     state: &AppState,
     f: impl FnOnce(&mut MailStore) -> Result<T, StoreError>,
 ) -> CmdResult<T> {
-    let mut store = state
-        .store
-        .lock()
-        .map_err(|_| "The mail store stopped responding. Restart Telex.".to_string())?;
+    let mut store = state.store.lock().map_err(|_| {
+        tr!(
+            "The mail store stopped responding. Restart Telex.",
+            "Baza poczty przestała odpowiadać. Uruchom Telexa ponownie."
+        )
+    })?;
     f(&mut store).map_err(|e| e.to_string())
 }
 
@@ -112,12 +116,72 @@ fn delete_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<Delete
     with_store(&state, |s| s.delete(id))
 }
 
-/// Save the compose pane's content as a draft. Sending goes through `send_message`.
+/// The account a draft is from, and the raw messages it replies to and forwards.
+fn draft_context(s: &MailStore, draft: &OutgoingDraft) -> Result<(Account, Originals), StoreError> {
+    let account = s.account(&draft.account)?.clone();
+    let raw = |id: Option<MessageId>| id.map(|id| s.raw_of(id)).transpose();
+    let originals = Originals {
+        replied: raw(draft.reply_to)?.flatten(),
+        forwarded: raw(draft.forward_of)?.flatten(),
+    };
+    Ok((account, originals))
+}
+
+/// Save the compose pane's content as a draft, kept as a whole message so its HTML and
+/// forwarded files stay with it. Sending goes through `send_message`.
 #[tauri::command]
 fn save_outgoing(state: State<'_, AppState>, draft: OutgoingDraft) -> CmdResult<MessageId> {
     with_store(&state, |s| {
-        s.save_outgoing(draft, FolderKind::Drafts, Local::now().naive_local())
+        let (account, originals) = draft_context(s, &draft)?;
+        let raw = smtp::compose_draft(&account, &draft, &originals, Local::now()).ok();
+        s.save_outgoing(
+            draft,
+            raw.as_deref(),
+            FolderKind::Drafts,
+            Local::now().naive_local(),
+        )
     })
+}
+
+/// The HTML of a draft or an unsent message, cleaned for the editor, or `null` when it
+/// was written as plain text.
+#[tauri::command]
+fn draft_html(state: State<'_, AppState>, id: MessageId) -> CmdResult<Option<String>> {
+    let raw = with_store(&state, |s| s.raw_of(id))?;
+    Ok(raw
+        .as_deref()
+        .and_then(telex_core::mime::html_body)
+        .map(|b| html::compose_clean(&b.html)))
+}
+
+/// Compose switches from HTML to plain text: the text the plain version would have.
+#[tauri::command]
+fn html_to_text(html: String) -> String {
+    html::to_text(&html::compose_clean(&html))
+}
+
+/// Compose switches from plain text to HTML, or a reply opens in the HTML editor.
+#[tauri::command]
+fn text_to_html(text: String) -> String {
+    html::from_text(&text)
+}
+
+/// HTML pasted into the editor, cleaned to what Telex sends: no styles, scripts or images.
+#[tauri::command]
+fn clean_html(html: String) -> String {
+    html::compose_clean(&html)
+}
+
+/// What the mail takes and how it moves, for the Usage page and the status-bar meter.
+#[tauri::command]
+fn usage(state: State<'_, AppState>) -> CmdResult<Usage> {
+    with_store(&state, |s| s.usage(Local::now().date_naive()))
+}
+
+/// Senders whose images load without asking, for Settings.
+#[tauri::command]
+fn trusted_senders(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+    with_store(&state, |s| s.trusted_senders())
 }
 
 /// Full-text search over every stored message, bodies included.
@@ -141,20 +205,23 @@ struct HtmlView {
 /// The message's HTML, or `null` for plain-text mail. Remote images are downloaded here,
 /// never by the window. `load_images`: `true` loads them, `false` never does (the text
 /// view only asks whether there is HTML), `null` loads them when the sender is trusted and
-/// the message isn't spam.
+/// the message isn't spam. `dark`: the theme's colors when the message goes on dark paper,
+/// with its own colors turned around to match; `null` shows it on white.
 #[tauri::command]
 async fn get_html(
     state: State<'_, AppState>,
     id: MessageId,
     load_images: Option<bool>,
+    dark: Option<Palette>,
 ) -> CmdResult<Option<HtmlView>> {
+    let paper = dark.map_or(Paper::Light, Paper::Dark);
     let (raw, sender, trusted, auto) = with_store(&state, |s| {
         let sender = s.get(id)?.from_email;
         let trusted = s.is_sender_trusted(&sender)?;
         Ok((s.raw_of(id)?, sender, trusted, s.auto_load_images(id)?))
     })?;
     let Some(raw) = raw else { return Ok(None) };
-    let Some(first) = html::render(&raw, &HashMap::new()) else {
+    let Some(first) = html::render(&raw, &HashMap::new(), &paper) else {
         return Ok(None);
     };
     let (rendered, loaded) = if load_images.unwrap_or(auto) && !first.remote.is_empty() {
@@ -165,7 +232,7 @@ async fn get_html(
         .await
         .map_err(|e| e.to_string())?;
         let loaded = images.len();
-        (html::render(&raw, &images).unwrap_or(first), loaded)
+        (html::render(&raw, &images, &paper).unwrap_or(first), loaded)
     } else {
         (first, 0)
     };
@@ -265,11 +332,17 @@ fn open_link(app: AppHandle, url: String) -> CmdResult<()> {
     let url = url.trim();
     let lower = url.to_ascii_lowercase();
     if !(lower.starts_with("https://") || lower.starts_with("http://")) {
-        return Err("Telex opens only web links (http and https).".into());
+        return Err(tr!(
+            "Telex opens only web links (http and https).",
+            "Telex otwiera tylko linki do stron (http i https)."
+        ));
     }
-    app.opener()
-        .open_url(url, None::<&str>)
-        .map_err(|e| format!("Couldn't open the link: {e}"))
+    app.opener().open_url(url, None::<&str>).map_err(|e| {
+        tr!(
+            "Couldn't open the link: {e}",
+            "Nie udało się otworzyć linku: {e}"
+        )
+    })
 }
 
 /// Check the settings by logging in to IMAP and SMTP, then save the account and its
@@ -291,14 +364,19 @@ async fn add_account(
     let password = match (password.is_empty(), known) {
         (false, _) => password,
         (true, true) => secrets::load_password(&setup.email).map_err(|e| capitalize(&e))?,
-        (true, false) => return Err("Enter the password.".into()),
+        (true, false) => return Err(tr!("Enter the password.", "Wpisz hasło.")),
     };
     let folders = imap::check_account(&setup.imap_settings(), &password)
         .await
         .map_err(|e| capitalize(&e.to_string()))?;
     smtp::check(&setup.smtp_settings(), &setup.username, &password)
         .await
-        .map_err(|e| format!("IMAP works, but sending doesn't: {e}."))?;
+        .map_err(|e| {
+            tr!(
+                "IMAP works, but sending doesn't: {e}.",
+                "IMAP działa, ale wysyłanie nie: {e}."
+            )
+        })?;
     secrets::save_password(&setup.email, &password)?;
     with_store(&state, |s| {
         if s.is_in_memory() {
@@ -314,7 +392,10 @@ async fn add_account(
 #[tauri::command]
 fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     if state.busy.load(Ordering::SeqCst) {
-        return Err("Telex is talking to the mail server. Try again in a moment.".into());
+        return Err(tr!(
+            "Telex is talking to the mail server. Try again in a moment.",
+            "Telex rozmawia z serwerem poczty. Spróbuj za chwilę."
+        ));
     }
     let email = with_store(&state, |s| {
         let email = s.account(&id)?.email.clone();
@@ -398,6 +479,10 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
                 .map_err(|e| e.to_string()),
             Err(e) => Err(e),
         };
+        let error = result.as_ref().err().map(String::as_str);
+        let _ = with_store(&state, |s| {
+            s.record_sync(&account.id, Local::now().naive_local(), error)
+        });
         match result {
             Ok(report) => {
                 outcome.new.extend(report.new);
@@ -435,15 +520,7 @@ struct SendOutcome {
 /// Outbox and goes out at the next check.
 #[tauri::command]
 async fn send_message(state: State<'_, AppState>, draft: OutgoingDraft) -> CmdResult<SendOutcome> {
-    let (account, originals) = with_store(&state, |s| {
-        let account = s.account(&draft.account)?.clone();
-        let raw = |id: Option<MessageId>| id.map(|id| s.raw_of(id)).transpose();
-        let originals = Originals {
-            replied: raw(draft.reply_to)?.flatten(),
-            forwarded: raw(draft.forward_of)?.flatten(),
-        };
-        Ok((account, originals))
-    })?;
+    let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
     let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
     let queued = with_store(&state, |s| {
         s.queue_outgoing(
@@ -480,7 +557,11 @@ async fn send_account_outbox(
     }
     let mut problem = |e: &str| errors.push(format!("{}: {e}", account.name));
     let Some(settings) = &account.smtp else {
-        problem("no SMTP server is set, so the Outbox waits. Edit the account (under Add account) to add one");
+        problem(&tr!(
+            "no SMTP server is set, so the Outbox waits. Add one in Settings › Accounts",
+            "nie ustawiono serwera SMTP, więc wiadomości czekają w Skrzynce nadawczej. \
+             Dodaj go w Ustawienia › Konta"
+        ));
         return;
     };
     let username = account
@@ -518,7 +599,13 @@ async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
         let result = match secrets::load_password(&account.email) {
             Ok(password) => imap::push_account(&account, &password, &state.store)
                 .await
-                .map_err(|e| format!("{e}. Your changes are kept and sent at the next check")),
+                .map_err(|e| {
+                    tr!(
+                        "{e}. Your changes are kept and sent at the next check",
+                        "{e}. Zmiany są zachowane i zostaną wysłane przy następnym sprawdzaniu \
+                         poczty"
+                    )
+                }),
             Err(e) => Err(e),
         };
         match result {
@@ -563,6 +650,12 @@ pub fn run() {
             move_message,
             delete_message,
             save_outgoing,
+            draft_html,
+            html_to_text,
+            text_to_html,
+            clean_html,
+            usage,
+            trusted_senders,
             search,
             add_account,
             remove_account,

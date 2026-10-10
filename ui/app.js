@@ -36,12 +36,22 @@ const I = {
   mail: sv('<rect x="1.5" y="3" width="13" height="10" rx="1.2"/><path d="M2 4l6 5 6-5"/>'),
   plus: sv('<path d="M8 3v10M3 8h10"/>'),
   rules: sv('<path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5z"/>'),
+  sun: sv('<circle cx="8" cy="8" r="2.7"/><path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1.05 1.05M11.45 11.45l1.05 1.05M3.5 12.5l1.05-1.05M11.45 4.55l1.05-1.05"/>'),
+  moon: sv('<path d="M13.2 9.6A5.6 5.6 0 016.4 2.8a5.6 5.6 0 106.8 6.8z"/>'),
+  ul: sv('<path d="M6 4h8M6 8h8M6 12h8"/><circle cx="2.8" cy="4" r=".9" fill="currentColor" stroke="none"/><circle cx="2.8" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="2.8" cy="12" r=".9" fill="currentColor" stroke="none"/>'),
+  ol: sv('<path d="M6.5 4h7.5M6.5 8h7.5M6.5 12h7.5"/><path d="M2.4 2.9l1-.5v3.2M2.2 9.3c.2-.6 1.7-.7 1.7.3 0 .8-1.6 1.2-1.7 2h1.8" stroke-width="1.1"/>'),
+  quote: sv('<path d="M3 3.5v9"/><path d="M6 5h7M6 8h7M6 11h5"/>'),
+  link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
+  clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
+// Special folders have a name in the interface's language, whatever the server calls them.
+const KIND_NAME = {inbox:N_('Inbox'), outbox:N_('Outbox'), drafts:N_('Drafts'), sent:N_('Sent'), archive:N_('Archive'), spam:N_('Spam'), trash:N_('Trash')};
 
 /* ---------- data (filled from Rust) ---------- */
 // The folder tree and its counts; the message list asks the core for pages (see "list").
 let ACCOUNTS = [], ACCT = {}, COUNTS = {};
+let USAGE = null; // the last answer of `usage`: quotas for the meter and the Usage tab
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -62,8 +72,8 @@ async function loadTree(){
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   COUNTS = t.counts;
 }
-// The core's sentences are English; the common ones have a translation (i18n.js, FROM_CORE).
-const tr = e => t(String(e));
+// The core's errors and notes come in the interface's language already (its tr! macro).
+const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
 const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message', 'run_rules']);
@@ -111,7 +121,10 @@ function fmtList(d){
   return dmy(d);
 }
 const fmtFull = d => t(DOW[d.getDay()]) + ', ' + dmy(d) + ' ' + hm(d);
-const fmtSize = kb => kb >= 1024 ? I18n.decimal(kb / 1024) + ' MB' : kb + ' KB';
+const fmtSize = kb => kb >= 1048576 ? I18n.decimal(kb / 1048576) + ' GB' : kb >= 1024 ? I18n.decimal(kb / 1024) + ' MB' : kb + ' KB';
+// When something happened: the time today, the day and time before.
+const dm = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1);
+const fmtWhen = d => d.toDateString() === new Date().toDateString() ? hm(d) : dm(d) + ' ' + hm(d);
 const nameOf = addr => {
   const s = String(addr || '').trim();
   if (!s) return t('(no recipient)');
@@ -122,7 +135,7 @@ const nameOf = addr => {
 const sentLine = s => String(s).replace(/^"(.*)" to (.*)$/, (_, subject, who) => t('“{subject}” to {who}', {subject, who}));
 const acctId = key => key.split('/')[0];
 const folderOf = key => { const [a, f] = key.split('/'); return ACCT[a]?.folders.find(x => x.id === f); };
-const folderName = key => folderOf(key)?.name ?? key;
+const folderName = key => { const f = folderOf(key); return !f ? key : KIND_NAME[f.kind] ? t(KIND_NAME[f.kind]) : f.name; };
 const kindOf = key => folderOf(key)?.kind;
 const isOut = key => ['sent', 'drafts', 'outbox'].includes(kindOf(key));
 const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.kind === kind); return f ? acct + '/' + f.id : null; };
@@ -143,10 +156,11 @@ const state = {
   folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', inText:false,
   scope: saved.scope === 'all' ? 'all' : 'folder', // the quick filter looks in this folder or in all mail
   more: saved.more && typeof saved.more === 'object' ? saved.more : {}, // accounts showing all their folders
-  collapsed:{}, compose:null, images:new Set(), lastDeleted:null,
+  collapsed:{}, compose:null, images:new Set(), white:new Set(), lastDeleted:null, // white: HTML shown on white
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
 };
+const sdlg = $('set-dlg'); // the settings window, which also holds the accounts
 const win = $('win'), rowsEl = $('rows'), listEl = $('list'), previewEl = $('preview'), treeEl = $('tree'), qEl = $('q');
 if (saved.treeW) win.style.setProperty('--tree-w', saved.treeW + 'px');
 if (saved.listH) win.style.setProperty('--list-h', saved.listH + '%');
@@ -171,15 +185,27 @@ const TEXT_SIZES = [90, 100, 110, 125, 150, 175, 200];
 const CHECK_EVERY = [5, 10, 15, 30, 60, 0];
 const darkMode = matchMedia('(prefers-color-scheme: dark)'), forcedColors = matchMedia('(forced-colors: active)');
 const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light') : id;
+// Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
+const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
-  settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', check_every:10, updates:'ask'},
+  settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', check_every:10,
+    mail_paper:'theme', compose_format:'plain', reply_format:'same', ask_subject:true, spell_check:true, updates:'ask'},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
 let zoomed = 100;
+// The colors HTML mail gets on dark paper: the theme's own (themes.css), or null for white.
+function darkPaper(id){
+  const theme = document.documentElement.dataset.theme;
+  if (!DARK_THEMES.has(theme) || pref().mail_paper !== 'theme' || state.white.has(id)) return null;
+  const css = getComputedStyle(document.documentElement), v = name => css.getPropertyValue(name).trim();
+  return {paper:v('--surface'), ink:v('--fg'), link:v('--accent'), line:v('--line'), muted:v('--muted')};
+}
 function applySettings(){
-  const s = pref();
+  const s = pref(), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = shownTheme(s.theme);
+  // HTML mail on dark paper takes the theme's colors: show it again in the new ones.
+  if (theme !== shownTheme(s.theme) && !state.compose && ACCOUNTS.length) renderPreview();
   if (s.text_size !== zoomed){
     zoomed = s.text_size;
     try { window.__TAURI__?.webview?.getCurrentWebview().setZoom(s.text_size / 100); } catch {}
@@ -210,9 +236,7 @@ function relabel(){
   I18n.translatePage();
   paintToolbar(); paintDensity(); paintScope();
   renderTree(); renderHead(); drawRows(); renderStatus();
-  if (!state.compose) renderPreview();
-  if (dlg.open){ renderAccountList(); renderLangPick(); }
-  if (idlg.open && !$('i-list-view').hidden) showIdentityList();
+  if (!state.compose) renderPreview(); else { readCompose(); renderCompose(); }
   if (rdlg.open){ if (!$('r-list-view').hidden) showRuleList(); else { renderConditions(); renderActions(); } }
 }
 // Older versions kept these in the window; the first start with settings.json brings them over.
@@ -269,6 +293,7 @@ function renderStatus(){
     : allMail() ? esc(t('All mail') + ' · ' + tn(found, '{n} match', '{n} matches', {n:num(found)}))
     : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
+  renderMeter();
   const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex` : 'Telex';
   if (title !== lastTitle){
     lastTitle = title;
@@ -276,6 +301,30 @@ function renderStatus(){
     try { window.__TAURI__?.window?.getCurrentWindow().setTitle(title); } catch {}
   }
 }
+
+/* ---------- usage meter ---------- */
+// The server's storage for the open folder's account, as a small bar in the status bar,
+// when the server reports a quota. A nearly full account also says so in the folder tree.
+const quotaOf = acct => USAGE?.accounts.find(u => u.account === acct)?.quota ?? null;
+const pctOf = q => Math.min(100, Math.round(q.used_kb / q.limit_kb * 100));
+const levelOf = pct => pct >= 95 ? 'full' : pct >= 80 ? 'warn' : 'ok';
+const quotaText = q => t('Server storage: {used} of {limit} ({pct}%)', {used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct:pctOf(q)});
+function renderMeter(){
+  const q = ACCOUNTS.length && state.folder ? quotaOf(acctId(state.folder)) : null, m = $('st-usage');
+  m.hidden = !q;
+  if (!q) return;
+  const pct = pctOf(q);
+  m.dataset.level = levelOf(pct);
+  m.querySelector('i').style.width = Math.max(pct, 3) + '%';
+  m.querySelector('.mtxt').textContent = pct + '%';
+  m.title = quotaText(q) + '. ' + t('Click for usage.');
+  m.setAttribute('aria-label', m.title);
+}
+async function loadUsage(){
+  try { USAGE = await invoke('usage'); } catch { return; }
+  renderMeter(); renderTree();
+}
+$('st-usage').addEventListener('click', () => openSettings('use'));
 
 /* ---------- tree ---------- */
 // Each account shows its Inbox and Sent, Drafts and the Outbox when they hold something,
@@ -287,7 +336,7 @@ function folderButton(a, f){
   const n = all ? c.total : c.unread;
   const cnt = n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
   const on = key === state.folder;
-  return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(f.name)}</span>${cnt}</button></li>`;
+  return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(folderName(key))}</span>${cnt}</button></li>`;
 }
 function renderTree(){
   win.classList.toggle('noacct', !ACCOUNTS.length); // the welcome takes the whole right side
@@ -305,11 +354,14 @@ function renderTree(){
       }
       items += '</ul>';
     }
-    return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span></button>${items}`;
+    // A nearly full mailbox on the server says so next to its address.
+    const q = quotaOf(a.id), pct = q ? pctOf(q) : 0;
+    const full = pct >= 90 ? `<span class="qchip" data-level="${levelOf(pct)}" title="${esc(quotaText(q))}">${pct}%</span>` : '';
+    return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}</button>${items}`;
   }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(ACCOUNTS.length ? t('Add account') : t('Add your account'))}</span></button>`;
   $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(a.email)}">` + a.folders.map(f => {
     const key = a.id + '/' + f.id, n = countOf(key).unread;
-    return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(f.name)}${n ? ` (${n})` : ''}</option>`;
+    return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(folderName(key))}${n ? ` (${n})` : ''}</option>`;
   }).join('') + '</optgroup>').join('');
 }
 treeEl.addEventListener('click', e => {
@@ -533,6 +585,13 @@ function openInFolder(){
   setFolder(m.f).then(() => listEl.focus({preventScroll:true}));
 }
 
+// Open a message by id in its folder, e.g. from Settings › Usage.
+function openMessage(id, folder){
+  if (state.compose) return;
+  state.sel[folder] = id;
+  setFolder(folder).then(() => listEl.focus({preventScroll:true}));
+}
+
 // Mark as read after the message has been on screen for a moment, so arrowing past doesn't;
 // or at once, or only with U, as the settings say.
 let readTimer;
@@ -590,13 +649,14 @@ function bodyHtml(m){
     return `<div class="ln${q ? ' q' : ''}">${h}</div>`;
   }).join('');
 }
-// The HTML view of a message, cached per images setting. load: true loads remote images,
-// false never does (only asks whether there is HTML), null lets the core decide (trusted
-// sender, not spam). The core does any downloading; the window never talks to the network.
+// The HTML view of a message, cached per images setting and paper. load: true loads remote
+// images, false never does (only asks whether there is HTML), null lets the core decide
+// (trusted sender, not spam). dark: the theme's colors for dark paper, or null for white.
+// The core does any downloading; the window never talks to the network.
 const htmlViews = new Map();
-async function htmlView(id, load){
-  const key = id + ':' + load;
-  if (!htmlViews.has(key)) htmlViews.set(key, await invoke('get_html', {id, loadImages:load}));
+async function htmlView(id, load, dark = null){
+  const key = id + ':' + load + ':' + (dark ? Object.values(dark).join() : 'white');
+  if (!htmlViews.has(key)) htmlViews.set(key, await invoke('get_html', {id, loadImages:load, dark}));
   return htmlViews.get(key);
 }
 // Links never navigate inside Telex: web links open in the browser, mailto opens compose.
@@ -661,19 +721,24 @@ async function renderPreview(){
     return;
   }
   let m, hv;
+  const dark = pref().prefer_text ? null : darkPaper(s.id);
   try {
     m = await full(s.id);
-    hv = await htmlView(s.id, pref().prefer_text ? false : state.images.has(s.id) ? true : null);
+    hv = await htmlView(s.id, pref().prefer_text ? false : state.images.has(s.id) ? true : null, dark);
   } catch (e){ if (seq === pvSeq) previewEl.innerHTML = `<div class="pempty">${esc(tr(e))}</div>`; return; }
   if (seq !== pvSeq || state.compose) return;
   const spam = kindOf(s.f) === 'spam'; // links and trusted images stay off in Spam
   const asHtml = !!hv && !pref().prefer_text;
   const views = hv ? `<span class="seg" role="group" aria-label="${esc(t('Show as'))}"><button type="button" data-view="html" aria-pressed="${asHtml}" title="${esc(t('Show the HTML (H)'))}">HTML</button><button type="button" data-view="text" aria-pressed="${!asHtml}" title="${esc(t('Show plain text (H)'))}">${esc(t('Text|view'))}</button></span>` : '';
+  // In a dark theme, one click puts this message on white paper, as the sender designed it.
+  const onWhite = state.white.has(s.id);
+  const paper = asHtml && DARK_THEMES.has(document.documentElement.dataset.theme) && pref().mail_paper === 'theme'
+    ? `<button type="button" class="pbtn" data-act="paper" aria-pressed="${onWhite}" title="${esc(onWhite ? t('Show on dark paper') : t('Show on white, as sent'))}" aria-label="${esc(onWhite ? t('Show on dark paper') : t('Show on white, as sent'))}">${onWhite ? I.moon : I.sun}</button>` : '';
   const images = asHtml ? imagesBar(m, hv, spam)
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   previewEl.innerHTML = `<article>
 <header class="ph">
-  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}</div>
+  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}</div>
   <dl class="ph-grid">
     <dt>${esc(t('From'))}</dt><dd>${esc(m.from_name)} &lt;${esc(m.from_email)}&gt;</dd>
     <dt>${esc(t('To'))}</dt><dd>${esc(m.to || t('(no recipient)'))}</dd>
@@ -684,7 +749,7 @@ async function renderPreview(){
 </header>
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
-${asHtml ? `<div class="pbody html"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
+${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
 </article>`;
   if (asHtml) mountFrame(previewEl.querySelector('.hframe'), hv.document, spam);
   previewEl.scrollTop = 0;
@@ -716,6 +781,10 @@ previewEl.addEventListener('click', async e => {
     await renderPreview();
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
+  if (act.dataset.act === 'paper' && m){
+    if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
+    renderPreview();
+  }
   if (act.dataset.act === 'discard'){ state.compose = null; renderPreview(); say(t('Message discarded.')); listEl.focus(); }
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
@@ -724,6 +793,8 @@ previewEl.addEventListener('click', async e => {
 /* ---------- compose ---------- */
 // kind: new, reply, replyall or forward, started by the core with the identity's signature
 // and templates; or edit, which reopens a draft or an unsent message in the Outbox.
+// A message is plain text (`body`) or HTML (`html`, edited in place); Settings › Writing
+// says which a new message, a reply and a forward start in, and Text | HTML switches.
 async function openCompose(kind, preset = {}){
   if (!ACCOUNTS.length){ say(t('Add a mail account first.')); openAccountDialog(); return; }
   const s = current();
@@ -736,11 +807,15 @@ async function openCompose(kind, preset = {}){
       const me = ids.find(i => i.email.toLowerCase() === m.from_email.toLowerCase()) ?? ids.find(i => i.is_default) ?? ids[0];
       // Attachments come from the old message itself, which Send replaces.
       c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, subject:m.subject, body:m.body,
-        attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id};
+        html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id};
     } else {
       const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder)});
-      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, subject:d.subject, body:d.body,
+      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, subject:d.subject, body:d.body, html:null,
         attachments:d.attachments, replyTo:d.reply_to, forwardOf:d.forward_of, replaces:null};
+      const p = pref();
+      const html = kind === 'new' ? p.compose_format === 'html'
+        : p.reply_format === 'same' ? !!(await htmlView(s.id, false)) : p.reply_format === 'html';
+      if (html) c.html = await invoke('text_to_html', {text:c.body});
     }
   } catch (e){ say(tr(e), 8000); return; }
   Object.assign(c, preset); // e.g. {to} from a mailto: link
@@ -748,35 +823,51 @@ async function openCompose(kind, preset = {}){
   renderCompose();
 }
 const allIdentities = () => ACCOUNTS.flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
-const composeNote = c => !ACCT[c.account]?.smtp ? t('This account has no SMTP server yet: edit it under Add account to send.') : '';
+const composeNote = c => !ACCT[c.account]?.smtp ? t('This account has no SMTP server yet: add one in Settings › Accounts to send.') : '';
 function fromOptions(c){
   return ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + (a.identities || []).map(i =>
     `<option value="${i.id}"${i.id === c.identity ? ' selected' : ''}>${esc(i.name)} &lt;${esc(i.email)}&gt;</option>`).join('') + '</optgroup>').join('');
 }
 // Another identity: the account follows it, and its signature replaces the old one.
-function changeIdentity(id){
+async function changeIdentity(id){
   const c = readCompose(), next = allIdentities().find(i => i.id === id);
   if (!next) return;
   const before = (allIdentities().find(i => i.id === c.identity)?.signature || '').trim(), after = (next.signature || '').trim();
-  if (before && before !== after && c.body.includes(before)) c.body = c.body.replace(before, after);
   Object.assign(c, {identity:next.id, account:next.account});
-  $('c-body').value = c.body;
   previewEl.querySelector('.cnote').textContent = composeNote(c);
+  if (!before || before === after) return;
+  if (c.html == null){
+    if (c.body.includes(before)){ c.body = c.body.replace(before, after); $('c-body').value = c.body; }
+    return;
+  }
+  // The signature went into the HTML line by line, the same way: swap those lines.
+  const [b, a] = await Promise.all([invoke('text_to_html', {text:before}), after ? invoke('text_to_html', {text:after}) : '']);
+  const ed = $('c-html');
+  if (state.compose !== c || !ed || !ed.innerHTML.includes(b)) return;
+  ed.innerHTML = ed.innerHTML.replace(b, a);
 }
+// The HTML editor's formatting bar: the browser's own editing commands.
+const FORMATS = [['bold', '<b>B</b>', N_('Bold (Ctrl+B)')], ['italic', '<i>I</i>', N_('Italic (Ctrl+I)')], ['underline', '<u>U</u>', N_('Underline (Ctrl+U)')],
+  ['strikeThrough', '<s>S</s>', N_('Strikethrough')], ['insertUnorderedList', I.ul, N_('Bulleted list')], ['insertOrderedList', I.ol, N_('Numbered list')],
+  ['quote', I.quote, N_('Quote')], ['link', I.link, N_('Link (Ctrl+K)')], ['removeFormat', I.clear, N_('Clear formatting')]];
 function renderCompose(){
-  const c = state.compose;
+  const c = state.compose, html = c.html != null, spell = String(pref().spell_check);
   const title = {new:t('New message'), reply:t('Reply|compose title'), replyall:t('Reply to all|compose title'), forward:t('Forward|compose title'), edit:t('Edit|compose title')}[c.kind];
   const note = composeNote(c);
   previewEl.innerHTML = `<form class="compose" id="cform" novalidate>
-<div class="ctitle">${esc(title)}<label class="cfrom">${esc(t('from|compose'))} <select id="c-from" aria-label="${esc(t('From'))}">${fromOptions(c)}</select></label></div>
+<div class="ctitle">${esc(title)}<label class="cfrom">${esc(t('from|compose'))} <select id="c-from" aria-label="${esc(t('From'))}">${fromOptions(c)}</select></label>
+<span class="seg cfmt" role="group" aria-label="${esc(t('Format'))}"><button type="button" data-fmt="plain" aria-pressed="${!html}" title="${esc(t('Plain text'))}">${esc(t('Text|view'))}</button><button type="button" data-fmt="html" aria-pressed="${html}" title="${esc(t('HTML: bold, lists, links'))}">HTML</button></span></div>
 <div class="cf">
   <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false">
   <label for="c-cc">${esc(t('Cc'))}</label><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false">
-  <label for="c-subj">${esc(t('Subject'))}</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off">
+  <label for="c-subj">${esc(t('Subject'))}</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="${spell}">
 </div>
 ${attsHtml(c.attachments)}
-<textarea id="c-body" aria-label="${esc(t('Message text'))}">
-${esc(c.body)}</textarea>
+${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
+    `<button type="button" class="fb" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">${label}</button>`).join('')}<span class="flink" hidden><input id="c-url" type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>
+<div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="${spell}"></div>`
+  : `<textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="${spell}">
+${esc(c.body)}</textarea>`}
 <div class="cbar">
   <button class="btn primary" type="submit"><span>${esc(t('Send'))}</span> <kbd>Ctrl+Enter</kbd></button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
@@ -785,15 +876,88 @@ ${esc(c.body)}</textarea>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
   $('c-from').addEventListener('change', e => changeIdentity(Number(e.target.value)));
-  const tx = $('c-body');
+  previewEl.querySelector('.cfmt').addEventListener('click', e => { const b = e.target.closest('[data-fmt]'); if (b) setFormat(b.dataset.fmt); });
+  const body = html ? $('c-html') : $('c-body');
+  if (html){ body.innerHTML = c.html; wireEditor(body); }
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
-  else { tx.focus(); tx.setSelectionRange(0, 0); tx.scrollTop = 0; }
+  else focusStart(body);
 }
-const draftOf = c => ({account:c.account, to:c.to, cc:c.cc, subject:c.subject || t('(no subject)'), body:c.body.replace(/^\n+/, ''),
+// The caret at the very start, above the quote, as in the plain-text editor.
+function focusStart(body){
+  body.focus();
+  if (body.setSelectionRange) body.setSelectionRange(0, 0);
+  else { const r = document.createRange(); r.setStart(body, 0); r.collapse(true); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  body.scrollTop = 0;
+}
+// The HTML editor: formatting buttons, Ctrl+K for a link, pasted HTML cleaned by the core.
+function wireEditor(ed){
+  document.execCommand('defaultParagraphSeparator', false, 'div');
+  document.execCommand('styleWithCSS', false, false);
+  const bar = previewEl.querySelector('.fbar'), box = bar.querySelector('.flink'), url = $('c-url');
+  let kept = null; // the selection while the link box has the focus
+  bar.addEventListener('mousedown', e => { if (e.target.closest('.fb')) e.preventDefault(); }); // keeps the selection
+  bar.addEventListener('click', e => {
+    const b = e.target.closest('[data-cmd]'); if (!b) return;
+    ed.focus();
+    if (b.dataset.cmd === 'link') openLinkBox();
+    else if (b.dataset.cmd === 'quote') document.execCommand('formatBlock', false, document.queryCommandValue('formatBlock') === 'blockquote' ? 'div' : 'blockquote');
+    else document.execCommand(b.dataset.cmd);
+  });
+  function openLinkBox(){
+    const sel = getSelection();
+    kept = sel.rangeCount ? sel.getRangeAt(0).cloneRange() : null;
+    const text = sel.toString().trim(), a = sel.anchorNode?.parentElement?.closest('a');
+    url.value = a?.getAttribute('href') ?? (/^https?:\/\//i.test(text) ? text : '');
+    box.hidden = false; url.focus(); url.select();
+  }
+  function closeLinkBox(apply){
+    box.hidden = true; ed.focus();
+    if (kept){ const sel = getSelection(); sel.removeAllRanges(); sel.addRange(kept); }
+    if (!apply) return;
+    let href = url.value.trim();
+    if (!href){ document.execCommand('unlink'); return; }
+    if (!/^(https?:|mailto:)/i.test(href)) href = (href.includes('@') && !href.includes('/') ? 'mailto:' : 'https://') + href;
+    if (getSelection().isCollapsed) document.execCommand('insertHTML', false, `<a href="${esc(href)}">${esc(href.replace(/^mailto:/i, ''))}</a>`);
+    else document.execCommand('createLink', false, href);
+  }
+  url.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' && e.key !== 'Escape') return;
+    e.preventDefault(); e.stopPropagation(); // Esc here doesn't close the message
+    closeLinkBox(e.key === 'Enter');
+  });
+  ed.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'){ e.preventDefault(); openLinkBox(); }
+  });
+  // A pasted web page brings styles, scripts and images: only what Telex sends goes in.
+  ed.addEventListener('paste', async e => {
+    const pasted = e.clipboardData?.getData('text/html'), plain = e.clipboardData?.getData('text/plain') ?? '';
+    if (!pasted) return;
+    e.preventDefault();
+    try { document.execCommand('insertHTML', false, await invoke('clean_html', {html:pasted})); }
+    catch { document.execCommand('insertText', false, plain); }
+  });
+}
+// Switch the message between plain text and HTML. Plain text drops the formatting.
+async function setFormat(fmt){
+  const c = readCompose();
+  try {
+    if (fmt === 'html' && c.html == null) c.html = await invoke('text_to_html', {text:c.body});
+    else if (fmt === 'plain' && c.html != null){
+      c.body = await invoke('html_to_text', {html:c.html}); c.html = null;
+      say(t('Plain text now: the formatting is gone.'));
+    } else return;
+  } catch (e){ say(tr(e), 8000); return; }
+  if (state.compose !== c) return;
+  renderCompose();
+  focusStart(c.html != null ? $('c-html') : $('c-body'));
+}
+const draftOf = c => ({account:c.account, to:c.to, cc:c.cc, subject:c.subject || t('(no subject)'),
+  body:c.html != null ? '' : c.body.replace(/^\n+/, ''), html:c.html,
   attachments:c.attachments, reply_to:c.replyTo, forward_of:c.forwardOf, replaces:c.replaces, identity:c.identity});
 function readCompose(){
   const c = state.compose;
-  c.to = $('c-to').value.trim(); c.cc = $('c-cc').value.trim(); c.subject = $('c-subj').value.trim(); c.body = $('c-body').value;
+  c.to = $('c-to').value.trim(); c.cc = $('c-cc').value.trim(); c.subject = $('c-subj').value.trim();
+  if (c.html != null) c.html = $('c-html').innerHTML; else c.body = $('c-body').value;
   return c;
 }
 // Saves the compose content as a draft and closes it. Resolves to true when it worked.
@@ -809,8 +973,16 @@ async function closeCompose(){
 const sentText = sent => sent.length === 1 ? t('Sent {what}.', {what:sentLine(sent[0])}) : sent.length ? tn(sent.length, 'Sent {n} message.', 'Sent {n} messages.') : '';
 // Real mail goes to the Outbox and out at once. It's only called sent once the SMTP
 // server has taken it; otherwise it waits in the Outbox and the status says why.
+let askedSubject = 0; // when Send last asked about a missing subject
 async function send(){
   if (!$('c-to').value.trim() && !$('c-cc').value.trim()){ say(t('Add at least one recipient in To.')); $('c-to').focus(); return; }
+  if (pref().ask_subject && !$('c-subj').value.trim() && Date.now() - askedSubject > 8000){
+    askedSubject = Date.now();
+    say(t('No subject. Press Send or Ctrl+Enter again to send it without one.'), 8000);
+    $('c-subj').focus();
+    return;
+  }
+  askedSubject = 0;
   const btn = document.querySelector('#cform .btn.primary');
   if (!btn || btn.disabled) return;
   const label = btn.querySelector('span');
@@ -900,6 +1072,7 @@ async function getMail({quiet = false, first = false} = {}){
     if (r.busy){ setTimeout(() => getMail({quiet, first}), 2000); return; } // changes are being sent
     lastCheck = new Date();
     await refresh();
+    loadUsage(); // the quota and how the sync went came with the check
     const ids = r.new;
     let text = '';
     if (first) text = tn(ids.length, '{n} message downloaded.', '{n} messages downloaded.');
@@ -963,16 +1136,30 @@ function toggleScope(){
   if (state.q.trim()) loadView();
 }
 $('q-scope').addEventListener('click', () => { toggleScope(); qEl.focus(); });
+// All mail from one sender, e.g. from Settings › Usage.
+function filterAllMail(text){
+  state.scope = 'all'; persist();
+  qEl.value = text; setFilter(text);
+}
 
-/* ---------- account dialog ---------- */
+/* ---------- accounts ---------- */
+// Settings › Accounts: the list, and per account its server settings and identities.
 // Adding is a wizard: name, email and password. The core finds the servers (its provider
 // list, the domain's setup file, its DNS zone, the usual names) and add_account logs in to
 // both before anything is saved. When nothing is found or the login fails, the settings
 // form opens, filled in, with the reason. Editing an account goes straight to the form.
-const dlg = $('acct-dlg'), aForm = $('acct-form'), aErr = $('a-err'), wForm = $('w-start'), wErr = $('w-err');
+const aForm = $('acct-form'), aErr = $('a-err'), wForm = $('w-start'), wErr = $('w-err');
 let editing = null;     // id of the account being edited, or null when adding
 let wizardSeq = 0;      // each run gets a number; answers for an older run are dropped
 let wizardBusy = null;  // 'find' or 'login' while the wizard works
+let accountView = 'home';
+const ACCOUNT_VIEWS = {home:'a-home', start:'w-start', work:'w-work', form:'acct-form', ids:'i-list-view', idform:'i-form'};
+function showAccountView(view){
+  accountView = view;
+  for (const [v, id] of Object.entries(ACCOUNT_VIEWS)) $(id).hidden = v !== view;
+  if (view === 'home') renderAccountList();
+  sdlg.querySelector('.setpanes').scrollTop = 0;
+}
 
 // The core sends tips and reasons as codes; the words are here, to translate with the rest.
 const NOTE_TEXT = {
@@ -998,10 +1185,7 @@ function hint(el, d){
   el.classList.toggle('warn', !!d?.unsupported);
   el.innerHTML = text ? esc(text) + (d.help ? ` <button type="button" class="linkbtn" data-help="${esc(d.help)}">${esc(t('Open that page'))}</button>` : '') : '';
 }
-function showView(view){
-  wForm.hidden = view !== 'start'; $('w-work').hidden = view !== 'work'; aForm.hidden = view !== 'form';
-  dlg.setAttribute('aria-labelledby', {start:'acct-title', work:'w-work-title', form:'a-title'}[view]);
-}
+// "Add account" anywhere: Settings › Accounts, with the wizard.
 function openAccountDialog(){
   wForm.reset(); aForm.reset();
   editing = null; wizardBusy = null; ++wizardSeq;
@@ -1009,10 +1193,9 @@ function openAccountDialog(){
   // A second account is usually the same person: start from their name.
   const me = ACCOUNTS.flatMap(a => a.identities || []).find(i => i.is_default)?.name ?? '';
   $('w-name').value = me;
-  renderAccountList();
+  openSettings('accts');
   renderLangPick();
-  showView('start');
-  if (!dlg.open) dlg.showModal();
+  showAccountView('start');
   $(me ? 'w-email' : 'w-name').focus();
 }
 // The first start: the language, right where Telex opens. Windows in English with Polish
@@ -1029,13 +1212,17 @@ $('w-lang').addEventListener('click', async e => {
   state.offered = SETTINGS.offer || state.offered; persist();
   if (await changeSettings({language:b.dataset.lang})) renderLangPick();
 });
+// Each account: who it is, where its servers are, how the last check went.
 function renderAccountList(){
-  const real = ACCOUNTS.filter(a => a.imap);
-  $('a-list').innerHTML = real.length ? `<h3>${esc(t('Connected'))}</h3>` + real.map(a => {
-    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`;
-    return `<div class="dacct"><span class="nm">${esc(a.name)}</span><span class="em" title="${esc(where)}">${esc(where)}</span>`
+  const real = ACCOUNTS.filter(a => a.imap), usage = Object.fromEntries((USAGE?.accounts ?? []).map(u => [u.account, u]));
+  $('a-list').innerHTML = real.length ? real.map(a => {
+    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = usage[a.id];
+    const sync = u?.sync_error ? `<div class="st warn" title="${esc(u.sync_error)}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</div>`
+      : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
+    return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="nm">${esc(a.name)}</div><div class="em" title="${esc(where)}">${esc(where)}</div>${sync}</div>`
       + `<button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div>`;
-  }).join('') : '';
+  }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
+  $('a-list-err').textContent = '';
 }
 
 // Tips while the address is typed, from the provider list only (nothing goes online).
@@ -1080,7 +1267,7 @@ wForm.addEventListener('submit', async e => {
   steps = [];
   $('w-work-title').textContent = t('Setting up {email}', {email});
   $('w-stop').disabled = false;
-  showView('work');
+  showAccountView('work');
   wizardBusy = 'find';
   step(t('Looking for the mail servers of {domain}', {domain}));
   let d = null;
@@ -1091,7 +1278,7 @@ wForm.addEventListener('submit', async e => {
     openForm({name, email, password}, t('Telex couldn’t find the mail servers for {domain}. Enter them here: your provider’s help pages list them as IMAP and SMTP servers.', {domain}));
     return;
   }
-  if (d.unsupported){ showView('start'); hint($('w-hint'), d); $('w-email').focus(); return; }
+  if (d.unsupported){ showAccountView('start'); hint($('w-hint'), d); $('w-email').focus(); return; }
   finishStep('done', t('Found {servers}', {servers:serverNames(d.setup)}), SOURCE_TEXT[d.source]?.(d) ?? '');
   const setup = {...d.setup, name, email};
   wizardBusy = 'login';
@@ -1109,12 +1296,14 @@ wForm.addEventListener('submit', async e => {
   await connected(account, false);
 });
 $('w-manual').addEventListener('click', () => openForm({name:$('w-name').value, email:$('w-email').value, password:$('w-pass').value}));
+$('w-cancel').addEventListener('click', () => { ++wizardSeq; wizardBusy = null; showAccountView('home'); $('a-add').focus(); });
 $('w-stop').addEventListener('click', () => {
   if (wizardBusy !== 'find') return;
   ++wizardSeq; wizardBusy = null;
-  showView('start');
+  showAccountView('start');
   $('w-email').focus();
 });
+$('a-add').addEventListener('click', openAccountDialog);
 
 // The settings form, filled in from what the wizard found or typed (v), with a reason.
 // note: a tip above the fields, e.g. that the servers came from an imported file.
@@ -1131,8 +1320,8 @@ function openForm(v, error = '', d = null, note = ''){
   aErr.textContent = error;
   hint($('a-hint'), d);
   if (note){ $('a-hint').hidden = false; $('a-hint').classList.add('warn'); $('a-hint').textContent = note; }
-  showView('form');
-  if (!dlg.open) dlg.showModal();
+  if (!sdlg.open || setTab !== 'accts') openSettings('accts');
+  showAccountView('form');
   $(!v.email ? 'a-email' : !v.host ? 'a-host' : note ? 'a-pass' : 'a-go').focus();
 }
 // Fill the form with an account's settings; the password stays empty and is kept if left so.
@@ -1149,7 +1338,7 @@ function editAccount(id){
   $('a-sport').value = a.smtp?.port ?? 465;
   $('a-pass').value = ''; $('a-pass').placeholder = t('Leave empty to keep the saved password');
   placeholders();
-  showView('form');
+  showAccountView('form');
   $(a.smtp ? 'a-pass' : 'a-smtp').focus();
 }
 function placeholders(){
@@ -1164,19 +1353,15 @@ $('a-sec').addEventListener('change', () => {
   if (['465', '587', ''].includes(p.value)) p.value = $('a-sec').value === 'starttls' ? 587 : 465;
 });
 $('a-back').addEventListener('click', () => {
+  const back = editing || ACCOUNTS.some(a => a.imap) ? 'home' : 'start';
   editing = null;
-  renderAccountList();
-  showView('start');
-  $('w-email').focus();
+  showAccountView(back);
+  if (back === 'start') $('w-email').focus();
 });
-dlg.addEventListener('click', e => {
+$('s-pane-accts').addEventListener('click', e => {
   const help = e.target.closest('[data-help]');
   if (help) call('open_link', {url:help.dataset.help}).catch(() => {});
-  if (e.target.closest('[data-close]')) dlg.close();
 });
-// Esc can't close the dialog while a login runs: a login that works saves the account.
-dlg.addEventListener('cancel', e => { if (wizardBusy === 'login') e.preventDefault(); });
-dlg.addEventListener('close', () => { ++wizardSeq; wizardBusy = null; listEl.focus({preventScroll:true}); });
 aForm.addEventListener('submit', async e => {
   e.preventDefault();
   const go = $('a-go'), label = go.querySelector('span');
@@ -1199,14 +1384,17 @@ aForm.addEventListener('submit', async e => {
 });
 async function connected(account, wasEditing){
   wForm.reset(); aForm.reset();
-  dlg.close();
+  editing = null;
   await loadTree();
   if (wasEditing){
+    showAccountView('home');
     refresh();
     say(t('Saved {name}.', {name:account.name}));
     getMail({quiet:true}); // the Outbox may have waited for these settings
     return;
   }
+  accountView = 'home';
+  sdlg.close();
   setFolder(homeOf(account.id));
   say(t('Connected to {email}. Downloading mail…', {email:account.email}), 0);
   getMail({first:true});
@@ -1215,28 +1403,29 @@ $('a-list').addEventListener('click', async e => {
   const ed = e.target.closest('[data-edit]');
   if (ed){ editAccount(ed.dataset.edit); return; }
   const ids = e.target.closest('[data-ids]');
-  if (ids){ dlg.close(); openIdentities(ids.dataset.ids); return; }
+  if (ids){ openIdentities(ids.dataset.ids); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = t('Remove it and its local mail'); return; }
-  try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ wErr.textContent = tr(err); return; }
+  try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ $('a-list-err').textContent = tr(err); return; }
   await refresh();
+  await loadUsage();
   renderAccountList();
   say(t('Account removed from Telex. The mail on the server is untouched.'));
 });
 
 /* ---------- identities ---------- */
-const idlg = $('ids-dlg');
 let idAccount = null, identity = null; // identity: the one being edited
 function openIdentities(account){
   idAccount = account;
-  idlg.showModal();
+  if (!sdlg.open || setTab !== 'accts') openSettings('accts');
   showIdentityList();
 }
 function showIdentityList(){
   const a = ACCT[idAccount];
-  if (!a){ idlg.close(); return; }
-  $('i-form').hidden = true; $('i-list-view').hidden = false; $('i-err').textContent = '';
+  if (!a){ showAccountView('home'); return; }
+  showAccountView('ids');
+  $('i-err').textContent = '';
   $('ids-title').textContent = t('Identities') + ' · ' + a.name;
   $('i-list').innerHTML = (a.identities || []).map(i => `<div class="rrule" data-id="${i.id}">
 <div class="rtext"><div class="rname">${esc(i.name)}${i.is_default ? ` <span class="tag">${esc(t('Default|identity'))}</span>` : ''}</div>
@@ -1248,7 +1437,8 @@ function showIdentityForm(existing){
   const a = ACCT[idAccount], base = a.identities.find(i => i.is_default) ?? a.identities[0] ?? {};
   identity = existing ? structuredClone(existing) : {id:0, account:idAccount, name:'', email:a.email, signature:base.signature ?? '',
     reply_header:base.reply_header ?? '', forward_header:base.forward_header ?? '', is_default:false};
-  $('i-list-view').hidden = true; $('i-form').hidden = false; $('i-form-err').textContent = '';
+  showAccountView('idform');
+  $('i-form-err').textContent = '';
   $('i-form-title').textContent = existing ? t('Edit identity') : t('New identity');
   $('i-name').value = identity.name; $('i-email').value = identity.email; $('i-sig').value = identity.signature;
   $('i-reply').value = identity.reply_header; $('i-fwd').value = identity.forward_header;
@@ -1278,8 +1468,7 @@ $('i-list').addEventListener('click', async e => {
 });
 $('i-new').addEventListener('click', () => showIdentityForm(null));
 $('i-back').addEventListener('click', showIdentityList);
-$('i-close').addEventListener('click', () => idlg.close());
-idlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
+$('i-close').addEventListener('click', () => showAccountView('home'));
 
 /* ---------- rules ---------- */
 const rdlg = $('rules-dlg');
@@ -1424,9 +1613,9 @@ $('r-run').addEventListener('click', async () => {
 $('b-rules').addEventListener('click', openRules);
 
 /* ---------- settings window ---------- */
-// Five tabs. Every change is saved at once (changeSettings) and shows at once, theme cards
-// included: each card carries its own data-theme, so it is drawn in its own colors.
-const sdlg = $('set-dlg');
+// Every change is saved at once (changeSettings) and shows at once, theme cards included:
+// each card carries its own data-theme, so it is drawn in its own colors. Accounts, Reading
+// and Usage draw their lists when they open.
 let setTab = 'look';
 let move_ = {plan:null, choice:null, report:null, exported:null, error:'', counts:null}; // the Import and export tab
 const radios = (name, list, current) => list.map(([value, label, extra = '']) =>
@@ -1472,19 +1661,37 @@ function renderSettings(keepFocus){
     n === 0 ? t('Only when I click Get mail') : n === 60 ? t('Every hour') : tn(n, 'Every {n} minute', 'Every {n} minutes'))}</option>`).join('');
   $('s-read').innerHTML = radios('mark_read', [['moment', esc(t('After a moment on screen'))], ['at_once', esc(t('As soon as I select them'))], ['manual', esc(t('Only when I press U'))]], s.mark_read);
   $('s-view').innerHTML = radios('prefer_text', [['html', esc(t('Show the HTML'))], ['text', esc(t('Show the plain text'))]], s.prefer_text ? 'text' : 'html');
+  $('s-paper').innerHTML = radios('mail_paper', [['theme', esc(t('On the theme’s dark paper'))], ['white', esc(t('On white, as sent'))]], s.mail_paper);
+  $('s-format').innerHTML = radios('compose_format', [['plain', esc(t('Plain text'))], ['html', esc(t('HTML'))]], s.compose_format);
+  $('s-reply').innerHTML = radios('reply_format', [['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))], ['html', esc(t('Always HTML'))]], s.reply_format);
+  $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   const can = !!upd.build?.updatable;
   $('s-updates').checked = s.updates === 'daily'; $('s-updates').disabled = !can;
   $('s-upd-none').hidden = can; $('s-check').hidden = !can;
   renderMove();
+  paneOpened(setTab);
   if (again) sdlg.querySelector(again)?.focus();
+}
+// What a tab draws when it opens: the lists that change while Telex runs.
+function paneOpened(tab){
+  if (tab === 'accts'){
+    if (accountView === 'home') renderAccountList();
+    else if (accountView === 'ids') showIdentityList();
+    else if (accountView === 'start') renderLangPick();
+  }
+  if (tab === 'read') renderTrusted();
+  if (tab === 'use') renderUsage();
+  if (tab === 'move') renderMove();
 }
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
-  const want = {theme:s.theme, density:s.density, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html'};
+  const want = {theme:s.theme, density:s.density, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
+    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-updates').checked = s.updates === 'daily';
+  $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
 }
 function openSettings(tab){
   if (tab) setTab = tab;
@@ -1501,7 +1708,8 @@ function showTab(tab, focus){
     $(b.getAttribute('aria-controls')).hidden = !on;
     if (on && focus) b.focus();
   });
-  if (tab === 'move') renderMove();
+  sdlg.querySelector('.setpanes').scrollTop = 0;
+  paneOpened(tab);
 }
 $('s-tabs').addEventListener('click', e => { const b = e.target.closest('[role="tab"]'); if (b) showTab(b.dataset.tab); });
 $('s-tabs').addEventListener('keydown', e => {
@@ -1519,19 +1727,32 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'language') changeSettings({language:v});
   else if (el.name === 'mark_read') changeSettings({mark_read:v});
   else if (el.name === 'prefer_text') changeSettings({prefer_text:v === 'text'});
+  else if (el.name === 'mail_paper'){ state.white.clear(); changeSettings({mail_paper:v}).then(() => { if (!state.compose) renderPreview(); }); }
+  else if (el.name === 'compose_format') changeSettings({compose_format:v});
+  else if (el.name === 'reply_format') changeSettings({reply_format:v});
+  else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
+  else if (el.id === 's-spell') changeSettings({spell_check:el.checked});
   else if (el.id === 's-every') changeSettings({check_every:Number(v)});
   else if (el.id === 's-updates') changeSettings({updates:el.checked ? 'daily' : 'off'});
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
 forcedColors.addEventListener('change', () => { if (sdlg.open) $('s-forced').hidden = !forcedColors.matches; });
 $('s-check').addEventListener('click', () => { sdlg.close(); openUpdates(); });
-$('s-close').addEventListener('click', () => sdlg.close());
-sdlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
+// A login that works saves the account, so it isn't left halfway: no closing until it answers.
+$('s-close').addEventListener('click', () => { if (wizardBusy !== 'login') sdlg.close(); });
+sdlg.addEventListener('cancel', e => { if (wizardBusy === 'login') e.preventDefault(); });
+sdlg.addEventListener('close', () => {
+  ++wizardSeq; wizardBusy = null;
+  if (accountView === 'work') accountView = 'start';
+  listEl.focus({preventScroll:true});
+});
 
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
-  mark_read:N_('Mark messages as read'), check_every:N_('Check for new mail'), updates:N_('Updates')};
+  mark_read:N_('Mark messages as read'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
+  compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
+  spell_check:N_('Underline spelling mistakes'), updates:N_('Updates')};
 function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
@@ -1542,6 +1763,10 @@ function settingValue(key, v){
     case 'mark_read': return {moment:t('After a moment on screen'), at_once:t('As soon as I select them'), manual:t('Only when I press U')}[v] ?? v;
     case 'check_every': return v === 0 ? t('Only when I click Get mail') : v === 60 ? t('Every hour') : tn(v, 'Every {n} minute', 'Every {n} minutes');
     case 'updates': return {ask:t('Not decided yet'), daily:t('Once a day'), off:t('Never')}[v] ?? v;
+    case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
+    case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
+    case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
+    case 'ask_subject': case 'spell_check': return v ? t('On') : t('Off');
     default: return String(v);
   }
 }
@@ -1681,10 +1906,113 @@ $('s-move').addEventListener('click', async e => {
     const a = move_.plan?.accounts.find(x => x.email === b.dataset.setup);
     if (!a?.setup) return;
     const servers = a.setup.smtp_host && a.setup.smtp_host !== a.setup.host ? t('{a} and {b}', {a:a.setup.host, b:a.setup.smtp_host}) : a.setup.host;
-    sdlg.close();
     editing = null;
     openForm(a.setup, '', null, t('The servers come from the settings file: {servers}. Check them before you enter your password.', {servers}));
   }
+});
+
+// Settings › Reading: senders whose images load without asking. Removing one asks again.
+async function renderTrusted(){
+  let senders = [];
+  try { senders = await invoke('trusted_senders'); } catch {}
+  $('s-trusted').innerHTML = senders.length ? senders.map(s =>
+    `<div class="srow"><span class="em">${esc(s)}</span><button type="button" class="btn" data-untrust="${esc(s)}">${esc(t('Remove'))}</button></div>`).join('')
+    : `<p class="dnote">${esc(t('Nobody yet. “Always load from …” above a message adds its sender here.'))}</p>`;
+}
+$('s-trusted').addEventListener('click', async e => {
+  const b = e.target.closest('[data-untrust]'); if (!b) return;
+  try { await invoke('trust_sender', {email:b.dataset.untrust, trusted:false}); } catch (err){ say(tr(err), 8000); return; }
+  htmlViews.clear();
+  await renderTrusted();
+  $('s-trusted').querySelector('button')?.focus();
+  if (!state.compose) renderPreview();
+});
+
+/* ---------- usage ---------- */
+// Settings › Usage, a page per account in the spirit of a phone's storage screen: the
+// server's storage when it says, what each kind of folder takes on this PC, mail in and out
+// over the last 30 days, who sends the most, the largest messages, and what still waits.
+const USE_GROUPS = [['inbox', N_('Inbox'), 0], ['sent', N_('Sent'), 1], ['archive', N_('Archive'), 3], ['custom', N_('Your folders'), 2],
+  ['drafts', N_('Drafts and Outbox'), 5], ['junk', N_('Spam and Trash'), 4]];
+const groupOf = kind => ({outbox:'drafts', spam:'junk', trash:'junk'}[kind] ?? kind);
+const bar = (pct, level) => `<div class="ubar" data-level="${level}"><i style="width:${Math.max(pct, 0.8)}%"></i></div>`;
+function flowSvg(flow, since){
+  const max = Math.max(1, ...flow.map(d => d.received + d.spam), ...flow.map(d => d.sent));
+  const W = 300, H = 64, mid = 40, up = mid - 3, down = H - mid - 3, bw = W / flow.length;
+  const day = i => new Date(since.getFullYear(), since.getMonth(), since.getDate() + i);
+  const bars = flow.map((d, i) => {
+    const x = (i * bw + 1).toFixed(1), w = (bw - 2).toFixed(1), date = day(i);
+    const hr = d.received / max * up, hs = d.spam / max * up, ho = d.sent / max * down;
+    const tip = `${t(DOW[date.getDay()])} ${dm(date)}: ` + [tn(d.received, '{n} received', '{n} received'), tn(d.sent, '{n} sent', '{n} sent'),
+      d.spam ? tn(d.spam, '{n} in Spam', '{n} in Spam') : ''].filter(Boolean).join(', ');
+    return `<g><title>${esc(tip)}</title><rect class="hit" x="${x}" y="0" width="${w}" height="${H}"/>`
+      + (hr ? `<rect class="in" x="${x}" y="${(mid - hr).toFixed(1)}" width="${w}" height="${hr.toFixed(1)}" rx="1"/>` : '')
+      + (hs ? `<rect class="junk" x="${x}" y="${(mid - hr - hs).toFixed(1)}" width="${w}" height="${hs.toFixed(1)}" rx="1"/>` : '')
+      + (ho ? `<rect class="out" x="${x}" y="${(mid + 1).toFixed(1)}" width="${w}" height="${ho.toFixed(1)}" rx="1"/>` : '') + '</g>';
+  }).join('');
+  return `<svg class="flow" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(t('Mail received and sent per day'))}">${bars}<line class="axis" x1="0" x2="${W}" y1="${mid + 0.5}" y2="${mid + 0.5}"/></svg>`;
+}
+function accountUsageHtml(u, since){
+  const a = ACCT[u.account]; if (!a) return '';
+  const localKb = u.folders.reduce((n, f) => n + f.size_kb, 0), count = u.folders.reduce((n, f) => n + f.count, 0);
+  const sync = u.sync_error ? `<span class="ustat warn" title="${esc(u.sync_error)}">${esc(t('Last check failed'))}</span>`
+    : u.synced_at ? `<span class="ustat">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</span>` : '';
+  let html = `<article class="ucard"><header class="uhead">${adot(a.id)}<span class="uname" title="${esc(a.name)}">${esc(a.email)}</span>${sync}</header>`;
+  if (u.sync_error) html += `<p class="unote warn">${esc(u.sync_error)}</p>`;
+  // Storage on the server, when the server reports it.
+  if (u.quota){
+    const pct = pctOf(u.quota), level = levelOf(pct);
+    html += `<div class="ublock"><div class="urow"><span class="ulabel">${esc(t('On the server'))}</span><span class="uval">${esc(t('{used} of {limit}', {used:fmtSize(u.quota.used_kb), limit:fmtSize(u.quota.limit_kb)}))} · ${pct}%</span></div>${bar(pct, level)}`
+      + (pct >= 80 ? `<p class="unote ${level}">${esc(t('The mailbox is nearly full. Once it is, new mail bounces back to its senders: empty Trash and Spam, or move old mail out.'))}</p>` : '') + '</div>';
+  }
+  // This PC, by kind of folder: one stacked bar and its legend.
+  const groups = USE_GROUPS.map(([g, label, c]) => {
+    const fs = u.folders.filter(f => groupOf(f.kind) === g);
+    return {label, c, kb:fs.reduce((n, f) => n + f.size_kb, 0), n:fs.reduce((n, f) => n + f.count, 0)};
+  }).filter(x => x.n);
+  html += `<div class="ublock"><div class="urow"><span class="ulabel">${esc(t('On this PC'))}</span><span class="uval">${esc(fmtSize(localKb))} · ${esc(tn(count, '{n} message', '{n} messages', {n:num(count)}))}</span></div>`
+    + `<div class="ustack" aria-hidden="true">${groups.map(x => `<i class="u${x.c}" style="flex-grow:${Math.max(x.kb, localKb / 150, 1)}"></i>`).join('')}</div>`
+    + `<ul class="ulegend">${groups.map(x => `<li><i class="u${x.c}" aria-hidden="true"></i>${esc(t(x.label))} <span>${esc(fmtSize(x.kb))}</span></li>`).join('')}</ul></div>`;
+  // Mail in and out, day by day.
+  const sum = k => u.flow.reduce((n, d) => n + d[k], 0);
+  const today = new Date(since.getFullYear(), since.getMonth(), since.getDate() + u.flow.length - 1);
+  html += `<div class="ublock"><div class="urow"><span class="ulabel">${esc(t('Last 30 days'))}</span><span class="uval"><i class="ukey in" aria-hidden="true"></i>${esc(tn(sum('received'), '{n} received', '{n} received'))}`
+    + ` · <i class="ukey out" aria-hidden="true"></i>${esc(tn(sum('sent'), '{n} sent', '{n} sent'))}${sum('spam') ? ` · <i class="ukey junk" aria-hidden="true"></i>${esc(tn(sum('spam'), '{n} in Spam', '{n} in Spam'))}` : ''}</span></div>`
+    + flowSvg(u.flow, since) + `<div class="uaxis"><span>${dm(since)}</span><span>${esc(t('today'))} ${dm(today)}</span></div></div>`;
+  // Who sends the most, and the largest messages: each a way to tidy up.
+  const most = Math.max(1, ...u.senders.map(s => s.count));
+  if (u.senders.length) html += `<div class="ublock"><span class="ulabel">${esc(t('Most mail from'))}</span><ul class="ulist">${u.senders.map(s =>
+    `<li><button type="button" class="ulink" data-sender="${esc(s.email)}" title="${esc(t('Show all mail from {email}', {email:s.email}))}"><span class="who">${esc(s.name || s.email)}</span>`
+    + `<span class="spark" aria-hidden="true"><i style="width:${s.count / most * 100}%"></i></span><span class="n">${num(s.count)}</span></button></li>`).join('')}</ul></div>`;
+  if (u.largest.length) html += `<div class="ublock"><span class="ulabel">${esc(t('Largest messages'))}</span><ul class="ulist">${u.largest.map(m =>
+    `<li><button type="button" class="ulink" data-open="${m.id}" data-folder="${esc(m.folder)}" title="${esc(t('Open it in {folder}', {folder:folderName(m.folder)}))}"><span class="who">${esc(m.subject)}</span>`
+    + `<span class="from">${esc(isOut(m.folder) ? nameOf(m.to) : m.from_name)}</span><span class="n">${esc(fmtSize(m.size_kb))}</span></button></li>`).join('')}</ul></div>`;
+  // What still waits.
+  const outbox = u.folders.find(f => f.kind === 'outbox')?.count ?? 0, waits = [];
+  if (u.queued) waits.push(tn(u.queued, '{n} change waits for the server', '{n} changes wait for the server'));
+  if (outbox) waits.push(tn(outbox, '{n} message waits in the Outbox', '{n} messages wait in the Outbox'));
+  if (waits.length) html += `<p class="unote">${esc(waits.join(' · '))}.</p>`;
+  return html + '</article>';
+}
+let usageSeq = 0;
+async function renderUsage(){
+  const box = $('u-usage'), seq = ++usageSeq;
+  if (!USAGE) box.innerHTML = `<p class="dnote">${esc(t('Counting…'))}</p>`;
+  try { USAGE = await invoke('usage'); } catch (e){ box.innerHTML = `<p class="derr">${esc(tr(e))}</p>`; return; }
+  if (seq !== usageSeq) return;
+  renderMeter(); renderTree();
+  if (!ACCOUNTS.length){ box.innerHTML = `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`; return; }
+  const since = parseDate(USAGE.since + 'T00:00:00');
+  box.innerHTML = `<div class="ubase"><span>${esc(t('Mail base on this PC: {size}', {size:fmtBytes(USAGE.base_bytes)}))}</span>`
+    + (USAGE.free_bytes > 1048576 ? `<span class="sdim">${esc(t('{size} of it is free space Telex fills before the file grows', {size:fmtBytes(USAGE.free_bytes)}))}</span>` : '') + '</div>'
+    + USAGE.accounts.map(u => accountUsageHtml(u, since)).join('')
+    + `<p class="dnote">${esc(t('The counts cover the mail Telex has downloaded: the newest 300 messages of each folder at the first check, then everything new.'))}</p>`;
+}
+const fmtBytes = b => fmtSize(Math.ceil(b / 1024));
+$('u-usage').addEventListener('click', e => {
+  const s = e.target.closest('[data-sender]'), o = e.target.closest('[data-open]');
+  if (s){ sdlg.close(); filterAllMail(s.dataset.sender); }
+  if (o){ sdlg.close(); openMessage(Number(o.dataset.open), o.dataset.folder); }
 });
 
 /* ---------- updates ---------- */
@@ -1807,7 +2135,7 @@ function onKey(e){
   }
   // Tab in the filter box: this folder or all mail, while there is something to look for.
   if (tg === qEl && e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && qEl.value.trim()){ e.preventDefault(); toggleScope(); return; }
-  if (tg.closest && (tg.closest('input, textarea, select') || tg.closest('.split'))) return;
+  if (tg.closest && (tg.closest('input, textarea, select, [contenteditable="true"]') || tg.closest('.split'))) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const k = e.key;
   if (k === 'ArrowDown') move(1);
@@ -1869,6 +2197,7 @@ async function boot(){
   paintScope();
   await setFolder(homeOf(ACCOUNTS[0]?.id));
   listEl.focus({preventScroll:true});
+  loadUsage(); // the status-bar meter, from what the last check saved
   // Real accounts: check now, then as often as the settings say, quietly.
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account

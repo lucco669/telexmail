@@ -1,8 +1,8 @@
 name: Release
 
-# Pushing a tag like v0.2.0 builds the signed Windows installers and the updater's latest.json
-# and puts them in a draft GitHub release. Publishing the draft is what makes the update reach
-# Telex. The whole process is in docs/releasing.md.
+# Pushing a tag like v0.2.0 builds the signed Windows installers, the Linux AppImage and .deb,
+# and the updater's latest.json, and puts them in a draft GitHub release. Publishing the draft
+# is what makes the update reach Telex. The whole process is in docs/releasing.md.
 #
 # Needs, under Settings > Secrets and variables > Actions:
 #   secret   TAURI_SIGNING_PRIVATE_KEY           the private key (contents of the .key file)
@@ -21,9 +21,24 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
-    name: Windows release
-    runs-on: windows-latest
+  release:
+    name: ${{ matrix.name }}
+    # One system at a time. The first creates the draft release; each adds its files and its
+    # platforms to the draft's latest.json (tauri-action reads the file, adds to it and uploads
+    # it again), so two at once could each drop the other's platforms. A failed Linux build
+    # doesn't stop the Windows one.
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows release
+            os: windows-latest
+          # The oldest Ubuntu GitHub offers: an AppImage runs on systems whose C library is as
+          # new as the build system's or newer.
+          - name: Linux release
+            os: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
     env:
       # Compiled into the app (option_env! in src-tauri/src/updates.rs): without it the build
       # can't update itself. A repository variable, or a secret if it was added as one.
@@ -56,6 +71,13 @@ jobs:
             printf '%s\n' "$notes"
             echo 'TELEX_NOTES_END'
           } >> "$GITHUB_OUTPUT"
+
+      # What Tauri 2 builds against on Linux, and D-Bus for the password store (keyring).
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev patchelf
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -91,6 +113,9 @@ jobs:
           JSON.stringify({plugins: {updater: {pubkey: process.env.TELEX_UPDATER_PUBKEY.trim()}}}))"
 
       # TAURI_SIGNING_PRIVATE_KEY and its password come from the job environment (see above).
+      # Windows builds nsis and msi (tauri.conf.json), Linux appimage and deb
+      # (tauri.linux.conf.json, which Tauri adds on Linux by itself). The first job to get here
+      # creates the draft release, the second finds it by the tag.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -102,6 +127,7 @@ jobs:
           prerelease: false
           # latest.json, which every Telex checks: version, notes, installers and signatures.
           # (tauri-action v1 calls this uploadUpdaterJson; v0 called it includeUpdaterJson.)
+          # Its notes come from releaseBody, so every job passes the same.
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           args: --config src-tauri/tauri.release.conf.json --config src-tauri/tauri.updater.conf.json

@@ -818,11 +818,86 @@ enum RecordKind {
     Srv,
 }
 
-/// Host names, with ports for SRV records, most preferred first. Asks Windows' own DNS
-/// resolver; empty when there are none, the lookup fails, or on other systems. Blocking.
+/// One MX or SRV record as the resolver hands it over. An MX record has only its preference
+/// (as the priority) and its host.
+#[derive(Debug, Clone, PartialEq)]
+struct DnsRecord {
+    priority: u16,
+    weight: u16,
+    host: String,
+    port: u16,
+}
+
+/// Host names, with ports for SRV records, most preferred first: lowest priority, then the
+/// highest weight. Lowercase, without the final dot. An SRV target of "." (the service isn't
+/// offered) is left out.
+fn most_preferred_first(mut records: Vec<DnsRecord>) -> Vec<(String, u16)> {
+    records.sort_by_key(|r| (r.priority, std::cmp::Reverse(r.weight)));
+    records
+        .into_iter()
+        .map(|r| (r.host.trim_end_matches('.').to_ascii_lowercase(), r.port))
+        .filter(|(host, _)| !host.is_empty())
+        .collect()
+}
+
+/// A name's MX or SRV records, most preferred first, within one `WAIT`. Empty when there are
+/// none or the lookup fails.
+async fn dns_records(name: &str, kind: RecordKind) -> Vec<(String, u16)> {
+    let records = timeout(WAIT, query(name.to_owned(), kind)).await;
+    most_preferred_first(records.unwrap_or_default())
+}
+
+/// On Windows, Windows' own resolver, which follows the system's DNS settings (VPNs included)
+/// like every other Windows program. Its call blocks, so it runs on a thread for that.
 #[cfg(windows)]
-fn dns_records(name: &str, kind: RecordKind) -> Vec<(String, u16)> {
-    use std::cmp::Reverse;
+async fn query(name: String, kind: RecordKind) -> Vec<DnsRecord> {
+    tokio::task::spawn_blocking(move || windows_query(&name, kind))
+        .await
+        .unwrap_or_default()
+}
+
+/// Elsewhere hickory-resolver, a DNS client in Rust that takes the system's DNS servers from
+/// /etc/resolv.conf.
+#[cfg(not(windows))]
+async fn query(name: String, kind: RecordKind) -> Vec<DnsRecord> {
+    use hickory_resolver::proto::rr::{RData, RecordType};
+    use hickory_resolver::TokioResolver;
+
+    let Ok(resolver) = TokioResolver::builder_tokio().and_then(|builder| builder.build()) else {
+        return Vec::new();
+    };
+    let wanted = match kind {
+        RecordKind::Mx => RecordType::MX,
+        RecordKind::Srv => RecordType::SRV,
+    };
+    // The final dot asks for this name only, not also under the local search domains.
+    let Ok(found) = resolver.lookup(format!("{name}."), wanted).await else {
+        return Vec::new();
+    };
+    // Answers can also hold the CNAMEs that led there; only the records asked for count.
+    found
+        .answers()
+        .iter()
+        .filter_map(|record| match &record.data {
+            RData::MX(mx) => Some(DnsRecord {
+                priority: mx.preference,
+                weight: 0,
+                host: mx.exchange.to_ascii(),
+                port: 0,
+            }),
+            RData::SRV(srv) => Some(DnsRecord {
+                priority: srv.priority,
+                weight: srv.weight,
+                host: srv.target.to_ascii(),
+                port: srv.port,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+#[cfg(windows)]
+fn windows_query(name: &str, kind: RecordKind) -> Vec<DnsRecord> {
     use std::ptr::null_mut;
     use windows_sys::Win32::NetworkManagement::Dns::{
         DnsFree, DnsFreeRecordList, DnsQuery_W, DNS_QUERY_STANDARD, DNS_RECORDA, DNS_RECORDW,
@@ -850,8 +925,7 @@ fn dns_records(name: &str, kind: RecordKind) -> Vec<(String, u16)> {
     if status != 0 || first.is_null() {
         return Vec::new();
     }
-    // (priority, weight, host, port)
-    let mut found: Vec<(u16, u16, String, u16)> = Vec::new();
+    let mut found = Vec::new();
     // The wide-character query fills the list with DNS_RECORDW entries.
     let mut record = first.cast::<DNS_RECORDW>();
     while !record.is_null() {
@@ -877,7 +951,12 @@ fn dns_records(name: &str, kind: RecordKind) -> Vec<(String, u16)> {
                         len += 1;
                     }
                     let host = String::from_utf16_lossy(std::slice::from_raw_parts(name, len));
-                    found.push((priority, weight, host, port));
+                    found.push(DnsRecord {
+                        priority,
+                        weight,
+                        host,
+                        port,
+                    });
                 }
             }
             record = entry.pNext;
@@ -885,23 +964,13 @@ fn dns_records(name: &str, kind: RecordKind) -> Vec<(String, u16)> {
     }
     // SAFETY: frees the whole list exactly once; nothing points into it any more.
     unsafe { DnsFree(first.cast(), DnsFreeRecordList) };
-    found.sort_by_key(|(priority, weight, _, _)| (*priority, Reverse(*weight)));
     found
-        .into_iter()
-        .map(|(_, _, host, port)| (host.trim_end_matches('.').to_ascii_lowercase(), port))
-        // An SRV target of "." means the service isn't offered.
-        .filter(|(host, _)| !host.is_empty())
-        .collect()
 }
 
-#[cfg(not(windows))]
-fn dns_records(_name: &str, _kind: RecordKind) -> Vec<(String, u16)> {
-    Vec::new()
-}
-
-/// The domain's MX hosts, most preferred first. Blocking.
-pub fn mx_hosts(domain: &str) -> Vec<String> {
+/// The domain's MX hosts, most preferred first.
+pub async fn mx_hosts(domain: &str) -> Vec<String> {
     dns_records(domain, RecordKind::Mx)
+        .await
         .into_iter()
         .map(|(host, _)| host)
         .collect()
@@ -919,18 +988,24 @@ pub struct SrvRecords {
     pub submission: Vec<(String, u16)>,
 }
 
-/// Look up the domain's mail SRV records. Blocking.
-pub fn srv_records(domain: &str) -> SrvRecords {
+/// Look up the domain's mail SRV records, all three at once.
+pub async fn srv_records(domain: &str) -> SrvRecords {
     let lookup = |service: &str| {
-        dns_records(&format!("_{service}._tcp.{domain}"), RecordKind::Srv)
-            .into_iter()
-            .filter(|(_, port)| *port != 0)
-            .collect()
+        let name = format!("_{service}._tcp.{domain}");
+        async move {
+            dns_records(&name, RecordKind::Srv)
+                .await
+                .into_iter()
+                .filter(|(_, port)| *port != 0)
+                .collect()
+        }
     };
+    let (imaps, submissions, submission) =
+        join3(lookup("imaps"), lookup("submissions"), lookup("submission")).await;
     SrvRecords {
-        imaps: lookup("imaps"),
-        submissions: lookup("submissions"),
-        submission: lookup("submission"),
+        imaps,
+        submissions,
+        submission,
     }
 }
 
@@ -1073,19 +1148,17 @@ pub async fn detect(email: &str, progress: &(dyn Fn(Step) + Send + Sync)) -> Opt
     progress(Step::Lookup);
     let (config, srv, mx) = {
         let email = email.to_owned();
-        let (d1, d2) = (domain.clone(), domain);
         join3(
             tokio::task::spawn_blocking(move || fetch_autoconfig(&email)),
-            tokio::task::spawn_blocking(move || srv_records(&d1)),
-            tokio::task::spawn_blocking(move || mx_hosts(&d2)),
+            srv_records(&domain),
+            mx_hosts(&domain),
         )
         .await
     };
-    let mx = mx.unwrap_or_default();
     let found = config
         .ok()
         .flatten()
-        .or_else(|| from_srv(email, &srv.unwrap_or_default()))
+        .or_else(|| from_srv(email, &srv))
         .or_else(|| from_mx(email, &mx));
     if found.is_some() {
         return found;
@@ -1448,6 +1521,32 @@ mod tests {
         assert!(detect("not an address", &|_| {}).await.is_none());
     }
 
+    #[test]
+    fn dns_records_most_preferred_first() {
+        let record = |priority, weight, host: &str, port| DnsRecord {
+            priority,
+            weight,
+            host: host.to_string(),
+            port,
+        };
+        let found = most_preferred_first(vec![
+            record(20, 0, "ALT2.ASPMX.L.GOOGLE.COM.", 0),
+            record(10, 5, "light.studio.pl.", 993),
+            record(10, 60, "heavy.studio.pl", 993),
+            record(0, 0, ".", 0),
+            record(5, 0, "", 0),
+        ]);
+        assert_eq!(
+            found,
+            [
+                ("heavy.studio.pl".to_string(), 993),
+                ("light.studio.pl".to_string(), 993),
+                ("alt2.aspmx.l.google.com".to_string(), 0),
+            ]
+        );
+        assert!(most_preferred_first(Vec::new()).is_empty());
+    }
+
     /// Needs internet: `cargo test -p telex-core -- --ignored`.
     #[tokio::test]
     #[ignore]
@@ -1458,15 +1557,23 @@ mod tests {
             (found.setup.smtp_host.as_str(), found.setup.smtp_port),
             ("smtp.gmail.com", 465)
         );
-        if cfg!(windows) {
-            assert!(mx_hosts("gmail.com")
-                .iter()
-                .any(|h| h.ends_with("google.com")));
-            let srv = srv_records("gmail.com");
-            assert_eq!(
-                srv.imaps.first(),
-                Some(&("imap.gmail.com".to_string(), 993))
-            );
-        }
+    }
+
+    /// Needs internet: Windows' resolver there, hickory-resolver elsewhere.
+    #[tokio::test]
+    #[ignore]
+    async fn looks_up_real_dns_records() {
+        let mx = mx_hosts("gmail.com").await;
+        assert!(mx.iter().any(|h| h.ends_with("google.com")), "{mx:?}");
+        let srv = srv_records("gmail.com").await;
+        assert_eq!(
+            srv.imaps.first(),
+            Some(&("imap.gmail.com".to_string(), 993))
+        );
+        assert_eq!(
+            srv.submission.first(),
+            Some(&("smtp.gmail.com".to_string(), 587))
+        );
+        assert!(mx_hosts("no-such-domain.invalid").await.is_empty());
     }
 }

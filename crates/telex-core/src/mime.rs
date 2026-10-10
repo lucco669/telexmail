@@ -9,6 +9,7 @@ use chrono::{DateTime, Local, NaiveDateTime};
 use mail_parser::{Address, MessageParser, MessagePart, MimeHeaders, PartType};
 
 use crate::model::{Attachment, Message};
+use crate::tr;
 
 /// An attachment's contents, for forwarding it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,13 +32,16 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
             from_email: String::new(),
             to: String::new(),
             cc: String::new(),
-            subject: "(unreadable message)".into(),
+            subject: tr!("(unreadable message)", "(nieczytelna wiadomość)"),
             date: fallback_date.unwrap_or_else(|| Local::now().naive_local()),
             size_kb,
             unread: true,
             flagged: false,
             remote_images: false,
-            note: Some("Telex couldn't read this message's structure.".into()),
+            note: Some(tr!(
+                "Telex couldn't read this message's structure.",
+                "Telex nie mógł odczytać struktury tej wiadomości."
+            )),
             attachments: Vec::new(),
             body: String::from_utf8_lossy(raw).into_owned(),
             message_id: None,
@@ -90,7 +94,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
 
     let subject = match p.subject().map(str::trim) {
         Some(s) if !s.is_empty() => s.to_owned(),
-        _ => "(no subject)".to_owned(),
+        _ => tr!("(no subject)", "(bez tematu)"),
     };
 
     Message {

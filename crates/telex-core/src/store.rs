@@ -8,12 +8,14 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
 use crate::filters::Rule;
+use crate::html;
 use crate::list;
 use crate::mime::parse_message_id;
 use crate::model::{
     split_folder_key, Account, AccountSetup, Folder, FolderKind, Identity, ImapSettings, Message,
     MessageId, MessageSummary, OutgoingDraft, SmtpSecurity, SmtpSettings,
 };
+use crate::tr;
 
 /// Schema steps, oldest first: step n brings a database to version n. A released step is
 /// never edited; a change is a new file in migrations/ added here.
@@ -25,6 +27,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/005_rules.sql"),
     include_str!("migrations/006_identities.sql"),
     include_str!("migrations/007_message_content.sql"),
+    include_str!("migrations/008_usage.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -55,22 +58,31 @@ pub enum StoreError {
 
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnknownMessage(id) => write!(f, "message {id} does not exist"),
-            Self::UnknownAccount(a) => write!(f, "account \"{a}\" does not exist"),
-            Self::UnknownFolder(k) => write!(f, "folder \"{k}\" does not exist"),
-            Self::CrossAccountMove { from, to } => {
-                write!(
-                    f,
-                    "can't move a message from {from} to {to}: they belong to different accounts"
+        let text = match self {
+            Self::UnknownMessage(id) => {
+                tr!("message {id} does not exist", "wiadomość {id} nie istnieje")
+            }
+            Self::UnknownAccount(a) => {
+                tr!("account \"{a}\" does not exist", "konto „{a}” nie istnieje")
+            }
+            Self::UnknownFolder(k) => {
+                tr!("folder \"{k}\" does not exist", "folder „{k}” nie istnieje")
+            }
+            Self::CrossAccountMove { from, to } => tr!(
+                "can't move a message from {from} to {to}: they belong to different accounts",
+                "nie można przenieść wiadomości z {from} do {to}: należą do różnych kont"
+            ),
+            Self::MissingFolder { account, kind } => {
+                let pl = kind.pl_name().unwrap_or(kind.as_str());
+                tr!(
+                    "account \"{account}\" has no {kind:?} folder",
+                    "konto „{account}” nie ma folderu {pl}"
                 )
             }
-            Self::MissingFolder { account, kind } => {
-                write!(f, "account \"{account}\" has no {kind:?} folder")
-            }
-            Self::Invalid(why) => f.write_str(why),
-            Self::Database(e) => write!(f, "the mail database failed: {e}"),
-        }
+            Self::Invalid(why) => return f.write_str(why),
+            Self::Database(e) => tr!("the mail database failed: {e}", "błąd bazy poczty: {e}"),
+        };
+        f.write_str(&text)
     }
 }
 
@@ -80,6 +92,28 @@ impl From<rusqlite::Error> for StoreError {
     fn from(e: rusqlite::Error) -> Self {
         Self::Database(e.to_string())
     }
+}
+
+impl StoreError {
+    /// The store's lock is broken: a thread panicked while holding it.
+    pub(crate) fn poisoned() -> Self {
+        Self::Database(tr!(
+            "another task crashed while using it; restart Telex",
+            "inne zadanie uległo awarii, gdy z niej korzystało; uruchom Telexa ponownie"
+        ))
+    }
+}
+
+/// Saving an identity or a rule that is gone meanwhile.
+fn identity_gone() -> StoreError {
+    StoreError::Invalid(tr!(
+        "That identity no longer exists.",
+        "Tej tożsamości już nie ma."
+    ))
+}
+
+fn rule_gone() -> StoreError {
+    StoreError::Invalid(tr!("That rule no longer exists.", "Tej reguły już nie ma."))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -473,10 +507,12 @@ impl MailStore {
     }
 
     /// Store a message the user wrote, in Drafts (or, for the sample mailbox, in Sent:
-    /// it can't really send). A draft edited from another replaces it.
+    /// it can't really send). A draft edited from another replaces it. `raw` is the draft
+    /// as a whole message (`smtp::compose_draft`), which keeps its HTML and forwarded files.
     pub fn save_outgoing(
         &mut self,
         draft: OutgoingDraft,
+        raw: Option<&[u8]>,
         kind: FolderKind,
         now: NaiveDateTime,
     ) -> Result<MessageId, StoreError> {
@@ -487,8 +523,15 @@ impl MailStore {
         let account = self.account(&draft.account)?.clone();
         let folder = self.folder_key_of_kind(&account.id, kind)?;
         let identity = account.identity(draft.identity);
+        let body = match &draft.html {
+            Some(h) => html::to_text(&html::compose_clean(h)),
+            None => draft.body,
+        };
         let attachments_kb: u32 = draft.attachments.iter().map(|a| a.size_kb).sum();
-        let body_kb = u32::try_from(draft.body.len().div_ceil(1024)).unwrap_or(u32::MAX);
+        let size_kb = match raw {
+            Some(raw) => u32::try_from(raw.len().div_ceil(1024)).unwrap_or(u32::MAX),
+            None => u32::try_from(body.len().div_ceil(1024)).unwrap_or(u32::MAX) + attachments_kb,
+        };
         let message = Message {
             id: 0,
             folder: folder.clone(),
@@ -498,16 +541,16 @@ impl MailStore {
             cc: draft.cc,
             subject: draft.subject,
             date: now,
-            size_kb: (body_kb + attachments_kb).max(1),
+            size_kb: size_kb.max(1),
             unread: false,
             flagged: false,
             remote_images: false,
             note: None,
             attachments: draft.attachments,
-            body: draft.body,
+            body,
             message_id: None,
         };
-        insert_message(&self.db, &folder, None, &message, None, None)
+        insert_message(&self.db, &folder, None, &message, None, raw)
     }
 
     /// Delete a message that exists only here (a draft, an unsent message). Server mail
@@ -630,9 +673,16 @@ impl MailStore {
         refused: bool,
     ) -> Result<(), StoreError> {
         let note = if refused {
-            format!("Not sent: {error}. Press E to fix it and send it again, or Del to drop it.")
+            tr!(
+                "Not sent: {error}. Press E to fix it and send it again, or Del to drop it.",
+                "Nie wysłano: {error}. Naciśnij E, żeby poprawić i wysłać ponownie, albo Del, \
+                 żeby usunąć."
+            )
         } else {
-            format!("Not sent yet: {error}. Telex tries again at every check.")
+            tr!(
+                "Not sent yet: {error}. Telex tries again at every check.",
+                "Jeszcze nie wysłano: {error}. Telex ponawia próbę przy każdym sprawdzaniu poczty."
+            )
         };
         let tx = self.db.transaction()?;
         tx.execute(
@@ -680,6 +730,17 @@ impl MailStore {
                 .execute("DELETE FROM trusted_senders WHERE email = ?1", [email])?;
         }
         Ok(())
+    }
+
+    /// Every sender whose images load without asking, A to Z, for Settings.
+    pub fn trusted_senders(&self) -> Result<Vec<String>, StoreError> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT email FROM trusted_senders ORDER BY email COLLATE NOCASE")?;
+        let senders = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(senders)
     }
 
     pub fn is_sender_trusted(&self, email: &str) -> Result<bool, StoreError> {
@@ -751,9 +812,7 @@ impl MailStore {
                 ],
             )?;
             if changed == 0 {
-                return Err(StoreError::Invalid(
-                    "That identity no longer exists.".into(),
-                ));
+                return Err(identity_gone());
             }
             identity.id
         };
@@ -771,7 +830,7 @@ impl MailStore {
             .iter()
             .find(|i| i.id == id)
             .cloned()
-            .ok_or_else(|| StoreError::Invalid("That identity no longer exists.".into()))
+            .ok_or_else(identity_gone)
     }
 
     /// Remove an identity. The last one of an account stays: mail has to be from someone.
@@ -786,9 +845,10 @@ impl MailStore {
             return Ok(());
         };
         if self.account(&account)?.identities.len() <= 1 {
-            return Err(StoreError::Invalid(
-                "An account needs at least one identity. Change this one instead.".into(),
-            ));
+            return Err(StoreError::Invalid(tr!(
+                "An account needs at least one identity. Change this one instead.",
+                "Konto potrzebuje co najmniej jednej tożsamości. Zmień tę zamiast ją usuwać."
+            )));
         }
         let tx = self.db.transaction()?;
         tx.execute("DELETE FROM identities WHERE id = ?1", [id])?;
@@ -853,14 +913,14 @@ impl MailStore {
                 ],
             )?;
             if changed == 0 {
-                return Err(StoreError::Invalid("That rule no longer exists.".into()));
+                return Err(rule_gone());
             }
             rule.id
         };
         self.rules()?
             .into_iter()
             .find(|r| r.id == id)
-            .ok_or_else(|| StoreError::Invalid("That rule no longer exists.".into()))
+            .ok_or_else(rule_gone)
     }
 
     pub fn delete_rule(&mut self, id: i64) -> Result<(), StoreError> {
@@ -1424,8 +1484,9 @@ fn migrate(db: &Connection) -> Result<(), StoreError> {
     let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
     let version = usize::try_from(version).unwrap_or_default();
     if version > MIGRATIONS.len() {
-        return Err(StoreError::Database(format!(
-            "it was made by a newer version of Telex (schema {version})"
+        return Err(StoreError::Database(tr!(
+            "it was made by a newer version of Telex (schema {version})",
+            "utworzyła ją nowsza wersja Telexa (schemat {version})"
         )));
     }
     for (step, sql) in MIGRATIONS.iter().enumerate().skip(version) {
@@ -1932,18 +1993,18 @@ mod tests {
     fn outgoing_mail_is_filed_in_the_right_folder() {
         let mut store = sample_store();
         let sent = store
-            .save_outgoing(draft("firma"), FolderKind::Sent, now())
+            .save_outgoing(draft("firma"), None, FolderKind::Sent, now())
             .unwrap();
         let msg = store.get(sent).unwrap();
         assert_eq!(msg.folder, "firma/sent");
         assert_eq!(msg.from_email, "biuro@twojastudio.pl");
         assert_eq!(msg.size_kb, 1);
         let saved = store
-            .save_outgoing(draft("gmail"), FolderKind::Drafts, now())
+            .save_outgoing(draft("gmail"), None, FolderKind::Drafts, now())
             .unwrap();
         assert_eq!(store.get(saved).unwrap().folder, "gmail/drafts");
         assert!(store
-            .save_outgoing(draft("nope"), FolderKind::Sent, now())
+            .save_outgoing(draft("nope"), None, FolderKind::Sent, now())
             .is_err());
     }
 
@@ -2467,10 +2528,41 @@ mod tests {
             "addresses ignore case"
         );
         assert!(store.auto_load_images(id).unwrap());
+        assert_eq!(store.trusted_senders().unwrap(), [sender.to_uppercase()]);
         store.move_to(id, "firma/spam").unwrap();
         assert!(!store.auto_load_images(id).unwrap(), "never in Spam");
         store.move_to(id, "firma/inbox").unwrap();
         store.set_sender_trusted(&sender, false).unwrap();
         assert!(!store.auto_load_images(id).unwrap());
+        assert!(store.trusted_senders().unwrap().is_empty());
+    }
+
+    #[test]
+    fn errors_speak_the_chosen_language() {
+        use crate::i18n::{self, Lang};
+        let missing = StoreError::MissingFolder {
+            account: "firma".into(),
+            kind: FolderKind::Trash,
+        };
+        assert_eq!(missing.to_string(), "account \"firma\" has no Trash folder");
+        assert_eq!(
+            i18n::with(Lang::Pl, || missing.to_string()),
+            "konto „firma” nie ma folderu Kosz"
+        );
+        assert_eq!(
+            i18n::with(Lang::Pl, || StoreError::Database("disk full".into())
+                .to_string()),
+            "błąd bazy poczty: disk full",
+            "SQLite's own words stay as they are"
+        );
+        let mut store = sample_store();
+        let gone = i18n::with(Lang::Pl, || store.get(999_999).unwrap_err().to_string());
+        assert_eq!(gone, "wiadomość 999999 nie istnieje");
+        let only = store.account("firma").unwrap().identities[0].id;
+        let refused = i18n::with(Lang::Pl, || store.delete_identity(only).unwrap_err());
+        assert_eq!(
+            refused.to_string(),
+            "Konto potrzebuje co najmniej jednej tożsamości. Zmień tę zamiast ją usuwać."
+        );
     }
 }

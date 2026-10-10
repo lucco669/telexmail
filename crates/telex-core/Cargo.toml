@@ -27,5 +27,10 @@ base64 = "0.22"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_NetworkManagement_Dns"] }
 
+# MX and SRV lookups elsewhere (Linux, macOS): a DNS client in Rust that reads the system's DNS
+# servers from /etc/resolv.conf. Plain DNS only, no DNS over TLS or HTTPS.
+[target.'cfg(not(windows))'.dependencies]
+hickory-resolver = { version = "0.26.3", default-features = false, features = ["system-config", "tokio"] }
+
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["rt", "macros", "io-util"] }

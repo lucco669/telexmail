@@ -14,6 +14,7 @@ use crate::mime::auto_reply_blocker;
 use crate::model::{split_folder_key, Account, FolderKind, Message, MessageId, OutgoingDraft};
 use crate::smtp::{self, Originals};
 use crate::store::{MailStore, StoreError};
+use crate::tr;
 
 /// How long a rule waits before auto-replying to the same sender again.
 pub const AUTO_REPLY_EVERY: TimeDelta = TimeDelta::days(4);
@@ -93,52 +94,76 @@ impl Rule {
     /// Catch mistakes before the rule is saved, in words for the rule editor.
     pub fn check(&self, accounts: &[Account]) -> Result<(), String> {
         if self.name.trim().is_empty() {
-            return Err("Give the rule a name.".into());
+            return Err(tr!("Give the rule a name.", "Nadaj regule nazwę."));
         }
         if self.conditions.is_empty() {
-            return Err("Add at least one condition.".into());
+            return Err(tr!(
+                "Add at least one condition.",
+                "Dodaj co najmniej jeden warunek."
+            ));
         }
         if self.conditions.iter().any(|c| c.value.trim().is_empty()) {
-            return Err("Every condition needs some text to look for.".into());
+            return Err(tr!(
+                "Every condition needs some text to look for.",
+                "Każdy warunek potrzebuje szukanego tekstu."
+            ));
         }
         if self.actions.is_empty() {
-            return Err("Add at least one action.".into());
+            return Err(tr!(
+                "Add at least one action.",
+                "Dodaj co najmniej jedno działanie."
+            ));
         }
-        let account = match &self.account {
-            Some(id) => Some(
-                accounts
-                    .iter()
-                    .find(|a| &a.id == id)
-                    .ok_or("That account no longer exists.")?,
-            ),
-            None => None,
-        };
+        let account =
+            match &self.account {
+                Some(id) => Some(accounts.iter().find(|a| &a.id == id).ok_or_else(|| {
+                    tr!("That account no longer exists.", "Tego konta już nie ma.")
+                })?),
+                None => None,
+            };
         let destinations = self
             .actions
             .iter()
             .filter(|a| matches!(a, Action::Move { .. } | Action::Delete))
             .count();
         if destinations > 1 {
-            return Err("A rule can move a message to one place only.".into());
+            return Err(tr!(
+                "A rule can move a message to one place only.",
+                "Reguła może przenieść wiadomość tylko w jedno miejsce."
+            ));
         }
         for action in &self.actions {
             match action {
                 Action::Move { folder } => {
-                    let account = account.ok_or("To move mail, pick the rule's account.")?;
+                    let account = account.ok_or_else(|| {
+                        tr!(
+                            "To move mail, pick the rule's account.",
+                            "Żeby przenosić pocztę, wybierz konto reguły."
+                        )
+                    })?;
                     if !account
                         .folders
                         .iter()
                         .any(|f| &account.folder_key(&f.id) == folder)
                     {
-                        return Err("Pick the folder to move to.".into());
+                        return Err(tr!(
+                            "Pick the folder to move to.",
+                            "Wybierz folder, do którego przenieść."
+                        ));
                     }
                 }
                 Action::AutoReply { body } => {
                     if account.is_none() {
-                        return Err("To answer mail, pick the account that answers.".into());
+                        return Err(tr!(
+                            "To answer mail, pick the account that answers.",
+                            "Żeby odpowiadać na pocztę, wybierz konto, które odpowiada."
+                        ));
                     }
                     if body.trim().is_empty() {
-                        return Err("Write the text of the automatic reply.".into());
+                        return Err(tr!(
+                            "Write the text of the automatic reply.",
+                            "Napisz treść automatycznej odpowiedzi."
+                        ));
                     }
                 }
                 Action::MarkRead | Action::Flag | Action::Delete => {}
@@ -284,50 +309,61 @@ pub fn run(
             if !rule.matches(&message) {
                 continue;
             }
+            let name = &rule.name;
+            // What the rule did, said of the message: "flagged it", "oznaczyła ją flagą".
             let mut did = Vec::new();
             for action in &rule.actions {
                 match action {
                     Action::MarkRead => {
                         if message.unread {
                             store.set_unread(id, false)?;
-                            did.push("marked it read".to_owned());
+                            did.push(tr!("marked it read", "oznaczyła ją jako przeczytaną"));
                         }
                     }
                     Action::Flag => {
                         if !message.flagged {
                             store.set_flagged(id, true)?;
-                            did.push("flagged it".to_owned());
+                            did.push(tr!("flagged it", "oznaczyła ją flagą"));
                         }
                     }
                     Action::Move { folder } if folder != &message.folder => {
                         match store.folder_name(folder) {
-                            Some(name) if account_of(folder) == account => {
-                                did.push(format!("moved it to {name}"));
+                            Some(to) if account_of(folder) == account => {
+                                // The Polish interface names special folders by their kind.
+                                let pl_to = store
+                                    .kind_of(folder)
+                                    .and_then(FolderKind::pl_name)
+                                    .unwrap_or(to.as_str());
+                                did.push(tr!(
+                                    "moved it to {to}",
+                                    "przeniosła ją do folderu {pl_to}"
+                                ));
                                 destination = Some(Destination::Folder(folder.clone()));
                             }
-                            _ => report.problems.push(format!(
-                                "rule \"{}\" moves mail to a folder that no longer exists",
-                                rule.name
+                            _ => report.problems.push(tr!(
+                                "rule \"{name}\" moves mail to a folder that no longer exists",
+                                "reguła „{name}” przenosi pocztę do folderu, którego już nie ma"
                             )),
                         }
                     }
                     Action::Move { .. } => {}
                     Action::Delete => {
                         if store.kind_of(&message.folder) != Some(FolderKind::Trash) {
-                            did.push("moved it to Trash".to_owned());
+                            did.push(tr!("moved it to Trash", "przeniosła ją do Kosza"));
                             destination = Some(Destination::Trash);
                         }
                     }
                     Action::AutoReply { body } if trigger == Trigger::Arrival => {
                         match auto_reply(store, rule, &message, body, now) {
                             Ok(true) => {
-                                did.push("answered it".to_owned());
+                                did.push(tr!("answered it", "odpowiedziała na nią"));
                                 report.replied += 1;
                             }
                             Ok(false) => {}
-                            Err(e) => report
-                                .problems
-                                .push(format!("rule \"{}\" couldn't answer: {e}", rule.name)),
+                            Err(e) => report.problems.push(tr!(
+                                "rule \"{name}\" couldn't answer: {e}",
+                                "reguła „{name}” nie mogła odpowiedzieć: {e}"
+                            )),
                         }
                     }
                     Action::AutoReply { .. } => {}
@@ -335,7 +371,7 @@ pub fn run(
             }
             // Only what actually changed: running the rules again adds nothing.
             if !did.is_empty() {
-                notes.push(format!("Rule \"{}\" {}.", rule.name, join_and(&did)));
+                notes.push(rule_note(name, &did));
             }
             if rule.stop {
                 break;
@@ -462,12 +498,22 @@ fn looks_automated(address: &str) -> bool {
         || local.starts_with("bounce")
 }
 
-/// "a" · "a and b" · "a, b and c"
+/// `Rule "Faktury" moved it to Faktury and flagged it.`, from what the rule did.
+fn rule_note(name: &str, did: &[String]) -> String {
+    let did = join_and(did);
+    tr!("Rule \"{name}\" {did}.", "Reguła „{name}” {did}.")
+}
+
+/// "a" · "a and b" · "a, b and c"; in Polish "a, b i c". Neither puts a comma before the
+/// last one: the English notes never had one, and Polish never does before "i".
 fn join_and(parts: &[String]) -> String {
     match parts {
         [] => String::new(),
         [one] => one.clone(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        [rest @ .., last] => {
+            let rest = rest.join(", ");
+            tr!("{rest} and {last}", "{rest} i {last}")
+        }
     }
 }
 
@@ -666,6 +712,51 @@ mod tests {
         assert_eq!(
             store.get(target.id).unwrap().note.as_deref(),
             Some("Rule \"Faktury\" moved it to Faktury and flagged it.")
+        );
+    }
+
+    #[test]
+    fn notes_and_checks_speak_polish_when_asked() {
+        use crate::i18n::{self, Lang};
+        let mut store = sample_store();
+        let m = store.list("firma/inbox").unwrap()[0].clone();
+        store.set_unread(m.id, true).unwrap();
+        store.set_flagged(m.id, false).unwrap();
+        let archive = rule(
+            "Porządki",
+            Some("firma"),
+            vec![cond(Field::Subject, Op::Is, &m.subject)],
+            vec![
+                Action::Move {
+                    folder: "firma/archive".into(),
+                },
+                Action::Flag,
+                Action::MarkRead,
+            ],
+        );
+        store.save_rule(&archive).unwrap();
+        let report = i18n::with(Lang::Pl, || {
+            run(&mut store, &[m.id], Trigger::OnDemand, when(10)).unwrap()
+        });
+        assert_eq!(report.moved, 1);
+        assert_eq!(
+            store.get(m.id).unwrap().note.as_deref(),
+            Some(
+                "Reguła „Porządki” przeniosła ją do folderu Archiwum, oznaczyła ją flagą \
+                 i oznaczyła ją jako przeczytaną."
+            ),
+            "the Archive folder by its Polish name, no comma before \"i\""
+        );
+
+        let parts = ["a", "b", "c"].map(String::from);
+        assert_eq!(join_and(&parts), "a, b and c");
+        assert_eq!(i18n::with(Lang::Pl, || join_and(&parts[..2])), "a i b");
+
+        let mut unnamed = archive;
+        unnamed.account = None;
+        assert_eq!(
+            i18n::with(Lang::Pl, || unnamed.check(&accounts()).unwrap_err()),
+            "Żeby przenosić pocztę, wybierz konto reguły."
         );
     }
 

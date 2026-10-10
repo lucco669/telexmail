@@ -11,7 +11,8 @@ after v0.2.0. Phase 1 is done (after v0.2.1); the later phases are the plan, not
   body, the full raw message (attachments included), the FTS5 index, the queue of changes for
   the server (`pending_ops`), the Outbox, rules, identities and trusted senders. Created when
   the first account is added; until then the store is in memory.
-- **Not in it**: passwords (Windows Credential Manager, service "Telex"), settings (theme,
+- **Not in it**: passwords (the system's store, service "Telex": Windows Credential Manager, a
+  Secret Service keyring on Linux), settings (theme,
   language and the rest: `settings.json` in the same folder, written even before the first
   account), window state such as pane sizes (WebView2 local storage under
   `%LOCALAPPDATA%\app.telexmail.desktop`), remote images (fetched on request, kept in memory for
@@ -21,11 +22,14 @@ after v0.2.0. Phase 1 is done (after v0.2.1); the later phases are the plan, not
   (`imap::FIRST_SYNC_LIMIT`), then everything new. Mail deleted on the server is deleted
   locally; removing an account deletes its mail. No size cap, no expiry; the file never shrinks
   (SQLite reuses freed pages, nothing runs VACUUM).
-- **Schema** (version 7): `messages` has only the summary columns, with indexes on
+- **Schema** (version 8): `messages` has only the summary columns, with indexes on
   `(folder, date)` for the list and `(folder, unread)` for the counts. The body and the raw
   message are in `message_content` (same id, removed with the message). `messages_fts` is a
   contentless FTS5 index over subject, people and body (`contentless_delete=1`), kept in step
-  by triggers (`src/migrations/007_message_content.sql`).
+  by triggers (`src/migrations/007_message_content.sql`). Version 8 keeps what the Usage tab
+  shows about each account besides its mail: the server's quota and the last sync
+  (`src/migrations/008_usage.sql`); the sizes and counts come from `messages` when the tab
+  opens.
 - **SQLite settings**: WAL with `synchronous=NORMAL` (a power cut can lose the last commits,
   never damage the file), a 32 MiB page cache, a 256 MiB memory map, temporary tables in memory,
   and `PRAGMA optimize` when the store closes and when the window closes.

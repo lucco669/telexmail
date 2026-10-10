@@ -8,9 +8,11 @@
 //! read-only for now; `mime` turns raw messages into `Message`s.
 
 pub mod autoconfig;
+mod colors;
 pub mod drafts;
 pub mod filters;
 pub mod html;
+pub mod i18n;
 pub mod imap;
 pub mod list;
 pub mod mime;
@@ -19,6 +21,7 @@ pub mod sample;
 pub mod settings;
 pub mod smtp;
 pub mod store;
+pub mod usage;
 
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey};
 pub use model::*;

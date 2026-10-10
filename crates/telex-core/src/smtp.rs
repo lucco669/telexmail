@@ -17,9 +17,11 @@ use lettre::message::{Attachment as MimeAttachment, Mailbox, MultiPart, SinglePa
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message as Email, Tokio1Executor};
 
+use crate::html;
 use crate::mime::{attachments_of, parse_message, thread_ids};
 use crate::model::{Account, Message, OutgoingDraft, SmtpSecurity, SmtpSettings};
 use crate::store::{MailStore, OutgoingMail, StoreError};
+use crate::tr;
 
 const SMTP_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -63,7 +65,7 @@ pub fn compose(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, false)
+    build(account, draft, originals, now, Purpose::Send)
 }
 
 /// Like [`compose`], marked `Auto-Submitted: auto-replied` (RFC 3834) so other robots
@@ -74,7 +76,34 @@ pub fn compose_auto_reply(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, true)
+    build(account, draft, originals, now, Purpose::AutoReply)
+}
+
+/// A draft as a whole message, to keep with the draft: its HTML and the forwarded files
+/// stay with it until it is edited again. Unlike [`compose`], recipients may be missing
+/// or half typed; the ones that aren't addresses yet are left out of the headers (the
+/// draft keeps the To and Cc text as typed).
+pub fn compose_draft(
+    account: &Account,
+    draft: &OutgoingDraft,
+    originals: &Originals,
+    now: DateTime<Local>,
+) -> Result<Vec<u8>, String> {
+    build(account, draft, originals, now, Purpose::Draft).map(|c| c.raw)
+}
+
+/// Why a message is built: to send, to answer automatically, or to keep as a draft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Purpose {
+    Send,
+    AutoReply,
+    Draft,
+}
+
+/// The text of a message: plain, or written in HTML with a plain-text version alongside.
+enum Body {
+    Plain(SinglePart),
+    Html(MultiPart),
 }
 
 fn build(
@@ -82,17 +111,29 @@ fn build(
     draft: &OutgoingDraft,
     originals: &Originals,
     now: DateTime<Local>,
-    auto_reply: bool,
+    purpose: Purpose,
 ) -> Result<Composed, String> {
     let identity = account.identity(draft.identity);
-    let from_address = identity
-        .email
-        .parse()
-        .map_err(|_| format!("The sender address \"{}\" isn't valid.", identity.email))?;
-    let to = parse_recipients(&draft.to, "To")?;
-    let cc = parse_recipients(&draft.cc, "Cc")?;
-    if to.is_empty() && cc.is_empty() {
-        return Err("Add at least one recipient in To.".into());
+    let from_address: lettre::Address = identity.email.parse().map_err(|_| {
+        let email = &identity.email;
+        tr!(
+            "The sender address \"{email}\" isn't valid.",
+            "Adres nadawcy „{email}” jest niepoprawny."
+        )
+    })?;
+    let (to, cc) = if purpose == Purpose::Draft {
+        (lenient_recipients(&draft.to), lenient_recipients(&draft.cc))
+    } else {
+        (
+            parse_recipients(&draft.to, &tr!("To", "Do"))?,
+            parse_recipients(&draft.cc, &tr!("Cc", "DW"))?,
+        )
+    };
+    if to.is_empty() && cc.is_empty() && purpose != Purpose::Draft {
+        return Err(tr!(
+            "Add at least one recipient in To.",
+            "Dodaj co najmniej jednego odbiorcę w polu Do."
+        ));
     }
     let domain = identity
         .email
@@ -100,10 +141,19 @@ fn build(
         .map_or("telex.invalid", |(_, d)| d);
 
     let mut builder = Email::builder()
-        .from(Mailbox::new(Some(identity.name.clone()), from_address))
+        .from(Mailbox::new(
+            Some(identity.name.clone()),
+            from_address.clone(),
+        ))
         .subject(draft.subject.clone())
         .date(SystemTime::from(now))
         .message_id(Some(format!("<{}>", new_message_id(domain))));
+    if purpose == Purpose::Draft {
+        // A draft goes nowhere, but lettre wants an envelope: the sender to itself.
+        let envelope = Envelope::new(Some(from_address.clone()), vec![from_address])
+            .map_err(|e| unbuildable(&e))?;
+        builder = builder.envelope(envelope);
+    }
     for mailbox in to {
         builder = builder.to(mailbox);
     }
@@ -122,7 +172,14 @@ fn build(
         }
     }
 
-    let text = SinglePart::plain(draft.body.clone());
+    // HTML goes out cleaned, with a plain-text version for mail programs that show only text.
+    let body = match draft.html.as_deref().map(html::compose_clean) {
+        Some(clean) => Body::Html(MultiPart::alternative_plain_html(
+            html::to_text(&clean),
+            html::compose_document(&clean),
+        )),
+        None => Body::Plain(SinglePart::plain(draft.body.clone())),
+    };
     // The forwarded message's attachments that are still listed in the draft.
     let files: Vec<_> = originals
         .forwarded
@@ -132,20 +189,26 @@ fn build(
         .into_iter()
         .filter(|f| draft.attachments.iter().any(|a| a.name == f.name))
         .collect();
-    let email = if files.is_empty() {
-        builder.singlepart(text)
-    } else {
-        let mut mixed = MultiPart::mixed().singlepart(text);
-        for file in files {
-            let content_type = ContentType::parse(&file.content_type)
-                .unwrap_or(ContentType::parse("application/octet-stream").expect("valid type"));
-            mixed = mixed.singlepart(MimeAttachment::new(file.name).body(file.data, content_type));
+    let email = match body {
+        Body::Plain(text) if files.is_empty() => builder.singlepart(text),
+        Body::Html(alternative) if files.is_empty() => builder.multipart(alternative),
+        body => {
+            let mut mixed = match body {
+                Body::Plain(text) => MultiPart::mixed().singlepart(text),
+                Body::Html(alternative) => MultiPart::mixed().multipart(alternative),
+            };
+            for file in files {
+                let content_type = ContentType::parse(&file.content_type)
+                    .unwrap_or(ContentType::parse("application/octet-stream").expect("valid type"));
+                mixed =
+                    mixed.singlepart(MimeAttachment::new(file.name).body(file.data, content_type));
+            }
+            builder.multipart(mixed)
         }
-        builder.multipart(mixed)
     }
-    .map_err(|e| format!("Couldn't build the message: {e}"))?;
+    .map_err(|e| unbuildable(&e))?;
     let mut email = email;
-    if auto_reply {
+    if purpose == Purpose::AutoReply {
         let name =
             HeaderName::new_from_ascii("Auto-Submitted".to_owned()).expect("a valid header name");
         email
@@ -163,6 +226,14 @@ fn build(
         env_to: envelope.to().iter().map(ToString::to_string).collect(),
         raw,
     })
+}
+
+/// lettre couldn't put the message together; its reason stays as it wrote it.
+fn unbuildable(e: &impl std::fmt::Display) -> String {
+    tr!(
+        "Couldn't build the message: {e}",
+        "Nie udało się utworzyć wiadomości: {e}"
+    )
 }
 
 /// An SMTP connection for an account. It logs in with the IMAP user name and password.
@@ -190,7 +261,10 @@ pub async fn check(settings: &SmtpSettings, username: &str, password: &str) -> R
     })?;
     match transport.test_connection().await {
         Ok(true) => Ok(()),
-        Ok(false) => Err("the SMTP server closed the connection".into()),
+        Ok(false) => Err(tr!(
+            "the SMTP server closed the connection",
+            "serwer SMTP zamknął połączenie"
+        )),
         Err(e) => Err(describe(&e)),
     }
 }
@@ -202,7 +276,12 @@ pub async fn send_raw(
     env_to: &[String],
     raw: &[u8],
 ) -> Result<(), SendError> {
-    let refused = |what: &str| SendError::Refused(format!("\"{what}\" isn't a valid address"));
+    let refused = |what: &str| {
+        SendError::Refused(tr!(
+            "\"{what}\" isn't a valid address",
+            "„{what}” nie jest poprawnym adresem"
+        ))
+    };
     let from = env_from.parse().map_err(|_| refused(env_from))?;
     let to = env_to
         .iter()
@@ -245,15 +324,19 @@ pub async fn send_outbox(
             }
             Err(SendError::Refused(reason)) => {
                 lock(store)?.outgoing_failed(mail.message, &reason, true)?;
-                report
-                    .problems
-                    .push(format!("\"{}\" wasn't sent: {reason}", mail.subject));
+                let subject = &mail.subject;
+                report.problems.push(tr!(
+                    "\"{subject}\" wasn't sent: {reason}",
+                    "wiadomość „{subject}” nie została wysłana: {reason}"
+                ));
             }
             Err(SendError::Failed(reason)) => {
                 lock(store)?.outgoing_failed(mail.message, &reason, false)?;
-                report.problems.push(format!(
-                    "couldn't send \"{}\": {reason}. It stays in the Outbox",
-                    mail.subject
+                let subject = &mail.subject;
+                report.problems.push(tr!(
+                    "couldn't send \"{subject}\": {reason}. It stays in the Outbox",
+                    "nie udało się wysłać wiadomości „{subject}”: {reason}. Czeka w Skrzynce \
+                     nadawczej"
                 ));
                 break;
             }
@@ -263,9 +346,7 @@ pub async fn send_outbox(
 }
 
 fn lock(store: &Mutex<MailStore>) -> Result<MutexGuard<'_, MailStore>, StoreError> {
-    store.lock().map_err(|_| {
-        StoreError::Database("another task crashed while using it; restart Telex".into())
-    })
+    store.lock().map_err(|_| StoreError::poisoned())
 }
 
 /// `"Re: Wycena" to Anna Kowalska`
@@ -278,7 +359,8 @@ fn sent_line(mail: &OutgoingMail) -> String {
         Some((name, _)) if !name.trim().is_empty() => name.trim().trim_matches('"').to_owned(),
         _ => first.trim_matches(['<', '>']).to_owned(),
     };
-    format!("\"{}\" to {who}", mail.subject)
+    let subject = &mail.subject;
+    tr!("\"{subject}\" to {who}", "„{subject}” do {who}")
 }
 
 /// "Anna <a@x.pl>, b@y.pl" → mailboxes, naming the part that doesn't parse.
@@ -286,9 +368,21 @@ fn parse_recipients(input: &str, field: &str) -> Result<Vec<Mailbox>, String> {
     split_addresses(input)
         .into_iter()
         .map(|part| {
-            Mailbox::from_str(&part)
-                .map_err(|_| format!("\"{part}\" in {field} isn't a valid address."))
+            Mailbox::from_str(&part).map_err(|_| {
+                tr!(
+                    "\"{part}\" in {field} isn't a valid address.",
+                    "„{part}” w polu {field} nie jest poprawnym adresem."
+                )
+            })
         })
+        .collect()
+}
+
+/// The addresses that parse; a draft may hold half-typed ones.
+fn lenient_recipients(input: &str) -> Vec<Mailbox> {
+    split_addresses(input)
+        .iter()
+        .filter_map(|part| Mailbox::from_str(part).ok())
         .collect()
 }
 
@@ -347,9 +441,15 @@ fn is_login_problem(e: &lettre::transport::smtp::Error) -> bool {
 
 fn describe(e: &lettre::transport::smtp::Error) -> String {
     if is_login_problem(e) {
-        "the SMTP server rejected the user name or password".into()
+        tr!(
+            "the SMTP server rejected the user name or password",
+            "serwer SMTP odrzucił nazwę użytkownika lub hasło"
+        )
     } else if e.is_tls() {
-        format!("no secure connection to the SMTP server ({e})")
+        tr!(
+            "no secure connection to the SMTP server ({e})",
+            "brak bezpiecznego połączenia z serwerem SMTP ({e})"
+        )
     } else {
         e.to_string()
     }
@@ -392,6 +492,52 @@ mod tests {
 
     fn now() -> DateTime<Local> {
         Local.with_ymd_and_hms(2026, 10, 10, 9, 30, 0).unwrap()
+    }
+
+    #[test]
+    fn html_mail_goes_out_with_a_plain_text_version() {
+        let mut d = draft("anna@kowalska-architekci.pl");
+        d.body = "ignored".into();
+        d.html = Some(
+            "<div>Dzień <b>dobry</b>,</div><div><br></div><ul><li>wycena</li></ul>\
+             <div style=\"color:red\" onclick=\"x()\">Pozdrawiam</div><script>alert(1)</script>"
+                .into(),
+        );
+        let composed = compose(&account(), &d, &Originals::default(), now()).unwrap();
+        let raw = String::from_utf8_lossy(&composed.raw);
+        assert!(raw.contains("multipart/alternative"), "{raw}");
+        let parsed = MessageParser::default().parse(&composed.raw).unwrap();
+        let text = parsed.body_text(0).unwrap().replace("\r\n", "\n");
+        assert_eq!(text.trim_end(), "Dzień dobry,\n\n- wycena\nPozdrawiam");
+        let html = parsed.body_html(0).unwrap();
+        assert!(html.contains("<b>dobry</b>"), "{html}");
+        for gone in ["onclick", "script", "color:red", "ignored"] {
+            assert!(!html.contains(gone), "{gone}: {html}");
+        }
+        // The local copy shows the text, and the HTML view finds the HTML.
+        assert!(composed.message.body.starts_with("Dzień dobry,"));
+        assert!(html::render(&composed.raw, &Default::default(), &html::Paper::Light).is_some());
+    }
+
+    #[test]
+    fn a_draft_keeps_its_html_and_half_typed_recipients_are_fine() {
+        let mut d = draft("anna@kowalska-architekci.pl, piotr@");
+        d.html = Some("<div><i>Szkic</i></div>".into());
+        assert!(compose(&account(), &d, &Originals::default(), now()).is_err());
+        let raw = compose_draft(&account(), &d, &Originals::default(), now()).unwrap();
+        let parsed = MessageParser::default().parse(&raw).unwrap();
+        assert_eq!(
+            parsed.to().unwrap().iter().count(),
+            1,
+            "only the whole address"
+        );
+        assert!(parsed.body_html(0).unwrap().contains("<i>Szkic</i>"));
+
+        let empty = OutgoingDraft {
+            to: String::new(),
+            ..draft("")
+        };
+        assert!(compose_draft(&account(), &empty, &Originals::default(), now()).is_ok());
     }
 
     #[test]
@@ -560,6 +706,32 @@ JVBERi0xLjQK\r\n\
         assert!(err.contains("\"anna@\" in To"), "{err}");
         let err = compose(&account(), &draft("  "), &Originals::default(), now()).unwrap_err();
         assert!(err.contains("Add at least one recipient"), "{err}");
+    }
+
+    #[test]
+    fn sent_lines_and_bad_addresses_in_polish() {
+        use crate::i18n::{self, Lang};
+        let mail = OutgoingMail {
+            message: 1,
+            account: "twojastudio".into(),
+            env_from: "biuro@twojastudio.pl".into(),
+            env_to: vec!["anna@x.pl".into()],
+            raw: Vec::new(),
+            subject: "Re: Wycena".into(),
+            to: "\"Kowalska, Anna\" <anna@x.pl>, piotr@y.pl".into(),
+            attempts: 0,
+        };
+        assert_eq!(sent_line(&mail), "\"Re: Wycena\" to Kowalska, Anna");
+        assert_eq!(
+            i18n::with(Lang::Pl, || sent_line(&mail)),
+            "„Re: Wycena” do Kowalska, Anna"
+        );
+        let mut d = draft("anna@x.pl");
+        d.cc = "piotr@".into();
+        let err = i18n::with(Lang::Pl, || {
+            compose(&account(), &d, &Originals::default(), now()).unwrap_err()
+        });
+        assert_eq!(err, "„piotr@” w polu DW nie jest poprawnym adresem.");
     }
 
     // ---- A fake SMTP server: just enough of RFC 5321 for one message per connection ----

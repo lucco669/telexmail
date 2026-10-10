@@ -2,7 +2,15 @@ import { cacheLife } from 'next/cache';
 import { site } from './site';
 
 export type Asset = { name: string; url: string; size: number };
-export type Release = { version: string; date: string; pageUrl: string; exe: Asset | null; msi: Asset | null };
+export type Release = {
+  version: string;
+  date: string;
+  pageUrl: string;
+  exe: Asset | null;
+  msi: Asset | null;
+  /** The Linux build, from releases that have one. */
+  appimage: Asset | null;
+};
 
 type GitHubAsset = { name: string; browser_download_url: string; size: number };
 type GitHubRelease = {
@@ -21,7 +29,8 @@ function pick(assets: GitHubAsset[], ext: string): Asset | null {
 }
 
 /**
- * Releases that have a Windows installer, newest first (up to 10). Empty when there are none yet,
+ * Releases that have a Windows installer (and the Linux AppImage, if they have one), newest first
+ * (up to 10). Empty when there are none yet,
  * they are still drafts, the repository is private, or GitHub can't be reached. Checked at most
  * once an hour, so a new
  * release shows up on the site without a redeploy.
@@ -47,9 +56,11 @@ export async function getReleases(): Promise<Release[]> {
         version: r.tag_name.replace(/^v/, ''),
         date: r.published_at ?? '',
         pageUrl: r.html_url,
-        // Tauri names them Telex_0.1.0_x64-setup.exe and Telex_0.1.0_x64_en-US.msi.
+        // Tauri names them Telex_0.1.0_x64-setup.exe, Telex_0.1.0_x64_en-US.msi and
+        // Telex_0.1.0_amd64.AppImage.
         exe: pick(r.assets, '.exe'),
         msi: pick(r.assets, '.msi'),
+        appimage: pick(r.assets, '.appimage'),
       }))
       .filter((r) => r.exe || r.msi);
   } catch {

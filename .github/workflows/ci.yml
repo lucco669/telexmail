@@ -27,6 +27,23 @@ jobs:
       - run: cargo clippy -p telex-core --all-targets -- -D warnings
       - run: cargo test -p telex-core
 
+  # The app itself on Linux, as the release builds it (ubuntu-22.04). Clippy only, no bundle.
+  linux:
+    name: Linux app check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # What Tauri 2 builds against on Linux, and D-Bus for the password store (keyring).
+      - name: Linux libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p telex --all-targets -- -D warnings
+
   windows:
     name: Windows installer
     runs-on: windows-latest

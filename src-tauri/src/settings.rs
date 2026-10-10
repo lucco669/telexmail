@@ -12,10 +12,12 @@ use serde_json::Value;
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_opener::OpenerExt;
+use telex_core::i18n::{self, Lang};
 use telex_core::settings::{
     self as core, ExportChoice, Import, ImportChoice, ImportError, ImportPlan, ImportReport,
     Settings, SystemLocale,
 };
+use telex_core::tr;
 
 use crate::{with_store, AppState, CmdResult};
 
@@ -36,19 +38,24 @@ impl SettingsState {
     /// Read `settings.json` (or start from the defaults when there is none).
     pub fn load(path: PathBuf) -> Self {
         let loaded = Settings::load(&path);
+        let locale = core::system_locale();
+        i18n::set(Lang::from_code(loaded.settings.effective_language(&locale)));
         Self {
             settings: Mutex::new(loaded.settings),
             path,
             fresh: AtomicBool::new(loaded.fresh),
-            locale: core::system_locale(),
+            locale,
             pending: Mutex::new(None),
             exported: Mutex::new(None),
         }
     }
 
+    /// What the window gets. The core writes its errors and notes in the same language.
     fn view(&self, settings: Settings) -> SettingsView {
+        let language = settings.effective_language(&self.locale);
+        i18n::set(Lang::from_code(language));
         SettingsView {
-            language: settings.effective_language(&self.locale),
+            language,
             offer: settings.language_to_offer(&self.locale),
             fresh: self.fresh.load(Ordering::SeqCst),
             settings,
@@ -62,8 +69,12 @@ impl SettingsState {
     /// Save the settings to disk, then make them current.
     fn replace(&self, next: Settings) -> CmdResult<SettingsView> {
         let mut current = lock(&self.settings)?;
-        next.save(&self.path)
-            .map_err(|e| format!("Couldn't save the settings: {e}."))?;
+        next.save(&self.path).map_err(|e| {
+            tr!(
+                "Couldn't save the settings: {e}.",
+                "Nie udało się zapisać ustawień: {e}."
+            )
+        })?;
         *current = next.clone();
         self.fresh.store(false, Ordering::SeqCst);
         Ok(self.view(next))
@@ -71,8 +82,12 @@ impl SettingsState {
 }
 
 fn lock<T>(m: &Mutex<T>) -> CmdResult<MutexGuard<'_, T>> {
-    m.lock()
-        .map_err(|_| "The settings stopped responding. Restart Telex.".to_string())
+    m.lock().map_err(|_| {
+        tr!(
+            "The settings stopped responding. Restart Telex.",
+            "Ustawienia przestały odpowiadać. Uruchom Telexa ponownie."
+        )
+    })
 }
 
 #[derive(Debug, Serialize)]
@@ -138,8 +153,13 @@ pub async fn export_settings(
     let Some(path) = picked(rx).await else {
         return Ok(None);
     };
-    std::fs::write(&path, text).map_err(|e| format!("Couldn't save {}: {e}.", path.display()))?;
     let shown = path.display().to_string();
+    std::fs::write(&path, text).map_err(|e| {
+        tr!(
+            "Couldn't save {shown}: {e}.",
+            "Nie udało się zapisać {shown}: {e}."
+        )
+    })?;
     *lock(&settings.exported)? = Some(path);
     Ok(Some(shown))
 }
@@ -159,9 +179,12 @@ pub fn show_export(app: AppHandle, settings: State<'_, SettingsState>) -> CmdRes
     let Some(path) = lock(&settings.exported)?.clone() else {
         return Ok(());
     };
-    app.opener()
-        .reveal_item_in_dir(&path)
-        .map_err(|e| format!("Couldn't open the folder: {e}"))
+    app.opener().reveal_item_in_dir(&path).map_err(|e| {
+        tr!(
+            "Couldn't open the folder: {e}",
+            "Nie udało się otworzyć folderu: {e}"
+        )
+    })
 }
 
 /// Pick a settings file and say what importing it would do. `null` when the user cancels.
@@ -212,7 +235,10 @@ pub fn apply_import(
     choice: ImportChoice,
 ) -> CmdResult<ImportOutcome> {
     let Some(text) = lock(&settings.pending)?.take() else {
-        return Err("Choose the file to import again.".into());
+        return Err(tr!(
+            "Choose the file to import again.",
+            "Wybierz jeszcze raz plik do importu."
+        ));
     };
     let current = settings.current()?;
     let (next, report) = with_store(&store, |s| {

@@ -52,6 +52,11 @@ const KEYS: &[&str] = &[
     "prefer_text",
     "mark_read",
     "check_every",
+    "mail_paper",
+    "compose_format",
+    "reply_format",
+    "ask_subject",
+    "spell_check",
     "updates",
 ];
 
@@ -69,7 +74,45 @@ pub struct Settings {
     pub mark_read: MarkRead,
     /// Minutes, one of [`CHECK_INTERVALS`].
     pub check_every: u16,
+    /// HTML mail in a dark theme: on the theme's dark paper, or on white as sent.
+    pub mail_paper: MailPaper,
+    /// What a new message is written in.
+    pub compose_format: ComposeFormat,
+    /// What a reply or a forward is written in.
+    pub reply_format: ReplyFormat,
+    /// Send asks once more when the subject is empty.
+    pub ask_subject: bool,
+    /// Underline misspelt words while writing.
+    pub spell_check: bool,
     pub updates: Updates,
+}
+
+/// The paper HTML mail is shown on in a dark theme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MailPaper {
+    /// The theme's own dark paper, with the message's colors turned around to match.
+    Theme,
+    /// White, as the sender designed it.
+    White,
+}
+
+/// Plain text or HTML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ComposeFormat {
+    Plain,
+    Html,
+}
+
+/// What a reply or a forward is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReplyFormat {
+    /// HTML when the message has HTML, else plain text.
+    Same,
+    Plain,
+    Html,
 }
 
 /// Row height in the lists: 20 px, or 26 px for people who want air.
@@ -112,6 +155,11 @@ impl Default for Settings {
             prefer_text: false,
             mark_read: MarkRead::Moment,
             check_every: 10,
+            mail_paper: MailPaper::Theme,
+            compose_format: ComposeFormat::Plain,
+            reply_format: ReplyFormat::Same,
+            ask_subject: true,
+            spell_check: true,
             updates: Updates::Ask,
         }
     }
@@ -1045,6 +1093,31 @@ mod tests {
         let mut ignored = ignored;
         ignored.sort();
         assert_eq!(ignored, ["colour", "text_size", "theme"]);
+    }
+
+    #[test]
+    fn a_file_from_0_3_keeps_its_values_and_gets_the_new_defaults() {
+        let old = serde_json::json!({
+            "theme": "fjord", "language": "pl", "density": "compact", "text_size": 110,
+            "prefer_text": false, "mark_read": "moment", "check_every": 15, "updates": "daily",
+        });
+        let (s, ignored) = Settings::default().merged(&old);
+        assert!(ignored.is_empty(), "{ignored:?}");
+        assert_eq!((s.theme.as_str(), s.check_every), ("fjord", 15));
+        assert_eq!(s.mail_paper, MailPaper::Theme);
+        assert_eq!(s.compose_format, ComposeFormat::Plain);
+        assert_eq!(s.reply_format, ReplyFormat::Same);
+        assert!(s.ask_subject && s.spell_check);
+
+        let (s, ignored) = s.merged(&serde_json::json!({
+            "compose_format": "html", "reply_format": "plain", "mail_paper": "white",
+            "spell_check": false, "ask_subject": "maybe",
+        }));
+        assert_eq!(ignored, ["ask_subject"]);
+        assert_eq!(s.compose_format, ComposeFormat::Html);
+        assert_eq!(s.reply_format, ReplyFormat::Plain);
+        assert_eq!(s.mail_paper, MailPaper::White);
+        assert!(!s.spell_check && s.ask_subject);
     }
 
     #[test]

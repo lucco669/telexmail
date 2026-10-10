@@ -201,7 +201,29 @@ tr.empty:hover td{background:none}
 .btn.danger{color:var(--note-fg)}
 .btn.danger:hover{border-color:var(--note-fg)}
 
-/* Account dialog */
+/* HTML mail on a dark theme's paper, and the sun/moon button that switches it to white */
+.pbody.html.dark,.pbody.html.dark .hframe{background:var(--surface)}
+.pbtn{flex:none;display:inline-grid;place-items:center;width:24px;height:22px;margin-top:0;padding:0;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--muted);cursor:pointer}
+.pbtn:hover{color:var(--fg);border-color:var(--accent)}
+.pbtn svg{width:14px;height:14px}
+/* Compose in HTML: the Text | HTML switch, a formatting bar and the editor */
+.ctitle .cfmt{margin-left:auto;align-self:center}
+.fbar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:3px 10px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
+.fb{display:inline-grid;place-items:center;min-width:26px;height:24px;padding:0 5px;border:1px solid transparent;border-radius:3px;background:none;font:13px var(--font-ui);cursor:pointer}
+.fb:hover{background:var(--hover);border-color:var(--line)}
+.fb svg{width:15px;height:15px}
+.flink{display:inline-flex;align-items:center;gap:6px;margin-left:6px;min-width:0}
+.flink[hidden]{display:none}
+.flink input{width:min(280px,40vw);height:22px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:12px var(--font-data)}
+.flink input:focus{border-color:var(--accent);outline:0}
+.flink small{font-size:11px;color:var(--muted);white-space:nowrap}
+.hedit{flex:1;min-height:120px;overflow:auto;padding:10px 14px;background:var(--surface);color:var(--fg);font:13px/1.55 var(--font-ui);overflow-wrap:anywhere;user-select:text}
+.hedit:focus{outline:0;box-shadow:inset 0 0 0 1px var(--accent)}
+.hedit a{color:var(--accent)}
+.hedit blockquote{margin:2px 0 2px 2px;padding-left:10px;border-left:2px solid var(--line);color:var(--muted)}
+.hedit ul,.hedit ol{margin:2px 0;padding-left:24px}
+.hedit p{margin:0 0 8px}
+/* Dialogs */
 .dlg{width:min(460px,calc(100vw - 32px));padding:0;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);box-shadow:0 12px 32px var(--shadow)}
 .dlg::backdrop{background:var(--scrim)}
 .dtitle{margin:0;padding:12px 14px 2px;font:600 14px var(--font-ui)}
@@ -345,6 +367,69 @@ tr.empty:hover td{background:none}
 .ist.same{background:var(--panel);color:var(--muted)}
 .ist.skip{background:var(--warn-bg);color:var(--warn-fg)}
 .ipart .dnote{padding:6px 10px 8px}
+/* Settings › Accounts: the list, and the wizard, server form and identities in the pane */
+.spane .cf.df{padding:8px 0 10px}
+.spane .rlist{padding:0 0 6px;max-height:none}
+.spane .rcheck{margin:6px 0 10px}
+.spane .wsteps{margin:8px 0 14px}
+.spane .dhead{padding-right:0}
+.spane .dhead .rh{margin-top:6px}
+.spane .langpick{margin-top:0}
+.slist{display:flex;flex-direction:column;margin:0 0 10px}
+.sacct{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 0;border-bottom:1px solid var(--line-soft)}
+.sacct:last-child{border-bottom:0}
+.sacct .adot{display:inline-block;align-self:flex-start;margin-top:5px}
+.satext{flex:1;min-width:0}
+.satext .nm{font-weight:600;font-size:12.5px}
+.satext .em,.satext .st{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.satext .st.warn{color:var(--note-fg)}
+.srow{display:flex;align-items:center;gap:8px;min-height:32px;border-bottom:1px solid var(--line-soft)}
+.srow:last-child{border-bottom:0}
+.srow .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.set .adot{display:inline-block}
+
+/* Settings › Usage: a card per account, like a phone's storage screen */
+.ubase{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 0 12px;font-size:12.5px}
+.ucard{margin:0 0 14px;padding:10px 12px 4px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.uhead{display:flex;align-items:center;gap:7px;margin:0 0 8px}
+.uname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:13px}
+.ustat{flex:none;font-size:11.5px;color:var(--muted)}
+.ustat.warn{color:var(--note-fg);font-weight:500}
+.ublock{margin:0 0 12px}
+.urow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 5px}
+.ulabel{display:block;margin:0 0 5px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.urow .ulabel{margin:0}
+.uval{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--fg);text-align:right}
+.ubar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden}
+.ubar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.ubar[data-level="warn"] i{background:var(--flag)}
+.ubar[data-level="full"] i{background:var(--note-fg)}
+.unote{margin:6px 0 10px;padding:5px 8px;border-radius:3px;background:var(--panel);color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
+.unote.warn,.unote.full{background:var(--note-bg);color:var(--note-fg)}
+.ustack{display:flex;gap:2px;height:10px;border-radius:3px;overflow:hidden}
+.ustack i{display:block;min-width:3px}
+.u0{background:var(--acct-0)} .u1{background:var(--acct-1)} .u2{background:var(--acct-2)}
+.u3{background:var(--acct-3)} .u4{background:var(--acct-4)} .u5{background:var(--acct-5)}
+.ulegend{display:flex;flex-wrap:wrap;gap:3px 14px;list-style:none;margin:6px 0 0;padding:0;font-size:11.5px}
+.ulegend li{display:flex;align-items:center;gap:5px}
+.ulegend li>i{width:8px;height:8px;border-radius:2px}
+.ulegend span{font-family:var(--font-data);color:var(--muted)}
+.ukey{display:inline-block;width:8px;height:8px;margin-right:4px;border-radius:2px;vertical-align:0}
+.ukey.in{background:var(--accent)} .ukey.out{background:var(--acct-1)} .ukey.junk{background:var(--faint)}
+.flow{display:block;width:100%;height:64px}
+.flow .in{fill:var(--accent)} .flow .out{fill:var(--acct-1)} .flow .junk{fill:var(--faint)}
+.flow .hit{fill:transparent}
+.flow g:hover .hit{fill:var(--hover)}
+.flow .axis{stroke:var(--line);stroke-width:1;vector-effect:non-scaling-stroke}
+.uaxis{display:flex;justify-content:space-between;margin-top:2px;font:10.5px var(--font-data);color:var(--muted)}
+.ulist{list-style:none;margin:0;padding:0}
+.ulink{display:flex;align-items:center;gap:8px;width:100%;min-height:26px;padding:0 4px;border:0;border-radius:3px;background:none;font-size:12px;text-align:left;cursor:pointer}
+.ulink:hover{background:var(--hover)}
+.ulink .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ulink .from{max-width:35%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11.5px}
+.ulink .n{flex:none;min-width:52px;text-align:right;font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
+.spark{flex:0 0 72px;height:5px;border-radius:3px;background:var(--line-soft);overflow:hidden}
+.spark i{display:block;height:100%;background:var(--accent)}
 @media (max-width: 620px){
   .setbody{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
   .settabs{flex-direction:row;padding:6px;border-right:0;border-bottom:1px solid var(--line-soft)}
@@ -358,7 +443,8 @@ tr.empty:hover td{background:none}
   .seg2 input:checked+span,.langpick button[aria-pressed="true"],.seg button[aria-pressed="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText}
   tr.unread .ic .dot{forced-color-adjust:none;background:CanvasText}
   .list:focus tr.sel.unread .ic .dot,tr.sel.unread .ic .dot{background:HighlightText}
-  .bar,.whint,.derr,.tag,.chip,.ist,.pill{border:1px solid CanvasText}
+  .bar,.whint,.derr,.tag,.chip,.ist,.pill,.qchip,.unote{border:1px solid CanvasText}
+  .ubar,.mbar,.spark,.ustack,.ulegend li>i,.ukey{forced-color-adjust:none}
   .tcard:has(input:checked){outline:3px solid Highlight;outline-offset:1px}
   .mini{forced-color-adjust:none}
 }
@@ -379,6 +465,18 @@ button.chip[hidden]{display:none}
 .ask{color:var(--fg)}
 .ask .linkbtn{margin:0 2px}
 .status:has(#st-ask:not([hidden])) .hint{display:none}
+/* The server's storage for the open folder's account: a quiet bar, warning colors near full */
+.meter{flex:none;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:none;font:11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted);cursor:pointer}
+.meter[hidden]{display:none}
+.meter:hover,.meter:focus-visible{color:var(--fg)}
+.mbar{display:block;width:34px;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.mbar i{display:block;height:100%;background:var(--accent)}
+.meter[data-level="warn"] .mbar i{background:var(--flag)}
+.meter[data-level="full"] .mbar i{background:var(--note-fg)}
+.meter[data-level="warn"],.meter[data-level="full"]{color:var(--fg)}
+/* A nearly full account in the folder tree */
+.qchip{flex:none;padding:1px 4px;border-radius:3px;font:600 10px var(--font-data);background:var(--warn-bg);color:var(--warn-fg)}
+.qchip[data-level="full"]{background:var(--note-bg);color:var(--note-fg)}
 kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg)}
 
 @media (max-width: 1080px){ .tb .lbl{display:none} .tb{padding:0 6px} .hint .more{display:none} }

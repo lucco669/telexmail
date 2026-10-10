@@ -1,7 +1,8 @@
 # Telex
 
-A compact, fast, keyboard-driven email client for Windows, in the spirit of The Bat!.
-Rust does the mail work; the window is a Tauri WebView2 app with a plain HTML/CSS/JS interface.
+A compact, fast, keyboard-driven email client for Windows (and Linux, as an AppImage), in the
+spirit of The Bat!. Rust does the mail work; the window is a Tauri app (WebView2 on Windows,
+WebKitGTK on Linux) with a plain HTML/CSS/JS interface.
 
 The owner is an experienced web developer (Astro, Sanity) who is new to Rust. When you make a
 Rust-specific choice (ownership, lifetimes, async runtime, error types), explain it in one or two
@@ -20,9 +21,13 @@ plain sentences in your summary.
   Links in spam are not clickable. Update checks happen only after the user says yes.
 - **Polish-friendly.** Old charsets (Windows-1250, ISO-8859-2) must decode correctly. Reply quote
   header is Polish by default: `Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):`. The interface
-  speaks English and Polish, following the Windows display language unless the user picks one.
+  speaks English and Polish, following the Windows display language unless the user picks one;
+  so do the core's errors and notes (`tr!`).
 - **Readable.** Every theme meets WCAG 2.2 AA contrast (high contrast: AAA), checked by a script.
-- **Plain text first.** Compose is plain text in a mono face; HTML compose may come later.
+- **Plain text first.** Compose is plain text in a mono face by default. HTML compose is a
+  setting and a per-message switch, and HTML always goes out with a plain-text copy.
+- **Mail follows the theme.** In a dark theme HTML mail goes on the theme's dark paper with its
+  colors turned around (OKLab, hue kept); one click shows it on white, as sent.
 
 Anti-goals: Electron, AI features by default, a web-app look, anything that phones home.
 
@@ -41,23 +46,32 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322, send the Outbox.
                      Tests run it against a fake SMTP server.
   src/html.rs        HTML mail: sanitize (ammonia) into an inert document for a sandboxed frame,
-                     inline cid: images, fetch remote images on request (ureq, public IPs only).
+                     inline cid: images, fetch remote images on request (ureq, public IPs only);
+                     dark paper in a theme's palette; HTML compose: what may be sent, plain text
+                     from HTML and HTML from plain text.
+  src/colors.rs      CSS colors read and turned around for dark paper (OKLab), for html.rs.
+  src/usage.rs       What the Usage tab shows: quota, sizes per folder, 30 days of mail in and
+                     out, top senders, largest messages, the last sync.
+  src/i18n.rs        The core's language: `tr!("English", "Polski")`, set from the settings.
   src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
                      auto-replies with RFC 3834 safeguards.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
                      signature and templates: recipients, subject, quoted text.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
-                     the domain's autoconfig file, SRV and MX records (Windows DNS), probing.
+                     the domain's autoconfig file, SRV and MX records (Windows' resolver;
+                     hickory-resolver elsewhere), probing.
   src/settings.rs    Settings (settings.json next to the mail base), Windows' languages, and the
                      settings file: export, and import as a plan (what changes) applied in parts.
   src/sample.rs      A Polish sample mailbox for the tests. Never in the app.
   tests/scale.rs     Benchmark on a synthetic 100k-message mail base (ignored; see Commands).
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
-  src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
+  src/secrets.rs     Passwords in the system store (keyring crate), service "Telex": Credential
+                     Manager on Windows, Secret Service (GNOME Keyring, KWallet) on Linux.
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
   src/settings.rs    Settings commands; Save and Open dialogs (tauri-plugin-dialog, from Rust only).
   tauri.release.conf.json  Merged in by the release workflow: turns on the updater's files.
+  tauri.linux.conf.json    Merged on Linux by Tauri: AppImage and .deb instead of nsis/msi.
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
   themes.css         Every color, one block per theme (data-theme on <html> and on theme cards).
   i18n.js            English and Polish: t(), tn() (Polish plurals), data-i18n in index.html.
@@ -75,13 +89,15 @@ scripts/             set-version.mjs: sets the version in every file that has it
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
-.github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Windows installer
-                     build (can't update itself).
-                     release.yml: on a v* tag, signed installers + latest.json in a draft release.
+.github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Linux app clippy
+                     (ubuntu-22.04), Windows installer build (can't update itself).
+                     release.yml: on a v* tag, signed Windows installers, then AppImage + .deb;
+                     latest.json for both in a draft release.
 ```
 
-The mail base is `%APPDATA%\app.telexmail.desktop\telex.db`. It is created when the first account
-is added; until then the app starts with an empty store in memory and opens the wizard.
+The mail base is `%APPDATA%\app.telexmail.desktop\telex.db` (on Linux
+`~/.local/share/app.telexmail.desktop/`). It is created when the first account is added; until
+then the app starts with an empty store in memory and opens the wizard.
 
 Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailStore`:
 
@@ -94,10 +110,16 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `set_flagged`    | `id`, `flagged`              | –                           |
 | `move_message`   | `id`, `folder`               | – (same account only)       |
 | `delete_message` | `id`                         | `moved_to_trash` / `removed`|
-| `save_outgoing`  | `draft`                      | new message id (a draft)    |
+| `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
+| `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
+| `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
+| `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
+| `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
 | `send_message`   | `draft`                      | `{queued, sent: [lines], errors}` |
 | `search`         | `query`                      | ids matching subject, people or body (FTS5), best first, at most 5000 |
-| `get_html`       | `id`, `loadImages` (true/false/null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
+| `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
+| `trusted_senders`| –                            | senders whose images load without asking, A to Z |
+| `usage`          | –                            | `{accounts: [{account, quota, synced_at, sync_error, folders, flow, senders, largest, queued}], base_bytes, free_bytes, since}` |
 | `trust_sender`   | `email`, `trusted`           | – (that sender's images load without asking, except in Spam) |
 | `open_link`      | `url`                        | – (http/https only, in the default browser) |
 | `list_rules`     | –                            | rules in the order they run |
@@ -126,7 +148,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
 user typed: threading headers, forwarded attachments, and the draft or unsent message it was
-edited from; and `identity`, who it is from (`null` = the account's default). Accounts in
+edited from; and `identity`, who it is from (`null` = the account's default); and `html`, the
+editor's HTML when it is written in HTML (`null` = plain text in `body`). Accounts in
 `folder_tree` carry their `identities`. The changing commands (and `send_message`) apply locally at once; for server
 mail the store also queues the change, and the UI calls `push_changes` 2.5 s after the last
 one. `busy: true` means another check or push was running and nothing started; the UI
@@ -147,8 +170,10 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the brid
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
 ("auto", "en", "pl"), `density`, `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
-(moment, at_once, manual), `check_every` (minutes, 0 = only on Get mail) and `updates` (ask,
-daily, off). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
+(moment, at_once, manual), `check_every` (minutes, 0 = only on Get mail), `mail_paper` (theme,
+white: HTML mail in a dark theme), `compose_format` (plain, html), `reply_format` (same, plain,
+html), `ask_subject`, `spell_check` and `updates` (ask, daily, off). Reading or changing them
+also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
 all, even before the first account. The window keeps only its own state in localStorage
 (`telex-ui`: pane sizes, filter scope, "more" folders, the last update check; `telex-look`: a
 copy of theme, language and zoom for boot.js).
@@ -172,6 +197,8 @@ node scripts/check-i18n.mjs       # every text has its Polish (after changing a 
 
 Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Tools with
 "Desktop development with C++", Node.js 20+, WebView2 (preinstalled on Windows 11).
+Linux: `libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev
+libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Rules for changes
 
@@ -189,9 +216,11 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   an id in `settings::THEMES` and in `THEMES` in app.js, and a name in i18n.js.
 - Every word on screen goes through `t()` / `tn()` (or `N_()` where it is defined), with its
   Polish in `ui/i18n.js`; static text in index.html is marked `data-i18n`. The English is the
-  key; `|context` tells apart one English word that needs two Polish ones. The core's errors
-  are English sentences; fixed ones get a Polish line in `FROM_CORE`, new reasons should
-  cross the bridge as codes (like autoconfig's notes and the import's `skip`).
+  key; `|context` tells apart one English word that needs two Polish ones. The core writes
+  every sentence with `tr!("English", "Polski")` (crates/telex-core/src/i18n.rs) in the
+  language the settings say; test the Polish with `i18n::with`. Notes already written on a
+  message stay in the language they were written in. Reasons the UI words itself still cross
+  the bridge as codes (autoconfig's notes, the import's `skip`).
 - Keep the keyboard table below and the status-bar hints in `ui/index.html` in sync.
 - Run `cargo fmt`, clippy and the core tests before committing.
 - Status text in the UI is short and specific ("Moved to Trash. Press Z to undo.").
@@ -219,14 +248,20 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 | Ctrl+,       | settings                       |
+| Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 
-## Current state (v0.3.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings)
+## Current state (v0.4.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, a settings window, eight themes, English and Polish.
-- Settings (`settings.rs`, a dialog with tabs Appearance, Language, Mail, Updates, Import and
-  export; toolbar button and Ctrl+,): every change is saved at once and shows at once. Themes:
+- Settings (`settings.rs`, a dialog with tabs Appearance, Language, Accounts, Mail, Reading,
+  Writing, Usage, Updates, Import and export; toolbar button and Ctrl+,): every change is saved
+  at once and shows at once. Accounts holds the list (servers, last check), the add-account
+  wizard, the server form and each account's identities; "Add account" anywhere opens it.
+  Reading: HTML or plain text, HTML mail in a dark theme (theme paper or white), the trusted
+  senders. Writing: new messages and replies in plain text or HTML, ask before sending without
+  a subject, spell check. Themes:
   Match Windows, Light, Dark, Paper, Heather, Fjord, Phosphor, High contrast light and dark
   (AAA); each card in the dialog is drawn in its own colors (data-theme on the card) and shows
   its level, read from the theme's `--wcag`. Rows, text size 90–200% (Ctrl+= / Ctrl+− /
@@ -247,8 +282,8 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   the servers. The user ticks parts; `apply_import` matches again and applies. A file from a
   newer Telex is read as far as it goes. Older versions' window preferences (density, HTML
   view, update answer in localStorage) move into settings.json on the first start.
-- Real IMAP accounts: a wizard ("Add account" under the folder tree; opens by itself while
-  there is none) asks for name, email and password, finds the servers (see below) and logs
+- Real IMAP accounts: a wizard (Settings › Accounts; "Add account" under the folder tree
+  opens it, and it opens by itself while there is none) asks for name, email and password, finds the servers (see below) and logs
   in to both before saving; the full settings form is behind "Set up manually", opens
   filled in when finding or logging in fails, and is where accounts are edited. SSL/TLS on port
   993 only (no STARTTLS yet), password login. Folders come from the server; special folders
@@ -268,16 +303,26 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   dropped, reported, and a refused move puts the message back.
 - Sending: each server account has SMTP settings (server defaults to the IMAP one; SSL/TLS
   on 465 or STARTTLS on 587; same login as IMAP), checked together with IMAP when the account
-  is saved. Accounts saved before step 2 have none until edited (Edit in the account dialog;
+  is saved. Accounts saved before step 2 have none until edited (Settings › Accounts › Edit;
   an empty password keeps the saved one). Send builds the message (`smtp::compose`: UTF-8
-  plain text, In-Reply-To/References for replies, forwarded attachments from the original's
-  raw), puts it in the account's local Outbox and sends the Outbox at once; `check_mail`
+  plain text, or for HTML multipart/alternative with the cleaned HTML and its plain text,
+  In-Reply-To/References for replies, forwarded attachments from the original's raw), puts it in the account's local Outbox and sends the Outbox at once; `check_mail`
   sends it too. Accepted mail moves to Sent and its exact bytes go to the server's Sent
   folder through the change queue (APPEND, kind `append`); the next download adopts the copy
   by Message-ID. A server refusal (5xx, except login errors) stays in the Outbox with the
   reason and isn't retried; anything else is retried at every check. E reopens a draft or an
-  unsent message; saving or sending replaces the old one. The status bar says "Sent" only
-  after the SMTP server accepts the message.
+  unsent message; saving or sending replaces the old one. Drafts are saved as whole messages
+  (`smtp::compose_draft`, half-typed recipients allowed), so their HTML and forwarded files
+  come back with E. The status bar says "Sent" only after the SMTP server accepts the message.
+- HTML compose: the Text | HTML switch in compose (Settings › Writing picks the start: new
+  messages plain or HTML; replies in the message's format, plain or HTML). The editor is a
+  contenteditable with the browser's own commands (bold, italic, underline, strikethrough,
+  lists, quote, link with Ctrl+K, clear); pasted HTML goes through `clean_html`. The core
+  cleans again before sending (`html::compose_clean`: those tags, links to http(s) and
+  mailto only, no styles or images) and makes the plain text (`html::to_text`: lines, "- "
+  and "1. " lists, ">" quotes, a link's address after its text). Switching to Text keeps the
+  words and drops the formatting; a reply in HTML quotes the original's text as a
+  blockquote. Signatures are plain text, put in line by line.
 - Quick filter: sender, recipients and subject match as you type (any part, case ignored),
   message text a moment later through FTS5 (whole words as prefixes, diacritics ignored). It
   looks in the open folder or, toggled with Tab or the chip in the box, in all mail (every
@@ -293,7 +338,15 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   results. Each account shows Inbox and Sent, Drafts and the Outbox when they hold mail, and the
   open folder; the rest are behind "N more" (with their unread count), opened per account and
   remembered (localStorage `telex-ui`: `more`, and `scope` for the filter).
-- Mail base (schema version 7): `messages` holds the summaries; body and raw message live in
+- Usage (`usage.rs`, schema version 8: `accounts.quota_used_kb`, `quota_limit_kb`, `synced_at`,
+  `sync_error`): each sync asks servers with QUOTA (RFC 9208) for the storage of the Inbox's
+  quota root and keeps it; `check_mail` records each account's last good sync and last error.
+  The status bar shows the open account's quota as a small bar (warning colors from 80%; the
+  tree shows a chip from 90%), clicking it opens Settings › Usage: per account the server's
+  storage, this PC by kind of folder (a stacked bar), mail received, sent and in Spam per day
+  over 30 days, the busiest senders (click: all their mail), the largest messages (click:
+  open), what still waits, and the mail base's size. The counts cover downloaded mail.
+- Mail base (schema version 8; version 7 added `message_content`): `messages` holds the summaries; body and raw message live in
   `message_content` (same id, removed with the message); `messages_fts` is a contentless FTS5
   index (`contentless_delete=1`) filled by triggers. The upgrade from version 6 moves the text
   row by row, so the file grows little. SQLite runs with WAL, `synchronous=NORMAL`, a 32 MiB
@@ -310,7 +363,13 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   iframe with `sandbox="allow-same-origin"` (no scripts can run; same-origin only lets the
   page size the frame, catch link clicks and pass keys on). Links open in the default
   browser via `open_link`; mailto: opens compose; links in Spam do nothing. H switches to
-  the plain-text body. The canvas is white in every theme.
+  the plain-text body. In the light themes the canvas is white. In the dark ones (Dark, Fjord,
+  Phosphor, High contrast dark) the UI passes the theme's tokens (`--surface`, `--fg`,
+  `--accent`, `--line`, `--muted`, checked to be plain hex colors) and the core recolors
+  inline styles, `bgcolor` and `color` (`colors.rs`): light backgrounds go dark (white to the
+  theme's surface, grays taking its tint), dark text goes light (black to its text color),
+  dark backgrounds and light text stay, hue is kept, images are untouched. Settings › Reading
+  can keep mail on white; the sun button above a message shows that one on white.
 - Rules (`filters.rs`, schema version 5: `rules`, `auto_replies`): name, account (or all),
   all/any conditions on From, To/Cc, Subject, Body or anywhere (contains, doesn't contain,
   is, starts with, ends with; case and diacritics ignored; addresses match by address and
@@ -333,8 +392,8 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   identity is the one the message was sent to (an alias) or the default, and Re:/Fwd:/Odp:/
   PD: prefixes don't pile up. Compose has a From picker (all identities, by account);
   switching swaps the signature in the text. Sent mail and drafts are from the chosen
-  identity (From header and SMTP envelope). Managed per account: Identities in the account
-  dialog.
+  identity (From header and SMTP envelope). Managed per account: Settings › Accounts ›
+  Identities.
 - Mail is stored in full (`messages.raw`), so attachments can be opened later without
   downloading again.
 - No account yet: an empty store in memory (`MailStore::is_in_memory`), a welcome panel and
@@ -358,7 +417,8 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   the last check is in the window's localStorage (`updateChecked`). A found update shows as
   a status-bar chip; installing saves an open compose to Drafts, waits until no check or send
   is running (it holds both busy flags), downloads with "update-progress" events, verifies,
-  runs the installer and exits; the installer restarts Telex. Releases: `release.yml` on a
+  runs the installer and exits; the installer restarts Telex. On Linux only the AppImage
+  updates (in place, then Telex restarts into it); a .deb says it can't. Releases: `release.yml` on a
   `v*` tag (tag must match the version everywhere; the tag message becomes the notes),
   tauri-action v1 with `uploadUpdaterJson`, draft release; see docs/releasing.md.
 
@@ -372,8 +432,9 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
    picker), Bcc, drafts on the server's Drafts folder, and skipping the Sent copy for servers
    that save one themselves (Gmail and Outlook.com do; matters with step 5).
 3. ~~**HTML mail.**~~ Done; see Current state. Not yet: `<style>` blocks (dropped, since CSS
-   can load from the network; keeping them needs a CSS sanitizer), opening attachments, a
-   way to manage trusted senders other than per message.
+   can load from the network; keeping them needs a CSS sanitizer), opening attachments.
+   HTML compose is done (see Current state); not yet: images and colors in it, HTML
+   signatures, quoting a reply's original HTML instead of its text.
 4. ~~**Filters ("Sorting Office").**~~ Done; see Current state. Not yet: regular expressions,
    conditions on headers and attachments, actions that copy or forward, rules that run on
    a schedule.
@@ -384,8 +445,9 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 6. ~~**Templates and identities.**~~ Done; see Current state. Not yet: templates for new
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
-   yet: code signing (SmartScreen warns about the installer). The repository is public and
-   v0.3.1 is released; docs/releasing.md has the process.
+   yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
+   AppImage (self-updating) and a .deb. The repository is public and v0.3.1 is released;
+   docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~: done, see Current state
    and the numbers in docs/storage.md. Next: "download older messages" (beyond the first 300
    per folder), then backup and restore with a movable mail base, local folders with .eml/mbox

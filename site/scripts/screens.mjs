@@ -30,8 +30,20 @@ const scenes = {
   rules: { run: `ui.click('#b-rules'); await ui.wait(100); ui.click('#r-list [data-r="edit"]'); await ui.wait(50);` },
   spam: { run: `ui.folder('studio/spam'); await ui.wait(50); ui.row('Rank #1'); await ui.wait(100);` },
   identities: {
-    run: `ui.click('[data-act="add-account"]'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
+    run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
     ui.click('#i-list [data-id="2"] [data-i="edit"]'); await ui.wait(50);`,
+  },
+  // Settings › Accounts: every account, its servers and how its last check went.
+  accounts: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(150);` },
+  // Settings › Usage: the server's storage, this PC, 30 days of mail in and out.
+  usage: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-use'); await ui.wait(250);` },
+  // A reply written in HTML: the formatting bar, a list and a quote.
+  writing: {
+    run: `ui.key('n'); await ui.wait(150); ui.fill('c-to', 'Anna Kowalska <anna@kowalska-architekci.pl>');
+    ui.fill('c-subj', 'Studio visit on Friday');
+    document.getElementById('c-html').innerHTML = '<div>Hi Anna,</div><div><br></div><div>thanks for the plans. For Friday I would like to go through:</div>'
+      + '<ul><li><b>the kitchen</b>, with the new window</li><li>the <i>colours</i> for the hall</li></ul><div>See you at 10!</div><div><br></div><div>Sam</div>';
+    await ui.wait(50);`,
   },
   outbox: { run: `ui.pane(30); ui.folder('studio/outbox'); await ui.wait(100);` },
   comfortable: { run: `ui.click('#b-density'); ui.folder('home/inbox'); await ui.wait(100); ui.list.focus();` },
@@ -72,7 +84,8 @@ function installMock({ data, scene, empty, version, frame, theme, lang }) {
     date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged, has_attachments: m.attachments.length > 0,
   });
   const byId = (id) => msgs.find((m) => m.id === id);
-  const settings = { theme, language: lang, density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', check_every: 10, updates: 'off' };
+  const settings = { theme, language: lang, density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', check_every: 10,
+    mail_paper: 'theme', compose_format: scene === 'writing' ? 'html' : 'plain', reply_format: 'same', ask_subject: true, spell_check: true, updates: 'off' };
   const settingsView = () => ({ settings: { ...settings }, language: settings.language, offer: null, fresh: false });
 
   // The message list as crates/telex-core/src/list.rs answers it: one folder (or all mail
@@ -148,6 +161,83 @@ function installMock({ data, scene, empty, version, frame, theme, lang }) {
       body: layout(`${fill(me.reply_header)}\n${lines.map((l) => (l.startsWith('>') ? '>' + l : '> ' + l)).join('\n')}`) };
   }
 
+  // colors.rs, short: on a dark theme's paper, light backgrounds turn dark and dark text
+  // light (OKLab lightness, hue kept), white becoming the theme's background exactly.
+  const lin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const unlin = (c) => Math.round(255 * Math.min(1, Math.max(0, c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055)));
+  const toLab = ([r, g, b]) => {
+    [r, g, b] = [lin(r), lin(g), lin(b)];
+    const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+    const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+    const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+    return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+  };
+  const fromLab = ([L, A, B]) => {
+    const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3, m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3, s = (L - 0.0894841775 * A - 1.291485548 * B) ** 3;
+    return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s, -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s].map(unlin);
+  };
+  const hexRgb = (h) => { h = h.replace('#', ''); if (h.length === 3) h = [...h].map((c) => c + c).join(''); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); };
+  const rgbHex = (c) => '#' + c.map((v) => v.toString(16).padStart(2, '0')).join('');
+  function recolor(hex, toPaper, paper, ink) {
+    const [L, A, B] = toLab(hexRgb(hex));
+    const bg = toPaper || (L >= 0.5 && toPaper !== false);
+    const end = bg ? paper : ink;
+    const nl = bg ? (L <= 0.5 ? L : 0.5 - (Math.min(L, 1) - 0.5) * (0.5 - paper[0]) / 0.5) : (L >= 0.62 ? L : ink[0] - (ink[0] - 0.62) * (L / 0.62) ** 2);
+    const gray = Math.abs(nl - L) > 1e-9 ? Math.max(0, 1 - Math.hypot(A, B) / 0.04) : 0;
+    return rgbHex(fromLab([nl, A * (1 - gray) + end[1] * gray, B * (1 - gray) + end[2] * gray]));
+  }
+  function darkHtml(html, p) {
+    const paper = toLab(hexRgb(p.paper)), ink = toLab(hexRgb(p.ink));
+    const hexes = /#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/gi;
+    return html.replace(/style="([^"]*)"/g, (_, css) => 'style="' + css.split(';').map((d) => {
+      const [prop, ...rest] = d.split(':'), v = rest.join(':'), k = (prop || '').trim();
+      if (!v) return d;
+      const role = k === 'color' ? false : k.startsWith('background') ? true : k.startsWith('border') ? null : undefined;
+      return role === undefined ? d : `${prop}:${v.replace(hexes, (h) => recolor(h, role, paper, ink))}`;
+    }).join(';') + '"');
+  }
+  const darkFrame = (p) => frame.replace('html{background:#fff;color-scheme:light}', `html{background:${p.paper};color-scheme:dark}`)
+    .replace('color:#1a1e23;', `color:${p.ink};`).replace('a{color:#2453a6}', `a{color:${p.link}}`)
+    .replace('border-left:2px solid #d2d7de;color:#59636e', `border-left:2px solid ${p.line};color:${p.muted}`);
+
+  // usage.rs: sizes by folder, mail in and out per day for 30 days, the busiest senders.
+  function usage() {
+    const day = (d) => d.slice(0, 10), since = new RealDate(NOW - 29 * 864e5), sinceDay = since.toISOString().slice(0, 10);
+    const quotas = { studio: { used_kb: 1_660_000, limit_kb: 2_621_440 } };
+    return {
+      base_bytes: 61_800_000, free_bytes: 0, since: sinceDay,
+      accounts: accounts.map((a) => {
+        const mine = msgs.filter((m) => m.folder.startsWith(a.id + '/'));
+        const folders = a.folders.map((f) => {
+          const key = `${a.id}/${f.id}`, ms = mine.filter((m) => m.folder === key);
+          return { folder: key, kind: f.kind, count: ms.length, unread: ms.filter((m) => m.unread).length, size_kb: ms.reduce((n, m) => n + m.size_kb, 0) * 40 };
+        }).filter((f) => f.count).sort((x, y) => y.size_kb - x.size_kb);
+        const flow = Array.from({ length: 30 }, (_, i) => {
+          const d = new RealDate(since.getTime() + i * 864e5).toISOString().slice(0, 10);
+          const on = mine.filter((m) => day(m.date) === d), k = (m) => kindOf(m.folder);
+          // The demo mailbox is small: a steady trickle keeps the chart honest-looking.
+          const base = ((i * 7) % 5) + (i % 7 === 5 || i % 7 === 6 ? 0 : 3);
+          return { received: on.filter((m) => !['sent', 'drafts', 'outbox', 'spam'].includes(k(m))).length + base,
+            sent: on.filter((m) => k(m) === 'sent').length + (i % 3 === 0 ? 1 : 0), spam: on.filter((m) => k(m) === 'spam').length + (i % 4 === 1 ? 1 : 0) };
+        });
+        const counts = new Map();
+        for (const m of mine.filter((m) => !['sent', 'drafts', 'outbox', 'spam'].includes(kindOf(m.folder)))) {
+          const c = counts.get(m.from_email) ?? { name: m.from_name, email: m.from_email, count: 0 };
+          c.count += 6; counts.set(m.from_email, c);
+        }
+        return {
+          account: a.id, quota: quotas[a.id] ?? null, synced_at: '2026-10-10T09:24:00', sync_error: null, folders, flow,
+          senders: [...counts.values()].sort((x, y) => y.count - x.count).slice(0, 5),
+          largest: [...mine].sort((x, y) => y.size_kb - x.size_kb).slice(0, 5).map(summary), queued: 0,
+        };
+      }),
+    };
+  }
+  const textToHtml = (text) => text.split('\n').map((l) => {
+    const e = l.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    return l.startsWith('>') ? `<blockquote><div>${e.replace(/^&gt; ?/, '') || '<br>'}</div></blockquote>` : `<div>${e || '<br>'}</div>`;
+  }).join('').replace(/<\/blockquote><blockquote>/g, '');
+
   const commands = {
     folder_tree: folderTree,
     list_page: listPage,
@@ -155,13 +245,20 @@ function installMock({ data, scene, empty, version, frame, theme, lang }) {
     set_unread: ({ id, unread }) => { byId(id).unread = unread; },
     set_flagged: ({ id, flagged }) => { byId(id).flagged = flagged; },
     // html::render: remote images are left out and counted until the user loads them.
-    get_html: ({ id }) => {
+    get_html: ({ id, dark }) => {
       const m = byId(id);
       if (!m.html) return null;
       const remote = new Set();
       const html = m.html.replace(/\s(?:src|background)="(https?:[^"]*)"/g, (_, url) => { remote.add(url); return ''; });
-      return { document: frame.replace('{body}', html), blocked: remote.size, loaded: false, sender: m.from_email, trusted: false };
+      const doc = dark ? darkFrame(dark).replace('{body}', darkHtml(html, dark)) : frame.replace('{body}', html);
+      return { document: doc, blocked: remote.size, loaded: false, sender: m.from_email, trusted: false };
     },
+    usage,
+    trusted_senders: () => ['news@frontendweekly.news'],
+    draft_html: () => null,
+    text_to_html: ({ text }) => textToHtml(text),
+    html_to_text: ({ html }) => html.replace(/<br>/g, '').replace(/<\/(div|p|li)>/g, '\n').replace(/<[^>]+>/g, ''),
+    clean_html: ({ html }) => html,
     start_draft: startDraft,
     list_rules: () => data.rules,
     known_provider: () => null,

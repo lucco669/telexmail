@@ -18,9 +18,19 @@ tauri = { version = "2", features = [] }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
-keyring = { version = "3.6.3", features = ["windows-native"] }
 tauri-plugin-opener = "2.5.5"
 # Save and Open dialogs for exporting and importing settings, called from Rust only.
 tauri-plugin-dialog = "2.7.3"
 # Updates from GitHub Releases. Without the zip feature: it only unpacks Tauri v1 bundles.
 tauri-plugin-updater = { version = "2.13.2", default-features = false, features = ["rustls-tls", "system-proxy"] }
+
+# Passwords in the system's own store (secrets.rs), one backend per system.
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6.3", features = ["windows-native"] }
+
+# The Secret Service over D-Bus: GNOME Keyring, KWallet, KeePassXC. Building needs libdbus-1-dev.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }

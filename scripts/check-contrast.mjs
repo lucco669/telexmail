@@ -38,7 +38,8 @@ const TEXT = [
   ['flag', 'panel', 'The Flagged label'],
   ['warn-fg', 'warn-bg', 'Blocked images bar'],
   ['note-fg', 'note-bg', 'Errors, rule notes in Spam'],
-  ['note-fg', 'surface', 'Delete buttons'],
+  ['note-fg', 'surface', 'Delete buttons, a failed check in Usage'],
+  ['note-fg', 'panel', 'A failed check in Settings › Accounts'],
   ['chip-fg', 'chip-bg', 'Rule notes, tags, the update chip'],
   ['chip-fg', 'img-a', 'Loaded image stand-ins'],
   ['chip-fg', 'img-b', 'Loaded image stand-ins'],
@@ -54,6 +55,8 @@ const UI = [
   ['flag', 'surface', 'Flag icon'],
   ['flag', 'hover', 'Flag icon under the pointer'],
   ['flag', 'sel', 'Flag icon in the selected row'],
+  ['flag', 'chrome', 'Usage meter, nearly full'],
+  ['note-fg', 'chrome', 'Usage meter, full'],
   ...[0, 1, 2, 3, 4, 5].flatMap((i) => [
     [`acct-${i}`, 'panel', `Account ${i + 1}'s dot in the folder tree`],
     [`acct-${i}`, 'surface', `Account ${i + 1}'s dot in All mail`],

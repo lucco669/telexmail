@@ -16,7 +16,7 @@ const read = (p) => readFileSync(join(repo, p), 'utf8');
 // i18n.js is a plain script for the window: run it with just enough of one.
 const sandbox = { window: {}, document: { documentElement: { lang: 'pl' } }, Intl };
 vm.runInNewContext(read('ui/i18n.js'), sandbox);
-const { PL, PL_N, FROM_CORE } = sandbox.window.TelexI18n.dictionaries;
+const { PL, PL_N } = sandbox.window.TelexI18n.dictionaries;
 
 const found = new Map(); // text -> where
 const add = (text, where) => { if (text && !found.has(text)) found.set(text, where); };
@@ -40,7 +40,7 @@ const used = new Set(found.keys());
 const unused = [...Object.keys(PL), ...Object.keys(PL_N)].filter((k) => !used.has(k));
 
 if (process.argv.includes('--list')) for (const [text, where] of found) console.log(`${where.padEnd(16)} ${text}`);
-console.log(`${found.size} texts in app.js and index.html; ${Object.keys(PL).length + Object.keys(PL_N).length} Polish entries, ${Object.keys(FROM_CORE).length} more for the core's sentences.`);
+console.log(`${found.size} texts in app.js and index.html; ${Object.keys(PL).length + Object.keys(PL_N).length} Polish entries.`);
 if (unused.length) console.log(`\nPolish for texts no longer used (remove them):\n  ${unused.join('\n  ')}`);
 if (missing.length) {
   console.error(`\n${missing.length} without Polish:\n  ` + missing.map(([text, where]) => `${where}  ${text}`).join('\n  '));

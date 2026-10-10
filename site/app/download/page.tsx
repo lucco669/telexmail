@@ -37,6 +37,11 @@ export default async function DownloadPage() {
             .msi package ({megabytes(latest.msi.size)})
           </a>
         )}
+        {latest?.appimage && (
+          <a className={s.alt} href={latest.appimage.url}>
+            Linux AppImage ({megabytes(latest.appimage.size)})
+          </a>
+        )}
       </PageHeader>
 
       <div className={`container ${s.layout}`}>
@@ -58,6 +63,12 @@ export default async function DownloadPage() {
                 The installer isn’t code-signed yet, so Windows SmartScreen may say it doesn’t recognize it. Choose{' '}
                 <b>More info</b>, then <b>Run anyway</b>. On Windows 10 without WebView2, the installer fetches it.
               </p>
+              {latest?.appimage && (
+                <p>
+                  On Linux, make the AppImage runnable and start it: <code>chmod +x {latest.appimage.name}</code>, then{' '}
+                  <code>./{latest.appimage.name}</code>.
+                </p>
+              )}
             </li>
             <li>
               <h3>Add your account</h3>
@@ -94,6 +105,15 @@ export default async function DownloadPage() {
             <dd>Windows 10 or 11, 64-bit</dd>
             <dt>Runtime</dt>
             <dd>WebView2, built into Windows 11 and fetched by the installer on Windows 10</dd>
+            {latest?.appimage && (
+              <>
+                <dt>Linux</dt>
+                <dd>
+                  The AppImage: 64-bit, Ubuntu 22.04 or newer and similar systems, with a keyring for the passwords
+                  (GNOME Keyring or KWallet)
+                </dd>
+              </>
+            )}
             <dt>Incoming</dt>
             <dd>IMAP over SSL/TLS, port 993, with a password</dd>
             <dt>Outgoing</dt>
@@ -117,6 +137,12 @@ export default async function DownloadPage() {
             <code>%APPDATA%\app.telexmail.desktop\telex.db</code>; delete it too if you want the downloaded mail gone.
             Saved passwords are under “Telex” in Windows Credential Manager. Mail on your server is never touched.
           </p>
+          {latest?.appimage && (
+            <p className={s.p} style={{ marginTop: 16 }}>
+              On Linux, delete the AppImage. The mail base is in <code>~/.local/share/app.telexmail.desktop/</code>, and
+              the passwords are in your keyring under “Telex”.
+            </p>
+          )}
         </section>
       </div>
 
@@ -141,6 +167,12 @@ export default async function DownloadPage() {
                     {r.exe && <a href={r.exe.url}>.exe ({megabytes(r.exe.size)})</a>}
                     {r.exe && r.msi && ' · '}
                     {r.msi && <a href={r.msi.url}>.msi</a>}
+                    {r.appimage && (
+                      <>
+                        {' · '}
+                        <a href={r.appimage.url}>AppImage</a>
+                      </>
+                    )}
                   </td>
                   <td>
                     <a href={r.pageUrl}>Release notes</a>

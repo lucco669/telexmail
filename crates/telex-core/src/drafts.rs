@@ -9,6 +9,7 @@ use crate::mime::reply_to_of;
 use crate::model::{split_folder_key, Account, Attachment, Identity, Message, MessageId};
 use crate::smtp::split_addresses;
 use crate::store::{MailStore, StoreError};
+use crate::tr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -44,7 +45,12 @@ pub fn start(
     let original = match (kind, of) {
         (DraftKind::New, _) => None,
         (_, Some(id)) => Some(store.get(id)?),
-        (_, None) => return Err(StoreError::Invalid("Select a message first.".into())),
+        (_, None) => {
+            return Err(StoreError::Invalid(tr!(
+                "Select a message first.",
+                "Najpierw wybierz wiadomość."
+            )))
+        }
     };
     let account = store.account(original.as_ref().map_or(account, |m| account_of(&m.folder)))?;
     let identity = match &original {

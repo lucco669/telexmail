@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use async_imap::error::Error as ImapError;
 use async_imap::imap_proto::{Response, ResponseCode, Status, UidSetMember};
-use async_imap::types::{Fetch, Flag, Name, NameAttribute};
+use async_imap::types::{Capability, Fetch, Flag, Name, NameAttribute, QuotaResourceName};
 use async_imap::{Client, Session};
 use chrono::Local;
 use futures_util::TryStreamExt;
@@ -32,6 +32,8 @@ use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId};
 use crate::store::{
     slug, ChangeKind, MailStore, PendingChange, StoreError, SyncedMessage, OUTBOX_ID,
 };
+use crate::tr;
+use crate::usage::Quota;
 
 /// How many of the newest messages to download per folder the first time.
 pub const FIRST_SYNC_LIMIT: usize = 300;
@@ -74,19 +76,29 @@ pub enum SyncError {
 
 impl fmt::Display for SyncError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Connect { host, reason } => write!(f, "can't reach {host}: {reason}"),
-            Self::Tls { host, reason } => write!(f, "no secure connection to {host}: {reason}"),
-            Self::Login(reason) => {
-                write!(
-                    f,
-                    "the server rejected the user name or password ({reason})"
+        let text = match self {
+            Self::Connect { host, reason } => {
+                tr!(
+                    "can't reach {host}: {reason}",
+                    "brak połączenia z {host}: {reason}"
                 )
             }
-            Self::Timeout => write!(f, "the server stopped answering"),
-            Self::Server(reason) => write!(f, "the server reported a problem: {reason}"),
-            Self::Store(e) => e.fmt(f),
-        }
+            Self::Tls { host, reason } => tr!(
+                "no secure connection to {host}: {reason}",
+                "brak bezpiecznego połączenia z {host}: {reason}"
+            ),
+            Self::Login(reason) => tr!(
+                "the server rejected the user name or password ({reason})",
+                "serwer odrzucił nazwę użytkownika lub hasło ({reason})"
+            ),
+            Self::Timeout => tr!("the server stopped answering", "serwer przestał odpowiadać"),
+            Self::Server(reason) => tr!(
+                "the server reported a problem: {reason}",
+                "serwer zgłosił problem: {reason}"
+            ),
+            Self::Store(e) => return e.fmt(f),
+        };
+        f.write_str(&text)
     }
 }
 
@@ -102,8 +114,11 @@ impl From<ImapError> for SyncError {
     fn from(e: ImapError) -> Self {
         match e {
             ImapError::No(m) | ImapError::Bad(m) => Self::Server(m.trim().to_owned()),
-            ImapError::ConnectionLost => Self::Server("the connection was closed".into()),
-            ImapError::Io(e) => Self::Server(format!("connection error: {e}")),
+            ImapError::ConnectionLost => Self::Server(tr!(
+                "the connection was closed",
+                "połączenie zostało zamknięte"
+            )),
+            ImapError::Io(e) => Self::Server(connection_error(&e)),
             other => Self::Server(other.to_string()),
         }
     }
@@ -193,6 +208,8 @@ pub struct ServerCaps {
     pub can_move: bool,
     /// RFC 4315 UIDPLUS: UID EXPUNGE, and the new UID after a copy or move (COPYUID).
     pub uidplus: bool,
+    /// RFC 9208 QUOTA: the server says how much storage the account uses and may use.
+    pub quota: bool,
 }
 
 // ---- Public entry points ----
@@ -264,6 +281,12 @@ pub async fn sync_all<T: ImapStream>(
     let queued_before = lock(store)?.last_change_op(&account.id)?;
     let refused = push_queued_after(session, account, store, caps, 0).await?;
     let downloaded = sync_session(session, account, store, progress).await?;
+    let quota = if caps.quota {
+        storage_quota(session).await
+    } else {
+        None
+    };
+    lock(store)?.set_quota(&account.id, quota)?;
     let mut report = SyncReport {
         new: downloaded.new,
         refused,
@@ -409,7 +432,8 @@ async fn push_queued_after<T: ImapStream>(
                 note_refusal(store, change, &reason, &mut refused)?;
             }
             Err(ImapError::Append) => {
-                note_refusal(store, change, "the server didn't accept it", &mut refused)?;
+                let reason = tr!("the server didn't accept it", "serwer jej nie przyjął");
+                note_refusal(store, change, &reason, &mut refused)?;
             }
             Err(e) => return Err(e.into()),
         }
@@ -538,10 +562,20 @@ async fn connect_tls(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStre
     };
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((host, settings.port)))
         .await
-        .map_err(|_| unreachable("no answer within 20 seconds".into()))?
+        .map_err(|_| {
+            unreachable(tr!(
+                "no answer within 20 seconds",
+                "brak odpowiedzi w ciągu 20 sekund"
+            ))
+        })?
         .map_err(|e| unreachable(e.to_string()))?;
     let name = ServerName::try_from(host)
-        .map_err(|_| unreachable("that isn't a valid server name".into()))?
+        .map_err(|_| {
+            unreachable(tr!(
+                "that isn't a valid server name",
+                "to nie jest poprawna nazwa serwera"
+            ))
+        })?
         .to_owned();
     let tls = timeout(CONNECT_TIMEOUT, tls_connector().connect(name, tcp))
         .await
@@ -557,14 +591,26 @@ async fn connect_tls(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStre
 fn tls_reason(e: &std::io::Error) -> String {
     let text = e.to_string();
     if text.contains("NotValidForName") {
-        "its certificate is for a different name. Use the server name from your provider's setup guide".into()
+        tr!(
+            "its certificate is for a different name. Use the server name from your provider's setup guide",
+            "certyfikat serwera jest wystawiony na inną nazwę. Użyj nazwy serwera z instrukcji \
+             Twojego dostawcy poczty"
+        )
     } else if text.contains("UnknownIssuer") {
-        "its certificate isn't from a trusted authority".into()
+        tr!(
+            "its certificate isn't from a trusted authority",
+            "certyfikat serwera nie pochodzi od zaufanego wystawcy"
+        )
     } else if text.contains("Expired") {
-        "its certificate has expired".into()
+        tr!("its certificate has expired", "certyfikat serwera wygasł")
     } else {
         text
     }
+}
+
+/// A broken connection, in words; the system's own reason stays as it is.
+fn connection_error(e: &impl fmt::Display) -> String {
+    tr!("connection error: {e}", "błąd połączenia: {e}")
 }
 
 /// Read the server's greeting and log in.
@@ -575,8 +621,13 @@ async fn open_session<T: ImapStream>(
 ) -> Result<Session<T>, SyncError> {
     match timeout(CONNECT_TIMEOUT, client.read_response()).await {
         Err(_) => return Err(SyncError::Timeout),
-        Ok(Err(e)) => return Err(SyncError::Server(format!("connection error: {e}"))),
-        Ok(Ok(None)) => return Err(SyncError::Server("it hung up before saying hello".into())),
+        Ok(Err(e)) => return Err(SyncError::Server(connection_error(&e))),
+        Ok(Ok(None)) => {
+            return Err(SyncError::Server(tr!(
+                "it hung up before saying hello",
+                "rozłączył się, zanim się przywitał"
+            )))
+        }
         Ok(Ok(Some(_greeting))) => {}
     }
     match timeout(COMMAND_TIMEOUT, client.login(&settings.username, password)).await {
@@ -600,16 +651,36 @@ async fn server_caps<T: ImapStream>(session: &mut Session<T>) -> Result<ServerCa
     Ok(ServerCaps {
         can_move: caps.has_str("MOVE"),
         uidplus: caps.has_str("UIDPLUS"),
+        // RFC 2087 says QUOTA; RFC 9208 servers may name only QUOTA=RES-STORAGE and the like.
+        quota: caps.has_str("QUOTA")
+            || caps
+                .iter()
+                .any(|c| matches!(c, Capability::Atom(a) if a.starts_with("QUOTA="))),
     })
+}
+
+/// The account's storage on the server, from the quota root of its Inbox. `None` when the
+/// server sets no storage limit or doesn't answer; a quota is a nicety, never an error.
+async fn storage_quota<T: ImapStream>(session: &mut Session<T>) -> Option<Quota> {
+    let (_, quotas) = timeout(COMMAND_TIMEOUT, session.get_quota_root("INBOX"))
+        .await
+        .ok()?
+        .ok()?;
+    quotas
+        .iter()
+        .flat_map(|q| &q.resources)
+        .find(|r| r.name == QuotaResourceName::Storage && r.limit > 0)
+        .map(|r| Quota {
+            used_kb: r.usage,
+            limit_kb: r.limit,
+        })
 }
 
 /// The store is shared with the UI thread; lock it only for quick database work.
 fn lock(store: &Mutex<MailStore>) -> Result<MutexGuard<'_, MailStore>, SyncError> {
-    store.lock().map_err(|_| {
-        SyncError::Store(StoreError::Database(
-            "another task crashed while using it; restart Telex".into(),
-        ))
-    })
+    store
+        .lock()
+        .map_err(|_| SyncError::Store(StoreError::poisoned()))
 }
 
 // ---- Downloading ----
@@ -704,8 +775,12 @@ async fn apply_change<T: ImapStream>(
         ChangeKind::Expunge => expunge(session, uid, caps).await.map(|()| None),
         ChangeKind::Append(_) => Ok(None), // sent before the folders, in push_queued_after
         ChangeKind::Move(to) => {
-            let dest = remote_name(account, to)
-                .ok_or_else(|| ImapError::No("that folder no longer exists".into()))?;
+            let dest = remote_name(account, to).ok_or_else(|| {
+                ImapError::No(tr!(
+                    "that folder no longer exists",
+                    "tego folderu już nie ma"
+                ))
+            })?;
             if caps.can_move {
                 run_with_copyuid(session, &format!("UID MOVE {uid} {}", quote(&dest))).await
             } else {
@@ -808,19 +883,25 @@ fn note_refusal(
     let mut store = lock(store)?;
     if store.change_failed(change.op, reason)? >= MAX_ATTEMPTS {
         store.give_up_change(change)?;
-        let what = match &change.kind {
-            ChangeKind::Seen(true) => "mark as read",
-            ChangeKind::Seen(false) => "mark as unread",
-            ChangeKind::Flagged(true) => "flag",
-            ChangeKind::Flagged(false) => "unflag",
-            ChangeKind::Move(_) => "move",
-            ChangeKind::Expunge => "delete",
-            ChangeKind::Append(_) => "save a copy in Sent of",
+        // English names the change before the subject; Polish wraps the subject, as in
+        // "oznaczyć wiadomości „X” jako przeczytanej".
+        let (what, pl_verb, pl_after) = match &change.kind {
+            ChangeKind::Seen(true) => ("mark as read", "oznaczyć", " jako przeczytanej"),
+            ChangeKind::Seen(false) => ("mark as unread", "oznaczyć", " jako nieprzeczytanej"),
+            ChangeKind::Flagged(true) => ("flag", "oznaczyć flagą", ""),
+            ChangeKind::Flagged(false) => ("unflag", "zdjąć flagi z", ""),
+            ChangeKind::Move(_) => ("move", "przenieść", ""),
+            ChangeKind::Expunge => ("delete", "usunąć", ""),
+            ChangeKind::Append(_) => (
+                "save a copy in Sent of",
+                "zapisać kopii",
+                " w folderze Wysłane",
+            ),
         };
-        refused.push(format!(
-            "the server wouldn't {what} \"{}\" ({})",
-            change.subject,
-            reason.trim()
+        let (subject, reason) = (&change.subject, reason.trim());
+        refused.push(tr!(
+            "the server wouldn't {what} \"{subject}\" ({reason})",
+            "serwer nie pozwolił {pl_verb} wiadomości „{subject}”{pl_after} ({reason})"
         ));
     }
     Ok(())
@@ -1079,6 +1160,21 @@ mod tests {
     fn quoting_escapes_quotes_and_backslashes() {
         assert_eq!(quote("Kosz"), "\"Kosz\"");
         assert_eq!(quote("a\"b\\c"), "\"a\\\"b\\\\c\"");
+    }
+
+    #[test]
+    fn sync_errors_in_polish_keep_the_servers_words() {
+        use crate::i18n::{self, Lang};
+        let login = SyncError::Login("[AUTHENTICATIONFAILED] Invalid credentials".into());
+        assert_eq!(
+            i18n::with(Lang::Pl, || login.to_string()),
+            "serwer odrzucił nazwę użytkownika lub hasło \
+             ([AUTHENTICATIONFAILED] Invalid credentials)"
+        );
+        let lost = i18n::with(Lang::Pl, || {
+            SyncError::from(ImapError::ConnectionLost).to_string()
+        });
+        assert_eq!(lost, "serwer zgłosił problem: połączenie zostało zamknięte");
     }
 
     #[test]
@@ -1342,6 +1438,11 @@ mod tests {
             out.line(format!(
                 "* CAPABILITY {}\r\n{tag} OK CAPABILITY completed\r\n",
                 s.capabilities
+            ));
+        } else if upper.starts_with("GETQUOTAROOT ") && s.capabilities.contains("QUOTA") {
+            out.line(format!(
+                "* QUOTAROOT INBOX \"\"\r\n* QUOTA \"\" (STORAGE 512 10240 MESSAGE 7 1000)\r\n\
+                 {tag} OK GETQUOTAROOT completed\r\n"
             ));
         } else if upper.starts_with("LIST ") {
             for b in &s.boxes {
@@ -1720,6 +1821,23 @@ mod tests {
                 assert!(c.contains("BODY.PEEK[]"), "{c}");
             }
         }
+    }
+
+    #[tokio::test]
+    async fn the_storage_quota_comes_with_the_sync() {
+        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 10).unwrap();
+        let (_, store, ..) = synced_once("IMAP4rev1 QUOTA").await;
+        let usage = store.lock().unwrap().usage(today).unwrap();
+        assert_eq!(
+            usage.accounts[0].quota,
+            Some(Quota {
+                used_kb: 512,
+                limit_kb: 10_240
+            })
+        );
+        let (_, store, ..) = synced_once("IMAP4rev1").await;
+        let usage = store.lock().unwrap().usage(today).unwrap();
+        assert_eq!(usage.accounts[0].quota, None, "no QUOTA, no question");
     }
 
     #[tokio::test]
