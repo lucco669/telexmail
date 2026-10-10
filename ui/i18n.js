@@ -482,6 +482,7 @@ const PL = {
   'Messages from different accounts can’t be moved together.': 'Wiadomości z różnych kont nie da się przenieść razem.',
   'Go to folder': 'Przejdź do folderu',
   'No folder matches.': 'Żaden folder nie pasuje.',
+  'Words, or from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k': 'Słowa albo from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k',
   'move to': 'przenieś',
   'IMAP security': 'Zabezpieczenia IMAP',
   'SSL/TLS (usually port 993)': 'SSL/TLS (zwykle port 993)',

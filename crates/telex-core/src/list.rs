@@ -47,11 +47,176 @@ pub struct ListView {
     #[serde(default)]
     pub ascending: bool,
     /// The quick filter. It matches any part of the sender, recipients and subject,
-    /// ignoring case; with `bodies` also words in the text, through the search index.
+    /// ignoring case; with `bodies` also words in the text, through the search index. It
+    /// also takes operators (see [`Terms`]): `from:anna is:unread after:2026-09`.
     #[serde(default)]
     pub filter: String,
     #[serde(default)]
     pub bodies: bool,
+}
+
+/// The quick filter, read: plain words, and operators. Unknown operators and values that
+/// don't make sense are plain words; an operator without a value (still being typed) is
+/// left out.
+///
+/// `from:` `to:` (To, Cc and Bcc) `subject:` match any part, case ignored; `is:unread`
+/// `is:read` `is:flagged` `is:unflagged`; `has:file`; `after:` and `before:` a year, month or
+/// day (2026, 2026-09, 2026-09-15 or 15.09.2026: after is from its start, before is before
+/// its start); `larger:` and `smaller:` a size (500k, 5m, 1g; KB without a unit). Values with
+/// spaces go in quotes: `from:"Anna Kowalska"`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Terms {
+    /// The plain words, joined by spaces.
+    pub text: String,
+    pub from: Vec<String>,
+    pub to: Vec<String>,
+    pub subject: Vec<String>,
+    pub unread: Option<bool>,
+    pub flagged: Option<bool>,
+    pub has_file: bool,
+    /// "2026-09-01 00:00:00": on or after, and before.
+    pub after: Option<String>,
+    pub before: Option<String>,
+    /// KB: at least, and less than.
+    pub larger_kb: Option<u64>,
+    pub smaller_kb: Option<u64>,
+}
+
+impl Terms {
+    pub fn parse(filter: &str) -> Self {
+        let mut terms = Terms::default();
+        let mut words = Vec::new();
+        for token in tokens(filter) {
+            let Some((key, value)) = token.split_once(':') else {
+                words.push(token);
+                continue;
+            };
+            let value = value.trim_matches('"').trim();
+            let known = matches!(
+                key.to_ascii_lowercase().as_str(),
+                "from"
+                    | "to"
+                    | "subject"
+                    | "is"
+                    | "has"
+                    | "after"
+                    | "before"
+                    | "larger"
+                    | "smaller"
+            );
+            if known && value.is_empty() {
+                continue; // still being typed
+            }
+            let used = match key.to_ascii_lowercase().as_str() {
+                "from" => {
+                    terms.from.push(value.to_lowercase());
+                    true
+                }
+                "to" => {
+                    terms.to.push(value.to_lowercase());
+                    true
+                }
+                "subject" => {
+                    terms.subject.push(value.to_lowercase());
+                    true
+                }
+                "is" => {
+                    let (unread, flagged) = match value.to_ascii_lowercase().as_str() {
+                        "unread" | "new" => (Some(true), None),
+                        "read" | "seen" => (Some(false), None),
+                        "flagged" | "starred" => (None, Some(true)),
+                        "unflagged" => (None, Some(false)),
+                        _ => (None, None),
+                    };
+                    terms.unread = unread.or(terms.unread);
+                    terms.flagged = flagged.or(terms.flagged);
+                    unread.is_some() || flagged.is_some()
+                }
+                "has" => {
+                    let file = matches!(
+                        value.to_ascii_lowercase().as_str(),
+                        "file" | "files" | "attachment" | "attachments"
+                    );
+                    terms.has_file |= file;
+                    file
+                }
+                "after" => parse_day(value).map(|d| terms.after = Some(d)).is_some(),
+                "before" => parse_day(value).map(|d| terms.before = Some(d)).is_some(),
+                "larger" => parse_kb(value).map(|k| terms.larger_kb = Some(k)).is_some(),
+                "smaller" => parse_kb(value)
+                    .map(|k| terms.smaller_kb = Some(k))
+                    .is_some(),
+                _ => false,
+            };
+            if !used {
+                words.push(token);
+            }
+        }
+        terms.text = words.join(" ");
+        terms
+    }
+}
+
+/// The filter split at spaces, except inside quotes; the quotes of a plain phrase go.
+fn tokens(filter: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut quoted = false;
+    for c in filter.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                if current.contains(':') {
+                    current.push(c); // key:"value", unquoted by the parser
+                }
+            }
+            c if c.is_whitespace() && !quoted => {
+                if !current.is_empty() {
+                    out.push(std::mem::take(&mut current));
+                }
+            }
+            c => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
+}
+
+/// The first moment of a year, month or day: "2026", "2026-09", "2026/09/15", "15.09.2026",
+/// "09.2026" → "2026-09-15 00:00:00".
+fn parse_day(value: &str) -> Option<String> {
+    let parts: Vec<&str> = value.split(['-', '/', '.']).collect();
+    let num = |s: &str| s.parse::<u32>().ok();
+    let (y, m, d) = match parts.as_slice() {
+        [y] if y.len() == 4 => (num(y)?, 1, 1),
+        [y, m] if y.len() == 4 => (num(y)?, num(m)?, 1),
+        [m, y] if y.len() == 4 => (num(y)?, num(m)?, 1),
+        [y, m, d] if y.len() == 4 => (num(y)?, num(m)?, num(d)?),
+        [d, m, y] if y.len() == 4 => (num(y)?, num(m)?, num(d)?),
+        _ => return None,
+    };
+    let day = chrono::NaiveDate::from_ymd_opt(i32::try_from(y).ok()?, m, d)?;
+    Some(format!("{day} 00:00:00"))
+}
+
+/// A size in KB: "500k", "5m", "5 MB", "1.5g", "300" (KB).
+fn parse_kb(value: &str) -> Option<u64> {
+    let v = value.trim().to_ascii_lowercase();
+    let v = v.trim_end_matches('b').trim();
+    let (number, unit) = match v.char_indices().find(|(_, c)| c.is_ascii_alphabetic()) {
+        Some((i, _)) => (v[..i].trim(), &v[i..]),
+        None => (v, "k"),
+    };
+    let n: f64 = number.replace(',', ".").parse().ok()?;
+    let factor = match unit {
+        "k" => 1.0,
+        "m" => 1024.0,
+        "g" => 1024.0 * 1024.0,
+        _ => return None,
+    };
+    (n >= 0.0).then(|| (n * factor).round() as u64)
 }
 
 /// Where in the list a page starts.
@@ -143,12 +308,13 @@ impl Query {
                 filter.push_str(&folders_of_kind("'spam', 'trash'"));
             }
         }
-        let needle = view.filter.trim().to_lowercase();
+        let terms = Terms::parse(&view.filter);
+        let needle = terms.text.trim().to_lowercase();
         if !needle.is_empty() {
             filter.push_str(" AND (telex_has(?, from_name, from_email, subject, to_addr)");
             args.push(Value::Text(needle));
             let words = if view.bodies {
-                fts_query(&view.filter)
+                fts_query(&terms.text)
             } else {
                 String::new()
             };
@@ -159,6 +325,41 @@ impl Query {
                 args.push(Value::Text(words));
             }
             filter.push(')');
+        }
+        let mut matching = |fields: &str, values: &[String]| {
+            for v in values {
+                filter.push_str(&format!(" AND telex_has(?, {fields})"));
+                args.push(Value::Text(v.clone()));
+            }
+        };
+        matching("from_name, from_email", &terms.from);
+        matching("to_addr, cc, bcc", &terms.to);
+        matching("subject", &terms.subject);
+        let mut condition = |sql: &str, value: Value| {
+            filter.push_str(sql);
+            args.push(value);
+        };
+        if let Some(unread) = terms.unread {
+            condition(" AND unread = ?", Value::Integer(i64::from(unread)));
+        }
+        if let Some(flagged) = terms.flagged {
+            condition(" AND flagged = ?", Value::Integer(i64::from(flagged)));
+        }
+        if let Some(day) = terms.after {
+            condition(" AND date >= ?", Value::Text(day));
+        }
+        if let Some(day) = terms.before {
+            condition(" AND date < ?", Value::Text(day));
+        }
+        let kb = |n: u64| Value::Integer(i64::try_from(n).unwrap_or(i64::MAX));
+        if let Some(n) = terms.larger_kb {
+            condition(" AND size_kb >= ?", kb(n));
+        }
+        if let Some(n) = terms.smaller_kb {
+            condition(" AND size_kb < ?", kb(n));
+        }
+        if terms.has_file {
+            filter.push_str(" AND attachments <> '[]'");
         }
 
         let desc = !view.ascending;
@@ -822,6 +1023,77 @@ mod tests {
             assert!(page.start <= at && at < end, "{what}: around {id}");
             assert_eq!(ids(&page.rows), all[page.start..end], "{what}: around {id}");
         }
+    }
+
+    #[test]
+    fn filter_operators_are_read() {
+        let t = Terms::parse(
+            r#"from:"Anna K" faktura is:unread has:file after:2026-09 before:15.10.2026 larger:5m smaller:300 to:Piotr subject:Re: Re: notakey:x is:weird from:"#,
+        );
+        assert_eq!(t.from, ["anna k"]);
+        assert_eq!(t.to, ["piotr"]);
+        assert_eq!(t.subject, ["re:"]);
+        assert_eq!((t.unread, t.flagged, t.has_file), (Some(true), None, true));
+        assert_eq!(t.after.as_deref(), Some("2026-09-01 00:00:00"));
+        assert_eq!(t.before.as_deref(), Some("2026-10-15 00:00:00"));
+        assert_eq!((t.larger_kb, t.smaller_kb), (Some(5120), Some(300)));
+        assert_eq!(
+            t.text, "faktura Re: notakey:x is:weird",
+            "the rest is plain words"
+        );
+        assert_eq!(Terms::parse("  ").text, "");
+        assert_eq!(Terms::parse("\"anna kow\"").text, "anna kow");
+        let odd = Terms::parse("after:2026-13 larger:lots 10:30");
+        assert_eq!(odd.after, None);
+        assert_eq!(odd.text, "after:2026-13 larger:lots 10:30");
+        assert_eq!(parse_kb("1,5 MB"), Some(1536));
+        assert_eq!(parse_day("2026"), Some("2026-01-01 00:00:00".into()));
+        assert_eq!(parse_day("09.2026"), Some("2026-09-01 00:00:00".into()));
+    }
+
+    #[test]
+    fn filter_operators_narrow_the_list() {
+        let store = store(40);
+        let all = store.list("studio/inbox").unwrap();
+        let count = |filter: &str| {
+            let view = ListView {
+                folder: Some("studio/inbox".into()),
+                filter: filter.into(),
+                ..Default::default()
+            };
+            store.page(&view, PageAt::First, 500).unwrap().total
+        };
+        let expect =
+            |keep: &dyn Fn(&MessageSummary) -> bool| all.iter().filter(|m| keep(m)).count();
+        assert_eq!(count("is:unread"), expect(&|m| m.unread));
+        assert_eq!(count("is:read"), expect(&|m| !m.unread));
+        assert_eq!(count("is:flagged"), expect(&|m| m.flagged));
+        assert_eq!(count("has:file"), expect(&|m| m.has_attachments));
+        assert_eq!(count("larger:3"), expect(&|m| m.size_kb >= 3));
+        assert_eq!(
+            count("smaller:2 is:unread"),
+            expect(&|m| m.size_kb < 2 && m.unread)
+        );
+        assert_eq!(
+            count("from:kowalska"),
+            expect(&|m| m.from_name.to_lowercase().contains("kowalska"))
+        );
+        assert_eq!(
+            count("subject:wycena is:flagged"),
+            expect(&|m| m.flagged && m.subject.to_lowercase().contains("wycena"))
+        );
+        assert_eq!(count("after:2026-10-01"), all.len());
+        assert_eq!(count("after:2026-10-02"), 0);
+        assert_eq!(count("before:2026-10-02"), all.len());
+        // Operators and words together: the words still match as before.
+        assert_eq!(
+            count("is:unread kow"),
+            expect(&|m| m.unread && matches(m, "kow"))
+        );
+        assert!(
+            count("is:unread") > 0 && count("has:file") > 0,
+            "the fixture has both"
+        );
     }
 
     #[test]
