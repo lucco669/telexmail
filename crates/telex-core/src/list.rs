@@ -358,6 +358,23 @@ impl MailStore {
         }
     }
 
+    /// The messages of a list from `from` to `to` (either way round, both included), in the
+    /// list's order: selecting a range with Shift. The whole list when either is missing or
+    /// no longer in it: Ctrl+A.
+    pub fn ids_between(
+        &self,
+        view: &ListView,
+        from: Option<MessageId>,
+        to: Option<MessageId>,
+    ) -> Result<Vec<MessageId>, StoreError> {
+        let ids = Query::new(self, view)?.ids(&self.db)?;
+        let place = |id: Option<MessageId>| id.and_then(|id| ids.iter().position(|&x| x == id));
+        Ok(match (place(from), place(to)) {
+            (Some(a), Some(b)) => ids[a.min(b)..=a.max(b)].to_vec(),
+            _ => ids,
+        })
+    }
+
     fn keyset_page(&self, q: &Query, at: PageAt, limit: usize) -> Result<Page, StoreError> {
         let db = &self.db;
         let total = q.count(db, None)?;
@@ -804,6 +821,29 @@ mod tests {
             assert!(page.start <= at && at < end, "{what}: around {id}");
             assert_eq!(ids(&page.rows), all[page.start..end], "{what}: around {id}");
         }
+    }
+
+    #[test]
+    fn a_range_is_every_message_between_two() {
+        let store = store(12);
+        let view = ListView {
+            folder: Some("studio/inbox".into()),
+            sort: SortKey::Subject,
+            ascending: true,
+            ..Default::default()
+        };
+        let all = ids(&store.page(&view, PageAt::First, 100).unwrap().rows);
+        let range = store
+            .ids_between(&view, Some(all[7]), Some(all[3]))
+            .unwrap();
+        assert_eq!(range, all[3..=7], "either way round, in the list's order");
+        assert_eq!(store.ids_between(&view, None, None).unwrap(), all);
+        assert_eq!(
+            store
+                .ids_between(&view, Some(99_999), Some(all[0]))
+                .unwrap(),
+            all
+        );
     }
 
     #[test]

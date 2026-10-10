@@ -25,4 +25,6 @@ pub mod usage;
 
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey};
 pub use model::*;
-pub use store::{DeleteOutcome, FolderSyncState, MailStore, StoreError, SyncedMessage};
+pub use store::{
+    DeleteOutcome, DeleteReport, FolderSyncState, MailStore, StoreError, SyncedMessage,
+};

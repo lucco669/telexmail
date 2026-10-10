@@ -126,6 +126,15 @@ pub enum DeleteOutcome {
     Removed,
 }
 
+/// What deleting several messages did.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct DeleteReport {
+    /// Messages now in Trash, each with the folder it was in, for undo.
+    pub trashed: Vec<(MessageId, String)>,
+    /// Messages that were in Trash and are gone for good.
+    pub removed: usize,
+}
+
 /// Where the last sync of one folder stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FolderSyncState {
@@ -405,106 +414,121 @@ impl MailStore {
     }
 
     pub fn set_unread(&mut self, id: MessageId, unread: bool) -> Result<(), StoreError> {
-        self.set_flag(id, "unread", "seen", unread, !unread)
+        self.locate(id)?;
+        set_flags(&mut self.db, &[id], Flag::Unread, unread, false).map(|_| ())
     }
 
     pub fn set_flagged(&mut self, id: MessageId, flagged: bool) -> Result<(), StoreError> {
-        self.set_flag(id, "flagged", "flagged", flagged, flagged)
+        self.locate(id)?;
+        set_flags(&mut self.db, &[id], Flag::Flagged, flagged, false).map(|_| ())
     }
 
-    /// Change a flag here and, for server mail, queue the change. Only the latest value of
-    /// each flag is kept in the queue.
-    fn set_flag(
+    /// Mark many messages read or unread at once. Messages already so, or gone, are left
+    /// alone. Returns how many changed.
+    pub fn set_unread_many(
         &mut self,
-        id: MessageId,
-        column: &str,
-        op_kind: &str,
-        value: bool,
-        server_value: bool,
-    ) -> Result<(), StoreError> {
-        let (_, srv_folder) = self.locate(id)?;
-        let tx = self.db.transaction()?;
-        tx.execute(
-            &format!("UPDATE messages SET {column} = ?1 WHERE id = ?2"),
-            params![value, id as i64],
-        )?;
-        if let Some(srv) = srv_folder {
-            tx.execute(
-                "DELETE FROM pending_ops WHERE message = ?1 AND kind = ?2",
-                params![id as i64, op_kind],
-            )?;
-            tx.execute(
-                "INSERT INTO pending_ops (account, message, kind, value) VALUES (?1, ?2, ?3, ?4)",
-                params![account_of(&srv), id as i64, op_kind, server_value],
-            )?;
-        }
-        tx.commit()?;
-        Ok(())
+        ids: &[MessageId],
+        unread: bool,
+    ) -> Result<usize, StoreError> {
+        set_flags(&mut self.db, ids, Flag::Unread, unread, true)
+    }
+
+    /// Flag or unflag many messages at once. Returns how many changed.
+    pub fn set_flagged_many(
+        &mut self,
+        ids: &[MessageId],
+        flagged: bool,
+    ) -> Result<usize, StoreError> {
+        set_flags(&mut self.db, ids, Flag::Flagged, flagged, true)
+    }
+
+    /// Mark every unread message in a folder read. Returns how many.
+    pub fn mark_folder_read(&mut self, folder: &str) -> Result<usize, StoreError> {
+        self.check_folder(folder)?;
+        let ids: Vec<MessageId> = {
+            let mut stmt = self
+                .db
+                .prepare_cached("SELECT id FROM messages WHERE folder = ?1 AND unread")?;
+            let ids = stmt
+                .query_map([folder], |r| r.get::<_, i64>(0))?
+                .map(|id| id.map(|id| id as MessageId))
+                .collect::<Result<_, _>>()?;
+            ids
+        };
+        self.set_unread_many(&ids, false)
     }
 
     /// Move a message to another folder of the same account.
     pub fn move_to(&mut self, id: MessageId, folder: &str) -> Result<(), StoreError> {
+        self.move_many(&[id], folder).map(|_| ())
+    }
+
+    /// Move messages to another folder of their account, all or none: a message of
+    /// another account (or one that is gone) stops the whole move. Returns where each was.
+    pub fn move_many(
+        &mut self,
+        ids: &[MessageId],
+        folder: &str,
+    ) -> Result<Vec<(MessageId, String)>, StoreError> {
         let target_acct = self.check_folder(folder)?.to_owned();
-        let (source, srv_folder) = self.locate(id)?;
-        if account_of(&source) != target_acct {
-            return Err(StoreError::CrossAccountMove {
-                from: source,
-                to: folder.to_owned(),
-            });
+        let mut places = Vec::with_capacity(ids.len());
+        for &id in ids {
+            let (source, srv_folder) = self.locate(id)?;
+            if account_of(&source) != target_acct {
+                return Err(StoreError::CrossAccountMove {
+                    from: source,
+                    to: folder.to_owned(),
+                });
+            }
+            places.push((id, source, srv_folder));
         }
         let tx = self.db.transaction()?;
-        tx.execute(
-            "UPDATE messages SET folder = ?1 WHERE id = ?2",
-            params![folder, id as i64],
-        )?;
-        // Leaving the Outbox means it's no longer to be sent.
-        tx.execute("DELETE FROM outbox WHERE message = ?1", [id as i64])?;
-        if let Some(srv) = srv_folder {
-            // One move per message: moving again replaces it, moving back cancels it.
-            tx.execute(
-                "DELETE FROM pending_ops WHERE message = ?1 AND kind = 'move'",
-                [id as i64],
-            )?;
-            if srv != folder {
-                tx.execute(
-                    "INSERT INTO pending_ops (account, message, kind, target) VALUES (?1, ?2, 'move', ?3)",
-                    params![target_acct, id as i64, folder],
-                )?;
-            }
+        for (id, _, srv_folder) in &places {
+            move_row(&tx, *id, srv_folder.as_deref(), folder, &target_acct)?;
         }
         tx.commit()?;
-        Ok(())
+        Ok(places.into_iter().map(|(id, from, _)| (id, from)).collect())
     }
 
     /// Delete like a mail client does: first to Trash, and from Trash for good.
     pub fn delete(&mut self, id: MessageId) -> Result<DeleteOutcome, StoreError> {
-        let (folder, srv_folder) = self.locate(id)?;
-        if self.folder_kind(&folder) != Some(FolderKind::Trash) {
-            let trash = self.folder_key_of_kind(account_of(&folder), FolderKind::Trash)?;
-            self.move_to(id, &trash)?;
-            return Ok(DeleteOutcome::MovedToTrash);
-        }
-        let tx = self.db.transaction()?;
-        if let Some(srv) = srv_folder {
-            // The row goes now; the queued expunge remembers where the message is on the server.
-            let (uid, message_id, subject): (Option<u32>, Option<String>, String) = tx.query_row(
-                "SELECT uid, message_id, subject FROM messages WHERE id = ?1",
-                [id as i64],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-            )?;
-            tx.execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
-            if uid.is_some() || message_id.is_some() {
-                tx.execute(
-                    "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject)
-                     VALUES (?1, 'expunge', ?2, ?3, ?4, ?5)",
-                    params![account_of(&srv), srv, uid, message_id, subject],
-                )?;
-            }
+        let report = self.delete_many(&[id])?;
+        Ok(if report.trashed.is_empty() {
+            DeleteOutcome::Removed
         } else {
-            tx.execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
+            DeleteOutcome::MovedToTrash
+        })
+    }
+
+    /// Delete many messages: to their account's Trash, or for good when they are in Trash
+    /// already. Every message is checked first; nothing changes when one can't go.
+    pub fn delete_many(&mut self, ids: &[MessageId]) -> Result<DeleteReport, StoreError> {
+        let mut plan = Vec::with_capacity(ids.len());
+        for &id in ids {
+            let (folder, srv_folder) = self.locate(id)?;
+            let to_trash = if self.folder_kind(&folder) == Some(FolderKind::Trash) {
+                None
+            } else {
+                Some(self.folder_key_of_kind(account_of(&folder), FolderKind::Trash)?)
+            };
+            plan.push((id, folder, srv_folder, to_trash));
+        }
+        let mut report = DeleteReport::default();
+        let tx = self.db.transaction()?;
+        for (id, folder, srv_folder, to_trash) in plan {
+            match to_trash {
+                Some(trash) => {
+                    move_row(&tx, id, srv_folder.as_deref(), &trash, account_of(&trash))?;
+                    report.trashed.push((id, folder));
+                }
+                None => {
+                    remove_row(&tx, id, srv_folder.as_deref())?;
+                    report.removed += 1;
+                }
+            }
         }
         tx.commit()?;
-        Ok(DeleteOutcome::Removed)
+        Ok(report)
     }
 
     /// Store a message the user wrote, in Drafts (or, for the sample mailbox, in Sent:
@@ -1575,6 +1599,108 @@ fn set_server_location(
     Ok(())
 }
 
+/// The two flags the user changes, with their column and their kind in `pending_ops`.
+#[derive(Debug, Clone, Copy)]
+enum Flag {
+    /// The column is `unread`; the server's flag is \Seen, the other way round.
+    Unread,
+    Flagged,
+}
+
+/// Change a flag on messages here and, for server mail, queue the change, all in one
+/// transaction. Only the latest value of each flag is kept in the queue. With
+/// `only_changed`, messages that already have the value (or are gone) are skipped; without,
+/// every message is queued, so an explicit toggle always reaches the server. Returns how
+/// many messages were changed or queued.
+fn set_flags(
+    db: &mut Connection,
+    ids: &[MessageId],
+    flag: Flag,
+    value: bool,
+    only_changed: bool,
+) -> Result<usize, StoreError> {
+    let (column, kind, server_value) = match flag {
+        Flag::Unread => ("unread", "seen", !value),
+        Flag::Flagged => ("flagged", "flagged", value),
+    };
+    let tx = db.transaction()?;
+    let mut done = 0;
+    {
+        let mut update = tx.prepare_cached(&format!(
+            "UPDATE messages SET {column} = ?1 WHERE id = ?2 AND ({column} <> ?1 OR NOT ?3)
+             RETURNING srv_folder"
+        ))?;
+        let mut forget =
+            tx.prepare_cached("DELETE FROM pending_ops WHERE message = ?1 AND kind = ?2")?;
+        let mut queue = tx.prepare_cached(
+            "INSERT INTO pending_ops (account, message, kind, value) VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for &id in ids {
+            let changed: Option<Option<String>> = update
+                .query_row(params![value, id as i64, only_changed], |r| r.get(0))
+                .optional()?;
+            let Some(srv) = changed else { continue };
+            done += 1;
+            if let Some(srv) = srv {
+                forget.execute(params![id as i64, kind])?;
+                queue.execute(params![account_of(&srv), id as i64, kind, server_value])?;
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(done)
+}
+
+/// File one message in `folder` (of `account`), and queue the move for server mail.
+fn move_row(
+    db: &Connection,
+    id: MessageId,
+    srv_folder: Option<&str>,
+    folder: &str,
+    account: &str,
+) -> Result<(), StoreError> {
+    db.prepare_cached("UPDATE messages SET folder = ?1 WHERE id = ?2")?
+        .execute(params![folder, id as i64])?;
+    // Leaving the Outbox means it's no longer to be sent.
+    db.prepare_cached("DELETE FROM outbox WHERE message = ?1")?
+        .execute([id as i64])?;
+    if let Some(srv) = srv_folder {
+        // One move per message: moving again replaces it, moving back cancels it.
+        db.prepare_cached("DELETE FROM pending_ops WHERE message = ?1 AND kind = 'move'")?
+            .execute([id as i64])?;
+        if srv != folder {
+            db.prepare_cached(
+                "INSERT INTO pending_ops (account, message, kind, target) VALUES (?1, ?2, 'move', ?3)",
+            )?
+            .execute(params![account, id as i64, folder])?;
+        }
+    }
+    Ok(())
+}
+
+/// Remove one message for good; for server mail, queue the expunge, which remembers where
+/// the message is on the server once the row is gone.
+fn remove_row(db: &Connection, id: MessageId, srv_folder: Option<&str>) -> Result<(), StoreError> {
+    if let Some(srv) = srv_folder {
+        let (uid, message_id, subject): (Option<u32>, Option<String>, String) = db.query_row(
+            "SELECT uid, message_id, subject FROM messages WHERE id = ?1",
+            [id as i64],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        db.execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
+        if uid.is_some() || message_id.is_some() {
+            db.execute(
+                "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject)
+                 VALUES (?1, 'expunge', ?2, ?3, ?4, ?5)",
+                params![account_of(srv), srv, uid, message_id, subject],
+            )?;
+        }
+    } else {
+        db.execute("DELETE FROM messages WHERE id = ?1", [id as i64])?;
+    }
+    Ok(())
+}
+
 /// "firma/inbox" → "firma".
 fn account_of(folder_key: &str) -> &str {
     split_folder_key(folder_key).map_or(folder_key, |(a, _)| a)
@@ -2517,6 +2643,81 @@ mod tests {
             )
             .unwrap();
         assert_eq!(orphans, 0);
+    }
+
+    #[test]
+    fn many_messages_change_at_once_and_only_real_changes_are_queued() {
+        let (mut store, account) = store_with_server_account();
+        let ids: Vec<MessageId> = (1..=4)
+            .map(|uid| one_in_inbox(&mut store, &account, uid))
+            .collect();
+        store.set_unread(ids[0], false).unwrap();
+        let before = store.pending_changes(&account.id).unwrap().len();
+        // Three are unread, one already read: three change and are queued.
+        assert_eq!(store.set_unread_many(&ids, false).unwrap(), 3);
+        assert_eq!(
+            store.pending_changes(&account.id).unwrap().len(),
+            before + 3
+        );
+        assert_eq!(store.unread_count(&account.folder_key("inbox")).unwrap(), 0);
+        assert_eq!(store.set_flagged_many(&ids[..2], true).unwrap(), 2);
+        assert_eq!(
+            store.set_flagged_many(&[ids[0], 99_999], true).unwrap(),
+            0,
+            "gone ids skipped"
+        );
+
+        // Moving is all or nothing.
+        let archive = account.folder_key("archive");
+        let places = store.move_many(&ids[..2], &archive).unwrap();
+        assert_eq!(
+            places,
+            [
+                (ids[0], account.folder_key("inbox")),
+                (ids[1], account.folder_key("inbox"))
+            ]
+        );
+        assert_eq!(store.list(&archive).unwrap().len(), 2);
+        assert!(store.move_many(&[ids[2], 99_999], &archive).is_err());
+        assert_eq!(
+            store.get(ids[2]).unwrap().folder,
+            account.folder_key("inbox"),
+            "untouched"
+        );
+
+        // Deleting: what is in Trash goes for good, the rest goes to Trash.
+        store.delete(ids[3]).unwrap();
+        let report = store.delete_many(&[ids[2], ids[3]]).unwrap();
+        assert_eq!(report.trashed, [(ids[2], account.folder_key("inbox"))]);
+        assert_eq!(report.removed, 1);
+        assert!(store.get(ids[3]).is_err());
+        assert_eq!(
+            store.get(ids[2]).unwrap().folder,
+            account.folder_key("trash")
+        );
+        assert!(kinds(&store, &account).contains(&ChangeKind::Expunge));
+    }
+
+    #[test]
+    fn a_folder_is_marked_read_in_one_go() {
+        let (mut store, account) = store_with_server_account();
+        for uid in 1..=5 {
+            one_in_inbox(&mut store, &account, uid);
+        }
+        let inbox = account.folder_key("inbox");
+        assert_eq!(store.mark_folder_read(&inbox).unwrap(), 5);
+        assert_eq!(store.unread_count(&inbox).unwrap(), 0);
+        assert_eq!(
+            store.mark_folder_read(&inbox).unwrap(),
+            0,
+            "nothing left to do"
+        );
+        assert_eq!(
+            kinds(&store, &account),
+            vec![ChangeKind::Seen(true); 5],
+            "one change per message, nothing twice"
+        );
+        assert!(store.mark_folder_read("nope/inbox").is_err());
     }
 
     #[test]

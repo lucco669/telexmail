@@ -76,7 +76,8 @@ async function loadTree(){
 const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
-const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message', 'run_rules']);
+const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message', 'run_rules',
+  'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read']);
 async function call(cmd, args){
   try {
     const result = await invoke(cmd, args);
@@ -156,7 +157,9 @@ const state = {
   folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', inText:false,
   scope: saved.scope === 'all' ? 'all' : 'folder', // the quick filter looks in this folder or in all mail
   more: saved.more && typeof saved.more === 'object' ? saved.more : {}, // accounts showing all their folders
-  collapsed:{}, compose:null, images:new Set(), white:new Set(), lastDeleted:null, // white: HTML shown on white
+  collapsed:{}, compose:null, images:new Set(), white:new Set(), // white: HTML shown on white
+  undo:null, // what Z takes back: {kind:'move', items:[{id, from}]} after a delete or move
+  picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
 };
@@ -289,9 +292,10 @@ function say(text, ms = 4500){
 }
 function renderStatus(){
   const {total, unread} = countOf(state.folder), found = list.total;
+  const picked = state.picked.size > 1 ? ' · ' + esc(tn(state.picked.size, '{n} selected', '{n} selected', {n:num(state.picked.size)})) : '';
   $('st-folder').innerHTML = !ACCOUNTS.length ? esc(t('No account yet'))
-    : allMail() ? esc(t('All mail') + ' · ' + tn(found, '{n} match', '{n} matches', {n:num(found)}))
-    : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}`;
+    : allMail() ? esc(t('All mail') + ' · ' + tn(found, '{n} match', '{n} matches', {n:num(found)})) + picked
+    : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderMeter();
   const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex` : 'Telex';
@@ -375,6 +379,7 @@ $('folder-select').addEventListener('change', e => setFolder(e.target.value));
 
 function setFolder(key){
   state.folder = key; state.q = ''; qEl.value = ''; state.inText = false;
+  unpick();
   paintScope(); renderTree(); renderStatus();
   return loadView({top:true});
 }
@@ -393,6 +398,13 @@ const selKey = () => allMail() ? '*' : state.folder;
 const viewArgs = () => ({folder:allMail() ? null : state.folder, sort:state.sort.key, ascending:state.sort.dir > 0,
   filter:state.q, bodies:state.inText});
 const current = () => selRow && selRow.id === state.sel[selKey()] && (allMail() || selRow.f === state.folder) ? selRow : null;
+// The messages an action is for: those picked with Shift or Ctrl, else the selected one.
+const chosen = () => state.picked.size ? [...state.picked] : current() ? [current().id] : [];
+function unpick(){
+  if (!state.picked.size && state.anchor == null) return false;
+  state.picked.clear(); state.anchor = null; state.span = 0;
+  return true;
+}
 
 // A page of the current view, or null when the view changed while the core answered.
 async function fetchPage(at, limit = PAGE){
@@ -433,8 +445,9 @@ function reveal(pos){
 function rowHtml(m, sel){
   // In all mail, Sent and Drafts say who they went to.
   const out = isOut(m.f), who = out ? (allMail() ? t('To: {who}', {who:nameOf(m.to)}) : nameOf(m.to)) : m.from, tip = out ? m.to : `${m.from} <${m.email}>`;
-  const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel' : '');
-  return `<tr data-id="${m.id}" class="${cls}" aria-selected="${m.id === sel}">
+  const on = m.id === sel || state.picked.has(m.id);
+  const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel ' : '') + (state.picked.has(m.id) ? 'picked' : '');
+  return `<tr data-id="${m.id}" class="${cls}" aria-selected="${on}">
 <td class="c-ic"><span class="ic"><i class="dot"></i>${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : '<i class="sp"></i>'}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${esc(who)}</td>
 <td class="c-subj" title="${esc(m.subj)}">${esc(m.subj)}</td>
@@ -526,6 +539,12 @@ async function loadView({top = false} = {}){
 async function refresh({skip} = {}){
   try { await loadTree(); } catch { return; }
   if (!folderOf(state.folder)){ setFolder(homeOf(ACCOUNTS[0]?.id)); return; } // e.g. the folder is gone from the server
+  if (state.picked.size){ // picked messages that went away (deleted elsewhere, moved by a rule) aren't picked any more
+    try {
+      const ids = new Set(await invoke('list_ids', {view:viewArgs(), from:null, to:null}));
+      for (const id of state.picked) if (!ids.has(id)) state.picked.delete(id);
+    } catch {}
+  }
   renderTree(); renderStatus();
   const [va] = visibleRange(), seq = ++list.seq;
   const anchor = list.rows.slice(Math.max(0, va - list.start)).find(r => r.id !== skip);
@@ -557,9 +576,12 @@ function renderHead(){
 // Show the selection without drawing the rows again.
 function paintSelection(){
   const sel = state.sel[selKey()];
-  rowsEl.querySelectorAll('tr.sel').forEach(r => { r.classList.remove('sel'); r.setAttribute('aria-selected', 'false'); });
-  const r = rowsEl.querySelector(`tr[data-id="${sel}"]`);
-  if (r){ r.classList.add('sel'); r.setAttribute('aria-selected', 'true'); }
+  rowsEl.querySelectorAll('tr[data-id]').forEach(r => {
+    const id = Number(r.dataset.id), picked = state.picked.has(id);
+    r.classList.toggle('sel', id === sel);
+    r.classList.toggle('picked', picked);
+    r.setAttribute('aria-selected', String(id === sel || picked));
+  });
 }
 // Change fields of a message wherever the list keeps it.
 function patch(id, fields){
@@ -569,7 +591,10 @@ function patch(id, fields){
 rowsEl.addEventListener('click', e => {
   const tr = e.target.closest('tr[data-id]');
   if (!tr) return;
-  select(Number(tr.dataset.id));
+  const id = Number(tr.dataset.id);
+  if (e.ctrlKey || e.metaKey) togglePick(id);
+  else if (e.shiftKey) pickTo(id);
+  else { unpick(); select(id); }
   listEl.focus({preventScroll:true});
 });
 rowsEl.addEventListener('dblclick', e => { if (e.target.closest('tr[data-id]') && allMail()) openInFolder(); });
@@ -622,8 +647,10 @@ const reorder = () => { if (state.sort.key === 'flag') loadView(); };
 // Arrow keys, Home and End. Steps wait for each other, so a held key never skips a row.
 let moving = Promise.resolve();
 const move = delta => { moving = moving.then(() => moveBy(delta)).catch(() => {}); };
+const pickMove = delta => { moving = moving.then(() => pickBy(delta)).catch(() => {}); };
 async function moveBy(delta){
   if (!list.total) return;
+  if (unpick()) paintSelection();
   const id = state.sel[selKey()];
   let pos = posOf(id);
   if (pos < 0 && current() && Number.isFinite(delta)){ // scrolled far from the selection: find it again
@@ -635,6 +662,79 @@ async function moveBy(delta){
   if (!row) return;
   select(row.id);
   if (reveal(to)) drawRows();
+}
+
+/* ---------- picking several messages ---------- */
+// Ctrl+click adds or takes away one; Shift+click and Shift+Home/End take everything from where
+// picking started (the anchor) to there, the core saying which messages lie between; Shift+↑/↓
+// grow or shrink that by a row; Ctrl+A takes the whole list. F, U, Del, M and Z work on them all.
+function startPicking(){
+  const m = current();
+  if (!state.picked.size && m) state.picked.add(m.id);
+  if (state.anchor == null){ state.anchor = m?.id ?? null; state.span = 0; }
+}
+function afterPick(){
+  paintSelection(); renderStatus();
+  if (!state.compose) renderPreview();
+}
+function togglePick(id){
+  startPicking();
+  if (state.picked.has(id) && state.picked.size > 1) state.picked.delete(id); else state.picked.add(id);
+  state.anchor = id; state.span = 0;
+  select(id, true); // picking doesn't mark anything read
+  afterPick();
+}
+async function pickTo(id){
+  startPicking();
+  const from = state.anchor ?? id;
+  let ids;
+  try { ids = await invoke('list_ids', {view:viewArgs(), from, to:id}); } catch (e){ say(tr(e), 8000); return; }
+  state.picked = new Set(ids);
+  state.span = ids[0] === from ? ids.length - 1 : 1 - ids.length;
+  select(id, true);
+  afterPick();
+}
+// Shift+↑/↓: away from the anchor the selection grows, towards it it shrinks.
+async function pickBy(delta){
+  const m = current();
+  if (!list.total || !m) return;
+  startPicking();
+  let pos = posOf(m.id);
+  if (pos < 0){ const p = await fetchPage({around:m.id}); if (p){ merge(p); pos = posOf(m.id); } }
+  if (pos < 0) return;
+  const to = Math.max(0, Math.min(list.total - 1, pos + delta));
+  if (to === pos) return;
+  const row = await rowAt(to);
+  if (!row) return;
+  if (state.span === 0 || Math.sign(state.span) === Math.sign(delta)) state.picked.add(row.id);
+  else state.picked.delete(m.id);
+  state.span += delta;
+  select(row.id, true);
+  if (reveal(to)) drawRows();
+  afterPick();
+}
+async function pickEnd(last){
+  const row = await rowAt(last ? list.total - 1 : 0);
+  if (!row) return;
+  await pickTo(row.id);
+  if (reveal(posOf(row.id))) drawRows();
+}
+async function pickAll(){
+  if (!list.total) return;
+  let ids;
+  try { ids = await invoke('list_ids', {view:viewArgs(), from:null, to:null}); } catch (e){ say(tr(e), 8000); return; }
+  state.picked = new Set(ids); state.anchor = current()?.id ?? ids[0] ?? null; state.span = 0;
+  afterPick();
+  say(tn(ids.length, '{n} message selected.', '{n} messages selected.', {n:num(ids.length)}), 3000);
+}
+// The rows of the picked messages that are loaded: enough to decide what F and U do.
+const pickedRows = () => list.rows.filter(r => state.picked.has(r.id));
+// After the picked messages went away: the first row below them, or above.
+function rowAfterPicked(){
+  const at = list.rows.map((r, i) => state.picked.has(r.id) ? i : -1).filter(i => i >= 0);
+  if (!at.length) return null;
+  const below = list.rows.slice(at[at.length - 1] + 1).find(r => !state.picked.has(r.id));
+  return below ?? list.rows.slice(0, at[0]).reverse().find(r => !state.picked.has(r.id)) ?? null;
 }
 
 /* ---------- preview ---------- */
@@ -714,6 +814,12 @@ async function renderPreview(){
     previewEl.innerHTML = `<div class="welcome">${I.mail}<h2>${esc(t('Welcome to Telex'))}</h2>
 <p>${esc(t('Add your mail account to start. Telex keeps your mail on this PC and talks only to your mail servers.'))}</p>
 <button type="button" class="btn primary" data-act="add-account">${esc(t('Add your mail account'))}</button></div>`;
+    return;
+  }
+  if (state.picked.size > 1){
+    const keys = [['Del', N_('to Trash')], ['M', N_('move')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Esc', N_('clear the selection')]];
+    previewEl.innerHTML = `<div class="pempty">${I.mail}<div><b>${esc(tn(state.picked.size, '{n} message selected', '{n} messages selected', {n:num(state.picked.size)}))}</b></div>`
+      + `<div class="mkeys">${keys.map(([k, l]) => `<span><kbd>${k}</kbd> ${esc(t(l))}</span>`).join('')}</div></div>`;
     return;
   }
   if (!s){
@@ -800,6 +906,7 @@ async function openCompose(kind, preset = {}){
   const s = current();
   if (kind !== 'new' && !s){ say(t('Select a message first.')); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say(t('Only drafts and unsent messages in the Outbox can be edited.')); return; }
+  if (kind !== 'new' && state.picked.size > 1){ unpick(); paintSelection(); }
   let c;
   try {
     if (kind === 'edit'){
@@ -1001,7 +1108,16 @@ async function send(){
 }
 
 /* ---------- actions ---------- */
+// F, U and Del work on every picked message, or on the selected one.
 function toggleFlag(){
+  if (state.picked.size > 1){
+    const rows = pickedRows(), flagged = !rows.length || rows.some(r => !r.flagged), n = state.picked.size;
+    call('set_flagged_many', {ids:chosen(), flagged}).then(() => {
+      say(flagged ? tn(n, 'Flagged {n} message.', 'Flagged {n} messages.', {n:num(n)}) : tn(n, 'Removed the flag from {n} message.', 'Removed the flag from {n} messages.', {n:num(n)}), 3000);
+      refresh();
+    }).catch(() => {});
+    return;
+  }
   const m = current(); if (!m) return;
   const flagged = !m.flagged;
   changed(m, {flagged}); if (!state.compose) renderPreview();
@@ -1010,52 +1126,80 @@ function toggleFlag(){
     .catch(() => { changed(m, {flagged:!flagged}); if (!state.compose) renderPreview(); });
 }
 function toggleUnread(){
-  const m = current(); if (!m) return;
   clearTimeout(readTimer);
+  if (state.picked.size > 1){
+    // Any unread among them: all read. All read: all unread.
+    const rows = pickedRows(), unread = rows.length > 0 && !rows.some(r => r.unread), n = state.picked.size;
+    call('set_unread_many', {ids:chosen(), unread}).then(() => {
+      say(unread ? tn(n, 'Marked {n} message as unread.', 'Marked {n} messages as unread.', {n:num(n)}) : tn(n, 'Marked {n} message as read.', 'Marked {n} messages as read.', {n:num(n)}), 3000);
+      refresh();
+    }).catch(() => {});
+    return;
+  }
+  const m = current(); if (!m) return;
   const unread = !m.unread;
   call('set_unread', {id:m.id, unread}).then(() => {
     changed(m, {unread}); reorder();
     say(unread ? t('Marked as unread.') : t('Marked as read.'), 2000);
   }).catch(() => {});
 }
+// Shift+U: every message in the folder (or in the list, in all mail) read.
+async function markAllRead(){
+  if (!list.total) return;
+  let n;
+  try {
+    if (allMail()) n = await call('set_unread_many', {ids:await invoke('list_ids', {view:viewArgs(), from:null, to:null}), unread:false});
+    else n = await call('mark_folder_read', {folder:state.folder});
+  } catch { return; }
+  await refresh();
+  say(n ? tn(n, 'Marked {n} message as read.', 'Marked {n} messages as read.', {n:num(n)}) : t('Everything here was read already.'), 3000);
+}
 // Deleting from Trash can't be undone (on the server either), so it takes a second Del.
-let armedDelete = null; // {id, at}
+let armedDelete = null; // {key, at}
 async function del(){
-  const m = current(); if (!m) return;
-  if (kindOf(m.f) === 'trash'){
-    if (armedDelete?.id !== m.id || Date.now() - armedDelete.at > 5000){
-      armedDelete = {id:m.id, at:Date.now()};
-      say(t('Press Del again to delete this message for good.'), 5000);
+  const ids = chosen(); if (!ids.length) return;
+  const many = state.picked.size > 1, m = current();
+  const inTrash = many ? !allMail() && kindOf(state.folder) === 'trash' : m && kindOf(m.f) === 'trash';
+  if (inTrash){
+    const key = ids.join(',');
+    if (armedDelete?.key !== key || Date.now() - armedDelete.at > 5000){
+      armedDelete = {key, at:Date.now()};
+      say(many ? tn(ids.length, 'Press Del again to delete {n} message for good.', 'Press Del again to delete these {n} messages for good.', {n:num(ids.length)})
+        : t('Press Del again to delete this message for good.'), 5000);
       return;
     }
     armedDelete = null;
   }
   // The next one gets the selection, or the one above at the end of the list.
-  const pos = posOf(m.id);
-  const next = pos < 0 ? null : (await rowAt(pos + 1)) ?? (await rowAt(pos - 1));
-  let outcome;
-  try { outcome = await call('delete_message', {id:m.id}); } catch { return; }
-  if (outcome === 'removed'){
-    bodies.delete(m.id); state.lastDeleted = null;
-    say(t('Deleted for good.'));
-  } else {
-    state.lastDeleted = {id:m.id, from:m.f};
-    say(t('Moved to Trash. Press Z to undo.'));
-  }
+  let next;
+  if (many) next = rowAfterPicked();
+  else { const pos = m ? posOf(m.id) : -1; next = pos < 0 ? null : (await rowAt(pos + 1)) ?? (await rowAt(pos - 1)); }
+  let r;
+  try { r = await call('delete_messages', {ids}); } catch { return; }
+  ids.forEach(id => bodies.delete(id));
+  state.undo = r.trashed.length ? {kind:'move', items:r.trashed.map(([id, from]) => ({id, from}))} : null;
+  const n = ids.length;
+  say(r.trashed.length ? (n === 1 ? t('Moved to Trash. Press Z to undo.') : tn(n, 'Moved {n} message to Trash. Press Z to undo.', 'Moved {n} messages to Trash. Press Z to undo.', {n:num(n)}))
+    : n === 1 ? t('Deleted for good.') : tn(n, 'Deleted {n} message for good.', 'Deleted {n} messages for good.', {n:num(n)}));
+  unpick();
   state.sel[selKey()] = next?.id;
   selRow = next;
   if (!state.compose) renderPreview();
-  await refresh({skip:m.id});
+  await refresh({skip:ids.length === 1 ? ids[0] : undefined});
 }
+// Z: put back what was deleted last.
 async function undo(){
-  const d = state.lastDeleted; if (!d) return;
-  try { await call('move_message', {id:d.id, folder:d.from}); } catch { return; }
-  state.lastDeleted = null;
-  if (allMail() || state.folder === d.from){ state.sel[selKey()] = d.id; selRow = null; }
+  const u = state.undo; if (!u) return;
+  const groups = new Map();
+  for (const it of u.items){ if (!groups.has(it.from)) groups.set(it.from, []); groups.get(it.from).push(it.id); }
+  try { for (const [folder, ids] of groups) await call('move_messages', {ids, folder}); } catch { return; }
+  state.undo = null;
+  const first = u.items[0];
+  if (first && (allMail() || state.folder === first.from)){ state.sel[selKey()] = first.id; selRow = null; }
   await loadTree().catch(() => {});
   renderTree();
   await loadView();
-  say(t('Restored to {folder}.', {folder:folderName(d.from)}));
+  say(u.items.length === 1 ? t('Restored to {folder}.', {folder:folderName(first.from)}) : tn(u.items.length, 'Restored {n} message.', 'Restored {n} messages.', {n:num(u.items.length)}));
 }
 // quiet: a background check, which speaks up only for new mail or errors.
 // first: the download right after adding an account.
@@ -1116,6 +1260,7 @@ $('b-settings').addEventListener('click', () => openSettings());
 let searchTimer;
 function setFilter(text){
   state.q = text; state.inText = false;
+  unpick();
   paintScope();
   clearTimeout(searchTimer);
   loadView();
@@ -2137,21 +2282,25 @@ function onKey(e){
   if (e.key === 'Escape'){
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
+    if (unpick()){ e.preventDefault(); afterPick(); return; }
   }
   // Tab in the filter box: this folder or all mail, while there is something to look for.
   if (tg === qEl && e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && qEl.value.trim()){ e.preventDefault(); toggleScope(); return; }
   if (tg.closest && (tg.closest('input, textarea, select, [contenteditable="true"]') || tg.closest('.split'))) return;
+  // Ctrl+A in the list takes every message; elsewhere it selects text as always.
+  if (mod && !e.shiftKey && e.key.toLowerCase() === 'a' && listEl.contains(tg)){ e.preventDefault(); pickAll(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const k = e.key;
-  if (k === 'ArrowDown') move(1);
-  else if (k === 'ArrowUp') move(-1);
-  else if (k === 'Home') move(-Infinity);
-  else if (k === 'End') move(Infinity);
+  const k = e.key, shift = e.shiftKey;
+  if (k === 'ArrowDown') shift ? pickMove(1) : move(1);
+  else if (k === 'ArrowUp') shift ? pickMove(-1) : move(-1);
+  else if (k === 'Home') shift ? pickEnd(false) : move(-Infinity);
+  else if (k === 'End') shift ? pickEnd(true) : move(Infinity);
   else if (k === 'Delete') del();
   else if (k === 'Enter' && allMail()) openInFolder();
-  else if (k === 'r' || k === 'R') openCompose(e.shiftKey ? 'replyall' : 'reply');
-  else if (k === 'F' && e.shiftKey) openCompose('forward');
+  else if (k === 'r' || k === 'R') openCompose(shift ? 'replyall' : 'reply');
+  else if (k === 'F' && shift) openCompose('forward');
   else if (k === 'f') toggleFlag();
+  else if ((k === 'u' || k === 'U') && shift) markAllRead();
   else if (k === 'u' || k === 'U') toggleUnread();
   else if (k === 'n' || k === 'N') openCompose('new');
   else if (k === 'e' || k === 'E') openCompose('edit');

@@ -447,14 +447,7 @@ async fn push_queued_after<T: ImapStream>(
     }
 
     let mut moved_without_uid = Vec::new();
-    for (key, mut group) in by_folder {
-        // Flags first: they travel with a moved message, but its old UID is useless after.
-        group.sort_by_key(|c| {
-            (
-                matches!(c.kind, ChangeKind::Move(_) | ChangeKind::Expunge),
-                c.op,
-            )
-        });
+    for (key, group) in by_folder {
         let Some(remote) = remote_name(account, &key) else {
             continue; // the folder is gone; the next download drops its mail and changes
         };
@@ -474,40 +467,89 @@ async fn push_queued_after<T: ImapStream>(
         let mut uids: Vec<u32> = group.iter().filter_map(|c| c.uid).collect();
         uids.sort_unstable();
         uids.dedup();
-        let present = timeout(
-            COMMAND_TIMEOUT,
-            session.uid_search(format!("UID {}", uid_set(&uids))),
-        )
-        .await
-        .map_err(|_| SyncError::Timeout)??;
+        let mut present = HashSet::new();
+        for chunk in uids.chunks(BATCH) {
+            present.extend(
+                timeout(
+                    COMMAND_TIMEOUT,
+                    session.uid_search(format!("UID {}", uid_set(chunk))),
+                )
+                .await
+                .map_err(|_| SyncError::Timeout)??,
+            );
+        }
 
-        for change in &group {
-            let Some(uid) = change.uid.filter(|u| present.contains(u)) else {
-                // Already gone from the server (deleted elsewhere): nothing left to change.
-                match change.message {
-                    Some(id) => lock(store)?.forget_message(id)?,
-                    None => lock(store)?.change_done(change.op)?,
-                }
+        let mut live = Vec::new();
+        for change in group {
+            if change.uid.is_some_and(|u| present.contains(&u)) {
+                live.push(change);
                 continue;
-            };
-            let result = timeout(
-                COMMAND_TIMEOUT,
-                apply_change(session, account, change, uid, caps),
-            )
-            .await
-            .map_err(|_| SyncError::Timeout)?;
-            match (result, &change.kind, change.message) {
-                (Ok(new_uid), ChangeKind::Move(to), Some(id)) => {
-                    lock(store)?.change_moved(change.op, id, to, new_uid)?;
-                    if new_uid.is_none() {
-                        moved_without_uid.push((id, to.clone(), change.message_id.clone()));
+            }
+            // Already gone from the server (deleted elsewhere): nothing left to change.
+            match change.message {
+                Some(id) => lock(store)?.forget_message(id)?,
+                None => lock(store)?.change_done(change.op)?,
+            }
+        }
+        // The same change to many messages is one command: a flag for all of them, a move to
+        // one folder, an expunge. Flags first; then moves and expunges, which end the UIDs.
+        for batch in batches(live) {
+            for chunk in batch.chunks(BATCH) {
+                let outcome = timeout(FETCH_TIMEOUT, apply_batch(session, account, chunk, caps))
+                    .await
+                    .map_err(|_| SyncError::Timeout)?;
+                match outcome {
+                    Ok(new_uids) => {
+                        for (change, new_uid) in chunk.iter().zip(new_uids) {
+                            match (&change.kind, change.message) {
+                                (ChangeKind::Move(to), Some(id)) => {
+                                    lock(store)?.change_moved(change.op, id, to, new_uid)?;
+                                    if new_uid.is_none() {
+                                        moved_without_uid.push((
+                                            id,
+                                            to.clone(),
+                                            change.message_id.clone(),
+                                        ));
+                                    }
+                                }
+                                _ => lock(store)?.change_done(change.op)?,
+                            }
+                        }
                     }
+                    // A refused batch goes again one message at a time, so only the message
+                    // the server minds is held back.
+                    Err(ImapError::No(reason) | ImapError::Bad(reason)) if chunk.len() == 1 => {
+                        note_refusal(store, &chunk[0], &reason, &mut refused)?;
+                    }
+                    Err(ImapError::No(_) | ImapError::Bad(_)) => {
+                        for change in chunk {
+                            let one = std::slice::from_ref(change);
+                            let result =
+                                timeout(COMMAND_TIMEOUT, apply_batch(session, account, one, caps))
+                                    .await
+                                    .map_err(|_| SyncError::Timeout)?;
+                            match (result, &change.kind, change.message) {
+                                (Ok(new_uid), ChangeKind::Move(to), Some(id)) => {
+                                    let new_uid = new_uid.first().copied().flatten();
+                                    lock(store)?.change_moved(change.op, id, to, new_uid)?;
+                                    if new_uid.is_none() {
+                                        moved_without_uid.push((
+                                            id,
+                                            to.clone(),
+                                            change.message_id.clone(),
+                                        ));
+                                    }
+                                }
+                                (Ok(_), _, _) => lock(store)?.change_done(change.op)?,
+                                (Err(ImapError::No(reason) | ImapError::Bad(reason)), _, _) => {
+                                    note_refusal(store, change, &reason, &mut refused)?;
+                                }
+                                (Err(e), _, _) => return Err(e.into()),
+                            }
+                        }
+                    }
+                    Err(e) => return Err(e.into()),
                 }
-                (Ok(_), _, _) => lock(store)?.change_done(change.op)?,
-                (Err(ImapError::No(reason) | ImapError::Bad(reason)), _, _) => {
-                    note_refusal(store, change, &reason, &mut refused)?;
-                }
-                (Err(e), _, _) => return Err(e.into()),
             }
         }
     }
@@ -810,22 +852,51 @@ fn seen_and_flagged(f: &Fetch) -> (bool, bool) {
 
 // ---- Uploading ----
 
-/// Do one change on the server, in the folder that is selected. For a move, returns the
-/// message's new UID when the server says it.
-async fn apply_change<T: ImapStream>(
+/// Most UIDs in one command: keeps command lines short on fragmented folders.
+const BATCH: usize = 500;
+
+/// Changes that can go to the server as one command: the same flag change, a move to the
+/// same folder, or expunges. Flags come first, in the order they were made; moves and
+/// expunges after them, since they end the messages' UIDs in this folder.
+fn batches(changes: Vec<PendingChange>) -> Vec<Vec<PendingChange>> {
+    let mut groups: Vec<Vec<PendingChange>> = Vec::new();
+    let order = |c: &PendingChange| matches!(c.kind, ChangeKind::Move(_) | ChangeKind::Expunge);
+    let mut changes = changes;
+    changes.sort_by_key(|c| (order(c), c.op));
+    for change in changes {
+        match groups.iter_mut().find(|g| g[0].kind == change.kind) {
+            Some(group) => group.push(change),
+            None => groups.push(vec![change]),
+        }
+    }
+    groups
+}
+
+/// Do one kind of change for several messages of the folder that is selected, in one
+/// command. Returns, per change, the message's new UID after a move when the server says it.
+async fn apply_batch<T: ImapStream>(
     session: &mut Session<T>,
     account: &Account,
-    change: &PendingChange,
-    uid: u32,
+    changes: &[PendingChange],
     caps: ServerCaps,
-) -> Result<Option<u32>, ImapError> {
-    match &change.kind {
-        ChangeKind::Seen(on) => store_flag(session, uid, "\\Seen", *on).await.map(|()| None),
-        ChangeKind::Flagged(on) => store_flag(session, uid, "\\Flagged", *on)
+) -> Result<Vec<Option<u32>>, ImapError> {
+    let mut uids: Vec<u32> = changes.iter().filter_map(|c| c.uid).collect();
+    uids.sort_unstable();
+    uids.dedup();
+    let set = uid_set(&uids);
+    let none = vec![None; changes.len()];
+    let Some(first) = changes.first() else {
+        return Ok(none);
+    };
+    match &first.kind {
+        ChangeKind::Seen(on) => store_flag(session, &set, "\\Seen", *on)
             .await
-            .map(|()| None),
-        ChangeKind::Expunge => expunge(session, uid, caps).await.map(|()| None),
-        ChangeKind::Append(_) => Ok(None), // sent before the folders, in push_queued_after
+            .map(|()| none),
+        ChangeKind::Flagged(on) => store_flag(session, &set, "\\Flagged", *on)
+            .await
+            .map(|()| none),
+        ChangeKind::Expunge => expunge(session, &set, caps).await.map(|()| none),
+        ChangeKind::Append(_) => Ok(none), // sent before the folders, in push_queued_after
         ChangeKind::Move(to) => {
             let dest = remote_name(account, to).ok_or_else(|| {
                 ImapError::No(tr!(
@@ -833,43 +904,53 @@ async fn apply_change<T: ImapStream>(
                     "tego folderu już nie ma"
                 ))
             })?;
-            if caps.can_move {
-                run_with_copyuid(session, &format!("UID MOVE {uid} {}", quote(&dest))).await
+            let pairs = if caps.can_move {
+                run_with_copyuid(session, &format!("UID MOVE {set} {}", quote(&dest))).await?
             } else {
-                let new_uid =
-                    run_with_copyuid(session, &format!("UID COPY {uid} {}", quote(&dest))).await?;
-                expunge(session, uid, caps).await?;
-                Ok(new_uid)
-            }
+                let pairs =
+                    run_with_copyuid(session, &format!("UID COPY {set} {}", quote(&dest))).await?;
+                expunge(session, &set, caps).await?;
+                pairs
+            };
+            Ok(changes
+                .iter()
+                .map(|c| {
+                    let uid = c.uid?;
+                    pairs
+                        .iter()
+                        .find(|(from, _)| *from == uid)
+                        .map(|(_, to)| *to)
+                })
+                .collect())
         }
     }
 }
 
 async fn store_flag<T: ImapStream>(
     session: &mut Session<T>,
-    uid: u32,
+    uids: &str,
     flag: &str,
     on: bool,
 ) -> Result<(), ImapError> {
     let sign = if on { '+' } else { '-' };
     let stream = session
-        .uid_store(uid.to_string(), format!("{sign}FLAGS.SILENT ({flag})"))
+        .uid_store(uids, format!("{sign}FLAGS.SILENT ({flag})"))
         .await?;
     stream.try_collect::<Vec<_>>().await?;
     Ok(())
 }
 
-/// Remove one message for good. Without UIDPLUS the only way is a plain EXPUNGE, which
+/// Remove messages for good. Without UIDPLUS the only way is a plain EXPUNGE, which
 /// also removes other messages already marked \Deleted in that folder, as any client would.
 async fn expunge<T: ImapStream>(
     session: &mut Session<T>,
-    uid: u32,
+    uids: &str,
     caps: ServerCaps,
 ) -> Result<(), ImapError> {
-    store_flag(session, uid, "\\Deleted", true).await?;
+    store_flag(session, uids, "\\Deleted", true).await?;
     if caps.uidplus {
         session
-            .uid_expunge(uid.to_string())
+            .uid_expunge(uids)
             .await?
             .try_collect::<Vec<_>>()
             .await?;
@@ -879,14 +960,15 @@ async fn expunge<T: ImapStream>(
     Ok(())
 }
 
-/// Run a COPY or MOVE and pick the destination UID out of its COPYUID response code
-/// (RFC 4315). MOVE sends it in an untagged OK, COPY in the tagged one.
+/// Run a COPY or MOVE and pick the old and new UIDs out of its COPYUID response code
+/// (RFC 4315): the two sets list the messages in the same order. MOVE sends it in an
+/// untagged OK, COPY in the tagged one. Empty when the server doesn't say.
 async fn run_with_copyuid<T: ImapStream>(
     session: &mut Session<T>,
     command: &str,
-) -> Result<Option<u32>, ImapError> {
+) -> Result<Vec<(u32, u32)>, ImapError> {
     let tag = session.run_command(command).await?;
-    let mut new_uid = None;
+    let mut pairs = Vec::new();
     loop {
         let response = session
             .read_response()
@@ -894,21 +976,21 @@ async fn run_with_copyuid<T: ImapStream>(
             .ok_or(ImapError::ConnectionLost)?;
         match response.parsed() {
             Response::Data {
-                code: Some(ResponseCode::CopyUid(_, _, dest)),
+                code: Some(ResponseCode::CopyUid(_, from, to)),
                 ..
-            } => new_uid = first_uid(dest),
+            } => pairs.extend(uid_pairs(from, to)),
             Response::Done {
                 tag: done,
                 status,
                 code,
                 information,
             } if *done == tag => {
-                if let Some(ResponseCode::CopyUid(_, _, dest)) = code {
-                    new_uid = first_uid(dest);
+                if let Some(ResponseCode::CopyUid(_, from, to)) = code {
+                    pairs.extend(uid_pairs(from, to));
                 }
                 let text = information.as_deref().unwrap_or_default().to_owned();
                 return match status {
-                    Status::Ok => Ok(new_uid),
+                    Status::Ok => Ok(pairs),
                     Status::No => Err(ImapError::No(text)),
                     _ => Err(ImapError::Bad(text)),
                 };
@@ -918,11 +1000,24 @@ async fn run_with_copyuid<T: ImapStream>(
     }
 }
 
-fn first_uid(set: &[UidSetMember]) -> Option<u32> {
-    set.first().map(|m| match m {
-        UidSetMember::Uid(u) => *u,
-        UidSetMember::UidRange(r) => *r.start(),
-    })
+/// The two sets of a COPYUID, side by side. Sets that don't match up give nothing; the
+/// messages are then found by Message-ID.
+fn uid_pairs(from: &[UidSetMember], to: &[UidSetMember]) -> Vec<(u32, u32)> {
+    let (from, to) = (expand_set(from), expand_set(to));
+    if from.len() != to.len() {
+        return Vec::new();
+    }
+    from.into_iter().zip(to).collect()
+}
+
+fn expand_set(set: &[UidSetMember]) -> Vec<u32> {
+    set.iter()
+        .flat_map(|m| match m {
+            UidSetMember::Uid(u) => *u..=*u,
+            UidSetMember::UidRange(r) => *r.start()..=*r.end(),
+        })
+        .take(100_000)
+        .collect()
 }
 
 /// Count a refusal; on the last attempt drop the change and say so.
@@ -1579,26 +1674,30 @@ mod tests {
             }
             out.line(format!("{tag} OK FETCH completed\r\n"));
         } else if upper.starts_with("UID STORE ") {
-            // UID STORE <uid> +FLAGS.SILENT (\Seen)
+            // UID STORE <uid set> +FLAGS.SILENT (\Seen)
             let mut parts = command[10..].split(' ');
-            let uid: u32 = parts.next().unwrap().parse().unwrap();
+            let uids = expand_uid_set(parts.next().unwrap());
             let op = parts.next().unwrap();
             let flag = parts
                 .next()
                 .unwrap()
                 .trim_matches(|c| c == '(' || c == ')')
                 .to_owned();
-            if let Some(m) = s.boxes[*selected].mail.iter_mut().find(|m| m.uid == uid) {
+            for m in s.boxes[*selected]
+                .mail
+                .iter_mut()
+                .filter(|m| uids.contains(&m.uid))
+            {
                 m.flags.retain(|f| *f != flag);
                 if op.starts_with('+') {
-                    m.flags.push(flag);
+                    m.flags.push(flag.clone());
                 }
             }
             out.line(format!("{tag} OK STORE completed\r\n"));
         } else if upper.starts_with("UID MOVE ") || upper.starts_with("UID COPY ") {
             let moving = upper.starts_with("UID MOVE ");
-            let (uid, dest) = command[9..].split_once(' ').unwrap();
-            let uid: u32 = uid.parse().unwrap();
+            let (set, dest) = command[9..].split_once(' ').unwrap();
+            let wanted = expand_uid_set(set);
             let dest = unquote(dest);
             let Some(to) = s.boxes.iter().position(|b| b.name == dest) else {
                 out.line(format!("{tag} NO [TRYCREATE] No such mailbox\r\n"));
@@ -1609,27 +1708,45 @@ mod tests {
                 return out.0;
             }
             let from = *selected;
-            let Some(seq) = s.boxes[from].mail.iter().position(|m| m.uid == uid) else {
+            let mut picked: Vec<FakeMail> = s.boxes[from]
+                .mail
+                .iter()
+                .filter(|m| wanted.contains(&m.uid))
+                .cloned()
+                .collect();
+            if picked.is_empty() {
                 out.line(format!("{tag} OK No messages\r\n"));
                 return out.0;
-            };
-            let mut copy = s.boxes[from].mail[seq].clone();
-            if moving {
-                s.boxes[from].mail.remove(seq);
             }
-            let (validity, new_uid) = (s.boxes[to].uid_validity, s.boxes[to].next_uid);
-            copy.uid = new_uid;
-            s.boxes[to].next_uid += 1;
-            s.boxes[to].mail.push(copy);
-            let copyuid = format!("[COPYUID {validity} {uid} {new_uid}] ");
+            picked.sort_by_key(|m| m.uid);
+            let validity = s.boxes[to].uid_validity;
+            let (mut old, mut new) = (Vec::new(), Vec::new());
+            for mut copy in picked {
+                old.push(copy.uid);
+                copy.uid = s.boxes[to].next_uid;
+                s.boxes[to].next_uid += 1;
+                new.push(copy.uid);
+                s.boxes[to].mail.push(copy);
+            }
+            let copyuid = format!("[COPYUID {validity} {} {}] ", uid_set(&old), uid_set(&new));
             if moving {
                 if uidplus {
                     out.line(format!("* OK {copyuid}Moved\r\n"));
                 }
-                out.line(format!(
-                    "* {} EXPUNGE\r\n{tag} OK MOVE completed\r\n",
-                    seq + 1
-                ));
+                // Expunged from the top down, so the sequence numbers stay right.
+                let mut seqs: Vec<usize> = s.boxes[from]
+                    .mail
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, m)| old.contains(&m.uid))
+                    .map(|(i, _)| i + 1)
+                    .collect();
+                seqs.reverse();
+                s.boxes[from].mail.retain(|m| !old.contains(&m.uid));
+                for seq in seqs {
+                    out.line(format!("* {seq} EXPUNGE\r\n"));
+                }
+                out.line(format!("{tag} OK MOVE completed\r\n"));
             } else {
                 let code = if uidplus { copyuid } else { String::new() };
                 out.line(format!("{tag} OK {code}COPY completed\r\n"));
@@ -2249,6 +2366,142 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             .unwrap()
             .has_pending_changes(&account.id)
             .unwrap());
+        logout(&mut session).await;
+    }
+
+    /// More mail in the fake Inbox, "Nr <uid>", unread.
+    fn more_inbox_mail(server: &Shared, uids: std::ops::RangeInclusive<u32>) {
+        let mut srv = server.lock().unwrap();
+        for uid in uids {
+            srv.boxes[0]
+                .mail
+                .push(mail(uid, &[], &format!("Nr {uid}"), b"Hej"));
+        }
+        srv.boxes[0].next_uid = srv.boxes[0].mail.iter().map(|m| m.uid).max().unwrap() + 1;
+    }
+
+    fn commands_since(server: &Shared, from: usize) -> Vec<String> {
+        server.lock().unwrap().commands[from..].to_vec()
+    }
+
+    #[tokio::test]
+    async fn many_changes_go_out_as_one_command_each() {
+        let (addr, server) = start_fake_server("IMAP4rev1 MOVE UIDPLUS").await;
+        more_inbox_mail(&server, 3..=6);
+        let (store, account) = store_with_account();
+        let mut session = login(addr, "secret").await.unwrap();
+        sync_all(&mut session, &account, &store, &no_progress)
+            .await
+            .unwrap();
+        let account = store.lock().unwrap().account(&account.id).unwrap().clone();
+        let inbox = store
+            .lock()
+            .unwrap()
+            .list(&account.folder_key("inbox"))
+            .unwrap();
+        assert_eq!(inbox.len(), 6);
+        let all: Vec<MessageId> = inbox.iter().map(|m| m.id).collect();
+        let numbered: Vec<MessageId> = inbox
+            .iter()
+            .filter(|m| m.subject.starts_with("Nr "))
+            .map(|m| m.id)
+            .collect();
+        {
+            let mut s = store.lock().unwrap();
+            assert_eq!(s.set_unread_many(&all, false).unwrap(), 5);
+            s.move_many(&numbered, &account.folder_key("kosz")).unwrap();
+        }
+        let from = server.lock().unwrap().commands.len();
+        let report = sync_all(&mut session, &account, &store, &no_progress)
+            .await
+            .unwrap();
+        assert!(report.refused.is_empty(), "{report:?}");
+        let commands = commands_since(&server, from);
+        let stores: Vec<&String> = commands
+            .iter()
+            .filter(|c| c.starts_with("UID STORE"))
+            .collect();
+        assert_eq!(
+            stores,
+            ["UID STORE 2:6 +FLAGS.SILENT (\\Seen)"],
+            "{commands:?}"
+        );
+        let moves: Vec<&String> = commands
+            .iter()
+            .filter(|c| c.starts_with("UID MOVE"))
+            .collect();
+        assert_eq!(moves, ["UID MOVE 3:6 \"Kosz\""]);
+        {
+            let srv = server.lock().unwrap();
+            assert_eq!(srv.subjects("Kosz"), ["Nr 3", "Nr 4", "Nr 5", "Nr 6"]);
+            assert!(srv
+                .find("Kosz")
+                .unwrap()
+                .mail
+                .iter()
+                .all(|m| m.has("\\Seen")));
+        }
+        {
+            let s = store.lock().unwrap();
+            assert!(!s.has_pending_changes(&account.id).unwrap());
+            let trash = account.folder_key("kosz");
+            assert_eq!(
+                s.local_uids(&trash).unwrap(),
+                HashSet::from([1, 2, 3, 4]),
+                "from COPYUID"
+            );
+            let mut kept: Vec<MessageId> = s.list(&trash).unwrap().iter().map(|m| m.id).collect();
+            kept.sort_unstable();
+            let mut expected = numbered.clone();
+            expected.sort_unstable();
+            assert_eq!(kept, expected, "the same messages, not copies");
+        }
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn a_refused_batch_is_tried_one_by_one() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        server
+            .lock()
+            .unwrap()
+            .boxes
+            .push(fake_box("Zablokowane", "\\HasNoChildren", vec![]));
+        sync_all(&mut session, &account, &store, &no_progress)
+            .await
+            .unwrap();
+        let account = store.lock().unwrap().account(&account.id).unwrap().clone();
+        let ids: Vec<MessageId> = store
+            .lock()
+            .unwrap()
+            .list(&account.folder_key("inbox"))
+            .unwrap()
+            .iter()
+            .map(|m| m.id)
+            .collect();
+        store
+            .lock()
+            .unwrap()
+            .move_many(&ids, &account.folder_key("zablokowane"))
+            .unwrap();
+        let mut refused = Vec::new();
+        for _ in 0..MAX_ATTEMPTS {
+            refused = sync_all(&mut session, &account, &store, &no_progress)
+                .await
+                .unwrap()
+                .refused;
+        }
+        assert_eq!(refused.len(), 2, "each message on its own: {refused:?}");
+        {
+            let s = store.lock().unwrap();
+            for id in ids {
+                assert_eq!(
+                    s.get(id).unwrap().folder,
+                    account.folder_key("inbox"),
+                    "put back"
+                );
+            }
+        }
         logout(&mut session).await;
     }
 

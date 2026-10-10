@@ -458,6 +458,11 @@ const PL = {
   'The counts cover the mail Telex has downloaded: the newest 300 messages of each folder at the first check, then everything new.': 'Liczby obejmują pocztę pobraną przez Telexa: 300 najnowszych wiadomości z każdego folderu przy pierwszym sprawdzeniu, potem wszystko, co nowe.',
 
   // Attachments, Bcc, picking several messages, moving, conversations, older mail, undo sending
+  'to Trash': 'do Kosza',
+  'flag|several': 'flaga',
+  'read or unread': 'przeczytane lub nie',
+  'clear the selection': 'odznacz',
+  'Everything here was read already.': 'Wszystko tutaj było już przeczytane.',
   'IMAP security': 'Zabezpieczenia IMAP',
   'SSL/TLS (usually port 993)': 'SSL/TLS (zwykle port 993)',
   'STARTTLS (usually port 143)': 'STARTTLS (zwykle port 143)',
@@ -502,6 +507,17 @@ const PL_N = {
   '{n} in Spam': ['{n} w Spamie', '{n} w Spamie', '{n} w Spamie'],
   '{n} change waits for the server': ['{n} zmiana czeka na serwer', '{n} zmiany czekają na serwer', '{n} zmian czeka na serwer'],
   '{n} message waits in the Outbox': ['{n} wiadomość czeka w Skrzynce nadawczej', '{n} wiadomości czekają w Skrzynce nadawczej', '{n} wiadomości czeka w Skrzynce nadawczej'],
+  '{n} selected': ['{n} zaznaczona', '{n} zaznaczone', '{n} zaznaczonych'],
+  '{n} message selected.': ['Zaznaczono {n} wiadomość.', 'Zaznaczono {n} wiadomości.', 'Zaznaczono {n} wiadomości.'],
+  '{n} message selected': ['Zaznaczono {n} wiadomość', 'Zaznaczono {n} wiadomości', 'Zaznaczono {n} wiadomości'],
+  'Flagged {n} message.': ['Oznaczono flagą {n} wiadomość.', 'Oznaczono flagą {n} wiadomości.', 'Oznaczono flagą {n} wiadomości.'],
+  'Removed the flag from {n} message.': ['Usunięto flagę z {n} wiadomości.', 'Usunięto flagę z {n} wiadomości.', 'Usunięto flagę z {n} wiadomości.'],
+  'Marked {n} message as unread.': ['Oznaczono {n} wiadomość jako nieprzeczytaną.', 'Oznaczono {n} wiadomości jako nieprzeczytane.', 'Oznaczono {n} wiadomości jako nieprzeczytane.'],
+  'Marked {n} message as read.': ['Oznaczono {n} wiadomość jako przeczytaną.', 'Oznaczono {n} wiadomości jako przeczytane.', 'Oznaczono {n} wiadomości jako przeczytane.'],
+  'Press Del again to delete {n} message for good.': ['Naciśnij Del jeszcze raz, żeby usunąć {n} wiadomość na zawsze.', 'Naciśnij Del jeszcze raz, żeby usunąć te {n} wiadomości na zawsze.', 'Naciśnij Del jeszcze raz, żeby usunąć tych {n} wiadomości na zawsze.'],
+  'Moved {n} message to Trash. Press Z to undo.': ['Przeniesiono {n} wiadomość do Kosza. Z cofa.', 'Przeniesiono {n} wiadomości do Kosza. Z cofa.', 'Przeniesiono {n} wiadomości do Kosza. Z cofa.'],
+  'Deleted {n} message for good.': ['Usunięto na zawsze {n} wiadomość.', 'Usunięto na zawsze {n} wiadomości.', 'Usunięto na zawsze {n} wiadomości.'],
+  'Restored {n} message.': ['Przywrócono {n} wiadomość.', 'Przywrócono {n} wiadomości.', 'Przywrócono {n} wiadomości.'],
 };
 
 let lang = document.documentElement.lang === 'pl' ? 'pl' : 'en';

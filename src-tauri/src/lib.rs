@@ -23,8 +23,8 @@ use telex_core::smtp::{self, Originals, SendError};
 use telex_core::tr;
 use telex_core::usage::Usage;
 use telex_core::{
-    Account, AccountSetup, DeleteOutcome, FolderKind, FolderTree, Identity, ListView, MailStore,
-    Message, MessageId, OutgoingDraft, Page, PageAt, StoreError,
+    Account, AccountSetup, DeleteOutcome, DeleteReport, FolderKind, FolderTree, Identity, ListView,
+    MailStore, Message, MessageId, OutgoingDraft, Page, PageAt, StoreError,
 };
 
 struct AppState {
@@ -114,6 +114,60 @@ fn move_message(state: State<'_, AppState>, id: MessageId, folder: String) -> Cm
 #[tauri::command]
 fn delete_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<DeleteOutcome> {
     with_store(&state, |s| s.delete(id))
+}
+
+/// Mark several messages read or unread. Returns how many changed.
+#[tauri::command]
+fn set_unread_many(
+    state: State<'_, AppState>,
+    ids: Vec<MessageId>,
+    unread: bool,
+) -> CmdResult<usize> {
+    with_store(&state, |s| s.set_unread_many(&ids, unread))
+}
+
+/// Flag or unflag several messages. Returns how many changed.
+#[tauri::command]
+fn set_flagged_many(
+    state: State<'_, AppState>,
+    ids: Vec<MessageId>,
+    flagged: bool,
+) -> CmdResult<usize> {
+    with_store(&state, |s| s.set_flagged_many(&ids, flagged))
+}
+
+/// Move several messages to a folder of their account, all or none. Returns where each
+/// one was, for undo.
+#[tauri::command]
+fn move_messages(
+    state: State<'_, AppState>,
+    ids: Vec<MessageId>,
+    folder: String,
+) -> CmdResult<Vec<(MessageId, String)>> {
+    with_store(&state, |s| s.move_many(&ids, &folder))
+}
+
+/// Delete several messages: to Trash, or for good from Trash.
+#[tauri::command]
+fn delete_messages(state: State<'_, AppState>, ids: Vec<MessageId>) -> CmdResult<DeleteReport> {
+    with_store(&state, |s| s.delete_many(&ids))
+}
+
+/// Mark every message in a folder read. Returns how many.
+#[tauri::command]
+fn mark_folder_read(state: State<'_, AppState>, folder: String) -> CmdResult<usize> {
+    with_store(&state, |s| s.mark_folder_read(&folder))
+}
+
+/// The messages of a list between two (Shift selection), or all of it (Ctrl+A).
+#[tauri::command]
+fn list_ids(
+    state: State<'_, AppState>,
+    view: ListView,
+    from: Option<MessageId>,
+    to: Option<MessageId>,
+) -> CmdResult<Vec<MessageId>> {
+    with_store(&state, |s| s.ids_between(&view, from, to))
 }
 
 /// The account a draft is from, and the raw messages it replies to and forwards.
@@ -649,6 +703,12 @@ pub fn run() {
             set_flagged,
             move_message,
             delete_message,
+            set_unread_many,
+            set_flagged_many,
+            move_messages,
+            delete_messages,
+            mark_folder_read,
+            list_ids,
             save_outgoing,
             draft_html,
             html_to_text,

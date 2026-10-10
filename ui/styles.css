@@ -108,8 +108,11 @@ td.c-where .adot{display:inline-block;margin-right:5px;vertical-align:1px}
 tbody td{height:var(--row);padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line-soft);cursor:default}
 tbody tr:hover td{background:var(--hover)}
 tbody tr.unread td.c-from,tbody tr.unread td.c-subj{font-weight:600}
-tbody tr.sel td{background:var(--sel)}
+tbody tr.sel td,tbody tr.picked td{background:var(--sel)}
 .list:focus tbody tr.sel td{background:var(--accent);color:var(--accent-fg)}
+/* Several picked: each has the selection color, and a bar at its start marks it even in focus. */
+tbody tr.picked td.c-ic{box-shadow:inset 3px 0 var(--accent)}
+.list:focus tbody tr.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg)}
 .list:focus tbody tr.sel td.c-date,.list:focus tbody tr.sel td.c-size,.list:focus tbody tr.sel .flag{color:inherit}
 td.c-date,td.c-size{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
 td.c-size{text-align:right}
@@ -164,6 +167,10 @@ tr.empty:hover td{background:none}
 .pempty{height:100%;display:grid;place-items:center;align-content:center;gap:6px;padding:20px;color:var(--muted);text-align:center}
 .pempty svg{width:28px;height:28px;color:var(--faint)}
 .pempty code{font-family:var(--font-data);color:var(--fg)}
+.pempty b{color:var(--fg);font-weight:600}
+/* Several messages picked: what the keys do with them */
+.mkeys{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 14px;max-width:420px;font-size:12px}
+.mkeys span{white-space:nowrap}
 /* No account yet */
 .win.noacct .list,.win.noacct .split-h{display:none}
 .win.noacct .right{grid-template-rows:minmax(0,1fr)}
@@ -439,7 +446,7 @@ tr.empty:hover td{background:none}
 /* Windows contrast themes: Windows picks every color. What our backgrounds showed (the
    selection, pressed choices) gets the system's highlight; labels on tinted bars get borders. */
 @media (forced-colors: active){
-  tbody tr.sel td,.list:focus tbody tr.sel td,.fold.active,.settabs [role="tab"][aria-selected="true"],
+  tbody tr.sel td,.list:focus tbody tr.sel td,tbody tr.picked td,.fold.active,.settabs [role="tab"][aria-selected="true"],
   .seg2 input:checked+span,.langpick button[aria-pressed="true"],.seg button[aria-pressed="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText}
   tr.unread .ic .dot{forced-color-adjust:none;background:CanvasText}
   .list:focus tr.sel.unread .ic .dot,tr.sel.unread .ic .dot{background:HighlightText}
