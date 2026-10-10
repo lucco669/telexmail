@@ -62,9 +62,9 @@ Then wait for the **Release** workflow, check the draft release on GitHub and pu
    lost, no installed Telex can ever update again**. Everyone would have to download a new
    installer by hand once.
 3. **Give them to GitHub**, under the repository's Settings > Secrets and variables > Actions
-   (repository level, not an Environment). Copy each file's contents from Notepad (Ctrl+A,
-   Ctrl+C): copying through a pipe such as `cat … | clip` in PowerShell adds a line break, and
-   a private key with one can't be read.
+   (repository level, not an Environment). Copy each file's contents, e.g. from Notepad
+   (Ctrl+A, Ctrl+C). Line breaks that copying adds around the key are removed by the workflow
+   before the key is used.
    - Secrets tab, New repository secret: `TAURI_SIGNING_PRIVATE_KEY` = the whole contents of
      `telex.key`; `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = the password.
    - Variables tab, New repository variable: `TELEX_UPDATER_PUBKEY` = the whole contents of

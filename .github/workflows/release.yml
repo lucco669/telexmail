@@ -61,12 +61,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
 
+      # Pasting into the secrets form easily adds a line break, and Tauri can't read a key with
+      # one. The key is base64, so whitespace in it is never meant; a password can't contain a
+      # line break. Later steps get both from here, cleaned (and still masked in the log).
+      - name: Signing key without stray line breaks
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          key="$(printf '%s' "$KEY" | tr -d '[:space:]')"
+          password="$(printf '%s' "$PASSWORD" | tr -d '\r\n')"
+          if [ -n "$key" ]; then echo "::add-mask::$key"; fi
+          if [ -n "$password" ]; then echo "::add-mask::$password"; fi
+          echo "TAURI_SIGNING_PRIVATE_KEY=$key" >> "$GITHUB_ENV"
+          echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password" >> "$GITHUB_ENV"
+
       # The bundler only warns when the private key doesn't match the public one, and every
       # installed Telex would refuse such a release. Fail here instead, before the build.
       - name: Check the signing key pair
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node scripts/check-signing-key.mjs
 
       # The bundler makes the updater files only with plugins.updater.pubkey in the config. The
@@ -77,11 +90,10 @@ jobs:
           node -e "require('fs').writeFileSync('src-tauri/tauri.updater.conf.json',
           JSON.stringify({plugins: {updater: {pubkey: process.env.TELEX_UPDATER_PUBKEY.trim()}}}))"
 
+      # TAURI_SIGNING_PRIVATE_KEY and its password come from the job environment (see above).
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: Telex __VERSION__

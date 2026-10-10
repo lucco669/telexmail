@@ -22,8 +22,9 @@ const cli = join(dirname(fileURLToPath(import.meta.url)), '../node_modules/@taur
 function fail(message) {
   if (process.env.GITHUB_ACTIONS) {
     console.log(`::error title=Signing key check::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`);
+  } else {
+    console.error(message);
   }
-  console.error(message);
   process.exit(1);
 }
 // Tauri keeps minisign's text files base64-encoded. Their second line is the key or the
