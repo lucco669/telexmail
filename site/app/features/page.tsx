@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { CtaBand } from '@/components/CtaBand';
 import { PageHeader } from '@/components/PageHeader';
 import { Shot } from '@/components/Shot';
@@ -63,6 +64,11 @@ export default function FeaturesPage() {
               <li key={g}>{g}</li>
             ))}
           </ul>
+          <p className={s.gapsMore}>
+            What comes when is on the <Link href={pages.roadmap.path}>roadmap</Link>. Wondering whether your provider
+            works? See the <Link href={pages.faq.path}>questions and answers</Link>, or read{' '}
+            <Link href={pages.about.path}>why Telex is built this way</Link>.
+          </p>
         </aside>
       </div>
       <CtaBand secondary={pages.keyboard} />

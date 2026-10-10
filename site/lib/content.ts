@@ -202,7 +202,7 @@ export const screens: Screen[] = [
     id: 'spam',
     label: 'Rule notes',
     title: 'Spam · biuro@twojastudio.pl – Telex',
-    caption: 'When a rule moves a message, the message says which rule and why. The rule editor is on the roadmap.',
+    caption: 'When a rule moves a message, the message says which rule and why.',
   },
   {
     id: 'comfortable',

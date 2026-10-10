@@ -57,6 +57,21 @@ a visible breadcrumb and a BreadcrumbList; the home and download pages describe 
 a custom domain attached, the `*.vercel.app` address answers with `X-Robots-Tag: noindex`, so
 only your domain gets indexed.
 
+## Security, analytics and plain-text files
+
+- `next.config.ts` sends security headers in production: a Content Security Policy (this site
+  only; inline scripts allowed because static Next.js pages need them), HSTS, nosniff, DENY
+  framing, a strict referrer policy, Permissions-Policy and COOP. Previews also allow Vercel's
+  toolbar. If you add a third-party script or font, add its origin to the CSP there.
+- Vercel Web Analytics (`<Analytics />` in `app/layout.tsx`) counts page views without cookies;
+  its script comes from the site itself (`/_vercel/insights`). Turn it on in the Vercel project
+  under **Analytics**, or the script answers 404. The privacy page describes it.
+- `app/llms.txt/route.ts` and `app/.well-known/security.txt/route.ts` are generated from the
+  same data as the pages at build time. security.txt expires a year after the build, so deploy
+  at least once a year.
+- Text colors are checked against WCAG AA (4.5:1). `--faint` is the lightest text allowed;
+  don't make it lighter.
+
 ## Screenshots
 
 `npm run screens` opens `../ui/index.html` in headless Edge with a stand-in for Tauri that answers

@@ -7,7 +7,7 @@ import { Roadmap } from '@/components/Roadmap';
 import { Screens } from '@/components/Screens';
 import { pages } from '@/lib/pages';
 import { getLatestRelease } from '@/lib/release';
-import { appLd, pageMetadata, websiteLd } from '@/lib/seo';
+import { appLd, organizationLd, pageMetadata, websiteLd } from '@/lib/seo';
 
 export const metadata = pageMetadata(pages.home);
 
@@ -15,7 +15,7 @@ export default async function Home() {
   const release = await getLatestRelease();
   return (
     <>
-      <JsonLd items={[websiteLd(), appLd(release)]} />
+      <JsonLd items={[organizationLd(), websiteLd(), appLd(release)]} />
       <Hero release={release} />
       <Features />
       <Keyboard />

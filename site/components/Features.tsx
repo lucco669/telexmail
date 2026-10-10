@@ -21,6 +21,11 @@ export function Features() {
               All features, with screenshots
             </Link>
           </p>
+          <p>
+            <Link className="more" href={pages.about.path}>
+              Why it’s built this way
+            </Link>
+          </p>
         </header>
         <ol className={s.grid}>
           {features.map((f, i) => (

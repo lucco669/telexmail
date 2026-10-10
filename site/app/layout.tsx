@@ -1,3 +1,4 @@
+import { Analytics } from '@vercel/analytics/next';
 import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Sans_Condensed } from 'next/font/google';
 import { Footer } from '@/components/Footer';
@@ -70,9 +71,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body id="top">
+        <a className="skip" href="#content">
+          Skip to content
+        </a>
         <Header />
-        <main>{children}</main>
+        <main id="content">{children}</main>
         <Footer />
+        {/* Vercel Web Analytics: page views without cookies (see the privacy page). */}
+        <Analytics />
       </body>
     </html>
   );

@@ -15,7 +15,7 @@ export default function PrivacyPage() {
       <PageHeader
         page={pages.privacy}
         title="Privacy."
-        lead="The short version: the Telex app has no account, no telemetry and no Telex server, and this website has no cookies, no analytics and no trackers."
+        lead="The short version: the Telex app has no account, no telemetry and no Telex server, and this website has no cookies or trackers, only cookieless page counts."
       />
       <div className={`container ${s.layout}`}>
         <aside className={s.summary}>
@@ -23,7 +23,7 @@ export default function PrivacyPage() {
           <ul>
             <li>Your mail stays on your PC and your mail server</li>
             <li>The app talks to your mail servers, and to image servers only when you ask</li>
-            <li>No cookies, analytics or trackers on this site</li>
+            <li>No cookies or trackers on this site, only cookieless page counts</li>
           </ul>
         </aside>
         <article className="prose">
@@ -65,10 +65,17 @@ export default function PrivacyPage() {
           </p>
 
           <h2>This website</h2>
-          <h3>No cookies, analytics or trackers</h3>
+          <h3 id="cookies">No cookies, ads or trackers</h3>
           <p>
-            This site sets no cookies and runs no analytics, ads, tracking pixels or third-party scripts. Its fonts are
-            served from this site, not from a font service.
+            This site sets no cookies and runs no ads, tracking pixels or third-party scripts, so there is no cookie
+            banner to click away. Its fonts are served from this site, not from a font service.
+          </p>
+          <h3>Visitor statistics</h3>
+          <p>
+            To know which pages are read, the site uses Vercel Web Analytics. It counts page views, the page you came
+            from, and your country, browser and device type. It sets no cookies, doesn’t follow you to other sites and
+            doesn’t identify you; the script comes from this site itself. See{' '}
+            <a href="https://vercel.com/docs/analytics/privacy-policy">how Vercel Web Analytics handles data</a>.
           </p>
           <h3>Hosting</h3>
           <p>

@@ -27,7 +27,7 @@ export const pages = {
   features: {
     path: '/features',
     label: 'Features',
-    title: 'Features',
+    title: 'Features of a fast, keyboard-driven email client',
     description:
       'What Telex does today: a dense message list, one key per action, two-way IMAP sync, sending over SMTP, offline full-text search and private defaults.',
     ogTitle: 'Everything Telex does today.',
@@ -45,7 +45,7 @@ export const pages = {
   screenshots: {
     path: '/screenshots',
     label: 'Screenshots',
-    title: 'Screenshots',
+    title: 'Screenshots in light and dark',
     description:
       'Telex in light and dark: the main window, reply, quick filter, blocked images, rule notes, comfortable rows and the account dialog.',
     ogTitle: 'A closer look.',
@@ -63,7 +63,7 @@ export const pages = {
   roadmap: {
     path: '/roadmap',
     label: 'Roadmap',
-    title: 'Roadmap',
+    title: 'Roadmap: what’s done and what’s next',
     description:
       'Where Telex stands: what works today, what is being built, and what comes next, from HTML mail to filters and Gmail sign-in.',
     ogTitle: 'Early, and honest about it.',
@@ -81,7 +81,7 @@ export const pages = {
   about: {
     path: '/about',
     label: 'About',
-    title: 'About',
+    title: 'About: a mail client built like a tool',
     description:
       'The ideas behind Telex: dense, keyboard-first, local and private, in the spirit of The Bat!. What it will never be, and what it is built with.',
     ogTitle: 'A mail client built like a tool.',
@@ -90,9 +90,9 @@ export const pages = {
   privacy: {
     path: '/privacy',
     label: 'Privacy',
-    title: 'Privacy',
+    title: 'Privacy: no account, no telemetry',
     description:
-      'What the Telex app and this website store and send: no account, no telemetry, no cookies, no analytics. Your mail stays on your computer.',
+      'What the Telex app and this website store and send: no account, no telemetry, no cookies, no trackers. Your mail stays on your computer.',
     ogTitle: 'Nothing about you leaves your PC.',
     ogScreen: 'images',
   },
@@ -100,8 +100,10 @@ export const pages = {
 
 export const nav: PageInfo[] = [pages.features, pages.keyboard, pages.screenshots, pages.roadmap, pages.faq];
 
-export const footerGroups: { title: string; items: PageInfo[] }[] = [
+export type FooterLink = { path: string; label: string };
+
+export const footerGroups: { title: string; items: FooterLink[] }[] = [
   { title: 'Product', items: [pages.features, pages.keyboard, pages.screenshots, pages.download] },
   { title: 'Project', items: [pages.roadmap, pages.faq, pages.about] },
-  { title: 'Legal', items: [pages.privacy] },
+  { title: 'Legal', items: [pages.privacy, { path: '/privacy#cookies', label: 'Cookies' }] },
 ];

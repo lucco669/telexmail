@@ -25,7 +25,7 @@ const stack = [
   ['Mail base', 'SQLite with FTS5 full-text search, one file on your disk'],
   ['Window', 'Tauri 2 and WebView2, which Windows already has'],
   ['Interface', 'Plain HTML, CSS and JavaScript, set in IBM Plex'],
-  ['This site', 'Next.js on Vercel, with no cookies and no analytics'],
+  ['This site', 'Next.js on Vercel, with no cookies and cookieless page counts'],
 ];
 
 export default function AboutPage() {

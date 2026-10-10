@@ -16,7 +16,7 @@ export function Hero({ release }: { release: Release | null }) {
         <Link className={s.status} href={pages.roadmap.path}>
           <span className={s.pulse} aria-hidden="true" />
           <span>
-            <b>Early preview.</b> Sync and sending work; HTML mail is next.
+            <b>Early preview.</b> Sync, sending, HTML mail and filters work; Gmail sign-in is next.
           </span>
           <ArrowIcon />
         </Link>

@@ -47,6 +47,11 @@ export async function Footer() {
         <span>
           © {year} {site.name}. Made for Windows, with Rust and Tauri.
         </span>
+        {site.contact && (
+          <a href={`mailto:${site.contact}`} className={s.top_link}>
+            {site.contact}
+          </a>
+        )}
         <a href="#top" className={s.top_link}>
           Back to top ↑
         </a>

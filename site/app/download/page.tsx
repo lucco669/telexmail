@@ -102,6 +102,10 @@ export default async function DownloadPage() {
               Gmail and Outlook.com, which need OAuth2 sign-in (<Link href={pages.roadmap.path}>roadmap</Link>)
             </dd>
           </dl>
+          <p className={s.p} style={{ marginTop: 16 }}>
+            Not sure about your provider? The <Link href={pages.faq.path}>questions and answers</Link> cover the usual
+            cases.
+          </p>
         </section>
         <section aria-labelledby="uninstall">
           <h2 id="uninstall" className={s.h2}>

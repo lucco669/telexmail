@@ -22,6 +22,19 @@ export function pageMetadata(p: PageInfo): Metadata {
 
 // schema.org objects, combined into one @graph by <JsonLd>.
 
+/** Who makes Telex. Only facts that are true: no address, phone or ratings we don't have. */
+export const organizationLd = () => ({
+  '@type': 'Organization',
+  '@id': `${site.url}/#organization`,
+  name: site.name,
+  url: abs('/'),
+  logo: abs('/icon-512.png'),
+  ...(site.contact && {
+    email: site.contact,
+    contactPoint: { '@type': 'ContactPoint', contactType: 'customer support', email: site.contact, availableLanguage: ['en', 'pl'] },
+  }),
+});
+
 export const websiteLd = () => ({
   '@type': 'WebSite',
   '@id': `${site.url}/#website`,
@@ -29,6 +42,7 @@ export const websiteLd = () => ({
   name: site.name,
   description: site.description,
   inLanguage: 'en',
+  publisher: { '@id': `${site.url}/#organization` },
 });
 
 /** The app. No price or rating: there is no pricing yet, and ratings must come from real reviews. */
@@ -45,6 +59,7 @@ export function appLd(release: Release | null) {
     image: abs('/icon-512.png'),
     screenshot: [hero, ...screens].map((s) => abs(`/screens/${s.id}-light.png`)),
     featureList: features.map((f) => f.title),
+    publisher: { '@id': `${site.url}/#organization` },
     ...(release && file
       ? {
           softwareVersion: release.version,

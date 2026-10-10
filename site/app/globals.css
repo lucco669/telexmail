@@ -6,7 +6,7 @@
   --surface: #ffffff;
   --fg: #1a1e23;
   --muted: #59636e;
-  --faint: #8a939e;
+  --faint: #626b76; /* 4.5:1 or better on bg, panel and line-soft */
   --line: #d2d7de;
   --line-soft: #e9ecf0;
   --accent: #2453a6;
@@ -38,7 +38,7 @@
     --surface: #14171b;
     --fg: #e2e6eb;
     --muted: #9aa3ad;
-    --faint: #6f7882;
+    --faint: #818a94;
     --line: #2e343c;
     --line-soft: #22272e;
     --accent: #6f9de6;
@@ -59,7 +59,7 @@
   --surface: #14171b;
   --fg: #e2e6eb;
   --muted: #9aa3ad;
-  --faint: #6f7882;
+  --faint: #818a94;
   --line: #2e343c;
   --line-soft: #22272e;
   --accent: #6f9de6;
@@ -238,3 +238,20 @@ img { display: block; max-width: 100%; height: auto; }
   .no-print { display: none !important; }
   body { background: #fff; color: #000; }
 }
+
+/* Skip link: hidden until a keyboard user tabs to it */
+.skip {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+.skip:focus { transform: none; }
+main { scroll-margin-top: 80px; }

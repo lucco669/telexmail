@@ -53,3 +53,5 @@
 }
 .gapsTitle { margin-bottom: 12px; font-size: 24px; }
 .gaps ul { display: grid; gap: 8px; margin: 0; padding-left: 1.2em; color: var(--muted); }
+.gapsMore { margin-top: 16px; color: var(--muted); }
+.gapsMore a { color: var(--accent); }
