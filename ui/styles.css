@@ -9,6 +9,8 @@
   --flag:#c2410c; --warn-bg:#fbf0d4; --warn-fg:#6b4a00; --note-bg:#fbe3e1; --note-fg:#8a1f17;
   --chip-bg:#dfe6f2; --chip-fg:#2c4a80; --img-a:#c9d7ee; --img-b:#eef2f8;
   --scrim:rgb(15 20 28 / .32); --shadow:rgb(15 20 28 / .22);
+  /* HTML mail is designed for white paper, so its canvas stays white in the dark theme too. */
+  --mail-bg:#ffffff;
   --font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   --font-list:"IBM Plex Sans Condensed","Segoe UI",system-ui,sans-serif;
   --font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace;
@@ -152,6 +154,13 @@ tr.empty:hover td{background:none}
 .pbody .ln{white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.55em}
 .pbody .ln.q{color:var(--muted);border-left:2px solid var(--line);padding-left:9px}
 .pbody a{color:var(--accent)}
+.pbody.html{max-width:none;padding:0;background:var(--mail-bg)}
+.hframe{display:block;width:100%;min-height:80px;border:0;background:var(--mail-bg)}
+.seg{flex:none;display:inline-flex;margin-top:1px;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{height:20px;padding:0 7px;border:0;background:var(--surface);color:var(--muted);font:500 10.5px var(--font-ui);letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--sel);color:var(--fg)}
+.bar.quiet{background:var(--panel);color:var(--muted)}
 .imgph{display:grid;place-items:center;height:96px;margin:6px 0 10px;border:1px dashed var(--line);border-radius:4px;color:var(--faint);font-size:11px}
 .imgph.loaded{border-style:solid;border-color:transparent;background:linear-gradient(135deg,var(--img-a),var(--img-b));color:var(--chip-fg)}
 .pempty{height:100%;display:grid;place-items:center;align-content:center;gap:6px;padding:20px;color:var(--muted);text-align:center}

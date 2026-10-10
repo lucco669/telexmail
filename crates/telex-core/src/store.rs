@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_base.sql"),
     include_str!("migrations/002_write_back.sql"),
     include_str!("migrations/003_sending.sql"),
+    include_str!("migrations/004_trusted_senders.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -616,6 +617,48 @@ impl MailStore {
             })
             .optional()?
             .flatten())
+    }
+
+    // ---- Remote images ----
+
+    /// Let a sender's remote images load without asking, or stop that.
+    pub fn set_sender_trusted(&mut self, email: &str, trusted: bool) -> Result<(), StoreError> {
+        let email = email.trim();
+        if trusted {
+            self.db.execute(
+                "INSERT OR IGNORE INTO trusted_senders (email, added) VALUES (?1, datetime('now'))",
+                [email],
+            )?;
+        } else {
+            self.db
+                .execute("DELETE FROM trusted_senders WHERE email = ?1", [email])?;
+        }
+        Ok(())
+    }
+
+    pub fn is_sender_trusted(&self, email: &str) -> Result<bool, StoreError> {
+        Ok(self.db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM trusted_senders WHERE email = ?1)",
+            [email.trim()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Load the message's remote images without asking: the sender is trusted, and the
+    /// message is neither in Spam nor marked by a filter (`note`).
+    pub fn auto_load_images(&self, id: MessageId) -> Result<bool, StoreError> {
+        let (folder, from, note): (String, String, Option<String>) = self
+            .db
+            .query_row(
+                "SELECT folder, from_email, note FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?
+            .ok_or(StoreError::UnknownMessage(id))?;
+        Ok(note.is_none()
+            && self.folder_kind(&folder) != Some(FolderKind::Spam)
+            && self.is_sender_trusted(&from)?)
     }
 
     /// Deliver waiting sample messages and return their ids.
@@ -1948,5 +1991,26 @@ mod tests {
         assert_eq!(slug("INBOX.Faktury 2026"), "inbox-faktury-2026");
         assert_eq!(slug("  --Wysłane--  "), "wysłane");
         assert_eq!(slug("..."), "");
+    }
+
+    #[test]
+    fn trusted_senders_load_images_except_in_spam() {
+        let mut store = sample_store();
+        let first = &store.list("firma/inbox").unwrap()[0];
+        let (id, sender) = (first.id, first.from_email.clone());
+        assert!(!store.auto_load_images(id).unwrap());
+        store
+            .set_sender_trusted(&sender.to_uppercase(), true)
+            .unwrap();
+        assert!(
+            store.is_sender_trusted(&sender).unwrap(),
+            "addresses ignore case"
+        );
+        assert!(store.auto_load_images(id).unwrap());
+        store.move_to(id, "firma/spam").unwrap();
+        assert!(!store.auto_load_images(id).unwrap(), "never in Spam");
+        store.move_to(id, "firma/inbox").unwrap();
+        store.set_sender_trusted(&sender, false).unwrap();
+        assert!(!store.auto_load_images(id).unwrap());
     }
 }

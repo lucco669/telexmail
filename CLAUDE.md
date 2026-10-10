@@ -37,6 +37,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      folder mapping. Tests run it against a fake IMAP server.
   src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322, send the Outbox.
                      Tests run it against a fake SMTP server.
+  src/html.rs        HTML mail: sanitize (ammonia) into an inert document for a sandboxed frame,
+                     inline cid: images, fetch remote images on request (ureq, public IPs only).
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
@@ -67,6 +69,9 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `save_outgoing`  | `draft`, `send`              | new message id (a draft; `send` only for the sample mailbox) |
 | `send_message`   | `draft`                      | `{queued, sent: [lines], errors, sample}` |
 | `search`         | `query`                      | ids matching subject, people or body (FTS5) |
+| `get_html`       | `id`, `loadImages` (true/false/null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
+| `trust_sender`   | `email`, `trusted`           | – (that sender's images load without asking, except in Spam) |
+| `open_link`      | `url`                        | – (http/https only, in the default browser) |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
 | `check_mail`     | –                            | `{new: [ids], sent: [lines], errors: ["Account: reason"], busy}` |
@@ -103,6 +108,10 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 - Put behavior in `telex-core` with a test. The Tauri layer only converts errors to strings.
 - The UI talks to Rust only through `invoke`. No `fetch` to the network from the UI.
 - The CSP in `tauri.conf.json` allows only local files. Do not add CDNs or remote fonts.
+  The one loosening is `style-src 'unsafe-inline'` (with Tauri told not to add hashes to
+  style-src, which would cancel it): the HTML mail frame inherits the app's CSP, and mail
+  layout lives in inline styles. Remote mail images are fetched by the core
+  (`html::fetch_images`) and passed in as data: URIs; the webview never loads them.
 - Colors are CSS tokens in `ui/styles.css` with light and dark sets. Do not hard-code colors.
 - Keep the keyboard table below and the status-bar hints in `ui/index.html` in sync.
 - Run `cargo fmt`, clippy and the core tests before committing.
@@ -125,10 +134,11 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Del          | move to Trash (in Trash: press twice to delete for good) |
 | Z            | undo last delete               |
 | /            | quick filter                   |
+| H            | switch HTML / plain text view (remembered) |
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0 + roadmap steps 1, 1b and 2)
+## Current state (v0.1.0 + roadmap steps 1, 1b, 2 and 3)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
@@ -161,8 +171,21 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   unsent message; saving or sending replaces the old one. The status bar says "Sent" only
   after the SMTP server accepts the message.
 - Quick filter matches headers as you type and bodies through FTS5 (diacritics-insensitive).
-- Mail is stored in full (`messages.raw`), so HTML view and attachments can come later
-  without downloading again. The UI still shows the plain-text body.
+- HTML mail: `get_html` renders the stored raw message (`html::render`): ammonia keeps
+  formatting, tables and inline styles and drops scripts, forms, iframes, event handlers,
+  `<style>` blocks, javascript: links and relative URLs; cid: images become data: URIs.
+  Remote images and CSS backgrounds are left out and counted, unless the user loads them
+  (per message, or always for a trusted sender outside Spam: `trusted_senders`, schema
+  version 4). Then the core downloads them itself (`html::fetch_images`: http(s) only,
+  public IPs only, up to 40 images, 3 MB each, 15 MB total, 10 s, no cookies or Referer,
+  generic User-Agent) and renders again with data: URIs. The document carries its own CSP
+  (`default-src 'none'; img-src data:; style-src 'unsafe-inline'`). The UI shows it in an
+  iframe with `sandbox="allow-same-origin"` (no scripts can run; same-origin only lets the
+  page size the frame, catch link clicks and pass keys on). Links open in the default
+  browser via `open_link`; mailto: opens compose; links in Spam (or with a filter note) do
+  nothing. H switches to the plain-text body. The canvas is white in both themes.
+- Mail is stored in full (`messages.raw`), so attachments can be opened later without
+  downloading again.
 - Before an account is added: the built-in sample mailbox. "Get mail" delivers one sample
   message there; "Send" only files the message in Sent.
 
@@ -175,8 +198,9 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 2. ~~**Sending.**~~ Done; see Current state. Not yet: attaching new files (needs a file
    picker), Bcc, drafts on the server's Drafts folder, and skipping the Sent copy for servers
    that save one themselves (Gmail and Outlook.com do; matters with step 5).
-3. **HTML mail.** Render in a sandboxed iframe (`srcdoc`, no scripts), remote content blocked
-   until allowed per message or per sender.
+3. ~~**HTML mail.**~~ Done; see Current state. Not yet: `<style>` blocks (dropped, since CSS
+   can load from the network; keeping them needs a CSS sanitizer), opening attachments, a
+   way to manage trusted senders other than per message.
 4. **Filters ("Sorting Office").** Rule editor, run on arrival and on demand, `note` explains why.
 5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP).
 6. **Templates and identities.** Quote templates, signatures, multiple identities per account.

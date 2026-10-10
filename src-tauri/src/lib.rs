@@ -3,6 +3,7 @@
 
 mod secrets;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -10,6 +11,8 @@ use std::sync::Mutex;
 use chrono::Local;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_opener::OpenerExt;
+use telex_core::html::{self, FetchLimits};
 use telex_core::imap::{self, SyncProgress};
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::{
@@ -115,6 +118,77 @@ fn save_outgoing(
 #[tauri::command]
 fn search(state: State<'_, AppState>, query: String) -> CmdResult<Vec<MessageId>> {
     with_store(&state, |s| s.search(&query))
+}
+
+#[derive(Debug, Serialize)]
+struct HtmlView {
+    /// A complete, inert document for the sandboxed frame.
+    document: String,
+    /// Remote images still left out, and how many were loaded.
+    blocked: usize,
+    loaded: usize,
+    sender: String,
+    /// The sender's images load without asking (outside Spam).
+    trusted: bool,
+}
+
+/// The message's HTML, or `null` for plain-text mail. Remote images are downloaded here,
+/// never by the window. `load_images`: `true` loads them, `false` never does (the text
+/// view only asks whether there is HTML), `null` loads them when the sender is trusted and
+/// the message isn't spam.
+#[tauri::command]
+async fn get_html(
+    state: State<'_, AppState>,
+    id: MessageId,
+    load_images: Option<bool>,
+) -> CmdResult<Option<HtmlView>> {
+    let (raw, sender, trusted, auto) = with_store(&state, |s| {
+        let sender = s.get(id)?.from_email;
+        let trusted = s.is_sender_trusted(&sender)?;
+        Ok((s.raw_of(id)?, sender, trusted, s.auto_load_images(id)?))
+    })?;
+    let Some(raw) = raw else { return Ok(None) };
+    let Some(first) = html::render(&raw, &HashMap::new()) else {
+        return Ok(None);
+    };
+    let (rendered, loaded) = if load_images.unwrap_or(auto) && !first.remote.is_empty() {
+        let urls = first.remote.clone();
+        let images = tauri::async_runtime::spawn_blocking(move || {
+            html::fetch_images(&urls, &FetchLimits::default())
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        let loaded = images.len();
+        (html::render(&raw, &images).unwrap_or(first), loaded)
+    } else {
+        (first, 0)
+    };
+    Ok(Some(HtmlView {
+        document: rendered.document,
+        blocked: rendered.blocked,
+        loaded,
+        sender,
+        trusted,
+    }))
+}
+
+/// Load a sender's remote images without asking from now on, or stop that.
+#[tauri::command]
+fn trust_sender(state: State<'_, AppState>, email: String, trusted: bool) -> CmdResult<()> {
+    with_store(&state, |s| s.set_sender_trusted(&email, trusted))
+}
+
+/// Open a web link from a message in the default browser.
+#[tauri::command]
+fn open_link(app: AppHandle, url: String) -> CmdResult<()> {
+    let url = url.trim();
+    let lower = url.to_ascii_lowercase();
+    if !(lower.starts_with("https://") || lower.starts_with("http://")) {
+        return Err("Telex opens only web links (http and https).".into());
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| format!("Couldn't open the link: {e}"))
 }
 
 /// Check the settings by logging in to IMAP and SMTP, then save the account and its
@@ -391,6 +465,7 @@ async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -417,6 +492,9 @@ pub fn run() {
             check_mail,
             push_changes,
             send_message,
+            get_html,
+            trust_sender,
+            open_link,
         ])
         .run(tauri::generate_context!())
         .expect("Telex failed to start");

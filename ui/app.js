@@ -133,6 +133,7 @@ const state = {
   folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', hits:new Set(),
   collapsed:{}, compose:null, images:new Set(), lastDeleted:null,
   density: saved.density === 'comfortable' ? 'comfortable' : 'compact',
+  preferText: saved.preferText === true, // show plain text even when a message has HTML
 };
 const win = $('win'), rowsEl = $('rows'), listEl = $('list'), previewEl = $('preview'), treeEl = $('tree'), qEl = $('q');
 if (saved.treeW) win.style.setProperty('--tree-w', saved.treeW + 'px');
@@ -141,6 +142,7 @@ const persist = () => store.set({
   treeW: parseInt(win.style.getPropertyValue('--tree-w')) || undefined,
   listH: parseFloat(win.style.getPropertyValue('--list-h')) || undefined,
   density: state.density,
+  preferText: state.preferText || undefined,
 });
 
 /* ---------- toolbar ---------- */
@@ -294,9 +296,62 @@ function bodyHtml(m){
     if (img) return `<div class="imgph${loaded ? ' loaded' : ''}">${loaded ? esc(img[1]) : 'Blocked image: ' + esc(img[1])}</div>`;
     const q = line.startsWith('>');
     let h = esc(q ? line.replace(/^> ?/, '') : line);
-    if (!m.note) h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    if (!m.note) h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
     return `<div class="ln${q ? ' q' : ''}">${h}</div>`;
   }).join('');
+}
+// The HTML view of a message, cached per images setting. load: true loads remote images,
+// false never does (only asks whether there is HTML), null lets the core decide (trusted
+// sender, not spam). The core does any downloading; the window never talks to the network.
+const htmlViews = new Map();
+async function htmlView(id, load){
+  const key = id + ':' + load;
+  if (!htmlViews.has(key)) htmlViews.set(key, await invoke('get_html', {id, loadImages:load}));
+  return htmlViews.get(key);
+}
+// Links never navigate inside Telex: web links open in the browser, mailto opens compose.
+function followLink(href, spam){
+  const h = String(href || '').trim();
+  if (spam){ say('Links are off in Spam. Move the message out of Spam to use them.'); return; }
+  if (/^mailto:/i.test(h)){
+    const to = decodeURIComponent(h.slice(7).split('?')[0]);
+    openCompose('new', {to});
+  } else if (/^https?:\/\//i.test(h)){
+    call('open_link', {url:h}).then(() => say('Opened in your browser.', 2500)).catch(() => {});
+  }
+}
+// The frame shows the core's inert document: no scripts may run in it (sandbox without
+// allow-scripts). allow-same-origin only lets this page size it and catch link clicks.
+function mountFrame(frame, documentHtml, spam){
+  frame.addEventListener('load', () => {
+    const d = frame.contentDocument;
+    if (!d) return;
+    const fit = () => { frame.style.height = d.documentElement.scrollHeight + 'px'; };
+    fit();
+    new ResizeObserver(fit).observe(d.documentElement);
+    d.querySelectorAll('img').forEach(img => img.addEventListener('load', fit));
+    d.addEventListener('click', e => {
+      const a = e.target.closest?.('a[href]');
+      if (!a) return;
+      e.preventDefault();
+      followLink(a.getAttribute('href'), spam);
+    });
+    d.addEventListener('keydown', onKey); // keys still work after clicking into the message
+  }, {once:true});
+  frame.srcdoc = documentHtml;
+}
+function imagesBar(m, hv, spam){
+  const who = esc(hv.sender);
+  if (hv.blocked && !hv.loaded){
+    const n = hv.blocked === 1 ? 'A remote image is' : `${hv.blocked} remote images are`;
+    const always = spam ? '' : ` <button type="button" class="linkbtn" data-act="trust">Always load from ${who}</button>`;
+    return `<div class="bar">${n} blocked so the sender can’t see when you open this. <button type="button" class="linkbtn" data-act="images">Load images</button>${always}</div>`;
+  }
+  if (hv.loaded && hv.trusted && !spam){
+    return `<div class="bar quiet">Images from ${who} load automatically. <button type="button" class="linkbtn" data-act="untrust">Stop</button></div>`;
+  }
+  if (hv.loaded && hv.blocked) return `<div class="bar quiet">${hv.blocked === 1 ? 'One image' : hv.blocked + ' images'} couldn’t be loaded.</div>`;
+  return '';
 }
 function attsHtml(atts){
   if (!atts.length) return '';
@@ -309,12 +364,20 @@ async function renderPreview(){
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div>${inFolder(state.folder).length ? 'Select a message to read it here.' : 'Nothing in ' + esc(folderName(state.folder)) + '.'}</div></div>`;
     return;
   }
-  let m;
-  try { m = await full(s.id); } catch (e){ if (seq === pvSeq) previewEl.innerHTML = `<div class="pempty">${esc(String(e))}</div>`; return; }
+  let m, hv;
+  try {
+    m = await full(s.id);
+    hv = await htmlView(s.id, state.preferText ? false : state.images.has(s.id) ? true : null);
+  } catch (e){ if (seq === pvSeq) previewEl.innerHTML = `<div class="pempty">${esc(String(e))}</div>`; return; }
   if (seq !== pvSeq || state.compose) return;
+  const spam = kindOf(s.f) === 'spam' || !!m.note;
+  const asHtml = !!hv && !state.preferText;
+  const views = hv ? `<span class="seg" role="group" aria-label="Show as"><button type="button" data-view="html" aria-pressed="${asHtml}" title="Show the HTML (H)">HTML</button><button type="button" data-view="text" aria-pressed="${!asHtml}" title="Show plain text (H)">Text</button></span>` : '';
+  const images = asHtml ? imagesBar(m, hv, spam)
+    : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">Remote images are blocked so the sender can’t see when you open this. <button type="button" class="linkbtn" data-act="images">Load images</button></div>` : '';
   previewEl.innerHTML = `<article>
 <header class="ph">
-  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${s.flagged ? `<span class="pill">${I.flag}Flagged</span>` : ''}</div>
+  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${views}${s.flagged ? `<span class="pill">${I.flag}Flagged</span>` : ''}</div>
   <dl class="ph-grid">
     <dt>From</dt><dd>${esc(m.from_name)} &lt;${esc(m.from_email)}&gt;</dd>
     <dt>To</dt><dd>${esc(m.to || '(no recipient)')}</dd>
@@ -324,17 +387,39 @@ async function renderPreview(){
   ${attsHtml(m.attachments)}
 </header>
 ${m.note ? `<div class="bar note">${esc(m.note)}</div>` : ''}
-${m.remote_images && !state.images.has(m.id) ? `<div class="bar">Remote images are blocked so the sender can’t see when you open this. <button type="button" class="linkbtn" data-act="images">Load images</button></div>` : ''}
-<div class="pbody">${bodyHtml(m)}</div>
+${images}
+${asHtml ? '<div class="pbody html"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="Message"></iframe></div>' : `<div class="pbody">${bodyHtml(m)}</div>`}
 </article>`;
+  if (asHtml) mountFrame(previewEl.querySelector('.hframe'), hv.document, spam);
   previewEl.scrollTop = 0;
 }
-previewEl.addEventListener('click', e => {
+function setView(text){
+  state.preferText = text; persist();
+  if (!state.compose) renderPreview();
+  say(text ? 'Showing plain text. Press H for HTML.' : 'Showing HTML. Press H for plain text.', 2500);
+}
+previewEl.addEventListener('click', async e => {
+  const link = e.target.closest('.pbody a[href]');
+  if (link){ e.preventDefault(); const s = current(); followLink(link.getAttribute('href'), s && (kindOf(s.f) === 'spam')); return; }
+  const view = e.target.closest('[data-view]');
+  if (view){ setView(view.dataset.view === 'text'); return; }
   const att = e.target.closest('[data-att]'), act = e.target.closest('[data-act]');
   if (att){ say(`Opening attachments isn't built yet (${att.title}).`); return; }
   if (!act) return;
   const m = current();
-  if (act.dataset.act === 'images' && m){ state.images.add(m.id); renderPreview(); say('Images loaded for this message only.'); }
+  if (act.dataset.act === 'images' && m){
+    state.images.add(m.id); say('Loading images…', 0);
+    await renderPreview(); say('Images loaded for this message only.');
+  }
+  if ((act.dataset.act === 'trust' || act.dataset.act === 'untrust') && m){
+    const trust = act.dataset.act === 'trust', email = (await full(m.id)).from_email;
+    try { await call('trust_sender', {email, trusted:trust}); } catch { return; }
+    htmlViews.clear();
+    if (trust) state.images.add(m.id); else state.images.delete(m.id);
+    if (trust) say('Loading images…', 0);
+    await renderPreview();
+    say(trust ? `Images from ${email} will load automatically, except in Spam.` : `Images from ${email} are blocked again.`);
+  }
   if (act.dataset.act === 'discard'){ state.compose = null; renderPreview(); say('Message discarded.'); listEl.focus(); }
   if (act.dataset.act === 'draft') closeCompose(false).then(ok => ok && say('Saved to Drafts.'));
 });
@@ -347,7 +432,7 @@ function quoted(m){
   return head + '\n' + lines.join('\n');
 }
 // kind: new, reply, replyall, forward, or edit (a draft or an unsent message in the Outbox).
-async function openCompose(kind){
+async function openCompose(kind, preset = {}){
   const s = current();
   if (kind !== 'new' && !s){ say('Select a message first.'); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say('Only drafts and unsent messages in the Outbox can be edited.'); return; }
@@ -374,6 +459,7 @@ async function openCompose(kind){
         + m.body.split('\n').filter(l => !/^\[img:/.test(l)).join('\n');
     }
   }
+  Object.assign(c, preset); // e.g. {to} from a mailto: link
   state.compose = c;
   renderCompose();
 }
@@ -659,7 +745,8 @@ $('a-list').addEventListener('click', async e => {
 });
 
 /* ---------- keyboard ---------- */
-document.addEventListener('keydown', e => {
+// Also attached to the HTML message frame, so keys work after clicking into it.
+function onKey(e){
   if (dlg.open) return; // the dialog handles its own Enter and Esc
   const t = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
@@ -681,11 +768,13 @@ document.addEventListener('keydown', e => {
   else if (k === 'u' || k === 'U') toggleUnread();
   else if (k === 'n' || k === 'N') openCompose('new');
   else if (k === 'e' || k === 'E') openCompose('edit');
+  else if (k === 'h' || k === 'H') setView(!state.preferText);
   else if (k === 'z' || k === 'Z') undo();
   else if (k === '/') qEl.focus();
   else return;
   e.preventDefault();
-});
+}
+document.addEventListener('keydown', onKey);
 
 /* ---------- splitters ---------- */
 function splitter(el, onMove, onKey){

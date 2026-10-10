@@ -3,6 +3,8 @@
 //! `mail-parser` does the hard part: MIME structure, transfer encodings and old
 //! charsets such as Windows-1250 and ISO-8859-2.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Local, NaiveDateTime};
 use mail_parser::{Address, MessageParser, MessagePart, MimeHeaders, PartType};
 
@@ -141,16 +143,49 @@ pub fn attachments_of(raw: &[u8]) -> Vec<FileAttachment> {
     p.attachments()
         .map(|a| FileAttachment {
             name: file_name(a),
-            content_type: a.content_type().map_or_else(
-                || "application/octet-stream".to_owned(),
-                |ct| match ct.subtype() {
-                    Some(sub) => format!("{}/{sub}", ct.ctype()),
-                    None => ct.ctype().to_owned(),
-                },
-            ),
+            content_type: mime_type(a),
             data: a.contents().to_vec(),
         })
         .collect()
+}
+
+/// A message's HTML body, with the images it embeds.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct HtmlBody {
+    pub html: String,
+    /// Content-ID (without angle brackets) → MIME type and bytes, for `cid:` references.
+    pub inline: HashMap<String, (String, Vec<u8>)>,
+}
+
+/// The HTML body, or `None` for plain-text mail.
+pub fn html_body(raw: &[u8]) -> Option<HtmlBody> {
+    let p = MessageParser::default().parse(raw)?;
+    let html = p.html_bodies().find_map(|part| match &part.body {
+        PartType::Html(html) => Some(html.to_string()),
+        _ => None,
+    })?;
+    let inline = p
+        .parts
+        .iter()
+        .filter_map(|part| {
+            let cid = part.content_id()?.trim();
+            let cid = cid.strip_prefix('<').unwrap_or(cid);
+            let cid = cid.strip_suffix('>').unwrap_or(cid);
+            Some((cid.to_owned(), (mime_type(part), part.contents().to_vec())))
+        })
+        .collect();
+    Some(HtmlBody { html, inline })
+}
+
+/// "image/png", or application/octet-stream when the part doesn't say.
+fn mime_type(part: &MessagePart<'_>) -> String {
+    part.content_type().map_or_else(
+        || "application/octet-stream".to_owned(),
+        |ct| match ct.subtype() {
+            Some(sub) => format!("{}/{sub}", ct.ctype()).to_ascii_lowercase(),
+            None => ct.ctype().to_ascii_lowercase(),
+        },
+    )
 }
 
 fn file_name(part: &MessagePart<'_>) -> String {
