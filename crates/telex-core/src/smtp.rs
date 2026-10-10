@@ -121,15 +121,20 @@ fn build(
             "Adres nadawcy „{email}” jest niepoprawny."
         )
     })?;
-    let (to, cc) = if purpose == Purpose::Draft {
-        (lenient_recipients(&draft.to), lenient_recipients(&draft.cc))
+    let (to, cc, bcc) = if purpose == Purpose::Draft {
+        (
+            lenient_recipients(&draft.to),
+            lenient_recipients(&draft.cc),
+            lenient_recipients(&draft.bcc),
+        )
     } else {
         (
             parse_recipients(&draft.to, &tr!("To", "Do"))?,
             parse_recipients(&draft.cc, &tr!("Cc", "DW"))?,
+            parse_recipients(&draft.bcc, &tr!("Bcc", "UDW"))?,
         )
     };
-    if to.is_empty() && cc.is_empty() && purpose != Purpose::Draft {
+    if to.is_empty() && cc.is_empty() && bcc.is_empty() && purpose != Purpose::Draft {
         return Err(tr!(
             "Add at least one recipient in To.",
             "Dodaj co najmniej jednego odbiorcę w polu Do."
@@ -157,6 +162,8 @@ fn build(
         .rsplit_once('@')
         .map_or("telex.invalid", |(_, d)| d);
 
+    // Bcc stays in Telex's own copy (the Outbox, Sent, drafts); `send_raw` leaves it out of
+    // what the recipients get.
     let mut builder = Email::builder()
         .from(Mailbox::new(
             Some(identity.name.clone()),
@@ -164,7 +171,8 @@ fn build(
         ))
         .subject(draft.subject.clone())
         .date(SystemTime::from(now))
-        .message_id(Some(format!("<{}>", new_message_id(domain))));
+        .message_id(Some(format!("<{}>", new_message_id(domain))))
+        .keep_bcc();
     if purpose == Purpose::Draft {
         // A draft goes nowhere, but lettre wants an envelope: the sender to itself.
         let envelope = Envelope::new(Some(from_address.clone()), vec![from_address])
@@ -176,6 +184,9 @@ fn build(
     }
     for mailbox in cc {
         builder = builder.cc(mailbox);
+    }
+    for mailbox in bcc {
+        builder = builder.bcc(mailbox);
     }
     if let Some(raw) = &originals.replied {
         let (id, mut references) = thread_ids(raw);
@@ -312,10 +323,33 @@ pub async fn send_raw(
         .collect::<Result<Vec<_>, _>>()?;
     let envelope = Envelope::new(Some(from), to).map_err(|e| SendError::Refused(e.to_string()))?;
     transport
-        .send_raw(&envelope, raw)
+        .send_raw(&envelope, &without_bcc(raw))
         .await
         .map(|_| ())
         .map_err(|e| classify(&e))
+}
+
+/// The message without its Bcc header: blind copies reach their recipients through the
+/// envelope, and nobody else may see them. The rest stays byte for byte.
+pub fn without_bcc(raw: &[u8]) -> Vec<u8> {
+    let end = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map_or(raw.len(), |p| p + 2);
+    let (head, body) = raw.split_at(end);
+    let mut out = Vec::with_capacity(raw.len());
+    let mut dropping = false;
+    for line in head.split_inclusive(|&b| b == b'\n') {
+        let folded = line.first().is_some_and(|b| *b == b' ' || *b == b'\t');
+        if !folded {
+            dropping = line.len() >= 4 && line[..4].eq_ignore_ascii_case(b"bcc:");
+        }
+        if !dropping {
+            out.extend_from_slice(line);
+        }
+    }
+    out.extend_from_slice(body);
+    out
 }
 
 /// What sending an Outbox did, as sentences for the status bar.
@@ -1031,6 +1065,66 @@ JVBERi0xLjQK\r\n\
         let outbox = s.list(&account.folder_key("outbox")).unwrap();
         assert_eq!(outbox.len(), 1);
         assert_eq!(outbox[0].id, new);
+    }
+
+    #[tokio::test]
+    async fn blind_copies_reach_their_people_and_nobody_sees_them() {
+        let (port, server) = start_fake_smtp("nobody@").await;
+        let (store, account, _) = store_with_queued(&[]);
+        let mut d = draft("anna@kowalska-architekci.pl");
+        d.bcc = "Szef <szef@twojastudio.pl>".into();
+        let c = compose(&account, &d, &Originals::default(), now()).unwrap();
+        assert_eq!(
+            c.env_to,
+            ["anna@kowalska-architekci.pl", "szef@twojastudio.pl"]
+        );
+        assert_eq!(
+            c.message.bcc, "Szef <szef@twojastudio.pl>",
+            "kept in our copy"
+        );
+        store
+            .lock()
+            .unwrap()
+            .queue_outgoing(
+                &account.id,
+                &c.message,
+                &c.raw,
+                &c.env_from,
+                &c.env_to,
+                None,
+            )
+            .unwrap();
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        assert_eq!(report.sent.len(), 1, "{report:?}");
+        let accepted = server.lock().unwrap().accepted.clone();
+        assert_eq!(
+            accepted[0].1,
+            ["anna@kowalska-architekci.pl", "szef@twojastudio.pl"]
+        );
+        assert!(
+            !accepted[0].2.to_ascii_lowercase().contains("bcc"),
+            "{}",
+            accepted[0].2
+        );
+        assert!(accepted[0].2.contains("Subject: "));
+        // The copy in Sent still says who got a blind copy.
+        let s = store.lock().unwrap();
+        let sent = s.list(&account.folder_key("sent")).unwrap();
+        assert_eq!(s.get(sent[0].id).unwrap().bcc, "Szef <szef@twojastudio.pl>");
+    }
+
+    #[test]
+    fn bcc_lines_go_and_everything_else_stays() {
+        let raw = b"From: a@x.pl\r\nBcc: b@x.pl,\r\n c@x.pl\r\nSubject: Bcc: in the subject\r\n\
+BCC: d@x.pl\r\n\r\nBcc: in the body stays\r\n";
+        assert_eq!(
+            without_bcc(raw),
+            b"From: a@x.pl\r\nSubject: Bcc: in the subject\r\n\r\nBcc: in the body stays\r\n"
+        );
+        let plain = b"From: a@x.pl\r\n\r\nHej\r\n";
+        assert_eq!(without_bcc(plain), plain);
     }
 
     #[test]

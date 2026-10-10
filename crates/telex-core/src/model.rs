@@ -484,6 +484,9 @@ pub struct OutgoingDraft {
     pub to: String,
     #[serde(default)]
     pub cc: String,
+    /// Blind copies: they get the message, the others don't see them.
+    #[serde(default)]
+    pub bcc: String,
     pub subject: String,
     /// The text as typed in plain-text compose. Ignored when `html` is set.
     #[serde(default)]

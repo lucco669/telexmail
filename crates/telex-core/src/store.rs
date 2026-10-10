@@ -570,7 +570,7 @@ impl MailStore {
             from_email: identity.email,
             to: draft.to,
             cc: draft.cc,
-            bcc: String::new(),
+            bcc: draft.bcc,
             subject: draft.subject,
             date: now,
             size_kb: size_kb.max(1),

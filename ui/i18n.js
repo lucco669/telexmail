@@ -471,6 +471,8 @@ const PL = {
   'flag|several': 'flaga',
   'read or unread': 'przeczytane lub nie',
   'clear the selection': 'odznacz',
+  'Bcc': 'UDW',
+  'Blind copy: they get it, the others don’t see them': 'Ukryta kopia: dostaną ją, a pozostali ich nie zobaczą',
   'Attach files from this PC. You can also drop them on the window.': 'Dołącz pliki z tego komputera. Możesz je też upuścić na okno.',
   'Attach…': 'Dołącz…',
   'Attached {name}.': 'Dołączono {name}.',

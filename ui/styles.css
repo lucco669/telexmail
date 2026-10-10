@@ -190,6 +190,9 @@ tr.empty:hover td{background:none}
 .ctitle{display:flex;align-items:baseline;gap:8px;padding:8px 14px 0;background:var(--panel);font-weight:600;font-size:13px}
 .ctitle span{font-weight:400;font-size:11.5px;color:var(--muted)}
 .cf{display:grid;grid-template-columns:58px minmax(0,1fr);gap:4px 8px;align-items:center;padding:6px 14px 8px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
+.crow{display:flex;align-items:center;gap:8px;min-width:0}
+.crow input{flex:1}
+.cbcc{flex:none;font-weight:500;text-decoration:none;color:var(--accent);font-size:12px}
 .compose #c-attbox .atts{margin:0;padding:6px 14px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
 .compose #c-attbox:empty{display:none}
 .cbar .btn svg{width:13px;height:13px;color:var(--muted)}

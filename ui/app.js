@@ -888,6 +888,7 @@ async function renderPreview(){
     <dt>${esc(t('From'))}</dt><dd>${esc(m.from_name)} &lt;${esc(m.from_email)}&gt;</dd>
     <dt>${esc(t('To'))}</dt><dd>${esc(m.to || t('(no recipient)'))}</dd>
     ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${esc(m.cc)}</dd>` : ''}
+    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${esc(m.bcc)}</dd>` : ''}
     <dt>${esc(t('Date'))}</dt><dd class="mono">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</dd>
   </dl>
   ${attsHtml(m.attachments)}
@@ -938,6 +939,9 @@ previewEl.addEventListener('click', async e => {
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
     renderPreview();
   }
+  if (act.dataset.act === 'bcc' && state.compose){
+    readCompose(); state.compose.showBcc = true; renderCompose(); $('c-bcc')?.focus();
+  }
   if (act.dataset.act === 'attach' && state.compose) pickFiles();
   if (act.dataset.act === 'discard'){ state.compose = null; renderPreview(); say(t('Message discarded.')); listEl.focus(); }
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
@@ -961,11 +965,11 @@ async function openCompose(kind, preset = {}){
       const m = await full(s.id), account = acctId(s.f), ids = ACCT[account]?.identities ?? [];
       const me = ids.find(i => i.email.toLowerCase() === m.from_email.toLowerCase()) ?? ids.find(i => i.is_default) ?? ids[0];
       // Attachments come from the old message itself, which Send replaces.
-      c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, subject:m.subject, body:m.body,
+      c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, bcc:m.bcc ?? '', subject:m.subject, body:m.body,
         html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id};
     } else {
       const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder)});
-      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, subject:d.subject, body:d.body, html:null,
+      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, bcc:'', subject:d.subject, body:d.body, html:null,
         attachments:d.attachments, replyTo:d.reply_to, forwardOf:d.forward_of, replaces:null};
       const p = pref();
       const html = kind === 'new' ? p.compose_format === 'html'
@@ -1009,12 +1013,14 @@ function renderCompose(){
   const c = state.compose, html = c.html != null, spell = String(pref().spell_check);
   const title = {new:t('New message'), reply:t('Reply|compose title'), replyall:t('Reply to all|compose title'), forward:t('Forward|compose title'), edit:t('Edit|compose title')}[c.kind];
   const note = composeNote(c);
+  const bcc = !!c.bcc || c.showBcc;
   previewEl.innerHTML = `<form class="compose" id="cform" novalidate>
 <div class="ctitle">${esc(title)}<label class="cfrom">${esc(t('from|compose'))} <select id="c-from" aria-label="${esc(t('From'))}">${fromOptions(c)}</select></label>
 <span class="seg cfmt" role="group" aria-label="${esc(t('Format'))}"><button type="button" data-fmt="plain" aria-pressed="${!html}" title="${esc(t('Plain text'))}">${esc(t('Text|view'))}</button><button type="button" data-fmt="html" aria-pressed="${html}" title="${esc(t('HTML: bold, lists, links'))}">HTML</button></span></div>
 <div class="cf">
   <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false">
-  <label for="c-cc">${esc(t('Cc'))}</label><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false">
+  <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" title="${esc(t('Blind copy: they get it, the others don’t see them'))}">${esc(t('Bcc'))}</button>`}</div>
+  ${bcc ? `<label for="c-bcc">${esc(t('Bcc'))}</label><input id="c-bcc" value="${esc(c.bcc)}" autocomplete="off" spellcheck="false">` : ''}
   <label for="c-subj">${esc(t('Subject'))}</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="${spell}">
 </div>
 <div id="c-attbox">${attsHtml(c.attachments, true)}</div>
@@ -1135,12 +1141,14 @@ async function setFormat(fmt){
   renderCompose();
   focusStart(c.html != null ? $('c-html') : $('c-body'));
 }
-const draftOf = c => ({account:c.account, to:c.to, cc:c.cc, subject:c.subject || t('(no subject)'),
+const draftOf = c => ({account:c.account, to:c.to, cc:c.cc, bcc:c.bcc, subject:c.subject || t('(no subject)'),
   body:c.html != null ? '' : c.body.replace(/^\n+/, ''), html:c.html,
   attachments:c.attachments, reply_to:c.replyTo, forward_of:c.forwardOf, replaces:c.replaces, identity:c.identity});
+const trimList = s => s.trim().replace(/[,;]\s*$/, '');
 function readCompose(){
   const c = state.compose;
-  c.to = $('c-to').value.trim(); c.cc = $('c-cc').value.trim(); c.subject = $('c-subj').value.trim();
+  c.to = trimList($('c-to').value); c.cc = trimList($('c-cc').value); c.subject = $('c-subj').value.trim();
+  if ($('c-bcc')) c.bcc = trimList($('c-bcc').value);
   if (c.html != null) c.html = $('c-html').innerHTML; else c.body = $('c-body').value;
   return c;
 }
@@ -1159,7 +1167,7 @@ const sentText = sent => sent.length === 1 ? t('Sent {what}.', {what:sentLine(se
 // server has taken it; otherwise it waits in the Outbox and the status says why.
 let askedSubject = 0; // when Send last asked about a missing subject
 async function send(){
-  if (!$('c-to').value.trim() && !$('c-cc').value.trim()){ say(t('Add at least one recipient in To.')); $('c-to').focus(); return; }
+  if (![$('c-to'), $('c-cc'), $('c-bcc')].some(f => trimList(f?.value ?? ''))){ say(t('Add at least one recipient in To.')); $('c-to').focus(); return; }
   if (pref().ask_subject && !$('c-subj').value.trim() && Date.now() - askedSubject > 8000){
     askedSubject = Date.now();
     say(t('No subject. Press Send or Ctrl+Enter again to send it without one.'), 8000);
