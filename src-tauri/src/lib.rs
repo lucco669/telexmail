@@ -576,6 +576,51 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
 }
 
 #[derive(Debug, Default, Serialize)]
+struct OlderOutcome {
+    /// How many messages came down.
+    new: usize,
+    /// A check or push was running, so this didn't start. Try again shortly.
+    busy: bool,
+}
+
+/// Download up to `limit` older messages of a folder: those the first download left on the
+/// server. Progress reaches the UI as "sync-progress" events.
+#[tauri::command]
+async fn download_older(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    folder: String,
+    limit: usize,
+) -> CmdResult<OlderOutcome> {
+    let Some(_busy) = BusyGuard::take(&state.busy) else {
+        return Ok(OlderOutcome {
+            busy: true,
+            ..OlderOutcome::default()
+        });
+    };
+    let account_id = folder.split('/').next().unwrap_or_default();
+    let account = with_store(&state, |s| s.account(account_id).cloned())?;
+    let password = secrets::load_password(&account.email)?;
+    let progress = |p: SyncProgress| {
+        let _ = app.emit("sync-progress", p);
+    };
+    let new = imap::download_older(
+        &account,
+        &password,
+        &state.store,
+        &folder,
+        limit.clamp(1, 5000),
+        &progress,
+    )
+    .await
+    .map_err(|e| capitalize(&e.to_string()))?;
+    Ok(OlderOutcome {
+        new: new.len(),
+        busy: false,
+    })
+}
+
+#[derive(Debug, Default, Serialize)]
 struct SendOutcome {
     /// The message's id in the Outbox.
     queued: MessageId,
@@ -738,6 +783,7 @@ pub fn run() {
             mark_folder_read,
             list_ids,
             recipients,
+            download_older,
             files::open_attachment,
             files::save_attachment,
             files::save_attachments,

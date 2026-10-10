@@ -1234,6 +1234,28 @@ impl MailStore {
         })
     }
 
+    /// Remember how many messages of a server folder are on the server, so the window can
+    /// say how many older ones weren't downloaded. Returns that number.
+    pub fn note_server_count(
+        &mut self,
+        folder_key: &str,
+        on_server: usize,
+    ) -> Result<usize, StoreError> {
+        let (account, folder) = split_folder_key(folder_key)
+            .ok_or_else(|| StoreError::UnknownFolder(folder_key.to_owned()))?;
+        let here: i64 = self.db.query_row(
+            "SELECT COUNT(*) FROM messages WHERE srv_folder = ?1 AND uid IS NOT NULL",
+            [folder_key],
+            |r| r.get(0),
+        )?;
+        let missing = on_server.saturating_sub(usize::try_from(here).unwrap_or_default());
+        self.db.execute(
+            "UPDATE folders SET missing = ?3 WHERE account = ?1 AND id = ?2",
+            params![account, folder, missing as i64],
+        )?;
+        Ok(missing)
+    }
+
     /// UIDs of the messages stored from one server folder.
     pub fn local_uids(&self, folder_key: &str) -> Result<HashSet<u32>, StoreError> {
         let mut stmt = self
@@ -2727,6 +2749,25 @@ mod tests {
             "one change per message, nothing twice"
         );
         assert!(store.mark_folder_read("nope/inbox").is_err());
+    }
+
+    #[test]
+    fn the_tree_says_how_much_older_mail_is_on_the_server() {
+        let (mut store, account) = store_with_server_account();
+        let inbox = account.folder_key("inbox");
+        for uid in [301, 302] {
+            one_in_inbox(&mut store, &account, uid);
+        }
+        assert_eq!(store.note_server_count(&inbox, 450).unwrap(), 448);
+        assert_eq!(store.folder_tree().unwrap().counts[&inbox].older, 448);
+        // A folder with nothing older says nothing.
+        assert_eq!(store.note_server_count(&inbox, 2).unwrap(), 0);
+        assert_eq!(store.folder_tree().unwrap().counts[&inbox].older, 0);
+        let json = serde_json::to_value(store.folder_tree().unwrap()).unwrap();
+        assert!(
+            json["counts"][&inbox].get("older").is_none(),
+            "left out when zero"
+        );
     }
 
     #[test]

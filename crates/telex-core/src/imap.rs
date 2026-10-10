@@ -244,6 +244,78 @@ pub async fn sync_account(
     result
 }
 
+/// Download up to `limit` of the newest messages of a folder that are on the server but not
+/// here: older than what the first download took. Rules don't run on them; they are old
+/// mail. Returns the new ids; the folder's count of missing mail is updated.
+pub async fn download_older(
+    account: &Account,
+    password: &str,
+    store: &Mutex<MailStore>,
+    folder_key: &str,
+    limit: usize,
+    progress: &(dyn Fn(SyncProgress) + Send + Sync),
+) -> Result<Vec<MessageId>, SyncError> {
+    let Some(settings) = &account.imap else {
+        return Ok(Vec::new());
+    };
+    let mut session = connect_and_login(settings, password).await?;
+    let result = download_older_in(&mut session, account, store, folder_key, limit, progress).await;
+    logout(&mut session).await;
+    result
+}
+
+/// [`download_older`] over a session that is already logged in.
+pub async fn download_older_in<T: ImapStream>(
+    session: &mut Session<T>,
+    account: &Account,
+    store: &Mutex<MailStore>,
+    folder_key: &str,
+    limit: usize,
+    progress: &(dyn Fn(SyncProgress) + Send + Sync),
+) -> Result<Vec<MessageId>, SyncError> {
+    let folder = account
+        .folders
+        .iter()
+        .find(|f| account.folder_key(&f.id) == folder_key)
+        .ok_or_else(|| SyncError::Store(StoreError::UnknownFolder(folder_key.to_owned())))?;
+    let Some(remote) = folder.remote.as_deref() else {
+        return Ok(Vec::new());
+    };
+    let mailbox = timeout(COMMAND_TIMEOUT, session.examine(remote))
+        .await
+        .map_err(|_| SyncError::Timeout)??;
+    let state = lock(store)?.begin_folder_sync(folder_key, mailbox.uid_validity.unwrap_or(0))?;
+    let on_server = if mailbox.exists == 0 {
+        HashSet::new()
+    } else {
+        timeout(COMMAND_TIMEOUT, session.uid_search("ALL"))
+            .await
+            .map_err(|_| SyncError::Timeout)??
+    };
+    let local = lock(store)?.local_uids(folder_key)?;
+    let wanted = older_to_fetch(&on_server, &local, state.last_uid, limit);
+    let total = wanted.len();
+    let mut ids = Vec::new();
+    for chunk in wanted.chunks(FETCH_BATCH) {
+        progress(SyncProgress {
+            account: account.name.clone(),
+            folder: folder.name.clone(),
+            done: ids.len(),
+            total,
+        });
+        let batch = fetch_batch(session, chunk, folder_key).await?;
+        ids.extend(lock(store)?.add_synced(folder_key, &batch)?);
+    }
+    progress(SyncProgress {
+        account: account.name.clone(),
+        folder: folder.name.clone(),
+        done: total,
+        total,
+    });
+    lock(store)?.note_server_count(folder_key, on_server.len())?;
+    Ok(ids)
+}
+
 /// Only send queued changes. Doesn't connect when there is nothing to send.
 /// Returns the changes the server refused for good.
 pub async fn push_account(
@@ -376,6 +448,7 @@ pub async fn sync_session<T: ImapStream>(
             done += chunk.len();
             report(done);
         }
+        lock(store)?.note_server_count(&key, on_server.len())?;
     }
     Ok(downloaded)
 }
@@ -1088,6 +1161,29 @@ pub fn uids_to_fetch(
     if last_uid.is_none() && uids.len() > first_limit {
         uids.drain(..uids.len() - first_limit);
     }
+    uids
+}
+
+/// Which older UIDs to download: up to `limit` of the newest that are on the server but not
+/// here, below the newest one already downloaded (anything above it is new mail, for a
+/// regular sync). Sorted oldest first. Nothing before a folder's first sync.
+pub fn older_to_fetch(
+    on_server: &HashSet<u32>,
+    local: &HashSet<u32>,
+    last_uid: Option<u32>,
+    limit: usize,
+) -> Vec<u32> {
+    let Some(last) = last_uid else {
+        return Vec::new();
+    };
+    let mut uids: Vec<u32> = on_server
+        .iter()
+        .copied()
+        .filter(|u| *u <= last && !local.contains(u))
+        .collect();
+    uids.sort_unstable_by(|a, b| b.cmp(a));
+    uids.truncate(limit);
+    uids.reverse();
     uids
 }
 
@@ -2503,6 +2599,72 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             }
         }
         logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn older_mail_comes_down_on_request() {
+        let (addr, server) = start_fake_server("IMAP4rev1").await;
+        // 304 messages: the first download takes the newest 300.
+        more_inbox_mail(&server, 3..=(FIRST_SYNC_LIMIT as u32 + 4));
+        let (store, account) = store_with_account();
+        let mut session = login(addr, "secret").await.unwrap();
+        sync_all(&mut session, &account, &store, &no_progress)
+            .await
+            .unwrap();
+        let account = store.lock().unwrap().account(&account.id).unwrap().clone();
+        let inbox = account.folder_key("inbox");
+        let older = |store: &Mutex<MailStore>| {
+            store.lock().unwrap().folder_tree().unwrap().counts[&inbox].older
+        };
+        assert_eq!(older(&store), 4);
+
+        let events = Mutex::new(Vec::new());
+        let progress = |p: SyncProgress| events.lock().unwrap().push(p);
+        let new = download_older_in(&mut session, &account, &store, &inbox, 3, &progress)
+            .await
+            .unwrap();
+        assert_eq!(new.len(), 3);
+        assert_eq!(older(&store), 1);
+        assert_eq!(
+            events.lock().unwrap().last().map(|p| (p.done, p.total)),
+            Some((3, 3))
+        );
+        let local = store.lock().unwrap().local_uids(&inbox).unwrap();
+        assert!(
+            local.contains(&2) && local.contains(&4) && !local.contains(&1),
+            "newest first"
+        );
+
+        let new = download_older_in(&mut session, &account, &store, &inbox, 10, &no_progress)
+            .await
+            .unwrap();
+        assert_eq!(new.len(), 1);
+        assert_eq!(older(&store), 0);
+        assert_eq!(
+            store.lock().unwrap().list(&inbox).unwrap().len(),
+            FIRST_SYNC_LIMIT + 4
+        );
+        logout(&mut session).await;
+    }
+
+    #[test]
+    fn older_uids_are_the_newest_missing_ones() {
+        let on_server: HashSet<u32> = (1..=10).collect();
+        let local: HashSet<u32> = [6, 8, 9, 10].into();
+        assert_eq!(older_to_fetch(&on_server, &local, Some(10), 3), [4, 5, 7]);
+        assert_eq!(
+            older_to_fetch(&on_server, &local, Some(10), 99),
+            [1, 2, 3, 4, 5, 7]
+        );
+        assert_eq!(
+            older_to_fetch(&on_server, &local, Some(5), 99),
+            [1, 2, 3, 4, 5],
+            "not new mail"
+        );
+        assert!(
+            older_to_fetch(&on_server, &local, None, 99).is_empty(),
+            "not before a first sync"
+        );
     }
 
     #[tokio::test]

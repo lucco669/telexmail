@@ -257,6 +257,14 @@ pub struct Page {
 pub struct FolderCount {
     pub total: usize,
     pub unread: usize,
+    /// Older messages on the server that weren't downloaded (the first download takes the
+    /// newest 300), as of the last sync.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub older: usize,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Everything the folder tree shows.
@@ -540,7 +548,7 @@ impl MailStore {
         let mut stmt = self
             .db
             .prepare_cached("SELECT folder, COUNT(*), SUM(unread) FROM messages GROUP BY folder")?;
-        let counts = stmt
+        let mut counts: HashMap<String, FolderCount> = stmt
             .query_map([], |r| {
                 let (total, unread): (i64, i64) = (r.get(1)?, r.get(2)?);
                 Ok((
@@ -548,10 +556,19 @@ impl MailStore {
                     FolderCount {
                         total: usize::try_from(total).unwrap_or_default(),
                         unread: usize::try_from(unread).unwrap_or_default(),
+                        older: 0,
                     },
                 ))
             })?
             .collect::<Result<_, _>>()?;
+        let mut stmt = self.db.prepare_cached(
+            "SELECT account || '/' || id, missing FROM folders WHERE missing > 0",
+        )?;
+        let older = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for row in older {
+            let (key, n) = row?;
+            counts.entry(key).or_default().older = usize::try_from(n).unwrap_or_default();
+        }
         Ok(FolderTree {
             accounts: self.accounts().to_vec(),
             counts,

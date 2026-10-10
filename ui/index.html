@@ -162,7 +162,7 @@
             <select id="a-sec"><option value="tls" data-i18n>SSL/TLS (usually port 465)</option><option value="starttls" data-i18n>STARTTLS (usually port 587)</option></select>
             <label for="a-name" data-i18n>Your name</label><input id="a-name" placeholder="As people will see it" autocomplete="off" data-i18n>
           </div>
-          <p class="dnote" data-i18n>Telex connects over SSL/TLS and checks both servers before saving. Reading, flagging, moving and deleting here does the same on the server. The first check downloads the newest 300 messages of each folder. Your password is kept in the system’s password store and used for sending too.</p>
+          <p class="dnote" data-i18n>Telex connects only encrypted (SSL/TLS or STARTTLS) and checks both servers before saving. Reading, flagging, moving and deleting here does the same on the server. The first check downloads the newest 300 messages of each folder; older ones come on request. Your password is kept in the system’s password store and used for sending too.</p>
           <p class="derr" id="a-err" role="alert"></p>
           <div class="sbtns">
             <button class="btn primary" type="submit" id="a-go"><span>Connect</span> <kbd>Enter</kbd></button>

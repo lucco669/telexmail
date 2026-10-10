@@ -295,13 +295,17 @@ function say(text, ms = 4500){
   clearTimeout(stTimer);
   if (ms) stTimer = setTimeout(() => { $('st-msg').textContent = ''; }, ms);
 }
+// How many older messages the "download" button in the status bar asks for at a time.
+const OLDER_BATCH = 1000;
 function renderStatus(){
-  const {total, unread} = countOf(state.folder), found = list.total;
+  const {total, unread, older = 0} = countOf(state.folder), found = list.total;
   const picked = state.picked.size > 1 ? ' · ' + esc(tn(state.picked.size, '{n} selected', '{n} selected', {n:num(state.picked.size)})) : '';
+  const more = older && !allMail() && !state.q.trim()
+    ? ` · ${esc(tn(older, '{n} older on the server', '{n} older on the server', {n:num(older)}))} <button type="button" class="linkbtn" id="st-older" title="${esc(t('The first check downloads the newest 300 messages of each folder.'))}">${esc(older > OLDER_BATCH ? t('Download {n}', {n:num(OLDER_BATCH)}) : t('Download'))}</button>` : '';
   $('st-folder').innerHTML = !ACCOUNTS.length ? esc(t('No account yet'))
     : state.thread ? esc(t('Conversation · {n}', {n:tn(found, '{n} message', '{n} messages', {n:num(found)})})) + picked
     : allMail() ? esc(t('All mail') + ' · ' + tn(found, '{n} match', '{n} matches', {n:num(found)})) + picked
-    : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}`;
+    : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}${more}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderMeter();
   const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex` : 'Telex';
@@ -310,6 +314,21 @@ function renderStatus(){
     document.title = title;
     try { window.__TAURI__?.window?.getCurrentWindow().setTitle(title); } catch {}
   }
+}
+
+// Older mail the first download left on the server, a batch at a time.
+$('st-folder').addEventListener('click', e => { if (e.target.closest('#st-older')) downloadOlder(); });
+async function downloadOlder(){
+  const folder = state.folder, b = $('st-older');
+  if (!folder || b?.disabled) return;
+  if (b) b.disabled = true;
+  say(t('Downloading older messages…'), 0);
+  let r;
+  try { r = await invoke('download_older', {folder, limit:OLDER_BATCH}); }
+  catch (e){ say(tr(e), 10000); if (b) b.disabled = false; return; }
+  if (r.busy){ setTimeout(downloadOlder, 2000); return; } // a check is running
+  await refresh();
+  say(tn(r.new, '{n} older message downloaded.', '{n} older messages downloaded.', {n:num(r.new)}));
 }
 
 /* ---------- usage meter ---------- */
