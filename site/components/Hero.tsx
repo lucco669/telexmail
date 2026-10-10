@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import { facts, hero } from '@/lib/content';
+import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
 import { DownloadButton } from './DownloadButton';
 import { ArrowIcon } from './Icons';
@@ -9,15 +11,15 @@ import s from './Hero.module.css';
 export function Hero({ release }: { release: Release | null }) {
   const file = release?.exe ?? release?.msi;
   return (
-    <section className={s.hero} id="top">
+    <section className={s.hero}>
       <div className="container">
-        <a className={s.status} href="#roadmap">
+        <Link className={s.status} href={pages.roadmap.path}>
           <span className={s.pulse} aria-hidden="true" />
           <span>
-            <b>Early preview.</b> Two-way IMAP sync works; sending is next.
+            <b>Early preview.</b> Sync and sending work; HTML mail is next.
           </span>
           <ArrowIcon />
-        </a>
+        </Link>
         <h1 className={s.title}>
           Email at the speed <span className={s.nowrap}>of your keyboard.</span>
         </h1>

@@ -1,1 +1,1 @@
-Telex: the main window with folders, message list and a selected message, next to the headline “Email at the speed of your keyboard.”
+Telex – Email at the speed of your keyboard. A screenshot of the app next to the headline.

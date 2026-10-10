@@ -1,25 +1,20 @@
 'use client';
 
-import { useId, useRef, useState, useSyncExternalStore } from 'react';
+import Link from 'next/link';
+import { useId, useRef, useState } from 'react';
 import { screens } from '@/lib/content';
+import { pages } from '@/lib/pages';
+import { useResolvedTheme } from '@/lib/theme';
 import { Shot, type ShotTheme } from './Shot';
 import { WindowFrame } from './WindowFrame';
 import s from './Screens.module.css';
 
-const DARK = '(prefers-color-scheme: dark)';
-const subscribe = (cb: () => void) => {
-  const mq = window.matchMedia(DARK);
-  mq.addEventListener('change', cb);
-  return () => mq.removeEventListener('change', cb);
-};
-const systemTheme = () => (window.matchMedia(DARK).matches ? 'dark' : 'light');
-
-/** Tabbed screenshots with a light/dark switch. Arrow keys move between tabs. */
+/** Tabbed screenshots with a light/dark switch (it starts on the page's theme). Arrow keys move between tabs. */
 export function Screens() {
   const [index, setIndex] = useState(0);
-  const [choice, setChoice] = useState<ShotTheme>('auto');
-  const system = useSyncExternalStore(subscribe, systemTheme, () => 'light' as const);
-  const shown = choice === 'auto' ? system : choice;
+  const [choice, setChoice] = useState<ShotTheme>('site');
+  const site = useResolvedTheme() ?? 'light';
+  const shown = choice === 'site' ? site : choice;
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
   const id = useId();
   const screen = screens[index];
@@ -44,6 +39,11 @@ export function Screens() {
           <p className="lead">
             Real screenshots of the current build, showing the sample mailbox Telex opens with before you add an
             account.
+          </p>
+          <p>
+            <Link className="more" href={pages.screenshots.path}>
+              All screenshots, full size
+            </Link>
           </p>
         </header>
 

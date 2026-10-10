@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import { features } from '@/lib/content';
+import { pages } from '@/lib/pages';
 import s from './Features.module.css';
 
 export function Features() {
@@ -13,6 +15,11 @@ export function Features() {
           <p className="lead">
             Everything in Telex is tuned for getting through a lot of mail quickly, without reaching for the mouse and
             without anyone looking over your shoulder.
+          </p>
+          <p>
+            <Link className="more" href={pages.features.path}>
+              All features, with screenshots
+            </Link>
           </p>
         </header>
         <ol className={s.grid}>

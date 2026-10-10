@@ -1,35 +1,55 @@
+import Link from 'next/link';
+import { ticker } from '@/lib/content';
+import { footerGroups } from '@/lib/pages';
+import { getLatestRelease } from '@/lib/release';
+import { site } from '@/lib/site';
+import { DotMatrix } from './DotMatrix';
 import { Logo } from './Logo';
-import { Tape } from './Tape';
+import { TelexTicker } from './TelexTicker';
+import { ThemeToggle } from './ThemeToggle';
 import s from './Footer.module.css';
 
-const links = [
-  ['/#features', 'Features'],
-  ['/#keyboard', 'Keyboard'],
-  ['/#screens', 'Screens'],
-  ['/#roadmap', 'Roadmap'],
-  ['/#download', 'Download'],
-];
+const year = (process.env.BUILD_DATE ?? '2026').slice(0, 4);
 
-export function Footer() {
+export async function Footer() {
+  const release = await getLatestRelease();
+  const messages = release
+    ? [ticker[0], `VERSION ${release.version} IS OUT${release.date ? ` ${release.date.slice(0, 10).split('-').reverse().join('.')}` : ''}`, ...ticker.slice(1)]
+    : ticker;
   return (
-    <footer className={s.footer}>
-      <Tape text="Telex  fast keyboard mail for Windows  " />
-      <div className={`container ${s.inner}`}>
+    <footer className={`${s.footer} no-print`}>
+      <TelexTicker messages={messages} />
+      <div className={`container ${s.top}`}>
         <div className={s.brand}>
           <Logo />
-          <p>Fast, keyboard-driven email for Windows.</p>
+          <p>{site.description}</p>
+          <ThemeToggle />
         </div>
-        <nav className={s.nav} aria-label="Footer">
-          {links.map(([href, label]) => (
-            <a key={href} href={href}>
-              {label}
-            </a>
+        <nav className={s.groups} aria-label="Footer">
+          {footerGroups.map((g) => (
+            <div key={g.title} className={s.group}>
+              <h2 className={s.groupTitle}>{g.title}</h2>
+              <ul>
+                {g.items.map((p) => (
+                  <li key={p.path}>
+                    <Link href={p.path}>{p.label}</Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           ))}
         </nav>
       </div>
-      <div className={`container ${s.fine}`}>
-        <p>Screenshots show the sample mailbox built into the app.</p>
-        <p>The tape above is punched in ITA2, the code real telex machines used. It says what Telex is.</p>
+      <div className={`container ${s.word}`}>
+        <DotMatrix word="Telex" />
+      </div>
+      <div className={`container ${s.bottom}`}>
+        <span>
+          © {year} {site.name}. Made for Windows, with Rust and Tauri.
+        </span>
+        <a href="#top" className={s.top_link}>
+          Back to top ↑
+        </a>
       </div>
     </footer>
   );

@@ -1,3 +1,3 @@
-.logo { display: inline-flex; align-items: center; gap: 9px; }
+.logo { display: inline-flex; align-items: center; gap: 10px; }
 .mark { flex: none; }
-.word { font: 600 21px/1 var(--font-cond); letter-spacing: -0.01em; }
+.word { font: 600 25px/1 var(--font-cond); letter-spacing: -0.015em; }

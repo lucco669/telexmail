@@ -3,7 +3,7 @@ import type { ShotTheme } from './Shot';
 import s from './WindowFrame.module.css';
 
 /** A Windows 11 style title bar around a screenshot, themed like the screenshot inside it. */
-export function WindowFrame({ title, theme = 'auto', children }: { title: string; theme?: ShotTheme; children: React.ReactNode }) {
+export function WindowFrame({ title, theme = 'site', children }: { title: string; theme?: ShotTheme; children: React.ReactNode }) {
   return (
     <div className={s.window} data-theme={theme}>
       <div className={s.titlebar} aria-hidden="true">

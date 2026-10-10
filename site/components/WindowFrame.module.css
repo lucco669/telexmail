@@ -15,13 +15,20 @@
   --wt-muted: #9aa3ad;
   --wt-line: #30363e;
 }
+/* "site": dark whenever the page is dark (see the theme rules in app/globals.css). */
 @media (prefers-color-scheme: dark) {
-  .window[data-theme='auto'] {
+  :global(:root:not([data-theme='light'])) .window[data-theme='site'] {
     --wt-bg: #1b1e23;
     --wt-fg: #e2e6eb;
     --wt-muted: #9aa3ad;
     --wt-line: #30363e;
   }
+}
+:global(:root[data-theme='dark']) .window[data-theme='site'] {
+  --wt-bg: #1b1e23;
+  --wt-fg: #e2e6eb;
+  --wt-muted: #9aa3ad;
+  --wt-line: #30363e;
 }
 .titlebar {
   display: flex;

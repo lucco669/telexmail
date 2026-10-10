@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Sans_Condensed } from 'next/font/google';
+import { Footer } from '@/components/Footer';
+import { Header } from '@/components/Header';
 import { site } from '@/lib/site';
+import { THEME_SCRIPT } from '@/lib/theme-script';
 import './globals.css';
 
 // next/font downloads the fonts at build time and serves them from this site: no requests to Google.
@@ -22,8 +25,9 @@ const mono = IBM_Plex_Mono({
   preload: false,
 });
 
-// Icons (favicon.ico, icon.svg, apple-icon.png), the manifest, the Open Graph image, robots.txt
-// and sitemap.xml are files in this folder; Next.js adds their tags.
+// Defaults for every page; each page adds its own title, description, canonical URL and social
+// cards with pageMetadata() from lib/seo.ts. Icons (favicon.ico, icon.svg, apple-icon.png), the
+// manifest, Open Graph images, robots.txt and sitemap.xml are files in app/; Next.js adds their tags.
 export const metadata: Metadata = {
   metadataBase: new URL(site.url),
   title: { default: site.title, template: `%s – ${site.name}` },
@@ -60,8 +64,16 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${cond.variable} ${mono.variable}`}>
-      <body>{children}</body>
+    // suppressHydrationWarning: the theme script may set data-theme before React loads.
+    <html lang="en" className={`${sans.variable} ${cond.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
+      <body id="top">
+        <Header />
+        <main>{children}</main>
+        <Footer />
+      </body>
     </html>
   );
 }

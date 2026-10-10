@@ -63,3 +63,4 @@
 .item[open] .q::after { transform: rotate(45deg); color: var(--accent); }
 .q:hover { color: var(--accent); }
 .a { padding: 0 40px 20px 0; color: var(--muted); font-size: 15.5px; }
+.faqMore { margin-top: 20px; }

@@ -1,4 +1,4 @@
-/* Telex site. Same palette as the app (ui/styles.css): every color is a token, dark follows the system. */
+/* Telex site. Same palette as the app (ui/styles.css): every color is a token, light and dark. */
 :root {
   --bg: #ffffff;
   --panel: #f3f5f8;
@@ -28,8 +28,10 @@
   color-scheme: light;
 }
 
+/* Dark: when the system asks for it, unless the visitor picked light, or when they picked dark.
+   The choice is data-theme on <html>, set before the first paint by the script in app/layout.tsx. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #111418;
     --panel: #171a1f;
     --chrome: #1e2228;
@@ -50,6 +52,26 @@
     color-scheme: dark;
   }
 }
+:root[data-theme='dark'] {
+  --bg: #111418;
+  --panel: #171a1f;
+  --chrome: #1e2228;
+  --surface: #14171b;
+  --fg: #e2e6eb;
+  --muted: #9aa3ad;
+  --faint: #6f7882;
+  --line: #2e343c;
+  --line-soft: #22272e;
+  --accent: #6f9de6;
+  --accent-hover: #8db2ee;
+  --accent-fg: #0b1220;
+  --accent-soft: #22324d;
+  --flag: #f08a4b;
+  --tape: #29261d;
+  --tape-edge: #353124;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 24px 64px -16px rgb(0 0 0 / 0.7);
+  color-scheme: dark;
+}
 
 @media (min-width: 640px) {
   :root { --gutter: 24px; }
@@ -62,7 +84,7 @@
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 72px;
+  scroll-padding-top: 80px;
   -webkit-text-size-adjust: 100%;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -166,4 +188,53 @@ img { display: block; max-width: 100%; height: auto; }
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/* Subpages */
+.h1 { font-size: clamp(40px, 6.4vw, 72px); line-height: 1; letter-spacing: -0.025em; }
+.more {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+.more::after { content: '→'; transition: transform 0.15s; }
+.more:hover::after { transform: translateX(3px); }
+.badge {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.badge-muted { background: var(--line-soft); color: var(--muted); }
+
+/* Long-form text (privacy, about) */
+.prose { max-width: 68ch; font-size: 17px; line-height: 1.7; }
+.prose h2 { margin: 56px 0 12px; font-size: 30px; line-height: 1.15; letter-spacing: -0.01em; }
+.prose h3 { margin: 32px 0 8px; font-size: 21px; }
+.prose p, .prose ul, .prose ol { margin: 0 0 16px; }
+.prose ul, .prose ol { padding-left: 1.2em; }
+.prose li { margin-bottom: 6px; }
+.prose li::marker { color: var(--faint); }
+.prose a { color: var(--accent); }
+.prose code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  font: 0.86em var(--font-mono);
+  overflow-wrap: anywhere;
+}
+.prose > :first-child { margin-top: 0; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: #fff; color: #000; }
 }

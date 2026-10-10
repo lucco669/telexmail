@@ -1,0 +1,12 @@
+.layout { display: grid; gap: 48px; padding-bottom: 96px; }
+@media (min-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 64px; align-items: start; }
+  .summary { position: sticky; top: 96px; }
+}
+.summary { display: grid; gap: 8px; padding: 28px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.big { font: 600 72px/1 var(--font-cond); letter-spacing: -0.03em; }
+.big span { color: var(--faint); font-size: 40px; }
+.label { color: var(--muted); font: 500 12px/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.meter { height: 8px; margin: 12px 0 8px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+.meter span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.note { color: var(--muted); font-size: 14.5px; }

@@ -1,8 +1,9 @@
 # Telex website
 
-The landing page for Telex: Next.js 16 (App Router), plain CSS with the app's color tokens, no
-other dependencies. One page, prerendered, with a download button that finds the newest installer
-on its own.
+The website for Telex: Next.js 16 (App Router), plain CSS with the app's color tokens, no other
+dependencies. Nine prerendered pages (home, features, keyboard, screenshots, download, roadmap,
+FAQ, about, privacy), light and dark, with a download button that finds the newest installer on
+its own.
 
 ```
 npm install
@@ -14,14 +15,26 @@ npm run icons      # rebuild every app and site icon from ../brand
 
 ## Where things are
 
-- `lib/site.ts`: name, title, description, site URL, the GitHub repo that holds releases.
-- `lib/content.ts`: features, keyboard table, screenshot captions, roadmap, FAQ. Update the roadmap
-  here when a step lands.
-- `lib/release.ts`: reads the newest GitHub release with an `.exe` or `.msi` (checked hourly).
-- `components/`: one file per section, each with its CSS module. Tokens are in `app/globals.css`.
+- `lib/pages.ts`: every page's address, menu label, title, description and link-preview line.
+  The header, footer, sitemap, breadcrumbs and preview images all read it. Add a page here first.
+- `lib/site.ts`: name, keywords, site URL, contact address, the GitHub repo that holds releases.
+- `lib/content.ts`: features, feature rows, shortcuts and tips, screenshot captions, roadmap, FAQ,
+  and the lines the telex tape punches. Keep it true to the app; update the roadmap when a step lands.
+- `lib/release.ts`: reads the GitHub releases that have an `.exe` or `.msi` (checked hourly).
+- `lib/seo.ts`: per-page metadata and the structured data (breadcrumbs, app, website, FAQ).
+- `lib/theme.ts`: the light/dark choice. It is `data-theme` on `<html>`, saved in localStorage
+  and set before the first paint by the script in `app/layout.tsx`; tokens are in `app/globals.css`.
+- `app/<page>/page.tsx`: the subpages. Shared pieces are in `components/`, each with a CSS module.
 - `public/screens/`: screenshots, `<scene>-light.png` and `<scene>-dark.png`, 1280×800 at 2×.
-- `app/opengraph-image.png`: the link preview, also made by `npm run screens`.
-- `components/JsonLd.tsx`: structured data for search engines (app, site, FAQ).
+- `app/**/opengraph-image.png`: one link preview per page, made by `npm run screens`.
+
+## The footer
+
+`components/TelexTicker.tsx` is the live telex bar: it punches each line of `ticker` (in
+`lib/content.ts`) into paper tape in real ITA2 code (`lib/ita2.ts`, with the figure/letter shift
+columns) at 50 baud, the speed of a telex line, and prints it underneath. It runs only while it is
+on screen, has a Pause button, and stands still for people who ask for reduced motion. Below it,
+`components/DotMatrix.tsx` draws TELEX as teleprinter dots; pointing at dots lights them up.
 
 ## Logo and icons
 
@@ -36,9 +49,11 @@ The header mark in `components/Logo.tsx` draws the small variant inline; keep it
 
 ## SEO
 
-Title, description and keywords are in `lib/site.ts`; `app/layout.tsx` turns them into meta, Open
-Graph and Twitter tags with the canonical URL. Next.js also generates `robots.txt`, `sitemap.xml`
-(with the screenshots as image entries) and `manifest.webmanifest` from the files in `app/`. With
+Each page exports `pageMetadata(pages.x)` (`lib/seo.ts`): title, description, canonical URL, Open
+Graph and Twitter cards; its preview image is the `opengraph-image.png` next to it. Subpages get
+a visible breadcrumb and a BreadcrumbList; the home and download pages describe the app
+(SoftwareApplication), the FAQ page its questions (FAQPage). Next.js generates `robots.txt`,
+`sitemap.xml` (every page, screenshots as image entries) and `manifest.webmanifest` from `app/`. With
 a custom domain attached, the `*.vercel.app` address answers with `X-Robots-Tag: noindex`, so
 only your domain gets indexed.
 
@@ -48,7 +63,8 @@ only your domain gets indexed.
 from the sample mailbox (`crates/telex-core/src/sample.json`), plays a short scene for each shot
 (open a reply, type in the quick filter, …) and saves light and dark versions. The clock is fixed
 at 10.10.2026 09:30 so list dates stay the same. Scenes are at the top of `scripts/screens.mjs`.
-`npm run screens reply og` retakes only those.
+`npm run screens reply og` retakes only those; `og` makes the preview image of every page in
+`lib/pages.ts` (its `ogTitle` next to its `ogScreen`).
 
 ## Deploying on Vercel
 
@@ -66,6 +82,7 @@ Optional environment variables:
 | `NEXT_PUBLIC_SITE_URL` | Vercel's production URL | Force the canonical URL                     |
 | `TELEX_RELEASES_REPO`  | `lucco669/telexmail`  | Repo whose GitHub Releases hold the installers |
 | `GITHUB_TOKEN`         | –                     | Only raises GitHub's API rate limit           |
+| `NEXT_PUBLIC_CONTACT_EMAIL` | `admin@telexmail.app` | Overrides the contact address on the privacy page |
 
 ## Making the download button live
 

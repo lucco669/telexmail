@@ -5,13 +5,14 @@
   .head { position: sticky; top: 104px; margin-bottom: 0; }
 }
 
+.demo { display: grid; gap: 12px; align-content: start; }
+
 /* Looks like the app's status bar */
 .readout {
   display: flex;
   align-items: center;
   gap: 12px;
   min-height: 52px;
-  margin-top: 12px;
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -70,3 +71,14 @@
 @media (hover: none) and (pointer: coarse) {
   .readout { display: none; }
 }
+
+.groupRow th {
+  padding: 18px 16px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  color: var(--faint);
+  font: 500 11.5px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.groupRow:first-child th { padding-top: 14px; }

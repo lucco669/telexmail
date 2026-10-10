@@ -1,0 +1,52 @@
+.strip {
+  position: relative;
+  overflow: hidden;
+  background: var(--tape);
+  border-block: 1px solid var(--tape-edge);
+}
+.svg {
+  display: block;
+  /* Old tape fades out on the left */
+  mask-image: linear-gradient(to right, transparent 0, #000 140px);
+}
+.feed { fill: var(--bg); opacity: 0.85; }
+.hole { fill: var(--bg); }
+.char {
+  fill: var(--fg);
+  font: 500 12px var(--font-mono);
+  text-anchor: middle;
+}
+.head { stroke: var(--accent); stroke-width: 2; }
+.caret { fill: var(--accent); animation: blink 1s steps(1) infinite; }
+.caretStill { fill: var(--accent); opacity: 0.5; }
+@keyframes blink {
+  50% { opacity: 0; }
+}
+.meta {
+  position: absolute;
+  right: var(--gutter);
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pause {
+  padding: 4px 8px;
+  border: 1px solid var(--tape-edge);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  color: var(--fg);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.pause:hover { border-color: var(--accent); }
+@media (max-width: 560px) {
+  .baud { display: none; }
+}
+.shift { fill: var(--faint); font: 400 9px var(--font-mono); text-anchor: middle; opacity: 0.7; }

@@ -26,6 +26,9 @@ const scenes = {
   images: `ui.row('View Transitions'); await ui.wait(100);`,
   spam: `ui.folder('firma/spam'); await ui.wait(50); ui.row('TOP 1 w Google'); await ui.wait(100);`,
   comfortable: `ui.click('#b-density'); ui.folder('gmail/inbox'); await ui.wait(100); ui.list.focus();`,
+  account: `ui.click('[data-act="add-account"]'); await ui.wait(50);
+    ui.fill('a-email', 'biuro@twojastudio.pl'); ui.fill('a-host', 'mail.twojastudio.pl'); ui.fill('a-name', 'Studio');
+    document.getElementById('a-email').focus(); await ui.wait(100);`,
 };
 
 // A fixed "now" keeps the list's relative dates (06:12, Fri 18:31) the same on every run.
@@ -68,6 +71,7 @@ const ui = {
   folder(key){ ui.click('[data-folder="' + key + '"]'); },
   row(subject){ [...document.querySelectorAll('#rows tr[data-id]')].find(r => r.textContent.includes(subject)).click(); },
   async type(text){ const q = document.getElementById('q'); q.focus(); q.value = text; q.dispatchEvent(new Event('input')); },
+  fill(id, text){ const el = document.getElementById(id); el.value = text; el.dispatchEvent(new Event('input', {bubbles:true})); },
 };`;
 
 function page(scene, theme) {
@@ -114,9 +118,10 @@ function shoot(browser, file, out, size = [W, H], scale = SCALE) {
   }
 }
 
-// The link preview (Open Graph image, 1200×630): the inbox screenshot next to the headline.
-function ogPage() {
-  const shot = pathToFileURL(join(outDir, 'inbox-light.png')).href;
+// Link previews (Open Graph images, 1200×630), one per page in lib/pages.ts: the page's line next
+// to a screenshot. Saved as app/<page>/opengraph-image.png, which Next.js picks up by itself.
+function ogPage({ eyebrow, title, screen, windowTitle }) {
+  const shot = pathToFileURL(join(outDir, `${screen}-light.png`)).href;
   const mark = (size) => readFileSync(join(repo, size < 40 ? 'brand/telex-mark-small.svg' : 'brand/telex-mark.svg'), 'utf8')
     .replace('<title>Telex</title>', '').replace('<svg ', `<svg width="${size}" height="${size}" `);
   return `<!doctype html><html><head><meta charset="utf-8"><base href="${pathToFileURL(uiDir + '/').href}">
@@ -126,7 +131,8 @@ body{width:1200px;height:630px;overflow:hidden;position:relative;background:#fff
 .band{position:absolute;left:0;right:0;bottom:0;height:200px;background:#f3f5f8;border-top:1px solid #e9ecf0}
 .text{position:absolute;left:64px;top:60px;width:520px}
 .logo{display:flex;align-items:center;gap:14px;font:600 36px/1 "IBM Plex Sans Condensed"}
-h1{margin-top:58px;font:600 70px/0.98 "IBM Plex Sans Condensed";letter-spacing:-0.025em}
+.eyebrow{margin-top:52px;font:500 16px/1 "IBM Plex Mono";letter-spacing:.08em;text-transform:uppercase;color:#2453a6}
+h1{margin-top:18px;font:600 66px/0.98 "IBM Plex Sans Condensed";letter-spacing:-0.025em}
 p{margin-top:22px;font-size:24px;line-height:1.4;color:#59636e}
 .facts{position:absolute;left:64px;bottom:52px;font:500 15px/1 "IBM Plex Mono";letter-spacing:.06em;text-transform:uppercase;color:#59636e}
 .win{position:absolute;left:620px;top:84px;width:860px;border:1px solid #d2d7de;border-radius:12px;overflow:hidden;background:#f7f8fa;
@@ -134,10 +140,10 @@ p{margin-top:22px;font-size:24px;line-height:1.4;color:#59636e}
 .tb{height:34px;display:flex;align-items:center;gap:8px;padding-left:12px;font-size:13px;border-bottom:1px solid #d2d7de}
 .win img{display:block;width:100%}
 </style></head><body><div class="band"></div>
-<div class="text"><div class="logo">${mark(44)}Telex</div><h1>Email at the speed of your keyboard.</h1>
+<div class="text"><div class="logo">${mark(44)}Telex</div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>
 <p>A compact, fast email client for Windows.</p></div>
 <div class="facts">Rust · WebView2 · Offline search · No telemetry</div>
-<div class="win"><div class="tb">${mark(15)}Inbox · biuro@twojastudio.pl – Telex</div><img src="${shot}"></div>
+<div class="win"><div class="tb">${mark(15)}${windowTitle}</div><img src="${shot}"></div>
 </body></html>`;
 }
 
@@ -155,9 +161,18 @@ for (const scene of Object.keys(scenes)) {
   }
 }
 if (!only.length || only.includes('og')) {
-  const file = join(work, 'og.html');
-  writeFileSync(file, ogPage());
-  shoot(browser, file, join(here, '../app/opengraph-image.png'), [1200, 630], 1);
-  console.log('app/opengraph-image.png');
+  // Node loads these TypeScript files directly (they have no imports of their own).
+  const { pages } = await import('../lib/pages.ts');
+  const { hero, screens } = await import('../lib/content.ts');
+  const windowTitles = Object.fromEntries([hero, ...screens].map((s) => [s.id, s.title]));
+  for (const p of Object.values(pages)) {
+    const dir = join(here, '../app', p.path === '/' ? '' : p.path.slice(1));
+    const file = join(work, `og-${p.label}.html`);
+    const eyebrow = p.path === '/' ? 'Email client for Windows' : p.label;
+    writeFileSync(file, ogPage({ eyebrow, title: p.ogTitle, screen: p.ogScreen, windowTitle: windowTitles[p.ogScreen] }));
+    shoot(browser, file, join(dir, 'opengraph-image.png'), [1200, 630], 1);
+    writeFileSync(join(dir, 'opengraph-image.alt.txt'), `Telex – ${p.ogTitle} A screenshot of the app next to the headline.`);
+    console.log(`app${p.path === '/' ? '' : p.path}/opengraph-image.png`);
+  }
 }
 rmSync(work, {recursive: true, force: true});

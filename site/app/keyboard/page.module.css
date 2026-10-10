@@ -1,0 +1,15 @@
+.layout { display: grid; gap: 48px; padding-bottom: 96px; }
+@media (min-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: 56px; align-items: start; }
+  .tips { position: sticky; top: 96px; }
+}
+.tips { display: grid; gap: 22px; }
+.tipsTitle { font-size: 24px; }
+.tip { display: grid; gap: 4px; padding-top: 18px; border-top: 1px solid var(--line); }
+.tip h3 { font-size: 18px; }
+.tip p { color: var(--muted); font-size: 15px; }
+
+@media print {
+  .layout { display: block; padding: 0; }
+  .tips { display: none; }
+}

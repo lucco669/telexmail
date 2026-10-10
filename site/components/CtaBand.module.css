@@ -1,0 +1,11 @@
+.band { background: var(--panel); border-top: 1px solid var(--line-soft); }
+.inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px 40px;
+  padding-block: 64px;
+}
+.title { max-width: 18ch; font-size: clamp(30px, 4vw, 44px); line-height: 1.05; letter-spacing: -0.015em; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }

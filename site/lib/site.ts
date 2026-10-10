@@ -22,6 +22,8 @@ export const site = {
     'The Bat! alternative',
   ],
   url: siteUrl(),
+  // Shown on the privacy page as the address for questions about personal data.
+  contact: process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? 'admin@telexmail.app',
   // GitHub repository whose releases hold the installers. It must be public for visitors to download.
   releasesRepo: process.env.TELEX_RELEASES_REPO ?? 'lucco669/telexmail',
 };

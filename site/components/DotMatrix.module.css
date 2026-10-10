@@ -1,0 +1,13 @@
+.matrix { display: block; width: 100%; height: auto; }
+.on, .off {
+  transition: fill 1.6s ease-out;
+}
+.on { fill: var(--fg); }
+.off { fill: var(--line-soft); }
+.on:hover, .off:hover {
+  fill: var(--accent);
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .on, .off { transition: none; }
+}

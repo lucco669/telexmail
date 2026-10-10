@@ -1,30 +1,26 @@
+import Link from 'next/link';
+import { nav, pages } from '@/lib/pages';
 import { Logo } from './Logo';
+import { MobileMenu } from './MobileMenu';
+import { NavLinks } from './NavLinks';
+import { ThemeToggle } from './ThemeToggle';
 import s from './Header.module.css';
-
-const links = [
-  ['/#features', 'Features'],
-  ['/#keyboard', 'Keyboard'],
-  ['/#screens', 'Screens'],
-  ['/#roadmap', 'Roadmap'],
-];
 
 export function Header() {
   return (
-    <header className={s.header}>
+    <header className={`${s.header} no-print`}>
       <div className={`container ${s.bar}`}>
-        <a href="/#top" className={s.brand} aria-label="Telex, back to top">
+        <Link href="/" className={s.brand} aria-label="Telex home">
           <Logo />
-        </a>
-        <nav className={s.nav} aria-label="Sections">
-          {links.map(([href, label]) => (
-            <a key={href} href={href}>
-              {label}
-            </a>
-          ))}
+        </Link>
+        <nav className={s.nav} aria-label="Pages">
+          <NavLinks items={nav} className={s.link} />
         </nav>
-        <a href="/#download" className="btn btn-primary btn-sm">
+        <ThemeToggle className={s.theme} />
+        <Link href={pages.download.path} className="btn btn-primary btn-sm">
           Download
-        </a>
+        </Link>
+        <MobileMenu />
       </div>
     </header>
   );

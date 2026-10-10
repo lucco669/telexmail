@@ -1,4 +1,6 @@
+import Link from 'next/link';
 import { faq } from '@/lib/content';
+import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
 import { DownloadButton } from './DownloadButton';
 import s from './Download.module.css';
@@ -42,11 +44,16 @@ export function Download({ release }: { release: Release | null }) {
             <dt>Runtime</dt>
             <dd>WebView2. Built into Windows 11; on Windows 10 the installer fetches it if needed.</dd>
             <dt>Mail</dt>
-            <dd>An IMAP account with SSL/TLS (port 993) and a password.</dd>
+            <dd>An IMAP account (SSL/TLS, port 993) and SMTP (465 or 587), with a password.</dd>
           </dl>
           <p className={s.note}>
             The installer isn’t code-signed yet, so Windows SmartScreen may warn you. Choose <b>More info</b>, then{' '}
             <b>Run anyway</b>.
+          </p>
+          <p>
+            <Link className="more" href={pages.download.path}>
+              Installation steps and all versions
+            </Link>
           </p>
         </div>
 
@@ -58,6 +65,11 @@ export function Download({ release }: { release: Release | null }) {
               <p className={s.a}>{item.a}</p>
             </details>
           ))}
+          <p className={s.faqMore}>
+            <Link className="more" href={pages.faq.path}>
+              All questions
+            </Link>
+          </p>
         </div>
       </div>
     </section>

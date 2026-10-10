@@ -1,0 +1,28 @@
+.toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+}
+.btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+}
+.btn svg { width: 15px; height: 15px; }
+.btn:hover { color: var(--fg); }
+.btn[aria-pressed='true'] {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 1px 2px rgb(15 20 28 / 0.08);
+}
