@@ -38,13 +38,18 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
                      for the server (pending_ops).
   src/list.rs        The message list a page at a time: folder counts, keyset pages in every
-                     sort, the quick filter (one folder or all mail) and its SQL functions.
+                     sort, the quick filter (one folder or all mail, with operators such as
+                     from: is:unread after:) and its SQL functions, conversations, ranges.
   src/migrations/    Database schema, one numbered file per version, listed in MIGRATIONS in
                      store.rs. Released files are never edited; a change is a new file.
-  src/imap.rs        Two-way IMAP sync (async-imap + rustls): download, push queued changes,
-                     folder mapping. Tests run it against a fake IMAP server.
-  src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322, send the Outbox.
-                     Tests run it against a fake SMTP server.
+  src/imap.rs        Two-way IMAP sync (async-imap + rustls, SSL/TLS or STARTTLS): download,
+                     push queued changes a batch per command, folder mapping, older mail on
+                     request, IDLE on the Inbox. Tests run it against a fake IMAP server.
+  src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322 (Bcc, files from
+                     disk), send the Outbox. Tests run it against a fake SMTP server.
+  src/attachments.rs Attachments of stored mail opened or saved: safe file names, files that
+                     can run code, the Mark of the Web on Windows.
+  src/recipients.rs  People to suggest in To, Cc and Bcc, from the mail base itself.
   src/html.rs        HTML mail: sanitize (ammonia) into an inert document for a sandboxed frame,
                      inline cid: images, fetch remote images on request (ureq, public IPs only);
                      dark paper in a theme's palette; HTML compose: what may be sent, plain text
@@ -68,6 +73,10 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
   src/secrets.rs     Passwords in the system store (keyring crate), service "Telex": Credential
                      Manager on Windows, Secret Service (GNOME Keyring, KWallet) on Linux.
+  src/files.rs       Attachments opened in their app or saved (dialogs), files chosen or dropped
+                     to attach; only files chosen this way can be sent.
+  src/watch.rs       One IMAP IDLE watcher per account ("inbox-changed" events), and the
+                     new-mail notification (tauri-plugin-notification).
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
   src/settings.rs    Settings commands; Save and Open dialogs (tauri-plugin-dialog, from Rust only).
   tauri.release.conf.json  Merged in by the release workflow: turns on the updater's files.
@@ -103,19 +112,31 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread}}}` (empty folders left out) |
+| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?}}}` (empty folders left out; `older`: on the server, not downloaded) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
-| `get_message`    | `id`                         | full message with body      |
+| `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote) |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
 | `move_message`   | `id`, `folder`               | – (same account only)       |
 | `delete_message` | `id`                         | `moved_to_trash` / `removed`|
+| `set_unread_many`, `set_flagged_many` | `ids`, `unread` / `flagged` | how many changed (others are left alone) |
+| `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none, same account |
+| `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` |
+| `mark_folder_read` | `folder`                   | how many were unread        |
+| `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
+| `save_attachment`| `id`, `index`, `words`       | the path saved to, or null (cancelled); opens Save |
+| `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
+| `show_saved`     | –                            | – (the last saved attachment in Explorer) |
+| `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events for files dropped on the window |
+| `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
 | `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
-| `send_message`   | `draft`                      | `{queued, sent: [lines], errors}` |
+| `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
+| `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
 | `search`         | `query`                      | ids matching subject, people or body (FTS5), best first, at most 5000 |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
@@ -134,8 +155,9 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help}` or null; emits `detect-progress` |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
-| `check_mail`     | –                            | `{new: [ids], new_in, sent: [lines], sorted, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest) |
+| `check_mail`     | `account` (null = all)       | `{new: [ids], new_in, sent: [lines], sorted, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest; with `account`, only its Inbox) |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
+| `download_older` | `folder`, `limit`            | `{new, busy}`: up to `limit` of the newest messages the first download left on the server |
 | `update_info`    | –                            | `{version, updatable}` (false: built without the release key) |
 | `check_update`   | –                            | `{version, notes, date}` of a newer release, or null |
 | `install_update` | –                            | `{busy}`; when it works Telex closes, updates and restarts |
@@ -147,18 +169,24 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `apply_import`   | `choice` `{settings, identities, rules}` | `{report, settings}`; the file is matched again first |
 
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
-user typed: threading headers, forwarded attachments, and the draft or unsent message it was
-edited from; and `identity`, who it is from (`null` = the account's default); and `html`, the
-editor's HTML when it is written in HTML (`null` = plain text in `body`). Accounts in
+user typed (`to`, `cc`, `bcc`, `subject`): threading headers, forwarded attachments, and the
+draft or unsent message it was edited from; and `identity`, who it is from (`null` = the
+account's default); and `html`, the editor's HTML when it is written in HTML (`null` = plain
+text in `body`). Its `attachments` are files from this PC (`path`, chosen through
+`pick_files` or dropped this session; others are refused) and ones carried over from
+`forward_of` (no `path`, found by name). Accounts in
 `folder_tree` carry their `identities`. The changing commands (and `send_message`) apply locally at once; for server
 mail the store also queues the change, and the UI calls `push_changes` 2.5 s after the last
 one. `busy: true` means another check or push was running and nothing started; the UI
 retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progress` events
-(`{account, folder, done, total}`) while it downloads.
+(`{account, folder, done, total}`) while it downloads. While new mail shows at once
+(`push_mail`), an "inbox-changed" event (the account id) says IDLE saw a change; the UI then
+calls `check_mail` with that account.
 
 The window never loads all mail. `list_page` takes a `view` `{folder, sort, ascending, filter,
-bodies}` (`folder: null` = all mail except Spam and Trash; `sort`: date, size, flag, from,
-subject; `filter`: the quick filter, `bodies` also searching the text) and `at`: `"first"`,
+bodies, thread}` (`folder: null` = all mail except Spam and Trash; `sort`: date, size, flag, from,
+subject; `filter`: the quick filter, `bodies` also searching the text; `thread`: a message id,
+whose conversation the list shows instead of a folder) and `at`: `"first"`,
 `"last"`, `{after: id}`, `{before: id}` (scrolling, keyset on (sort key, id)), `{around: id}`
 (the selection after a change) or `{row: n}` (a jump with the scroll bar). `start` is the
 position of the first row and `total` the list's length. A filtered list is worked out once and
@@ -170,9 +198,11 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the brid
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
 ("auto", "en", "pl"), `density`, `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
-(moment, at_once, manual), `check_every` (minutes, 0 = only on Get mail), `mail_paper` (theme,
-white: HTML mail in a dark theme), `compose_format` (plain, html), `reply_format` (same, plain,
-html), `ask_subject`, `spell_check` and `updates` (ask, daily, off). Reading or changing them
+(moment, at_once, manual), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
+IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
+`mail_paper` (theme, white: HTML mail in a dark theme), `compose_format` (plain, html),
+`reply_format` (same, plain, html), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
+can take it back), `ask_subject`, `spell_check` and `updates` (ask, daily, off). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
 all, even before the first account. The window keeps only its own state in localStorage
 (`telex-ui`: pane sizes, filter scope, "more" folders, the last update check; `telex-look`: a
@@ -232,26 +262,84 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 |--------------|--------------------------------|
 | ↑ / ↓        | previous / next message        |
 | Home / End   | first / last message           |
+| Shift+↑ / ↓  | select more (or fewer) messages; Shift+Home / End to the top / bottom |
+| Ctrl+click, Shift+click | add one / a range to the selection |
+| Ctrl+A       | in the list: select every message |
 | R            | reply                          |
 | Shift+R      | reply to all                   |
 | Shift+F      | forward                        |
 | N            | new message                    |
 | E            | edit a draft or an unsent message in the Outbox |
-| F            | flag / unflag                  |
-| U            | toggle unread                  |
+| F            | flag / unflag (the selection: flag all, or unflag all when all are flagged) |
+| U            | toggle unread (the selection: all read, or all unread when all are read) |
+| Shift+U      | mark everything in the folder read |
 | Del          | move to Trash (in Trash: press twice to delete for good) |
-| Z            | undo last delete               |
-| /            | quick filter                   |
+| M            | move to a folder: type part of its name |
+| G            | go to a folder: type part of its name |
+| T            | the selected message's conversation (T or Esc goes back) |
+| Z            | undo the last delete or move; within the moment after Send, take the message back |
+| /            | quick filter (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
 | Tab          | in the quick filter: this folder / all mail |
-| Enter        | in all-mail results: open the message's folder |
+| Enter        | in all-mail results and conversations: open the message's folder |
 | H            | switch HTML / plain text view (remembered) |
-| Esc          | clear filter; in compose: save draft and close |
+| Esc          | clear filter, the selection or the conversation; in compose: save draft and close |
+| ↓ ↑ Enter Tab Esc | in To, Cc, Bcc: choose a suggested address |
 | Ctrl+Enter   | send (compose)                 |
 | Ctrl+,       | settings                       |
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 
-## Current state (v0.4.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux)
+## Current state (v0.4.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux; since then, unreleased: attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS)
+
+- Since 0.4.0 (schema version 9: `messages.bcc`, `messages.refs`, `folders.missing`,
+  `outbox.send_after`, `accounts.imap_security`; the upgrade reads the start of every stored
+  message once to fill in `refs`):
+  - Attachments: click opens one in its app (`attachments.rs`: written under
+    `%TEMP%\Telex\<id>\` with a safe name and the Mark of the Web, emptied at start; programs,
+    scripts, shortcuts, disk images and macro documents, and anything in Spam, open on a second
+    click); the arrow saves one, "Save all…" saves every one into a folder. Compose attaches
+    files (Attach…, or dropped on the window; dropped with no message open, they start one),
+    × takes one off, and over 20 MB in all it warns. Files are read when the message is built;
+    only files chosen through Telex's dialog or a drop this session can go out (`files.rs`).
+  - Bcc: a field behind "Bcc" next to Cc; blind copies go in the envelope and Telex's own
+    copy (Outbox, Sent, drafts) keeps the header; what goes out leaves it out
+    (`smtp::without_bcc`).
+  - Suggestions in To, Cc and Bcc (`recipients.rs`): people written to first (sent counts
+    five times), then those who write most, own addresses and robots (no-reply, bounces)
+    left out, each with the name used last; matched on the start of any word of the name or
+    address, diacritics ignored.
+  - Several messages at once: Shift+arrows, Shift+Home/End, Shift+click, Ctrl+click, Ctrl+A;
+    F, U, Del, M and Z work on them all, in one transaction each (`set_*_many`, `move_many`,
+    `delete_many`). The server gets the same change to many messages as one command: one
+    `UID STORE` per flag and value, one `UID MOVE` (or COPY + EXPUNGE) per destination, one
+    expunge, at most 500 UIDs each; new UIDs from COPYUID's two sets; a refused batch goes
+    again one message at a time, so only the message the server minds is held back. Shift+U
+    marks a folder read.
+  - M moves the selection to a folder and G goes to one, both through a small picker: type
+    part of the name (diacritics ignored), folders used last first. Z undoes a move as well
+    as a delete.
+  - T shows the selected message's conversation: everything it answers and everything that
+    answers it, by Message-ID, In-Reply-To and References, across the account's folders
+    except Spam and Trash (`MailStore::conversation`: one pass over the account's links, then
+    followed in memory, however deep).
+  - Quick-filter operators (`list::Terms`): `from:` `to:` `subject:` `is:unread|read|flagged|
+    unflagged` `has:file` `after:` `before:` (2026, 2026-09, 2026-09-15 or 15.09.2026)
+    `larger:` `smaller:` (500k, 5m); the rest are words as before.
+  - New mail at once (`push_mail`, on by default): one IMAP IDLE connection per account on its
+    Inbox (`imap::watch_inbox`, renewed every 25 minutes, reconnected after a pause that grows
+    to ten minutes); a change there makes the UI check that Inbox only (`Scope::Inbox`). A
+    server without IDLE is left to the regular checks. A notification (`notify`) names the
+    sender and subject of new Inbox mail while the window isn't active.
+  - Older mail: each sync remembers how many messages of a folder are on the server but not
+    here (`folders.missing`); the status bar says so and downloads them a thousand at a time,
+    newest first, without running rules (`imap::download_older`).
+  - Undo send (`undo_send`, 5 seconds by default): sent mail waits in the Outbox
+    (`outbox.send_after`), then goes in the background; Z within the moment holds it there and
+    opens it again in compose. Enter in a header field no longer sends; Ctrl+Enter does.
+  - A rule from the selected message: Rules › "New rule for mail from …" (in Sent, "to …"),
+    filed where the message is when that is one of the user's folders, else flagged.
+  - IMAP over STARTTLS (port 143) besides SSL/TLS (993), in the account form and from setup
+    files that offer only STARTTLS; never unencrypted.
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, a settings window, eight themes, English and Polish.
@@ -285,12 +373,13 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 - Real IMAP accounts: a wizard (Settings › Accounts; "Add account" under the folder tree
   opens it, and it opens by itself while there is none) asks for name, email and password, finds the servers (see below) and logs
   in to both before saving; the full settings form is behind "Set up manually", opens
-  filled in when finding or logging in fails, and is where accounts are edited. SSL/TLS on port
-  993 only (no STARTTLS yet), password login. Folders come from the server; special folders
+  filled in when finding or logging in fails, and is where accounts are edited. SSL/TLS (993)
+  or STARTTLS (143), password login. Folders come from the server; special folders
   are recognized by RFC 6154 flags, then by common English/Polish names.
 - Two-way sync on start, on "Get mail" and as often as Settings › Mail says (10 minutes by default): push queued changes, download,
   push what changed meanwhile. The first sync takes the newest 300 messages per folder
-  (`imap::FIRST_SYNC_LIMIT`); later syncs take everything new. Downloading uses EXAMINE and
+  (`imap::FIRST_SYNC_LIMIT`); later syncs take everything new, and older ones come on request
+  (the status bar's "Download"). Downloading uses EXAMINE and
   BODY.PEEK only. Mail deleted on the server disappears locally; flags changed elsewhere come
   down unless a local change to the same flag is still queued; a UIDVALIDITY change
   re-downloads the folder.
@@ -346,7 +435,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   storage, this PC by kind of folder (a stacked bar), mail received, sent and in Spam per day
   over 30 days, the busiest senders (click: all their mail), the largest messages (click:
   open), what still waits, and the mail base's size. The counts cover downloaded mail.
-- Mail base (schema version 8; version 7 added `message_content`): `messages` holds the summaries; body and raw message live in
+- Mail base (schema version 9; version 7 added `message_content`): `messages` holds the summaries; body and raw message live in
   `message_content` (same id, removed with the message); `messages_fts` is a contentless FTS5
   index (`contentless_delete=1`) filled by triggers. The upgrade from version 6 moves the text
   row by row, so the file grows little. SQLite runs with WAL, `synchronous=NORMAL`, a 32 MiB
@@ -424,20 +513,21 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Roadmap
 
-1. ~~**Real mail, read-only.**~~ Done; see Current state. Not yet: STARTTLS, a way to
-   download messages older than the first 300 (after storage phase 1), IMAP IDLE (push).
+1. ~~**Real mail, read-only.**~~ Done; see Current state, with STARTTLS, older messages on
+   request and IMAP IDLE since 0.4.0.
 1b. ~~**Write back.**~~ Done; see Current state. Not yet: CONDSTORE/QRESYNC (flag changes are
    found by asking for the flags of every stored message, fine for thousands, not millions).
-2. ~~**Sending.**~~ Done; see Current state. Not yet: attaching new files (needs a file
-   picker), Bcc, drafts on the server's Drafts folder, and skipping the Sent copy for servers
+2. ~~**Sending.**~~ Done; see Current state, with attaching files, Bcc and undo send since
+   0.4.0. Not yet: drafts on the server's Drafts folder, and skipping the Sent copy for servers
    that save one themselves (Gmail and Outlook.com do; matters with step 5).
-3. ~~**HTML mail.**~~ Done; see Current state. Not yet: `<style>` blocks (dropped, since CSS
-   can load from the network; keeping them needs a CSS sanitizer), opening attachments.
+3. ~~**HTML mail.**~~ Done; see Current state, with opening and saving attachments since
+   0.4.0. Not yet: `<style>` blocks (dropped, since CSS can load from the network; keeping
+   them needs a CSS sanitizer).
    HTML compose is done (see Current state); not yet: images and colors in it, HTML
    signatures, quoting a reply's original HTML instead of its text.
-4. ~~**Filters ("Sorting Office").**~~ Done; see Current state. Not yet: regular expressions,
-   conditions on headers and attachments, actions that copy or forward, rules that run on
-   a schedule.
+4. ~~**Filters ("Sorting Office").**~~ Done; see Current state, with a rule started from a
+   message since 0.4.0. Not yet: regular expressions, conditions on headers and attachments,
+   actions that copy or forward, rules that run on a schedule.
 5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP). Waiting
    for the owner to register OAuth clients with Google (Cloud project; Gmail's scope is
    restricted, so unverified apps stay in testing mode) and Microsoft (Entra app that allows
@@ -448,10 +538,9 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
    AppImage (self-updating) and a .deb. The repository is public and v0.3.1 is released;
    docs/releasing.md has the process.
-8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~: done, see Current state
-   and the numbers in docs/storage.md. Next: "download older messages" (beyond the first 300
-   per folder), then backup and restore with a movable mail base, local folders with .eml/mbox
-   export and import, and POP3.
+8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~ and ~~downloading older
+   messages~~: done, see Current state and the numbers in docs/storage.md. Next: backup and
+   restore with a movable mail base, local folders with .eml/mbox export and import, and POP3.
 
 ## Open decisions
 

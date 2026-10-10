@@ -19,17 +19,22 @@ after v0.2.0. Phase 1 is done (after v0.2.1); the later phases are the plan, not
   the session only). Settings, rules and identities also export to a file the user keeps
   (Settings › Import and export), never with passwords.
 - **How much**: the first sync takes the newest 300 messages per folder
-  (`imap::FIRST_SYNC_LIMIT`), then everything new. Mail deleted on the server is deleted
-  locally; removing an account deletes its mail. No size cap, no expiry; the file never shrinks
-  (SQLite reuses freed pages, nothing runs VACUUM).
-- **Schema** (version 8): `messages` has only the summary columns, with indexes on
+  (`imap::FIRST_SYNC_LIMIT`), then everything new. Each sync also notes how many messages of a
+  folder are on the server but not here (`folders.missing`); the status bar offers them and
+  `imap::download_older` takes them a thousand at a time, newest first. Mail deleted on the
+  server is deleted locally; removing an account deletes its mail. No size cap, no expiry; the
+  file never shrinks (SQLite reuses freed pages, nothing runs VACUUM).
+- **Schema** (version 9): `messages` has only the summary columns, with indexes on
   `(folder, date)` for the list and `(folder, unread)` for the counts. The body and the raw
   message are in `message_content` (same id, removed with the message). `messages_fts` is a
   contentless FTS5 index over subject, people and body (`contentless_delete=1`), kept in step
   by triggers (`src/migrations/007_message_content.sql`). Version 8 keeps what the Usage tab
   shows about each account besides its mail: the server's quota and the last sync
   (`src/migrations/008_usage.sql`); the sizes and counts come from `messages` when the tab
-  opens.
+  opens. Version 9 (`src/migrations/009_conversations_and_sending.sql`) adds `messages.bcc`,
+  `messages.refs` (the Message-IDs a message answers, for conversations; the upgrade reads the
+  first 64 KB of every stored message once to fill it in), `folders.missing`,
+  `outbox.send_after` (undo send) and `accounts.imap_security` (STARTTLS).
 - **SQLite settings**: WAL with `synchronous=NORMAL` (a power cut can lose the last commits,
   never damage the file), a 32 MiB page cache, a 256 MiB memory map, temporary tables in memory,
   and `PRAGMA optimize` when the store closes and when the window closes.
@@ -137,7 +142,25 @@ Upgrading the 1.17 GB version 6 base took 12.6 s and left a 1.43 GB file: the ol
 space is free inside it and is reused by new mail (Compact comes with phase 2). Copying the text
 first and dropping the columns after, the first try, took 21 s and left 2.24 GB.
 
-Next: "download older messages" (beyond the first 300 per folder) is now safe to add.
+"Download older messages" (beyond the first 300 per folder) came next and is done (see Today).
+
+### What came after phase 1, measured the same way
+
+Measured on 10 October 2026 on the same PC and benchmark (in the benchmark, a reply answers
+the message before it in its folder, so conversations are a few messages long):
+
+| Core (one call into `MailStore`)                      | Time            |
+|-------------------------------------------------------|-----------------|
+| Counts for the folder tree, with the older-mail counts | 5.2 ms         |
+| Conversation of a message (T), 78,000-message account | 42 ms           |
+| Everyone to suggest in To (2,000 people)              | 95 ms, once per message written |
+| Operators: `is:unread`, `from:kowal is:flagged` (40k) | 10 / 15 ms      |
+| Operators in all mail: `has:file larger:50k`          | 12 ms           |
+| Ids of a Shift+click range / of all 40,000 (Ctrl+A)   | 1.9 / 2.0 ms    |
+| Mark 100 messages read at once                        | 0.8 ms          |
+| Move 100 messages and back                            | 2.2 ms          |
+
+The rest of the table above stayed the same.
 
 ## Phase 2: backup, restore, location
 

@@ -382,6 +382,16 @@ fn message(
         Vec::new()
     };
     let message_id = format!("{uid}.{id_part}@bench.telex");
+    // Replies answer the message before them in the folder: conversations of a few messages.
+    let refs = if !prefix.is_empty() && uid > 1 {
+        vec![format!("{}.{id_part}@bench.telex", uid - 1)]
+    } else {
+        Vec::new()
+    };
+    let in_reply_to = refs
+        .first()
+        .map(|r| format!("In-Reply-To: <{r}>\r\n"))
+        .unwrap_or_default();
     let html = body
         .split("\n\n")
         .map(|p| {
@@ -393,7 +403,7 @@ fn message(
         .collect::<String>();
     let mut raw = format!(
         "From: {from_name} <{from_email}>\r\nTo: {to}\r\nSubject: {subject}\r\n\
-         Date: {}\r\nMessage-ID: <{message_id}>\r\nMIME-Version: 1.0\r\n\
+         Date: {}\r\nMessage-ID: <{message_id}>\r\n{in_reply_to}MIME-Version: 1.0\r\n\
          Content-Type: multipart/mixed; boundary=\"b1\"\r\n\r\n\
          --b1\r\nContent-Type: multipart/alternative; boundary=\"b2\"\r\n\r\n\
          --b2\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}\r\n\
@@ -430,7 +440,7 @@ fn message(
             body,
             message_id: Some(message_id),
             bcc: String::new(),
-            refs: Vec::new(),
+            refs,
         },
         raw: raw.into_bytes(),
     }
@@ -711,6 +721,60 @@ fn hundred_thousand_messages() {
     // For comparison with the numbers from before paging.
     measure("list: all 40,000 summaries of one folder", 5, || {
         store.list(inbox).unwrap()
+    });
+
+    // Since 0.5: conversations (T), people to suggest, operators, ranges and bulk changes.
+    let mut next = ids.iter().cycle();
+    let thread = measure("conversation of a message (T)", 21, || {
+        store.conversation(*next.next().unwrap()).unwrap()
+    });
+    println!("{:<52} {} messages in the last one", "", thread.len());
+    let people = measure("recipients: everyone to suggest", 5, || {
+        store.recipients().unwrap()
+    });
+    println!("{:<52} {} people", "", people.len());
+    for (folder, filter) in [
+        (Some(inbox), "is:unread"),
+        (Some(inbox), "from:kowal is:flagged"),
+        (None, "has:file larger:50k"),
+        (None, "after:2026-01 subject:wycena"),
+    ] {
+        let v = view(folder, SortKey::Date, filter, false);
+        let mut times = Vec::new();
+        let mut total = 0;
+        for _ in 0..5 {
+            flip = !flip;
+            store.set_flagged(middle, flip).unwrap();
+            let t = Instant::now();
+            total = store.page(&v, PageAt::First, 100).unwrap().total;
+            times.push(t.elapsed());
+        }
+        times.sort();
+        println!(
+            "{:<52} median {:>8.2} ms   max {:>8.2} ms",
+            format!("filter \"{filter}\" in {}", folder.unwrap_or("all mail")),
+            ms(times[2]),
+            ms(times[4])
+        );
+        println!("{:<52} {total} matches", "");
+    }
+    measure("Shift+click: ids from row 20,000 to 20,099", 11, || {
+        store
+            .ids_between(&date, Some(deep.rows[0].id), Some(deep.rows[99].id))
+            .unwrap()
+    });
+    measure("Ctrl+A: every id of the 40,000", 5, || {
+        store.ids_between(&date, None, None).unwrap()
+    });
+    let mut read = false;
+    measure("mark 100 messages read or unread at once", 11, || {
+        read = !read;
+        store.set_unread_many(&ids, read).unwrap()
+    });
+    let archive = "twojastudio/archive";
+    measure("move 100 messages to Archive and back", 5, || {
+        store.move_many(&ids, archive).unwrap();
+        store.move_many(&ids, inbox).unwrap()
     });
 
     drop(store);

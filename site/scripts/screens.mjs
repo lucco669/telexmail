@@ -85,7 +85,8 @@ function installMock({ data, scene, empty, version, frame, theme, lang }) {
   });
   const byId = (id) => msgs.find((m) => m.id === id);
   const settings = { theme, language: lang, density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', check_every: 10,
-    mail_paper: 'theme', compose_format: scene === 'writing' ? 'html' : 'plain', reply_format: 'same', ask_subject: true, spell_check: true, updates: 'off' };
+    push_mail: true, notify: true, mail_paper: 'theme', compose_format: scene === 'writing' ? 'html' : 'plain', reply_format: 'same',
+    undo_send: 5, ask_subject: true, spell_check: true, updates: 'off' };
   const settingsView = () => ({ settings: { ...settings }, language: settings.language, offer: null, fresh: false });
 
   // The message list as crates/telex-core/src/list.rs answers it: one folder (or all mail
