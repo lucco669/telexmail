@@ -62,15 +62,16 @@ export default async function DownloadPage() {
             <li>
               <h3>Add your account</h3>
               <p>
-                Click <b>Add your account</b> under the folders and enter your email, IMAP server and password. The SMTP
-                server defaults to the IMAP one. Telex logs in to both before it saves anything.
+                Telex opens the setup on first start. Enter your name, email and password: it finds the IMAP and SMTP
+                servers itself and logs in to both before it saves anything. If your provider needs an app password,
+                it says so. Your own settings? Choose <b>Set up manually</b>.
               </p>
             </li>
             <li>
               <h3>Let the first sync run</h3>
               <p>
                 Telex downloads the newest 300 messages of each folder into its local mail base, then checks for new
-                mail every 10 minutes. Until you add an account, it shows a sample mailbox to try things on.
+                mail every 10 minutes.
               </p>
             </li>
           </ol>

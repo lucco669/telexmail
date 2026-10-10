@@ -29,7 +29,7 @@ export const pages = {
     label: 'Features',
     title: 'Features of a fast, keyboard-driven email client',
     description:
-      'What Telex does today: a dense message list, one key per action, two-way IMAP sync, sending over SMTP, offline full-text search and private defaults.',
+      'What Telex does today: a dense list, one key per action, accounts that set themselves up, IMAP sync, SMTP sending, rules and offline search.',
     ogTitle: 'Everything Telex does today.',
     ogScreen: 'inbox',
   },
@@ -47,7 +47,7 @@ export const pages = {
     label: 'Screenshots',
     title: 'Screenshots in light and dark',
     description:
-      'Telex in light and dark: the main window, reply, quick filter, blocked images, rule notes, comfortable rows and the account dialog.',
+      'Telex in light and dark: the main window, reply, quick filter, HTML mail, rules, identities, account setup, the Outbox and comfortable rows.',
     ogTitle: 'A closer look.',
     ogScreen: 'filter',
   },
@@ -56,7 +56,7 @@ export const pages = {
     label: 'Download',
     title: 'Download for Windows',
     description:
-      'Download Telex for Windows 10 and 11. System requirements, installation steps and how to connect your IMAP and SMTP account.',
+      'Download Telex for Windows 10 and 11. System requirements, installation steps, and how Telex sets up your IMAP and SMTP account.',
     ogTitle: 'Get Telex for Windows.',
     ogScreen: 'account',
   },

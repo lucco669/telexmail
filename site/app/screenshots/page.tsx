@@ -13,7 +13,7 @@ export default function ScreenshotsPage() {
       <PageHeader
         page={pages.screenshots}
         title="Screenshots."
-        lead="The current build, in light and dark, with the sample mailbox Telex shows before you add an account. Open any of them full size."
+        lead="The current build, in light and dark, with a demo mailbox. Open any of them full size."
       />
       <div className="container">
         <Gallery items={[hero, ...screens]} />

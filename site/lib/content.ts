@@ -51,24 +51,49 @@ export const featureRows: FeatureRow[] = [
     id: 'writing',
     screen: 'reply',
     title: 'Plain text, written fast',
-    text: 'R opens the reply right in the reading pane, quoted and ready. Compose is plain text in a mono face, the way mail between people reads best.',
+    text: 'R opens the reply right in the reading pane, quoted and signed. Compose is plain text in a mono face, the way mail between people reads best.',
     points: [
       'Reply, reply to all and forward, each one key',
-      'Polish quote header: “Dnia … napisał(a):”',
+      'A From picker with all your identities; the signature follows',
       'Ctrl+Enter sends, Esc saves a draft and closes',
       'E reopens a draft or a message still in the Outbox',
     ],
   },
   {
-    id: 'sending',
+    id: 'setup',
     screen: 'account',
+    title: 'Accounts that set themselves up',
+    text: 'Type your name, address and password. Telex finds the IMAP and SMTP servers itself and logs in to both before it saves anything. If it can’t, the settings form opens filled in with what it found, and why it stopped.',
+    points: [
+      'A built-in list of common providers, checked against their live servers',
+      'Then your domain’s own setup file and its DNS records (SRV and MX)',
+      'Then the usual names: imap., mail. and smtp. your domain',
+      'Tips when a provider needs an app password or IMAP turned on',
+      'Asks only DNS and your domain’s servers, never a lookup service',
+    ],
+  },
+  {
+    id: 'sending',
+    screen: 'outbox',
     title: 'Sending that tells the truth',
-    text: 'Mail goes out over SMTP with SSL/TLS or STARTTLS. Telex says “Sent” only after your server has accepted the message, and keeps it in the Outbox until then.',
+    text: 'Mail goes out over SMTP with SSL/TLS or STARTTLS. Telex says “Sent” only after your server has accepted the message, and keeps it in the Outbox until then, with the reason.',
     points: [
       'SMTP on port 465 (SSL/TLS) or 587 (STARTTLS), same login as IMAP',
       'An Outbox that retries at every check when the connection fails',
       'A copy of every sent message lands in your server’s Sent folder',
       'Forwarded attachments travel with the forward',
+    ],
+  },
+  {
+    id: 'identities',
+    screen: 'identities',
+    title: 'One account, several identities',
+    text: 'Write as yourself, as the studio or as billing from the same mailbox. Each identity has its own signature and its own reply and forward headers, and a reply goes out from the address the message was sent to.',
+    points: [
+      'Any number of identities per account, one of them the default',
+      'Header templates with {name}, {email}, {date}, {time} and {subject}',
+      'The Polish reply header out of the box: “Dnia … napisał(a):”',
+      'Switching identity in compose swaps the signature too',
     ],
   },
   {
@@ -90,7 +115,7 @@ export const featureRows: FeatureRow[] = [
     text: 'Press / and type. Senders and subjects match as you type; the text of every message matches through full-text search in the local mail base.',
     points: [
       'No server round trip: results come from your disk',
-      'Ignores diacritics: “wrzesien” finds “wrzesień”',
+      'Ignores diacritics: “krakow” finds “Kraków”',
       'Esc clears the filter and puts you back in the list',
     ],
   },
@@ -100,6 +125,7 @@ export const featureRows: FeatureRow[] = [
     title: 'Private by default',
     text: 'Telex talks to your mail servers, to image servers only when you load a message’s images, and to GitHub for updates only if you allow it. There is no account to create, no telemetry, and no Telex server between you and your mail.',
     points: [
+      'HTML mail in a sandbox where no script can run',
       'Remote images blocked, so senders can’t see when you read',
       'Your password stays in Windows Credential Manager',
       'Your mail base is one file on your disk',
@@ -107,10 +133,15 @@ export const featureRows: FeatureRow[] = [
   },
   {
     id: 'rules',
-    screen: 'spam',
+    screen: 'rules',
     title: 'Rules that explain themselves',
-    text: 'When a rule moves or flags a message, the message says which rule did it and why. The rule editor is Telex’s answer to The Bat!’s Sorting Office.',
-    points: ['Sort, flag, move and auto-reply', 'Run on arrival or on demand', 'A note on every message a rule touched'],
+    text: 'Telex’s answer to The Bat!’s Sorting Office. Rules run top to bottom on new mail, and when one moves or flags a message, the message says which rule did it.',
+    points: [
+      'Conditions on From, To or Cc, subject, text or anywhere',
+      'Move, mark read, flag, move to Trash or answer automatically',
+      'Run on arrival, or on any folder when you ask',
+      'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
+    ],
   },
 ];
 
@@ -175,46 +206,64 @@ export type Screen = { id: string; label: string; title: string; caption: string
 export const hero: Screen = {
   id: 'inbox',
   label: 'Inbox',
-  title: 'Inbox · biuro@twojastudio.pl – Telex',
-  caption: 'The main window: folders, message list and preview, with the sample mailbox.',
+  title: 'Inbox · sam@lindenstudio.com – Telex',
+  caption: 'The main window: folders, message list and preview, with a demo mailbox.',
 };
 
 export const screens: Screen[] = [
   {
     id: 'reply',
     label: 'Reply',
-    title: 'Inbox · biuro@twojastudio.pl – Telex',
-    caption: 'R opens the reply right in the reading pane: plain text in a mono face, quoted with a Polish header.',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'R opens the reply right in the reading pane: plain text in a mono face, quoted and signed, from the identity you pick.',
   },
   {
     id: 'filter',
     label: 'Quick filter',
-    title: 'Inbox · biuro@twojastudio.pl – Telex',
-    caption: 'Press / and type. Senders and subjects match as you type, message text through full-text search: “wrzesien” finds “wrzesień”.',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Press / and type. Senders and subjects match as you type, message text through full-text search: “krakow” finds “Kraków”.',
   },
   {
     id: 'images',
-    label: 'Blocked images',
-    title: 'Inbox · biuro@twojastudio.pl – Telex',
-    caption: 'Remote images stay off until you load them, so a sender can’t tell when you opened the message.',
+    label: 'HTML mail',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'HTML mail in a sandbox. Remote images stay off until you load them, so a sender can’t tell when you opened the message.',
+  },
+  {
+    id: 'rules',
+    label: 'Rules',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'A rule: conditions on sender, recipients, subject or text, then move, mark read, flag, delete or answer.',
   },
   {
     id: 'spam',
     label: 'Rule notes',
-    title: 'Spam · biuro@twojastudio.pl – Telex',
-    caption: 'When a rule moves a message, the message says which rule and why.',
+    title: 'Spam · sam@lindenstudio.com – Telex',
+    caption: 'When a rule moves a message, the message says which rule did it.',
+  },
+  {
+    id: 'identities',
+    label: 'Identities',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Several identities per account, each with its own signature and reply and forward headers.',
+  },
+  {
+    id: 'account',
+    label: 'Setup',
+    title: 'Telex',
+    caption: 'Adding an account: name, address and password. Telex finds the servers itself and logs in before it saves anything.',
+  },
+  {
+    id: 'outbox',
+    label: 'Outbox',
+    title: 'Outbox · sam@lindenstudio.com – Telex',
+    caption: 'Mail that couldn’t go out waits in the Outbox with the reason. “Sent” means your server accepted it.',
   },
   {
     id: 'comfortable',
     label: 'Comfortable',
-    title: 'Inbox · twoje.imie@gmail.com – Telex',
+    title: 'Inbox · sam@carterfamily.net – Telex',
     caption: 'Compact is the default. One click on the toolbar gives every row more room.',
-  },
-  {
-    id: 'account',
-    label: 'Account',
-    title: 'Inbox · biuro@twojastudio.pl – Telex',
-    caption: 'Adding an account: your name, address and password. Telex finds the servers itself and logs in before it saves anything.',
   },
 ];
 
@@ -223,7 +272,7 @@ export type Step = { title: string; text: string; status: 'done' | 'now' | 'next
 export const roadmap: Step[] = [
   {
     title: 'Real mail over IMAP',
-    text: 'SSL/TLS with password login, folders from the server, sync on start and every 10 minutes, offline search.',
+    text: 'SSL/TLS with password login, servers found from your address, folders from the server, sync on start and every 10 minutes, offline search.',
     status: 'done',
     notYet: 'STARTTLS for IMAP, downloading mail older than the first 300 per folder, instant push (IDLE).',
   },
@@ -279,6 +328,10 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         q: 'Which mail providers work?',
         a: 'Any provider that offers IMAP over SSL/TLS (port 993) and SMTP over SSL/TLS (465) or STARTTLS (587) with a password: most hosting mailboxes and many providers. Telex finds their settings from your address. Gmail and Outlook.com need OAuth2 sign-in, which is on the roadmap.',
+      },
+      {
+        q: 'Do I need to know my server settings?',
+        a: 'Usually not. Enter your name, address and password, and Telex finds the IMAP and SMTP servers: from its list of common providers, your domain’s setup file or DNS records, or by trying the usual names such as mail.yourdomain. It logs in to both before saving. If nothing works, the settings form opens with what it found, so you only fill in the rest.',
       },
       {
         q: 'Can Telex send mail?',
@@ -349,6 +402,7 @@ export const faq: Question[] = [faqGroups[0].items[0], faqGroups[0].items[1], fa
 export const ticker = [
   'ZCZC TELEX FOR WINDOWS',
   'FAST KEYBOARD MAIL. LOCAL MAIL BASE. NO TELEMETRY.',
+  'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
   'IMAP SYNC, SMTP SENDING, SAFE HTML MAIL AND RULES WORK TODAY',
   'NEXT: GMAIL AND OUTLOOK.COM SIGN-IN',
   'TRY: R = REPLY, F = FLAG, / = FILTER',

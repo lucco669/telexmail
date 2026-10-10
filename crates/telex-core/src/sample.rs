@@ -1,5 +1,5 @@
-//! A sample mailbox for the tests and the website's screenshots. The app itself starts
-//! empty and never shows it.
+//! A Polish sample mailbox for the tests. The app itself starts empty and never shows it.
+//! (The website's screenshots use an English demo mailbox in site/scripts.)
 //! The data lives in `sample.json` next to this file.
 
 use serde::Deserialize;

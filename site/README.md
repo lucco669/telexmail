@@ -75,9 +75,12 @@ only your domain gets indexed.
 ## Screenshots
 
 `npm run screens` opens `../ui/index.html` in headless Edge with a stand-in for Tauri that answers
-from the sample mailbox (`crates/telex-core/src/sample.json`), plays a short scene for each shot
-(open a reply, type in the quick filter, …) and saves light and dark versions. The clock is fixed
-at 10.10.2026 09:30 so list dates stay the same. Scenes are at the top of `scripts/screens.mjs`.
+from an English demo mailbox (`scripts/demo-mailbox.json`: two accounts with identities, rules, an
+HTML newsletter), plays a short scene for each shot (open a reply, type in the quick filter, …) and
+saves light and dark versions. The clock is fixed at 10.10.2026 09:30 so list dates stay the same.
+Scenes are at the top of `scripts/screens.mjs`. The stand-in copies what the core does for replies
+(`drafts::start`) and HTML mail (`html::render`); when those change visibly, change it too. (The
+core's own `sample.json` is Polish and only for its tests.)
 `npm run screens reply og` retakes only those; `og` makes the preview image of every page in
 `lib/pages.ts` (its `ogTitle` next to its `ogScreen`).
 
@@ -107,3 +110,11 @@ soon as the releases repo has a published release with a Tauri installer attache
 redeploy. The repo has to be **public**: visitors can't download assets from a private repo's
 releases. If `telexmail` stays private, make a public repo just for installers (for example
 `telex-releases`) and set `TELEX_RELEASES_REPO` to it.
+
+The release workflow makes a **draft** release, and GitHub hides drafts from everyone else, the
+site included: the button stays "Coming soon" until you press **Publish release** on GitHub.
+"Within an hour" means the first visit after the hour starts a rebuild of the page in the
+background (`cacheLife('hours')` in `lib/release.ts`), and the visits after that see the new
+release. Set `GITHUB_TOKEN` in Vercel to be safe: without it the lookup shares GitHub's limit of 60
+requests an hour with everything else on Vercel's IP address, and a refused lookup shows "Coming
+soon" for another hour. A fine-grained token with read access to public repositories is enough.

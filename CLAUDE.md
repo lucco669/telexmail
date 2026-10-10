@@ -46,7 +46,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
                      the domain's autoconfig file, SRV and MX records (Windows DNS), probing.
-  src/sample.rs      A sample mailbox for the tests and the site's screenshots. Never in the app.
+  src/sample.rs      A Polish sample mailbox for the tests. Never in the app.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
   src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
@@ -55,7 +55,8 @@ ui/                  The interface. index.html + styles.css + app.js, no build s
   fonts/             IBM Plex (OFL) bundled so the app works offline.
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
-                     sample.json via `npm run screens`; retake them after visible UI changes.
+                     an English demo mailbox (site/scripts/demo-mailbox.json) via `npm run screens`;
+                     retake them after visible UI changes.
 brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-small.svg (32 px and
                      below). `npm run icons` in site/ makes every app and site icon from them.
 scripts/             set-version.mjs: sets the version in every file that has it, or checks them.

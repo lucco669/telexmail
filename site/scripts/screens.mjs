@@ -1,8 +1,8 @@
-// Screenshots for the site, made from the real app UI (../ui) with the built-in sample mailbox.
+// Screenshots for the site, made from the real app UI (../ui) with an English demo mailbox.
 // Run after UI changes:  npm run screens
 //
 // The UI normally talks to Rust through Tauri's `invoke`. Here a small stand-in answers from
-// crates/telex-core/src/sample.json instead, and headless Edge (or Chrome) takes the picture.
+// scripts/demo-mailbox.json instead, and headless Edge (or Chrome) takes the picture.
 // Set BROWSER to a browser executable if yours isn't found automatically.
 
 import { execFileSync } from 'node:child_process';
@@ -14,56 +14,128 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
 const uiDir = join(repo, 'ui');
-const sample = readFileSync(join(repo, 'crates/telex-core/src/sample.json'), 'utf8');
+const demo = JSON.parse(readFileSync(join(here, 'demo-mailbox.json'), 'utf8'));
 const version = JSON.parse(readFileSync(join(repo, 'src-tauri/tauri.conf.json'), 'utf8')).version;
 const outDir = join(here, '../public/screens');
 const W = 1280, H = 800, SCALE = 2;
 
 // Each scene runs after the app has booted. `ui` has small helpers, see SCENE_HELPERS.
+// `empty`: start with no account, as on first start.
 const scenes = {
-  inbox: '',
-  reply: `ui.key('r'); await ui.wait(150);`,
-  filter: `await ui.type('stron'); await ui.wait(300);`,
-  images: `ui.row('View Transitions'); await ui.wait(100);`,
-  spam: `ui.folder('firma/spam'); await ui.wait(50); ui.row('TOP 1 w Google'); await ui.wait(100);`,
-  comfortable: `ui.click('#b-density'); ui.folder('gmail/inbox'); await ui.wait(100); ui.list.focus();`,
-  account: `ui.click('[data-act="add-account"]'); await ui.wait(50);
-    ui.fill('w-name', 'Anna Kowalska'); ui.fill('w-email', 'biuro@twojastudio.pl'); ui.fill('w-pass', 'password');
-    document.getElementById('w-email').focus(); await ui.wait(100);`,
+  inbox: {},
+  reply: { run: `ui.key('r'); await ui.wait(150);` },
+  filter: { run: `await ui.type('krakow'); await ui.wait(300);` },
+  // The message pane dragged taller, so more of the newsletter shows.
+  images: { run: `ui.pane(40); ui.row('View Transitions'); await ui.wait(300);` },
+  rules: { run: `ui.click('#b-rules'); await ui.wait(100); ui.click('#r-list [data-r="edit"]'); await ui.wait(50);` },
+  spam: { run: `ui.folder('studio/spam'); await ui.wait(50); ui.row('Rank #1'); await ui.wait(100);` },
+  identities: {
+    run: `ui.click('[data-act="add-account"]'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
+    ui.click('#i-list [data-id="2"] [data-i="edit"]'); await ui.wait(50);`,
+  },
+  outbox: { run: `ui.pane(30); ui.folder('studio/outbox'); await ui.wait(100);` },
+  comfortable: { run: `ui.click('#b-density'); ui.folder('home/inbox'); await ui.wait(100); ui.list.focus();` },
+  account: {
+    empty: true,
+    run: `ui.fill('w-name', 'Sam Carter'); ui.fill('w-email', 'sam@lindenstudio.com'); ui.fill('w-pass', 'password');
+    document.getElementById('w-start').requestSubmit(); await ui.wait(150);`,
+  },
 };
 
-// A fixed "now" keeps the list's relative dates (06:12, Fri 18:31) the same on every run.
-const MOCK = `
-(() => {
+// The HTML mail frame's document, as html::wrap in the core makes it. Keep the two in step.
+const FRAME =
+  '<!doctype html><html><head><meta charset="utf-8">' +
+  `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:">` +
+  '<meta name="referrer" content="no-referrer"><style>html{background:#fff;color-scheme:light}' +
+  "body{margin:0;padding:12px 14px 28px;font:14px/1.5 'Segoe UI',system-ui,sans-serif;color:#1a1e23;overflow-wrap:anywhere}" +
+  'img{max-width:100%;height:auto}table{max-width:100%}a{color:#2453a6}pre{white-space:pre-wrap}' +
+  'blockquote{margin:0 0 0 2px;padding-left:10px;border-left:2px solid #d2d7de;color:#59636e}</style></head><body>{body}</body></html>';
+
+// Runs in the page before app.js and stands in for Tauri, answering the way the core does.
+// It is turned into source with toString(), so it can use nothing from this file.
+function installMock({ data, scene, empty, version, frame }) {
+  // A fixed "now" keeps the list's relative dates (06:12, Fri 18:31) the same on every run.
   const RealDate = Date, NOW = new RealDate(2026, 9, 10, 9, 30).getTime();
   window.Date = class extends RealDate {
-    constructor(...a){ a.length ? super(...a) : super(NOW); }
-    static now(){ return NOW; }
+    constructor(...a) { a.length ? super(...a) : super(NOW); }
+    static now() { return NOW; }
   };
-  const data = ${sample};
-  const msgs = data.messages.map((m, i) => ({...m, id: i + 1}));
-  const fold = s => s.normalize('NFD').replace(/\\p{M}/gu, '').replace(/ł/g, 'l').toLowerCase();
-  const summary = m => ({id:m.id, folder:m.folder, from_name:m.from_name, from_email:m.from_email, to:m.to,
-    subject:m.subject, date:m.date, size_kb:m.size_kb, unread:m.unread, flagged:m.flagged,
-    has_attachments:m.attachments.length > 0});
-  const byId = id => msgs.find(m => m.id === id);
+  // `only`: a message that shows up in one scene (the unsent one in the Outbox).
+  const msgs = data.messages.filter((m) => !m.only || m.only === scene).map((m, i) => ({ ...m, id: i + 1 }));
+  const accounts = empty ? [] : data.accounts;
+  const fold = (s) => s.normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/g, 'l').toLowerCase();
+  const summary = (m) => ({
+    id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, subject: m.subject,
+    date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged, has_attachments: m.attachments.length > 0,
+  });
+  const byId = (id) => msgs.find((m) => m.id === id);
+
+  // drafts::start: the identity the message was sent to (else the default), its signature,
+  // then the quote under its reply header.
+  function startDraft({ kind, of, account }) {
+    const m = of ? byId(of) : null;
+    const acct = accounts.find((a) => a.id === (m ? m.folder.split('/')[0] : account));
+    const addressed = m ? [m.to, m.cc, m.from_email].join(', ').toLowerCase() : '';
+    const me = acct.identities.find((i) => !i.is_default && addressed.includes(i.email.toLowerCase()))
+      ?? acct.identities.find((i) => i.is_default);
+    const sig = me.signature.trimEnd();
+    const layout = (tail) => (sig ? `\n\n${sig}\n` + (tail ? `\n${tail}` : '') : tail ? `\n\n${tail}` : '\n');
+    const draft = { account: acct.id, identity: me.id, to: '', cc: '', subject: '', body: layout(null), attachments: [], reply_to: null, forward_of: null };
+    if (!m) return draft;
+    const fill = (t) => t.replaceAll('{name}', m.from_name || m.from_email).replaceAll('{email}', m.from_email)
+      .replaceAll('{from}', `${m.from_name} <${m.from_email}>`).replaceAll('{subject}', m.subject)
+      .replaceAll('{date}', `${m.date.slice(8, 10)}.${m.date.slice(5, 7)}.${m.date.slice(0, 4)}`).replaceAll('{time}', m.date.slice(11, 16));
+    const lines = m.body.replace(/\n+$/, '').split('\n');
+    const strip = (s) => s.replace(/^((re|fwd?|odp|pd):\s*)+/i, '');
+    if (kind === 'forward') {
+      return { ...draft, subject: `Fwd: ${strip(m.subject)}`, attachments: m.attachments, forward_of: m.id,
+        body: layout(`${fill(me.forward_header)}\n\n${lines.join('\n')}`) };
+    }
+    const own = acct.identities.map((i) => i.email.toLowerCase());
+    const cc = kind === 'reply_all'
+      ? [m.to, m.cc].join(',').split(',').map((a) => a.trim()).filter((a) => a && !own.some((o) => a.toLowerCase().includes(o)))
+      : [];
+    return { ...draft, to: `${m.from_name} <${m.from_email}>`, cc: cc.join(', '), subject: `Re: ${strip(m.subject)}`, reply_to: m.id,
+      body: layout(`${fill(me.reply_header)}\n${lines.map((l) => (l.startsWith('>') ? '>' + l : '> ' + l)).join('\n')}`) };
+  }
+
   const commands = {
-    snapshot: () => ({accounts: data.accounts, messages: msgs.map(summary), sample: true}),
-    get_message: ({id}) => byId(id),
-    set_unread: ({id, unread}) => { byId(id).unread = unread; },
-    set_flagged: ({id, flagged}) => { byId(id).flagged = flagged; },
-    search: ({query}) => msgs.filter(m => fold([m.subject, m.from_name, m.to, m.body].join(' ')).includes(fold(query))).map(m => m.id),
-    check_mail: () => ({new: [], errors: [], busy: false}),
-    push_changes: () => ({errors: [], busy: false}),
+    snapshot: () => ({ accounts, messages: empty ? [] : msgs.map(summary) }),
+    get_message: ({ id }) => byId(id),
+    set_unread: ({ id, unread }) => { byId(id).unread = unread; },
+    set_flagged: ({ id, flagged }) => { byId(id).flagged = flagged; },
+    search: ({ query }) => msgs.filter((m) => fold([m.subject, m.from_name, m.to, m.body].join(' ')).includes(fold(query))).map((m) => m.id),
+    // html::render: remote images are left out and counted until the user loads them.
+    get_html: ({ id }) => {
+      const m = byId(id);
+      if (!m.html) return null;
+      const remote = new Set();
+      const html = m.html.replace(/\s(?:src|background)="(https?:[^"]*)"/g, (_, url) => { remote.add(url); return ''; });
+      return { document: frame.replace('{body}', html), blocked: remote.size, loaded: false, sender: m.from_email, trusted: false };
+    },
+    start_draft: startDraft,
+    list_rules: () => data.rules,
+    known_provider: () => null,
+    detect_settings: ({ email }) => {
+      const domain = email.split('@')[1];
+      return {
+        setup: { email, host: `mail.${domain}`, port: 993, username: email, smtp_host: `mail.${domain}`, smtp_port: 465, smtp_security: 'tls' },
+        provider: null, source: 'srv', note: null, unsupported: null, help: null,
+      };
+    },
+    // The login never finishes, so the picture shows it running.
+    add_account: () => new Promise(() => {}),
+    check_mail: () => ({ new: [], sent: [], sorted: 0, errors: [], busy: false }),
+    push_changes: () => ({ errors: [], busy: false }),
     // The version number shows in the status bar; "can't update" keeps the one-time question away.
-    update_info: () => ({version: '${version}', updatable: false}),
+    update_info: () => ({ version, updatable: false }),
   };
   window.__TAURI__ = {
-    core: {invoke: async (cmd, args = {}) => commands[cmd] ? commands[cmd](args) ?? null : null},
-    event: {listen: async () => () => {}},
-    window: {getCurrentWindow: () => ({setTitle(){}})},
+    core: { invoke: async (cmd, args = {}) => (commands[cmd] ? commands[cmd](args) ?? null : null) },
+    event: { listen: async () => () => {} },
+    window: { getCurrentWindow: () => ({ setTitle() {} }) },
   };
-})();`;
+}
 
 const SCENE_HELPERS = `
 const ui = {
@@ -72,23 +144,31 @@ const ui = {
   key(k, opts = {}){ (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', {key:k, bubbles:true, ...opts})); },
   click(sel){ document.querySelector(sel).click(); },
   folder(key){ ui.click('[data-folder="' + key + '"]'); },
+  pane(listPercent){ document.getElementById('win').style.setProperty('--list-h', listPercent + '%'); },
   row(subject){ [...document.querySelectorAll('#rows tr[data-id]')].find(r => r.textContent.includes(subject)).click(); },
   async type(text){ const q = document.getElementById('q'); q.focus(); q.value = text; q.dispatchEvent(new Event('input')); },
   fill(id, text){ const el = document.getElementById(id); el.value = text; el.dispatchEvent(new Event('input', {bubbles:true})); },
 };`;
 
+// JSON that is safe inside a <script> element.
+const scriptJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
+
 function page(scene, theme) {
   const html = readFileSync(join(uiDir, 'index.html'), 'utf8');
-  const run = `<script>${SCENE_HELPERS}
+  const { run = '', empty = false } = scenes[scene];
+  const mock = `<script>(${installMock})(${scriptJson({ data: demo, scene, empty, version, frame: FRAME })});</script>`;
+  // The folder tree's "Add account" button is drawn with the first render, with or without accounts.
+  const play = `<script>${SCENE_HELPERS}
 (async () => {
-  for (let i = 0; i < 200 && !document.querySelector('#rows tr[data-id]'); i++) await ui.wait(20);
-  ${scenes[scene]}
+  for (let i = 0; i < 200 && !document.querySelector('#tree .add-acct'); i++) await ui.wait(20);
+  ${run}
   document.body.dataset.ready = '1';
 })();</script>`;
   return html
     .replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
     .replace('<head>', `<head><base href="${pathToFileURL(uiDir + '/').href}">`)
-    .replace('<script src="app.js"></script>', `<script>${MOCK}</script><script src="app.js"></script>${run}`);
+    // A function as the replacement, so "$" in the inserted code is taken literally.
+    .replace('<script src="app.js"></script>', () => `${mock}<script src="app.js"></script>${play}`);
 }
 
 function findBrowser() {

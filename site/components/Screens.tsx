@@ -37,8 +37,7 @@ export function Screens() {
           </p>
           <h2 className="h2">A closer look.</h2>
           <p className="lead">
-            Real screenshots of the current build, showing the sample mailbox Telex opens with before you add an
-            account.
+            Real screenshots of the current build, with a demo mailbox.
           </p>
           <p>
             <Link className="more" href={pages.screenshots.path}>

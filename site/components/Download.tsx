@@ -20,8 +20,8 @@ export function Download({ release }: { release: Release | null }) {
           {release && file ? (
             <p className={s.text}>
               Version {release.version}
-              {release.date && `, released ${dateFmt.format(new Date(release.date))}`}. Add an IMAP account and Telex
-              downloads your newest mail into a local, searchable mail base.
+              {release.date && `, released ${dateFmt.format(new Date(release.date))}`}. Enter your address and password: Telex
+              finds your servers and downloads your newest mail into a local, searchable mail base.
             </p>
           ) : (
             <p className={s.text}>

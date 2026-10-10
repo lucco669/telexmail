@@ -22,7 +22,8 @@ function pick(assets: GitHubAsset[], ext: string): Asset | null {
 
 /**
  * Releases that have a Windows installer, newest first (up to 10). Empty when there are none yet,
- * the repository is private, or GitHub can't be reached. Checked at most once an hour, so a new
+ * they are still drafts, the repository is private, or GitHub can't be reached. Checked at most
+ * once an hour, so a new
  * release shows up on the site without a redeploy.
  */
 export async function getReleases(): Promise<Release[]> {
