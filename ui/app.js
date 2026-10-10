@@ -35,7 +35,6 @@ const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent',
 
 /* ---------- data (filled from Rust) ---------- */
 let ACCOUNTS = [], ACCT = {}, MSGS = [];
-let SAMPLE = true; // showing the built-in sample mailbox, not the user's mail
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -51,11 +50,6 @@ const fromSummary = s => ({
 });
 async function load(){
   const snap = await invoke('snapshot');
-  if (snap.sample !== SAMPLE){
-    // Switched between the sample and the real mail base: ids now mean other messages.
-    bodies.clear(); state.sel = {}; state.images.clear(); state.lastDeleted = null; state.hits = new Set();
-  }
-  SAMPLE = snap.sample;
   ACCOUNTS = snap.accounts;
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   MSGS = snap.messages.map(fromSummary);
@@ -75,7 +69,7 @@ async function call(cmd, args){
 // They are saved in the mail base first, so closing Telex or losing the network loses nothing.
 let pushTimer;
 function schedulePush(delay = 2500){
-  if (SAMPLE) return;
+  if (!ACCOUNTS.some(a => a.imap)) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(pushNow, delay);
 }
@@ -169,10 +163,10 @@ function say(text, ms = 4500){
 }
 function renderStatus(){
   const all = inFolder(state.folder), n = unreadIn(state.folder);
-  $('st-folder').textContent = `${folderName(state.folder)} · ${all.length} ${all.length === 1 ? 'message' : 'messages'}${n ? `, ${n} unread` : ''}`;
+  $('st-folder').textContent = !ACCOUNTS.length ? 'No account yet'
+    : `${folderName(state.folder)} · ${all.length} ${all.length === 1 ? 'message' : 'messages'}${n ? `, ${n} unread` : ''}`;
   $('st-check').textContent = lastCheck ? 'Last check ' + hm(lastCheck) : '';
-  $('st-sample').hidden = !SAMPLE;
-  const title = `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex`;
+  const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex` : 'Telex';
   if (title !== lastTitle){
     lastTitle = title;
     document.title = title;
@@ -192,7 +186,7 @@ function renderTree(){
       return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(f.name)}</span>${cnt}</button></li>`;
     }).join('') + '</ul>' : '';
     return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}">${I.caret}<span class="acct-name">${esc(a.name)}</span><span class="acct-mail">${esc(a.email)}</span></button>${items}`;
-  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${SAMPLE ? 'Add your account' : 'Add account'}</span></button>`;
+  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${ACCOUNTS.length ? 'Add account' : 'Add your account'}</span></button>`;
   $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + a.folders.map(f => {
     const key = a.id + '/' + f.id, n = unreadIn(key);
     return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(f.name)}${n ? ` (${n})` : ''}</option>`;
@@ -237,7 +231,7 @@ function renderList(){
     b.querySelector('.arr').textContent = on ? (state.sort.dir > 0 ? '▲' : '▼') : '';
   });
   if (!arr.length){
-    rowsEl.innerHTML = `<tr class="empty"><td colspan="5">${state.q ? `No messages match “${esc(state.q)}”. Press Esc to clear the filter.` : 'This folder is empty.'}</td></tr>`;
+    rowsEl.innerHTML = !ACCOUNTS.length ? '' : `<tr class="empty"><td colspan="5">${state.q ? `No messages match “${esc(state.q)}”. Press Esc to clear the filter.` : 'This folder is empty.'}</td></tr>`;
     return;
   }
   rowsEl.innerHTML = arr.map(m => {
@@ -365,6 +359,12 @@ function attsHtml(atts){
 let pvSeq = 0;
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
+  if (!ACCOUNTS.length){
+    previewEl.innerHTML = `<div class="welcome">${I.mail}<h2>Welcome to Telex</h2>
+<p>Add your mail account to start. Telex keeps your mail on this PC and talks only to your mail servers.</p>
+<button type="button" class="btn primary" data-act="add-account">Add your mail account</button></div>`;
+    return;
+  }
   if (!s){
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div>${inFolder(state.folder).length ? 'Select a message to read it here.' : 'Nothing in ' + esc(folderName(state.folder)) + '.'}</div></div>`;
     return;
@@ -426,13 +426,15 @@ previewEl.addEventListener('click', async e => {
     say(trust ? `Images from ${email} will load automatically, except in Spam.` : `Images from ${email} are blocked again.`);
   }
   if (act.dataset.act === 'discard'){ state.compose = null; renderPreview(); say('Message discarded.'); listEl.focus(); }
-  if (act.dataset.act === 'draft') closeCompose(false).then(ok => ok && say('Saved to Drafts.'));
+  if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say('Saved to Drafts.'));
+  if (act.dataset.act === 'add-account') openAccountDialog();
 });
 
 /* ---------- compose ---------- */
 // kind: new, reply, replyall or forward, started by the core with the identity's signature
 // and templates; or edit, which reopens a draft or an unsent message in the Outbox.
 async function openCompose(kind, preset = {}){
+  if (!ACCOUNTS.length){ say('Add a mail account first.'); openAccountDialog(); return; }
   const s = current();
   if (kind !== 'new' && !s){ say('Select a message first.'); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say('Only drafts and unsent messages in the Outbox can be edited.'); return; }
@@ -455,8 +457,7 @@ async function openCompose(kind, preset = {}){
   renderCompose();
 }
 const allIdentities = () => ACCOUNTS.flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
-const composeNote = c => SAMPLE ? 'Sample mailbox: Send only files the message in Sent.'
-  : !ACCT[c.account]?.smtp ? 'This account has no SMTP server yet: edit it under Add account to send.' : '';
+const composeNote = c => !ACCT[c.account]?.smtp ? 'This account has no SMTP server yet: edit it under Add account to send.' : '';
 function fromOptions(c){
   return ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + (a.identities || []).map(i =>
     `<option value="${i.id}"${i.id === c.identity ? ' selected' : ''}>${esc(i.name)} &lt;${esc(i.email)}&gt;</option>`).join('') + '</optgroup>').join('');
@@ -504,10 +505,10 @@ function readCompose(){
   c.to = $('c-to').value.trim(); c.cc = $('c-cc').value.trim(); c.subject = $('c-subj').value.trim(); c.body = $('c-body').value;
   return c;
 }
-// Files the compose content in Sent (send = true) or Drafts. Resolves to true when it worked.
-async function closeCompose(send){
+// Saves the compose content as a draft and closes it. Resolves to true when it worked.
+async function closeCompose(){
   const draft = draftOf(readCompose());
-  try { await call('save_outgoing', {draft, send}); } catch { return false; }
+  try { await call('save_outgoing', {draft}); } catch { return false; }
   state.compose = null;
   await load();
   renderAll();
@@ -518,10 +519,6 @@ async function closeCompose(send){
 // server has taken it; otherwise it waits in the Outbox and the status says why.
 async function send(){
   if (!$('c-to').value.trim() && !$('c-cc').value.trim()){ say('Add at least one recipient in To.'); $('c-to').focus(); return; }
-  if (SAMPLE){
-    if (await closeCompose(true)) say('Filed in Sent. This is the sample mailbox, so nothing left your computer.', 7000);
-    return;
-  }
   const btn = document.querySelector('#cform .btn.primary');
   if (!btn || btn.disabled) return;
   btn.disabled = true; btn.firstChild.textContent = 'Sending… ';
@@ -593,10 +590,11 @@ async function undo(){
 // first: the download right after adding an account.
 let checkAgain = null; // asked for while a check was running; runs when it ends
 async function getMail({quiet = false, first = false} = {}){
+  const n = ACCOUNTS.filter(a => a.imap).length;
+  if (!n){ if (!quiet) openAccountDialog(); return; } // nothing to check yet
   const b = $('b-get');
   if (b.classList.contains('busy')){ if (first || !quiet) checkAgain = {quiet, first}; return; }
   b.classList.add('busy');
-  const n = SAMPLE ? ACCOUNTS.length : ACCOUNTS.filter(a => a.imap).length;
   if (!quiet) say(`Checking ${n} ${n === 1 ? 'account' : 'accounts'}…`, 0);
   try {
     const r = await invoke('check_mail');
@@ -660,34 +658,54 @@ qEl.addEventListener('input', () => {
 });
 
 /* ---------- account dialog ---------- */
-const dlg = $('acct-dlg'), aForm = $('acct-form'), aErr = $('a-err');
-let editing = null; // id of the account being edited, or null when adding
-function openAccountDialog(){
-  aForm.reset();
-  editing = null;
-  aErr.textContent = '';
-  $('acct-title').textContent = 'Add a mail account';
-  $('a-go').querySelector('span').textContent = 'Connect';
-  $('a-host').placeholder = 'mail.example.com';
-  $('a-user').placeholder = 'Same as email';
-  $('a-pass').placeholder = '';
-  renderAccountList();
-  dlg.showModal();
-  $('a-email').focus();
+// Adding is a wizard: name, email and password. The core finds the servers (its provider
+// list, the domain's setup file, its DNS zone, the usual names) and add_account logs in to
+// both before anything is saved. When nothing is found or the login fails, the settings
+// form opens, filled in, with the reason. Editing an account goes straight to the form.
+const dlg = $('acct-dlg'), aForm = $('acct-form'), aErr = $('a-err'), wForm = $('w-start'), wErr = $('w-err');
+let editing = null;     // id of the account being edited, or null when adding
+let wizardSeq = 0;      // each run gets a number; answers for an older run are dropped
+let wizardBusy = null;  // 'find' or 'login' while the wizard works
+
+// The core sends tips and reasons as codes; the words are here, to translate with the rest.
+const NOTE_TEXT = {
+  app_password: p => `${p} takes an app password here, not your usual password. You make one in your ${p} account’s security settings.`,
+  turn_on_imap: p => `Turn on access for mail programs (IMAP) in your ${p} settings first.`,
+  turn_on_imap_and_app_password: p => `Turn on IMAP in your ${p} settings first, and use an app password made there, not your usual password.`,
+};
+const UNSUPPORTED_TEXT = {
+  microsoft_sign_in: p => `${p} lets other mail apps in only with Microsoft sign-in, which Telex doesn’t have yet. It’s next on the roadmap.`,
+  proton_bridge: () => 'Proton Mail works with other mail apps only through Proton Mail Bridge, which Telex can’t use yet.',
+};
+const SOURCE_TEXT = {
+  list: d => `Telex knows ${d.provider}`,
+  autoconfig: d => `from ${d.provider ? d.provider + '’s' : 'your provider’s'} setup file`,
+  srv: () => 'from your domain’s DNS records',
+  mx: d => `your domain’s mail is handled by ${d.provider}`,
+  guess: () => 'found by trying the usual server names',
+};
+function hint(el, d){
+  const p = d?.provider ?? 'your provider';
+  const text = d?.unsupported ? UNSUPPORTED_TEXT[d.unsupported]?.(p) : d?.note ? NOTE_TEXT[d.note]?.(p) : '';
+  el.hidden = !text;
+  el.classList.toggle('warn', !!d?.unsupported);
+  el.innerHTML = text ? esc(text) + (d.help ? ` <button type="button" class="linkbtn" data-help="${esc(d.help)}">Open that page</button>` : '') : '';
 }
-// Fill the form with an account's settings; the password stays empty and is kept if left so.
-function editAccount(id){
-  const a = ACCT[id]; if (!a?.imap) return;
-  editing = id;
-  aErr.textContent = '';
-  $('acct-title').textContent = 'Edit ' + a.name;
-  $('a-go').querySelector('span').textContent = 'Save';
-  $('a-email').value = a.email; $('a-name').value = a.name;
-  $('a-host').value = a.imap.host; $('a-port').value = a.imap.port; $('a-user').value = a.imap.username;
-  $('a-smtp').value = a.smtp?.host ?? ''; $('a-sec').value = a.smtp?.security ?? 'tls';
-  $('a-sport').value = a.smtp?.port ?? 465;
-  $('a-pass').value = ''; $('a-pass').placeholder = 'Leave empty to keep the saved password';
-  $(a.smtp ? 'a-pass' : 'a-smtp').focus();
+function showView(view){
+  wForm.hidden = view !== 'start'; $('w-work').hidden = view !== 'work'; aForm.hidden = view !== 'form';
+  dlg.setAttribute('aria-labelledby', {start:'acct-title', work:'w-work-title', form:'a-title'}[view]);
+}
+function openAccountDialog(){
+  wForm.reset(); aForm.reset();
+  editing = null; wizardBusy = null; ++wizardSeq;
+  wErr.textContent = ''; hint($('w-hint'), null);
+  // A second account is usually the same person: start from their name.
+  const me = ACCOUNTS.flatMap(a => a.identities || []).find(i => i.is_default)?.name ?? '';
+  $('w-name').value = me;
+  renderAccountList();
+  showView('start');
+  if (!dlg.open) dlg.showModal();
+  $(me ? 'w-email' : 'w-name').focus();
 }
 function renderAccountList(){
   const real = ACCOUNTS.filter(a => a.imap);
@@ -697,19 +715,143 @@ function renderAccountList(){
       + `<button type="button" class="btn" data-ids="${esc(a.id)}">Identities</button><button type="button" class="btn" data-edit="${esc(a.id)}">Edit</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">Remove</button></div>`;
   }).join('') : '';
 }
-$('a-email').addEventListener('input', () => {
+
+// Tips while the address is typed, from the provider list only (nothing goes online).
+let hintTimer;
+$('w-email').addEventListener('input', () => {
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(async () => {
+    let d = null;
+    try { d = await invoke('known_provider', {email:$('w-email').value}); } catch {}
+    hint($('w-hint'), d);
+  }, 200);
+});
+
+// The wizard's progress: one line per step.
+let steps = [];
+function step(text){ steps.push({text, detail:'', status:'work'}); renderSteps(); }
+function finishStep(status, text, detail = ''){
+  const s = steps[steps.length - 1];
+  if (s) Object.assign(s, {status, detail}, text ? {text} : {});
+  renderSteps();
+}
+function renderSteps(){
+  $('w-steps').innerHTML = steps.map(s => `<li class="${s.status}"><span>${esc(s.text)}</span>${s.detail ? `<small>${esc(s.detail)}</small>` : ''}</li>`).join('');
+}
+window.__TAURI__?.event?.listen('detect-progress', ({payload}) => {
+  if (wizardBusy !== 'find' || !steps.length) return;
+  const domain = $('w-email').value.trim().split('@')[1] || '';
+  steps[steps.length - 1].detail = payload === 'guess' ? 'Trying the usual server names…' : `Asking ${domain} and its DNS records…`;
+  renderSteps();
+});
+const serverNames = s => s.host === s.smtp_host ? s.host : `${s.host} and ${s.smtp_host}`;
+
+wForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (wizardBusy) return;
+  const name = $('w-name').value.trim(), email = $('w-email').value.trim(), password = $('w-pass').value;
+  const domain = email.split('@')[1] || '';
+  wErr.textContent = '';
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ wErr.textContent = 'Enter your email address, e.g. anna@example.com.'; $('w-email').focus(); return; }
+  if (!password){ wErr.textContent = 'Enter the password.'; $('w-pass').focus(); return; }
+  const seq = ++wizardSeq;
+  steps = [];
+  $('w-work-title').textContent = 'Setting up ' + email;
+  $('w-stop').disabled = false;
+  showView('work');
+  wizardBusy = 'find';
+  step(`Looking for the mail servers of ${domain}`);
+  let d = null;
+  try { d = await invoke('detect_settings', {email}); } catch {}
+  if (seq !== wizardSeq) return; // cancelled meanwhile
+  wizardBusy = null;
+  if (!d){
+    openForm({name, email, password}, `Telex couldn’t find the mail servers for ${domain}. Enter them here: your provider’s help pages list them as IMAP and SMTP servers.`);
+    return;
+  }
+  if (d.unsupported){ showView('start'); hint($('w-hint'), d); $('w-email').focus(); return; }
+  finishStep('done', `Found ${serverNames(d.setup)}`, SOURCE_TEXT[d.source]?.(d) ?? '');
+  const setup = {...d.setup, name, email};
+  wizardBusy = 'login';
+  $('w-stop').disabled = true; // the account is saved the moment the login works
+  step(`Logging in to ${serverNames(d.setup)}`);
+  let account;
+  try { account = await invoke('add_account', {setup, password}); }
+  catch (err){
+    wizardBusy = null;
+    openForm({...setup, password}, String(err), d);
+    return;
+  }
+  wizardBusy = null;
+  finishStep('done');
+  await connected(account, false);
+});
+$('w-manual').addEventListener('click', () => openForm({name:$('w-name').value, email:$('w-email').value, password:$('w-pass').value}));
+$('w-stop').addEventListener('click', () => {
+  if (wizardBusy !== 'find') return;
+  ++wizardSeq; wizardBusy = null;
+  showView('start');
+  $('w-email').focus();
+});
+
+// The settings form, filled in from what the wizard found or typed (v), with a reason.
+function openForm(v, error = '', d = null){
+  aForm.reset();
+  $('a-title').textContent = 'Server settings';
+  $('a-go').querySelector('span').textContent = 'Connect';
+  $('a-email').value = v.email ?? ''; $('a-name').value = v.name ?? '';
+  $('a-host').value = v.host ?? ''; $('a-port').value = v.port ?? 993;
+  $('a-user').value = v.username && v.username !== v.email ? v.username : '';
+  $('a-pass').value = v.password ?? ''; $('a-pass').placeholder = '';
+  $('a-smtp').value = v.smtp_host ?? ''; $('a-sport').value = v.smtp_port ?? 465; $('a-sec').value = v.smtp_security ?? 'tls';
+  placeholders();
+  aErr.textContent = error;
+  hint($('a-hint'), d);
+  showView('form');
+  $(!v.email ? 'a-email' : !v.host ? 'a-host' : 'a-go').focus();
+}
+// Fill the form with an account's settings; the password stays empty and is kept if left so.
+function editAccount(id){
+  const a = ACCT[id]; if (!a?.imap) return;
+  editing = id;
+  aForm.reset();
+  aErr.textContent = ''; hint($('a-hint'), null);
+  $('a-title').textContent = 'Edit ' + a.name;
+  $('a-go').querySelector('span').textContent = 'Save';
+  $('a-email').value = a.email; $('a-name').value = a.name;
+  $('a-host').value = a.imap.host; $('a-port').value = a.imap.port; $('a-user').value = a.imap.username;
+  $('a-smtp').value = a.smtp?.host ?? ''; $('a-sec').value = a.smtp?.security ?? 'tls';
+  $('a-sport').value = a.smtp?.port ?? 465;
+  $('a-pass').value = ''; $('a-pass').placeholder = 'Leave empty to keep the saved password';
+  placeholders();
+  showView('form');
+  $(a.smtp ? 'a-pass' : 'a-smtp').focus();
+}
+function placeholders(){
   const email = $('a-email').value.trim(), domain = email.split('@')[1] || '';
   $('a-host').placeholder = domain.includes('.') ? 'e.g. mail.' + domain : 'mail.example.com';
   $('a-user').placeholder = email || 'Same as email';
-});
+}
+$('a-email').addEventListener('input', placeholders);
 // The usual ports follow the security choice, unless the user typed another one.
 $('a-sec').addEventListener('change', () => {
   const p = $('a-sport');
   if (['465', '587', ''].includes(p.value)) p.value = $('a-sec').value === 'starttls' ? 587 : 465;
 });
-$('st-sample').addEventListener('click', openAccountDialog);
-$('a-cancel').addEventListener('click', () => dlg.close());
-dlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
+$('a-back').addEventListener('click', () => {
+  editing = null;
+  renderAccountList();
+  showView('start');
+  $('w-email').focus();
+});
+dlg.addEventListener('click', e => {
+  const help = e.target.closest('[data-help]');
+  if (help) call('open_link', {url:help.dataset.help}).catch(() => {});
+  if (e.target.closest('[data-close]')) dlg.close();
+});
+// Esc can't close the dialog while a login runs: a login that works saves the account.
+dlg.addEventListener('cancel', e => { if (wizardBusy === 'login') e.preventDefault(); });
+dlg.addEventListener('close', () => { ++wizardSeq; wizardBusy = null; listEl.focus({preventScroll:true}); });
 aForm.addEventListener('submit', async e => {
   e.preventDefault();
   const go = $('a-go'), label = go.querySelector('span');
@@ -723,11 +865,15 @@ aForm.addEventListener('submit', async e => {
   const wasEditing = editing;
   aErr.textContent = '';
   go.disabled = true; label.textContent = 'Connecting…';
+  wizardBusy = 'login';
   let account;
   try { account = await invoke('add_account', {setup, password:$('a-pass').value}); }
   catch (err){ aErr.textContent = String(err); return; }
-  finally { go.disabled = false; label.textContent = editing ? 'Save' : 'Connect'; }
-  aForm.reset();
+  finally { wizardBusy = null; go.disabled = false; label.textContent = wasEditing ? 'Save' : 'Connect'; }
+  await connected(account, !!wasEditing);
+});
+async function connected(account, wasEditing){
+  wForm.reset(); aForm.reset();
   dlg.close();
   await load();
   if (wasEditing){
@@ -739,7 +885,7 @@ aForm.addEventListener('submit', async e => {
   setFolder(homeOf(account.id));
   say(`Connected to ${account.email}. Downloading mail…`, 0);
   getMail({first:true});
-});
+}
 $('a-list').addEventListener('click', async e => {
   const ed = e.target.closest('[data-edit]');
   if (ed){ editAccount(ed.dataset.edit); return; }
@@ -748,12 +894,11 @@ $('a-list').addEventListener('click', async e => {
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Remove it and its local mail'; return; }
-  try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ aErr.textContent = String(err); return; }
+  try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ wErr.textContent = String(err); return; }
   await load();
   if (!ACCT[acctId(state.folder)]) setFolder(homeOf(ACCOUNTS[0]?.id)); else renderAll();
   renderAccountList();
   say('Account removed from Telex. The mail on the server is untouched.');
-  if (SAMPLE) dlg.close();
 });
 
 /* ---------- identities ---------- */
@@ -1000,7 +1145,7 @@ async function checkUpdate({quiet = false} = {}){
 // saved to Drafts first.
 async function installUpdate(){
   if (!upd.found || upd.installing) return;
-  if (state.compose && !await closeCompose(false)) return;
+  if (state.compose && !await closeCompose()) return;
   Object.assign(upd, {installing:true, text:`Downloading Telex ${upd.found.version}…`, error:''});
   renderUpdates();
   let r;
@@ -1060,7 +1205,7 @@ function onKey(e){
   const t = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
   if (e.key === 'Escape'){
-    if (state.compose){ e.preventDefault(); closeCompose(false).then(ok => ok && say('Saved to Drafts.')); return; }
+    if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say('Saved to Drafts.')); return; }
     if (t === qEl){ qEl.value = ''; state.q = ''; state.hits = new Set(); renderList(); listEl.focus(); return; }
   }
   if (t.closest && (t.closest('input, textarea, select') || t.closest('.split'))) return;
@@ -1112,6 +1257,7 @@ splitter($('split-h'),
 
 /* ---------- boot ---------- */
 function renderAll(){
+  win.classList.toggle('noacct', !ACCOUNTS.length); // the welcome takes the whole right side
   if (!folderOf(state.folder)) state.folder = homeOf(ACCOUNTS[0]?.id); // folder deleted on the server
   if (!current()) state.sel[state.folder] = visible()[0]?.id; // e.g. mail just arrived in an empty folder
   renderTree(); renderList(); if (!state.compose) renderPreview(); renderStatus();
@@ -1129,8 +1275,9 @@ async function boot(){
   renderAll();
   listEl.focus({preventScroll:true});
   // Real accounts: check now and every 10 minutes, quietly.
-  if (!SAMPLE) getMail({quiet:true});
-  setInterval(() => { if (!SAMPLE) getMail({quiet:true}); }, 10 * 60e3);
+  if (ACCOUNTS.length) getMail({quiet:true});
+  else openAccountDialog(); // first start: straight to adding an account
+  setInterval(() => getMail({quiet:true}), 10 * 60e3);
 }
 boot();
 })();

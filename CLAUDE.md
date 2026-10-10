@@ -30,7 +30,7 @@ Anti-goals: Electron, AI features by default, a web-app look, anything that phon
 ```
 crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
-                     for the server (pending_ops). Same API for sample and real mail.
+                     for the server (pending_ops).
   src/migrations/    Database schema, one numbered file per version, listed in MIGRATIONS in
                      store.rs. Released files are never edited; a change is a new file.
   src/imap.rs        Two-way IMAP sync (async-imap + rustls): download, push queued changes,
@@ -44,7 +44,9 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
                      signature and templates: recipients, subject, quoted text.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
-  src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
+  src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
+                     the domain's autoconfig file, SRV and MX records (Windows DNS), probing.
+  src/sample.rs      A sample mailbox for the tests and the site's screenshots. Never in the app.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
   src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
@@ -59,25 +61,26 @@ brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-smal
 scripts/             set-version.mjs: sets the version in every file that has it, or checks them.
                      check-signing-key.mjs: the release key pair belongs together (release.yml).
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
+docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
 .github/workflows/   ci.yml: core tests on Linux, Windows installer build (can't update itself).
                      release.yml: on a v* tag, signed installers + latest.json in a draft release.
 ```
 
 The mail base is `%APPDATA%\app.telexmail.desktop\telex.db`. It is created when the first account
-is added; until then the app shows the sample mailbox (in memory, never saved).
+is added; until then the app starts with an empty store in memory and opens the wizard.
 
 Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailStore`:
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `snapshot`       | –                            | accounts + all summaries + `sample` flag |
+| `snapshot`       | –                            | accounts + all summaries    |
 | `get_message`    | `id`                         | full message with body      |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
 | `move_message`   | `id`, `folder`               | – (same account only)       |
 | `delete_message` | `id`                         | `moved_to_trash` / `removed`|
-| `save_outgoing`  | `draft`, `send`              | new message id (a draft; `send` only for the sample mailbox) |
-| `send_message`   | `draft`                      | `{queued, sent: [lines], errors, sample}` |
+| `save_outgoing`  | `draft`                      | new message id (a draft)    |
+| `send_message`   | `draft`                      | `{queued, sent: [lines], errors}` |
 | `search`         | `query`                      | ids matching subject, people or body (FTS5) |
 | `get_html`       | `id`, `loadImages` (true/false/null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trust_sender`   | `email`, `trusted`           | – (that sender's images load without asking, except in Spam) |
@@ -90,6 +93,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account` | `{account, identity, to, cc, subject, body, attachments, reply_to, forward_of}` |
 | `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
 | `delete_identity`| `id`                         | – (never the account's last one) |
+| `known_provider` | `email`                      | what the provider list knows (no network), or null |
+| `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help}` or null; emits `detect-progress` |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only) |
 | `check_mail`     | –                            | `{new: [ids], sent: [lines], sorted, errors: ["Account: reason"], busy}` |
@@ -162,11 +167,14 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0 + roadmap steps 1, 1b, 2, 3, 4, 6 and 7 without code signing)
+## Current state (v0.2.0 and after: roadmap steps 1, 1b, 2, 3, 4, 6 and 7 without code signing)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
-- Real IMAP accounts: account dialog ("Add account" under the folder tree), SSL/TLS on port
+- Real IMAP accounts: a wizard ("Add account" under the folder tree; opens by itself while
+  there is none) asks for name, email and password, finds the servers (see below) and logs
+  in to both before saving; the full settings form is behind "Set up manually", opens
+  filled in when finding or logging in fails, and is where accounts are edited. SSL/TLS on port
   993 only (no STARTTLS yet), password login. Folders come from the server; special folders
   are recognized by RFC 6154 flags, then by common English/Polish names.
 - Two-way sync on start, on "Get mail" and every 10 minutes: push queued changes, download,
@@ -234,8 +242,16 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   dialog.
 - Mail is stored in full (`messages.raw`), so attachments can be opened later without
   downloading again.
-- Before an account is added: the built-in sample mailbox. "Get mail" delivers one sample
-  message there; "Send" only files the message in Sent.
+- No account yet: an empty store in memory (`MailStore::is_in_memory`), a welcome panel and
+  the wizard; the first account creates `telex.db`. Removing the last account keeps the file.
+- Finding servers (`autoconfig.rs`): Telex's provider list (checked against Mozilla's ISPDB
+  and live TLS; WP, o2 and WEB.DE log in with the part before the @), then the domain's
+  autoconfig file (`autoconfig.<domain>`, `/.well-known/`), its SRV records (RFC 6186/8314:
+  `_imaps`, `_submissions`, `_submission`), its MX records pointing to a listed provider,
+  and last probing `imap.`/`mail.`/`smtp.`/the MX host/the domain (TLS with a valid
+  certificate and a greeting, 6 s each, all at once). Only DNS and the domain's own servers
+  are asked. Tips (`note`: app password, turn on IMAP) and reasons (`unsupported`: Microsoft
+  sign-in, Proton Bridge) cross the bridge as codes; the UI words them, ready for translation.
 - Updates (`src-tauri/src/updates.rs`, tauri-plugin-updater): only builds compiled with the
   release key's public half in `TELEX_UPDATER_PUBKEY` (`option_env!`) register the plugin;
   its `plugins.updater` config (key, `requireSignedVersion`, passive Windows install) is put
@@ -254,7 +270,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 ## Roadmap
 
 1. ~~**Real mail, read-only.**~~ Done; see Current state. Not yet: STARTTLS, a way to
-   download messages older than the first 300, IMAP IDLE (push).
+   download messages older than the first 300 (after storage phase 1), IMAP IDLE (push).
 1b. ~~**Write back.**~~ Done; see Current state. Not yet: CONDSTORE/QRESYNC (flag changes are
    found by asking for the flags of every stored message, fine for thousands, not millions).
 2. ~~**Sending.**~~ Done; see Current state. Not yet: attaching new files (needs a file
@@ -273,8 +289,12 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 6. ~~**Templates and identities.**~~ Done; see Current state. Not yet: templates for new
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
-   yet: code signing (SmartScreen warns about the installer), and the repository must be made
-   public before the first release can be downloaded.
+   yet: code signing (SmartScreen warns about the installer). The repository is public and
+   v0.2.0 is released; docs/releasing.md has the process.
+8. **Storage** (plan in docs/storage.md). Phase 1, next: fast at any size (large columns in
+   their own table, paged per-folder loading instead of `snapshot`, a virtual message list,
+   SQLite settings, a 100k-message benchmark). Then backup and restore with a movable mail
+   base, local folders with .eml/mbox export and import, and POP3.
 
 ## Open decisions
 

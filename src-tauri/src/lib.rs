@@ -13,14 +13,15 @@ use chrono::Local;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_opener::OpenerExt;
+use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::drafts::{self, DraftKind, DraftStart};
 use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits};
 use telex_core::imap::{self, SyncProgress};
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::{
-    sample::sample_store, Account, AccountSetup, DeleteOutcome, FolderKind, Identity, MailStore,
-    Message, MessageId, OutgoingDraft, Snapshot, StoreError,
+    Account, AccountSetup, DeleteOutcome, FolderKind, Identity, MailStore, Message, MessageId,
+    OutgoingDraft, Snapshot, StoreError,
 };
 
 struct AppState {
@@ -48,16 +49,15 @@ fn with_store<T>(
     f(&mut store).map_err(|e| e.to_string())
 }
 
-/// The user's mail base once they have added an account, the sample mailbox before that.
+/// The user's mail base, or an empty one in memory until the first account creates the file.
 fn open_store(db_path: &Path) -> MailStore {
     if db_path.exists() {
         match MailStore::open(db_path) {
-            Ok(store) if !store.accounts().is_empty() => return store,
-            Ok(_) => {}
+            Ok(store) => return store,
             Err(e) => eprintln!("Telex: can't open {}: {e}", db_path.display()),
         }
     }
-    sample_store()
+    MailStore::in_memory().expect("an in-memory database always opens")
 }
 
 fn capitalize(s: &str) -> String {
@@ -99,21 +99,11 @@ fn delete_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<Delete
     with_store(&state, |s| s.delete(id))
 }
 
-/// `send: false` saves a draft. `send: true` is for the sample mailbox only, which can't
-/// really send: it files the message in Sent. Real mail goes through `send_message`.
+/// Save the compose pane's content as a draft. Sending goes through `send_message`.
 #[tauri::command]
-fn save_outgoing(
-    state: State<'_, AppState>,
-    draft: OutgoingDraft,
-    send: bool,
-) -> CmdResult<MessageId> {
-    let kind = if send {
-        FolderKind::Sent
-    } else {
-        FolderKind::Drafts
-    };
+fn save_outgoing(state: State<'_, AppState>, draft: OutgoingDraft) -> CmdResult<MessageId> {
     with_store(&state, |s| {
-        s.save_outgoing(draft, kind, Local::now().naive_local())
+        s.save_outgoing(draft, FolderKind::Drafts, Local::now().naive_local())
     })
 }
 
@@ -238,6 +228,24 @@ fn run_rules(state: State<'_, AppState>, folder: String) -> CmdResult<RunReport>
     })
 }
 
+/// What Telex's provider list knows about an address, without going online: for tips
+/// while the user types it.
+#[tauri::command]
+fn known_provider(email: String) -> Option<Detected> {
+    autoconfig::known(&email)
+}
+
+/// Find the servers for an address: the provider list, the domain's setup file, its DNS
+/// zone (SRV, MX) and the usual names. `null` when nothing answered. The steps reach the
+/// UI as "detect-progress" events.
+#[tauri::command]
+async fn detect_settings(app: AppHandle, email: String) -> Option<Detected> {
+    let progress = |step: Step| {
+        let _ = app.emit("detect-progress", step);
+    };
+    autoconfig::detect(&email, &progress).await
+}
+
 /// Open a web link from a message in the default browser.
 #[tauri::command]
 fn open_link(app: AppHandle, url: String) -> CmdResult<()> {
@@ -252,7 +260,7 @@ fn open_link(app: AppHandle, url: String) -> CmdResult<()> {
 }
 
 /// Check the settings by logging in to IMAP and SMTP, then save the account and its
-/// password. The first account replaces the sample mailbox with the user's own mail base.
+/// password. The first account creates the user's mail base on disk.
 /// Adding an address that already exists updates it; an empty password then keeps the
 /// saved one.
 #[tauri::command]
@@ -280,7 +288,7 @@ async fn add_account(
         .map_err(|e| format!("IMAP works, but sending doesn't: {e}."))?;
     secrets::save_password(&setup.email, &password)?;
     with_store(&state, |s| {
-        if s.is_sample() {
+        if s.is_in_memory() {
             *s = MailStore::open(&state.db_path)?;
         }
         let account = s.upsert_account(&setup)?;
@@ -298,9 +306,6 @@ fn remove_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     let email = with_store(&state, |s| {
         let email = s.account(&id)?.email.clone();
         s.remove_account(&id)?;
-        if s.accounts().is_empty() {
-            *s = sample_store();
-        }
         Ok(email)
     })?;
     secrets::delete_password(&email);
@@ -346,18 +351,14 @@ impl Drop for BusyGuard<'_> {
     }
 }
 
-/// The accounts that live on a server; none while the sample mailbox is showing.
+/// The accounts that live on a server.
 fn server_accounts(state: &AppState) -> CmdResult<Vec<Account>> {
     with_store(state, |s| {
-        Ok(if s.is_sample() {
-            Vec::new()
-        } else {
-            s.accounts()
-                .iter()
-                .filter(|a| a.imap.is_some())
-                .cloned()
-                .collect()
-        })
+        Ok(s.accounts()
+            .iter()
+            .filter(|a| a.imap.is_some())
+            .cloned()
+            .collect())
     })
 }
 
@@ -369,13 +370,6 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
     let Some(_busy) = BusyGuard::take(&state.busy) else {
         return Ok(SyncOutcome::busy());
     };
-    if with_store(&state, |s| Ok(s.is_sample()))? {
-        let new = with_store(&state, |s| s.fetch_new())?;
-        return Ok(SyncOutcome {
-            new,
-            ..SyncOutcome::default()
-        });
-    }
     let progress = |p: SyncProgress| {
         let _ = app.emit("sync-progress", p);
     };
@@ -411,13 +405,11 @@ async fn check_mail(app: AppHandle, state: State<'_, AppState>) -> CmdResult<Syn
 
 #[derive(Debug, Default, Serialize)]
 struct SendOutcome {
-    /// The message's id in the Outbox (or, for the sample mailbox, in Sent).
+    /// The message's id in the Outbox.
     queued: MessageId,
     /// One line per message the SMTP server accepted, this one and any that waited.
     sent: Vec<String>,
     errors: Vec<String>,
-    /// The sample mailbox can't send; the message was only filed in Sent.
-    sample: bool,
 }
 
 /// Send a message: build it, put it in the Outbox and send the Outbox right away. It
@@ -425,16 +417,6 @@ struct SendOutcome {
 /// Outbox and goes out at the next check.
 #[tauri::command]
 async fn send_message(state: State<'_, AppState>, draft: OutgoingDraft) -> CmdResult<SendOutcome> {
-    if with_store(&state, |s| Ok(s.is_sample()))? {
-        let queued = with_store(&state, |s| {
-            s.save_outgoing(draft, FolderKind::Sent, Local::now().naive_local())
-        })?;
-        return Ok(SendOutcome {
-            queued,
-            sample: true,
-            ..SendOutcome::default()
-        });
-    }
     let (account, originals) = with_store(&state, |s| {
         let account = s.account(&draft.account)?.clone();
         let raw = |id: Option<MessageId>| id.map(|id| s.raw_of(id)).transpose();
@@ -562,6 +544,8 @@ pub fn run() {
             search,
             add_account,
             remove_account,
+            known_provider,
+            detect_settings,
             check_mail,
             push_changes,
             send_message,

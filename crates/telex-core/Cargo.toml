@@ -13,7 +13,7 @@ chrono.workspace = true
 rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
 mail-parser = "0.11.9"
 async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
-tokio = { version = "1.53.2", features = ["net", "time"] }
+tokio = { version = "1.53.2", features = ["net", "time", "rt", "io-util"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
 webpki-roots = "1.0.9"
 futures-util = "0.3.34"
@@ -21,6 +21,10 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder",
 ammonia = "4.2.1"
 ureq = "3.4.2"
 base64 = "0.22"
+
+# MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_Dns"] }
 
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["rt", "macros", "io-util"] }

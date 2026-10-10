@@ -1,4 +1,5 @@
-//! Built-in sample mailbox, shown until the user adds a real account.
+//! A sample mailbox for the tests and the website's screenshots. The app itself starts
+//! empty and never shows it.
 //! The data lives in `sample.json` next to this file.
 
 use serde::Deserialize;

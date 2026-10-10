@@ -214,7 +214,7 @@ export const screens: Screen[] = [
     id: 'account',
     label: 'Account',
     title: 'Inbox · biuro@twojastudio.pl – Telex',
-    caption: 'Adding an account: IMAP and SMTP in one dialog. Telex logs in to both before it saves anything.',
+    caption: 'Adding an account: your name, address and password. Telex finds the servers itself and logs in before it saves anything.',
   },
 ];
 
@@ -263,6 +263,11 @@ export const roadmap: Step[] = [
     status: 'done',
     notYet: 'A code-signed installer, so Windows SmartScreen stops warning.',
   },
+  {
+    title: 'Archive and backup',
+    text: 'Folders kept only on your PC, automatic backups you can restore, export and import as .eml or mbox, and POP3 accounts. Big mailboxes stay as fast as small ones.',
+    status: 'later',
+  },
 ];
 
 export type Question = { q: string; a: string };
@@ -273,7 +278,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
     items: [
       {
         q: 'Which mail providers work?',
-        a: 'Any provider that offers IMAP over SSL/TLS (port 993) and SMTP over SSL/TLS (465) or STARTTLS (587) with a password: most hosting mailboxes and many providers. Gmail and Outlook.com need OAuth2 sign-in, which is on the roadmap.',
+        a: 'Any provider that offers IMAP over SSL/TLS (port 993) and SMTP over SSL/TLS (465) or STARTTLS (587) with a password: most hosting mailboxes and many providers. Telex finds their settings from your address. Gmail and Outlook.com need OAuth2 sign-in, which is on the roadmap.',
       },
       {
         q: 'Can Telex send mail?',

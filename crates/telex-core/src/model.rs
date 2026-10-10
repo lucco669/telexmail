@@ -229,8 +229,8 @@ impl SmtpSecurity {
     }
 }
 
-/// What the user types in the account dialog, except the password.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+/// What the user types in the account dialog, except the password. Also what the wizard finds.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct AccountSetup {
     /// Label in the folder list, and the sender name. Defaults to the email's domain.
     #[serde(default)]

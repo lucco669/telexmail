@@ -28,8 +28,8 @@ const scenes = {
   spam: `ui.folder('firma/spam'); await ui.wait(50); ui.row('TOP 1 w Google'); await ui.wait(100);`,
   comfortable: `ui.click('#b-density'); ui.folder('gmail/inbox'); await ui.wait(100); ui.list.focus();`,
   account: `ui.click('[data-act="add-account"]'); await ui.wait(50);
-    ui.fill('a-email', 'biuro@twojastudio.pl'); ui.fill('a-host', 'mail.twojastudio.pl'); ui.fill('a-name', 'Studio');
-    document.getElementById('a-email').focus(); await ui.wait(100);`,
+    ui.fill('w-name', 'Anna Kowalska'); ui.fill('w-email', 'biuro@twojastudio.pl'); ui.fill('w-pass', 'password');
+    document.getElementById('w-email').focus(); await ui.wait(100);`,
 };
 
 // A fixed "now" keeps the list's relative dates (06:12, Fri 18:31) the same on every run.
@@ -87,7 +87,7 @@ function page(scene, theme) {
 })();</script>`;
   return html
     .replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
-    .replace('<head>', `<head><base href="${pathToFileURL(uiDir + '/').href}"><style>#st-sample{display:none!important}</style>`)
+    .replace('<head>', `<head><base href="${pathToFileURL(uiDir + '/').href}">`)
     .replace('<script src="app.js"></script>', `<script>${MOCK}</script><script src="app.js"></script>${run}`);
 }
 

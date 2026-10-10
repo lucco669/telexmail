@@ -517,7 +517,7 @@ async fn push_queued_after<T: ImapStream>(
 
 // ---- Connection ----
 
-fn tls_connector() -> TlsConnector {
+pub(crate) fn tls_connector() -> TlsConnector {
     let roots = RootCertStore {
         roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
     };

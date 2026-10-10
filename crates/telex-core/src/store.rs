@@ -232,6 +232,12 @@ impl MailStore {
         self.sample
     }
 
+    /// Lives only in memory: nothing is saved until it is swapped for a file. The app starts
+    /// this way until the first account is added.
+    pub fn is_in_memory(&self) -> bool {
+        self.db.path().is_none_or(str::is_empty)
+    }
+
     pub fn accounts(&self) -> &[Account] {
         &self.accounts
     }
@@ -2224,6 +2230,8 @@ mod tests {
         }
         let store = MailStore::open(&path).unwrap();
         assert!(!store.is_sample());
+        assert!(!store.is_in_memory());
+        assert!(MailStore::in_memory().unwrap().is_in_memory());
         assert_eq!(store.accounts()[0].email, "biuro@twojastudio.pl");
         drop(store);
         for ext in ["", "-wal", "-shm"] {

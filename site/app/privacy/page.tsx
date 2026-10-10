@@ -41,6 +41,14 @@ export default function PrivacyPage() {
             587). There is no Telex server: your mail never passes through us, and we never see it.
           </p>
           <p>
+            When you add an account, Telex finds its servers itself. It looks in its own list of common providers
+            first; for other addresses it asks your domain’s web server for a setup file (at{' '}
+            <code>autoconfig.</code> and <code>/.well-known/</code> addresses, with your email address so a provider
+            can answer for it), reads your domain’s DNS records, and tries the usual server names such as{' '}
+            <code>mail.</code> and <code>imap.</code> your domain. All of that goes to DNS and to servers of your own
+            domain or its mail provider, never to a lookup service run by anyone else.
+          </p>
+          <p>
             And, only when you choose to load a message’s remote images (once, or always for a sender you trust, never
             automatically in Spam), the servers those images come from. Telex downloads them itself, without cookies or
             a referrer, and refuses addresses on your local network; the window that shows the message never goes

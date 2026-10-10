@@ -4418,6 +4418,7 @@ dependencies = [
  "tokio-rustls",
  "ureq",
  "webpki-roots",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

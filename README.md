@@ -12,8 +12,8 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > with remote images blocked until you allow them. Rules sort, flag and answer new mail and
 > leave a note saying why. Each account can have several identities, each with its own
 > signature and reply templates. Release builds update themselves from GitHub Releases, but
-> only check after you say yes (or click the version number). Until you add an account it
-> shows a sample mailbox.
+> only check after you say yes (or click the version number). Adding an account takes a name,
+> an address and a password: Telex finds the server settings itself.
 
 ## Run it on Windows
 
@@ -65,5 +65,6 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 - `crates/telex-core`: the mail engine in Rust, with tests (`cargo test -p telex-core`).
 - `src-tauri`: the desktop app shell that connects the engine to the window.
 - `ui`: the interface in plain HTML, CSS and JavaScript.
+- `docs`: [releasing](docs/releasing.md) a version, and the [storage plan](docs/storage.md).
 
 See [CLAUDE.md](CLAUDE.md) for design principles, architecture and the roadmap.

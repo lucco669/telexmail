@@ -167,6 +167,13 @@ tr.empty:hover td{background:none}
 .pempty{height:100%;display:grid;place-items:center;align-content:center;gap:6px;padding:20px;color:var(--muted);text-align:center}
 .pempty svg{width:28px;height:28px;color:var(--faint)}
 .pempty code{font-family:var(--font-data);color:var(--fg)}
+/* No account yet */
+.win.noacct .list,.win.noacct .split-h{display:none}
+.win.noacct .right{grid-template-rows:minmax(0,1fr)}
+.welcome{height:100%;display:grid;place-items:center;align-content:center;gap:10px;padding:24px;color:var(--muted);text-align:center}
+.welcome svg{width:36px;height:36px;color:var(--faint)}
+.welcome h2{margin:0;font:600 17px var(--font-ui);color:var(--fg)}
+.welcome p{margin:0 0 4px;max-width:380px;font-size:12.5px;line-height:1.5}
 
 /* Compose */
 .compose{display:flex;flex-direction:column;height:100%;min-height:0}
@@ -213,6 +220,17 @@ tr.empty:hover td{background:none}
 .dacct{display:flex;align-items:center;gap:8px;min-height:30px}
 .dacct .nm{font-weight:600}
 .dacct .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--muted)}
+/* Account wizard: a provider tip, then one line per step */
+.whint{margin:0 14px 10px;padding:6px 9px;border-radius:3px;background:var(--chip-bg);color:var(--chip-fg);font-size:12px;line-height:1.45}
+.whint.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.whint[hidden]{display:none}
+.wsteps{list-style:none;display:flex;flex-direction:column;gap:9px;min-height:64px;margin:8px 14px 14px;padding:0}
+.wsteps li{display:grid;grid-template-columns:14px minmax(0,1fr);column-gap:9px;font-size:12.5px}
+.wsteps li::before{content:'';width:12px;height:12px;margin-top:2px;box-sizing:border-box;border:2px solid var(--line);border-radius:50%}
+.wsteps li.work::before{border-color:var(--accent);border-right-color:transparent;animation:spin .8s linear infinite}
+.wsteps li.done::before{content:'✓';border:0;margin-top:0;color:var(--accent);font-weight:700;line-height:1.2}
+.wsteps small{grid-column:2;margin-top:1px;font-size:11.5px;color:var(--muted)}
+@media (prefers-reduced-motion: reduce){.wsteps li.work::before{animation:none}}
 
 /* Rules dialog */
 .dlg.wide{width:min(640px,calc(100vw - 32px))}
