@@ -26,12 +26,12 @@ jobs:
     runs-on: windows-latest
     env:
       # Compiled into the app (option_env! in src-tauri/src/updates.rs): without it the build
-      # can't update itself.
-      TELEX_UPDATER_PUBKEY: ${{ vars.TELEX_UPDATER_PUBKEY }}
+      # can't update itself. A repository variable, or a secret if it was added as one.
+      TELEX_UPDATER_PUBKEY: ${{ vars.TELEX_UPDATER_PUBKEY || secrets.TELEX_UPDATER_PUBKEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -75,7 +75,7 @@ jobs:
         shell: bash
         run: >-
           node -e "require('fs').writeFileSync('src-tauri/tauri.updater.conf.json',
-          JSON.stringify({plugins: {updater: {pubkey: process.env.TELEX_UPDATER_PUBKEY}}}))"
+          JSON.stringify({plugins: {updater: {pubkey: process.env.TELEX_UPDATER_PUBKEY.trim()}}}))"
 
       - uses: tauri-apps/tauri-action@v1
         env:

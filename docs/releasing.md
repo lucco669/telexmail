@@ -61,11 +61,16 @@ Then wait for the **Release** workflow, check the draft release on GitHub and pu
    Keep the private key and its password in a password manager and a backup: **if either is
    lost, no installed Telex can ever update again**. Everyone would have to download a new
    installer by hand once.
-3. **Give them to GitHub**, under the repository's Settings > Secrets and variables > Actions:
+3. **Give them to GitHub**, under the repository's Settings > Secrets and variables > Actions
+   (repository level, not an Environment). Copy each file's contents from Notepad (Ctrl+A,
+   Ctrl+C): copying through a pipe such as `cat … | clip` in PowerShell adds a line break, and
+   a private key with one can't be read.
    - Secrets tab, New repository secret: `TAURI_SIGNING_PRIVATE_KEY` = the whole contents of
      `telex.key`; `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` = the password.
    - Variables tab, New repository variable: `TELEX_UPDATER_PUBKEY` = the whole contents of
-     `telex.key.pub` (one line). It is public by nature; it's a variable so it isn't in the code.
+     `telex.key.pub` (one line). It is public by nature; it's kept out of the code so the
+     repository can't produce updatable builds without the private key. A secret with this
+     name works too.
 4. **Let workflows create releases.** The workflow asks for `contents: write` itself. If the run
    fails with "Resource not accessible by integration", set Settings > Actions > General >
    Workflow permissions to "Read and write permissions".

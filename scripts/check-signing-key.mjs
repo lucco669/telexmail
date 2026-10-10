@@ -17,7 +17,12 @@ import { fileURLToPath } from 'node:url';
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), '../node_modules/@tauri-apps/cli/tauri.js');
 
+// On GitHub Actions the reason also becomes an annotation, shown on the run's page without
+// opening the log.
 function fail(message) {
+  if (process.env.GITHUB_ACTIONS) {
+    console.log(`::error title=Signing key check::${message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')}`);
+  }
   console.error(message);
   process.exit(1);
 }
@@ -26,9 +31,17 @@ function fail(message) {
 const minisignLine = (text) =>
   Buffer.from(Buffer.from(text.trim(), 'base64').toString('utf8').split(/\r?\n/)[1] ?? '', 'base64');
 
+const where = 'under Settings > Secrets and variables > Actions';
 const pub = process.env.TELEX_UPDATER_PUBKEY?.trim();
-if (!pub) fail('TELEX_UPDATER_PUBKEY is empty. It is the whole contents of the .key.pub file.');
-if (!process.env.TAURI_SIGNING_PRIVATE_KEY?.trim()) fail('TAURI_SIGNING_PRIVATE_KEY is empty. It is the whole contents of the .key file.');
+if (!pub) {
+  fail(`TELEX_UPDATER_PUBKEY is empty. Add it ${where} (Variables tab, or as a secret), with the whole contents of the .key.pub file.`);
+}
+const secret = process.env.TAURI_SIGNING_PRIVATE_KEY ?? '';
+if (!secret.trim()) fail(`TAURI_SIGNING_PRIVATE_KEY is empty. Add it as a secret ${where}, with the whole contents of the .key file.`);
+// Tauri's signer can't read the key with a line break around it, which copying often adds.
+if (secret !== secret.trim()) {
+  fail(`TAURI_SIGNING_PRIVATE_KEY starts or ends with a line break or space. Update the secret ${where} with the key alone (open the .key file in Notepad, Ctrl+A, Ctrl+C).`);
+}
 const pk = minisignLine(pub); // "Ed", key id (8 bytes), Ed25519 key (32)
 if (pk.length !== 42) fail("TELEX_UPDATER_PUBKEY isn't a Tauri public key. Use the whole contents of the .key.pub file.");
 
