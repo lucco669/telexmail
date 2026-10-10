@@ -1312,7 +1312,7 @@ function openForm(v, error = '', d = null, note = ''){
   $('a-title').textContent = t('Server settings');
   $('a-go').querySelector('span').textContent = t('Connect');
   $('a-email').value = v.email ?? ''; $('a-name').value = v.name ?? '';
-  $('a-host').value = v.host ?? ''; $('a-port').value = v.port ?? 993;
+  $('a-host').value = v.host ?? ''; $('a-port').value = v.port ?? 993; $('a-isec').value = v.imap_security ?? 'tls';
   $('a-user').value = v.username && v.username !== v.email ? v.username : '';
   $('a-pass').value = v.password ?? ''; $('a-pass').placeholder = '';
   $('a-smtp').value = v.smtp_host ?? ''; $('a-sport').value = v.smtp_port || 465; $('a-sec').value = v.smtp_security ?? 'tls';
@@ -1334,6 +1334,7 @@ function editAccount(id){
   $('a-go').querySelector('span').textContent = t('Save');
   $('a-email').value = a.email; $('a-name').value = a.name;
   $('a-host').value = a.imap.host; $('a-port').value = a.imap.port; $('a-user').value = a.imap.username;
+  $('a-isec').value = a.imap.security ?? 'tls';
   $('a-smtp').value = a.smtp?.host ?? ''; $('a-sec').value = a.smtp?.security ?? 'tls';
   $('a-sport').value = a.smtp?.port ?? 465;
   $('a-pass').value = ''; $('a-pass').placeholder = t('Leave empty to keep the saved password');
@@ -1352,6 +1353,10 @@ $('a-sec').addEventListener('change', () => {
   const p = $('a-sport');
   if (['465', '587', ''].includes(p.value)) p.value = $('a-sec').value === 'starttls' ? 587 : 465;
 });
+$('a-isec').addEventListener('change', () => {
+  const p = $('a-port');
+  if (['993', '143', ''].includes(p.value)) p.value = $('a-isec').value === 'starttls' ? 143 : 993;
+});
 $('a-back').addEventListener('click', () => {
   const back = editing || ACCOUNTS.some(a => a.imap) ? 'home' : 'start';
   editing = null;
@@ -1368,10 +1373,10 @@ aForm.addEventListener('submit', async e => {
   if (go.disabled) return;
   const port = Number($('a-port').value), smtpPort = Number($('a-sport').value || 0);
   const badPort = p => !Number.isInteger(p) || p < 0 || p > 65535;
-  if (badPort(port) || !port){ aErr.textContent = t('The IMAP port is a number from 1 to 65535. For SSL/TLS it is usually 993.'); $('a-port').focus(); return; }
+  if (badPort(port) || !port){ aErr.textContent = t('The IMAP port is a number from 1 to 65535: usually 993 for SSL/TLS, 143 for STARTTLS.'); $('a-port').focus(); return; }
   if (badPort(smtpPort)){ aErr.textContent = t('The SMTP port is a number from 1 to 65535: usually 465 for SSL/TLS, 587 for STARTTLS.'); $('a-sport').focus(); return; }
   const setup = {name:$('a-name').value, email:$('a-email').value, host:$('a-host').value, port, username:$('a-user').value,
-    smtp_host:$('a-smtp').value, smtp_port:smtpPort, smtp_security:$('a-sec').value};
+    imap_security:$('a-isec').value, smtp_host:$('a-smtp').value, smtp_port:smtpPort, smtp_security:$('a-sec').value};
   const wasEditing = editing;
   aErr.textContent = '';
   go.disabled = true; label.textContent = t('Connecting…');

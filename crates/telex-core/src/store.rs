@@ -2556,6 +2556,22 @@ mod tests {
     }
 
     #[test]
+    fn imap_over_starttls_is_kept() {
+        let mut store = MailStore::in_memory().unwrap();
+        let account = store
+            .upsert_account(&AccountSetup {
+                name: "Studio".into(),
+                email: "biuro@x.pl".into(),
+                host: "mail.x.pl".into(),
+                port: 143,
+                imap_security: SmtpSecurity::StartTls,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(account.imap.unwrap().security, SmtpSecurity::StartTls);
+    }
+
+    #[test]
     fn slugs_are_safe_ids() {
         assert_eq!(slug("INBOX.Faktury 2026"), "inbox-faktury-2026");
         assert_eq!(slug("  --Wysłane--  "), "wysłane");

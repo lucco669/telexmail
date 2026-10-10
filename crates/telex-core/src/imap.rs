@@ -28,7 +28,7 @@ use tokio_rustls::TlsConnector;
 
 use crate::filters::{self, Trigger};
 use crate::mime::parse_message;
-use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId};
+use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId, SmtpSecurity};
 use crate::store::{
     slug, ChangeKind, MailStore, PendingChange, StoreError, SyncedMessage, OUTBOX_ID,
 };
@@ -219,8 +219,7 @@ pub async fn check_account(
     settings: &ImapSettings,
     password: &str,
 ) -> Result<Vec<RemoteFolder>, SyncError> {
-    let client = connect_tls(settings).await?;
-    let mut session = open_session(client, settings, password).await?;
+    let mut session = connect_and_login(settings, password).await?;
     let folders = list_folders(&mut session).await;
     logout(&mut session).await;
     folders
@@ -239,8 +238,7 @@ pub async fn sync_account(
     let Some(settings) = &account.imap else {
         return Ok(SyncReport::default());
     };
-    let client = connect_tls(settings).await?;
-    let mut session = open_session(client, settings, password).await?;
+    let mut session = connect_and_login(settings, password).await?;
     let result = sync_all(&mut session, account, store, progress).await;
     logout(&mut session).await;
     result
@@ -259,8 +257,7 @@ pub async fn push_account(
     if !lock(store)?.has_pending_changes(&account.id)? {
         return Ok(Vec::new());
     }
-    let client = connect_tls(settings).await?;
-    let mut session = open_session(client, settings, password).await?;
+    let mut session = connect_and_login(settings, password).await?;
     let result = async {
         let caps = server_caps(&mut session).await?;
         push_changes(&mut session, account, store, caps).await
@@ -554,7 +551,19 @@ pub(crate) fn tls_connector() -> TlsConnector {
     TlsConnector::from(Arc::new(config))
 }
 
-async fn connect_tls(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>, SyncError> {
+/// Connect to the server, encrypted from the first byte (SSL/TLS) or after STARTTLS, read
+/// its greeting and log in. Nothing ever goes over the network unencrypted except the
+/// greeting and the STARTTLS command itself.
+async fn connect_and_login(
+    settings: &ImapSettings,
+    password: &str,
+) -> Result<Session<TlsStream<TcpStream>>, SyncError> {
+    let client = connect(settings).await?;
+    login(client, settings, password).await
+}
+
+/// A connection with the greeting read, ready to log in.
+async fn connect(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>, SyncError> {
     let host = settings.host.as_str();
     let unreachable = |reason: String| SyncError::Connect {
         host: host.to_owned(),
@@ -577,6 +586,31 @@ async fn connect_tls(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStre
             ))
         })?
         .to_owned();
+    let starttls = settings.security == SmtpSecurity::StartTls;
+    let tcp = if starttls {
+        let mut plain = Client::new(tcp);
+        greet(&mut plain).await?;
+        match timeout(
+            COMMAND_TIMEOUT,
+            plain.run_command_and_check_ok("STARTTLS", None),
+        )
+        .await
+        {
+            Err(_) => return Err(SyncError::Timeout),
+            Ok(Err(e)) => {
+                return Err(SyncError::Tls {
+                    host: host.to_owned(),
+                    reason: tr!(
+                        "it doesn't offer STARTTLS ({e}). Try SSL/TLS on port 993",
+                        "nie obsługuje STARTTLS ({e}). Spróbuj SSL/TLS na porcie 993"
+                    ),
+                })
+            }
+            Ok(Ok(())) => plain.into_inner(),
+        }
+    } else {
+        tcp
+    };
     let tls = timeout(CONNECT_TIMEOUT, tls_connector().connect(name, tcp))
         .await
         .map_err(|_| SyncError::Timeout)?
@@ -584,7 +618,12 @@ async fn connect_tls(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStre
             host: host.to_owned(),
             reason: tls_reason(&e),
         })?;
-    Ok(Client::new(tls))
+    let mut client = Client::new(tls);
+    // After STARTTLS the server says nothing more; the greeting came before it.
+    if !starttls {
+        greet(&mut client).await?;
+    }
+    Ok(client)
 }
 
 /// Plain words for the certificate errors people actually hit.
@@ -614,22 +653,35 @@ fn connection_error(e: &impl fmt::Display) -> String {
 }
 
 /// Read the server's greeting and log in.
+#[cfg(test)]
 async fn open_session<T: ImapStream>(
     mut client: Client<T>,
     settings: &ImapSettings,
     password: &str,
 ) -> Result<Session<T>, SyncError> {
+    greet(&mut client).await?;
+    login(client, settings, password).await
+}
+
+/// Read the server's greeting.
+async fn greet<T: ImapStream>(client: &mut Client<T>) -> Result<(), SyncError> {
     match timeout(CONNECT_TIMEOUT, client.read_response()).await {
-        Err(_) => return Err(SyncError::Timeout),
-        Ok(Err(e)) => return Err(SyncError::Server(connection_error(&e))),
-        Ok(Ok(None)) => {
-            return Err(SyncError::Server(tr!(
-                "it hung up before saying hello",
-                "rozłączył się, zanim się przywitał"
-            )))
-        }
-        Ok(Ok(Some(_greeting))) => {}
+        Err(_) => Err(SyncError::Timeout),
+        Ok(Err(e)) => Err(SyncError::Server(connection_error(&e))),
+        Ok(Ok(None)) => Err(SyncError::Server(tr!(
+            "it hung up before saying hello",
+            "rozłączył się, zanim się przywitał"
+        ))),
+        Ok(Ok(Some(_greeting))) => Ok(()),
     }
+}
+
+/// Log in on a connection whose greeting was read.
+async fn login<T: ImapStream>(
+    client: Client<T>,
+    settings: &ImapSettings,
+    password: &str,
+) -> Result<Session<T>, SyncError> {
     match timeout(COMMAND_TIMEOUT, client.login(&settings.username, password)).await {
         Err(_) => Err(SyncError::Timeout),
         Ok(Ok(session)) => Ok(session),
@@ -1648,7 +1700,7 @@ mod tests {
             host: "localhost".into(),
             port: 0,
             username: "biuro@twojastudio.pl".into(),
-            security: Default::default(),
+            security: SmtpSecurity::Tls,
         }
     }
 
@@ -2219,10 +2271,9 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             host: "imap.gmail.com".into(),
             port: 993,
             username: String::new(),
-            security: Default::default(),
+            security: SmtpSecurity::Tls,
         };
-        let mut client = connect_tls(&settings).await.unwrap();
-        let greeting = client.read_response().await.unwrap();
-        assert!(greeting.is_some());
+        // Connecting reads the greeting: it fails if the server says nothing.
+        connect(&settings).await.unwrap();
     }
 }

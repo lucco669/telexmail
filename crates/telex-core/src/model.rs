@@ -331,12 +331,11 @@ impl AccountSetup {
             ));
         }
         let host = clean_host(&self.host, "IMAP")?;
-        if self.port == 0 {
-            return Err(tr!(
-                "Enter the port. For SSL/TLS it is usually 993.",
-                "Wpisz port. Dla SSL/TLS zwykle 993."
-            ));
-        }
+        let port = match (self.port, self.imap_security) {
+            (0, SmtpSecurity::Tls) => 993,
+            (0, SmtpSecurity::StartTls) => 143,
+            (p, _) => p,
+        };
         let smtp_host = if self.smtp_host.trim().is_empty() {
             host.clone()
         } else {
@@ -359,7 +358,7 @@ impl AccountSetup {
             name,
             email,
             host,
-            port: self.port,
+            port,
             username,
             imap_security: self.imap_security,
             smtp_host,
@@ -544,6 +543,15 @@ mod tests {
         starttls.smtp_host = "smtp://SMTP.x.pl".into();
         let s = starttls.cleaned().unwrap();
         assert_eq!((s.smtp_host.as_str(), s.smtp_port), ("smtp.x.pl", 587));
+
+        // No IMAP port: the usual one for the chosen security.
+        let mut no_port = setup("biuro@x.pl", "mail.x.pl");
+        no_port.port = 0;
+        assert_eq!(no_port.clone().cleaned().unwrap().port, 993);
+        no_port.imap_security = SmtpSecurity::StartTls;
+        let s = no_port.cleaned().unwrap();
+        assert_eq!(s.port, 143);
+        assert_eq!(s.imap_settings().security, SmtpSecurity::StartTls);
     }
 
     #[test]
@@ -551,9 +559,6 @@ mod tests {
         assert!(setup("biuro", "mail.x.pl").cleaned().is_err());
         assert!(setup("biuro@x.pl", "").cleaned().is_err());
         assert!(setup("biuro@x.pl", "mail.x.pl:993").cleaned().is_err());
-        let mut no_port = setup("biuro@x.pl", "mail.x.pl");
-        no_port.port = 0;
-        assert!(no_port.cleaned().is_err());
         let mut bad_smtp = setup("biuro@x.pl", "mail.x.pl");
         bad_smtp.smtp_host = "smtp.x.pl:587".into();
         assert!(bad_smtp.cleaned().is_err());

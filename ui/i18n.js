@@ -181,7 +181,7 @@ const PL = {
   'Leave empty to keep the saved password': 'Zostaw puste, żeby zachować zapisane hasło',
   'e.g. mail.{domain}': 'np. mail.{domain}',
   'Same as email': 'Jak adres e-mail',
-  'The IMAP port is a number from 1 to 65535. For SSL/TLS it is usually 993.': 'Port IMAP to liczba od 1 do 65535. Dla SSL/TLS zwykle 993.',
+  'The IMAP port is a number from 1 to 65535: usually 993 for SSL/TLS, 143 for STARTTLS.': 'Port IMAP to liczba od 1 do 65535: zwykle 993 dla SSL/TLS, 143 dla STARTTLS.',
   'The SMTP port is a number from 1 to 65535: usually 465 for SSL/TLS, 587 for STARTTLS.': 'Port SMTP to liczba od 1 do 65535: zwykle 465 dla SSL/TLS, 587 dla STARTTLS.',
   'Connecting…': 'Łączę…',
   'Saved {name}.': 'Zapisano: {name}.',
@@ -456,6 +456,11 @@ const PL = {
   'Largest messages': 'Największe wiadomości',
   'Open it in {folder}': 'Otwórz w folderze {folder}',
   'The counts cover the mail Telex has downloaded: the newest 300 messages of each folder at the first check, then everything new.': 'Liczby obejmują pocztę pobraną przez Telexa: 300 najnowszych wiadomości z każdego folderu przy pierwszym sprawdzeniu, potem wszystko, co nowe.',
+
+  // Attachments, Bcc, picking several messages, moving, conversations, older mail, undo sending
+  'IMAP security': 'Zabezpieczenia IMAP',
+  'SSL/TLS (usually port 993)': 'SSL/TLS (zwykle port 993)',
+  'STARTTLS (usually port 143)': 'STARTTLS (zwykle port 143)',
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest

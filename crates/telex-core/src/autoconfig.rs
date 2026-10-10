@@ -682,8 +682,8 @@ pub fn fetch_autoconfig(email: &str) -> Option<Detected> {
     })
 }
 
-/// Settings from a setup file in Thunderbird's format. Telex needs IMAP over SSL/TLS; for
-/// sending it takes SSL/TLS, else STARTTLS. `None` without a usable IMAP server.
+/// Settings from a setup file in Thunderbird's format. For both IMAP and sending it takes
+/// SSL/TLS, else STARTTLS; never an unencrypted server. `None` without a usable IMAP server.
 pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detected> {
     let (local, domain) = split(email)?;
     let xml = strip_comments(xml);
@@ -707,9 +707,17 @@ pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detected> {
             .filter(|s| !s.host.is_empty() && s.port != 0)
             .collect()
     };
-    let imap = servers("incomingServer", "imap")
-        .into_iter()
-        .find(|s| s.socket == "SSL")?;
+    let incoming = servers("incomingServer", "imap");
+    let (imap, imap_security) = incoming
+        .iter()
+        .find(|s| s.socket == "SSL")
+        .map(|s| (s, SmtpSecurity::Tls))
+        .or_else(|| {
+            incoming
+                .iter()
+                .find(|s| s.socket == "STARTTLS")
+                .map(|s| (s, SmtpSecurity::StartTls))
+        })?;
     let outgoing = servers("outgoingServer", "smtp");
     let smtp = outgoing
         .iter()
@@ -729,6 +737,7 @@ pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detected> {
         .unwrap_or_else(|| email.trim().to_owned());
     let mut found = setup(email, username, &imap.host, smtp);
     found.port = imap.port;
+    found.imap_security = imap_security;
     // The short name if there is one; some files put a slogan or the address in displayName.
     let provider = ["displayShortName", "displayName"]
         .iter()
@@ -1367,7 +1376,7 @@ mod tests {
     }
 
     #[test]
-    fn autoconfig_takes_starttls_for_sending_but_not_for_imap() {
+    fn autoconfig_takes_starttls_when_there_is_no_ssl() {
         let starttls_smtp = CPANEL.replace(
             "<port>465</port><socketType>SSL</socketType>",
             "<port>2525</port><socketType>plain</socketType>",
@@ -1378,12 +1387,26 @@ mod tests {
             (587, SmtpSecurity::StartTls)
         );
 
-        // IMAP only over STARTTLS: Telex can't use that yet, so the file doesn't count.
+        // IMAP only over STARTTLS: the first such server, on its port.
         let starttls_imap = CPANEL.replace(
             "<socketType>SSL</socketType>\n      <username>%EMAILLOCALPART%",
             "<socketType>STARTTLS</socketType>\n      <username>%EMAILLOCALPART%",
         );
-        assert!(parse_autoconfig(&starttls_imap, "jan@studio.pl").is_none());
+        let found = parse_autoconfig(&starttls_imap, "jan@studio.pl").unwrap();
+        assert_eq!(
+            (
+                found.setup.host.as_str(),
+                found.setup.port,
+                found.setup.imap_security
+            ),
+            ("mail.studio.pl", 143, SmtpSecurity::StartTls)
+        );
+        // Never an unencrypted one.
+        let plain_imap = starttls_imap.replace(
+            "<socketType>STARTTLS</socketType>\n      <username>%EMAIL",
+            "<socketType>plain</socketType>\n      <username>%EMAIL",
+        );
+        assert!(parse_autoconfig(&plain_imap, "jan@studio.pl").is_none());
         assert!(parse_autoconfig("<html>Not found</html>", "jan@studio.pl").is_none());
     }
 
