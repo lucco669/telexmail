@@ -1,0 +1,25 @@
+.footer { padding-bottom: 40px; }
+.inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px 48px;
+  padding-top: 40px;
+}
+.brand { display: grid; gap: 10px; }
+.brand p { color: var(--muted); font-size: 15px; }
+.nav { display: flex; flex-wrap: wrap; gap: 6px 24px; }
+.nav a { color: var(--muted); font-size: 15px; text-decoration: none; }
+.nav a:hover { color: var(--accent); }
+.fine {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 32px;
+  margin-top: 40px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-soft);
+  color: var(--faint);
+  font: 12px/1.6 var(--font-mono);
+}

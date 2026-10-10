@@ -1,0 +1,3 @@
+.logo { display: inline-flex; align-items: center; gap: 9px; }
+.mark { flex: none; }
+.word { font: 600 21px/1 var(--font-cond); letter-spacing: -0.01em; }

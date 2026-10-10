@@ -1,0 +1,10 @@
+.tape {
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--tape);
+  border-block: 1px solid var(--tape-edge);
+}
+.tape svg { flex: none; display: block; }
+.hole { fill: var(--bg); }
+.feed { fill: var(--bg); opacity: 0.9; }

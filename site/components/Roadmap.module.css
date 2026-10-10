@@ -1,0 +1,57 @@
+.section { background: var(--panel); border-block: 1px solid var(--line-soft); }
+@media (min-width: 960px) {
+  .layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 64px; align-items: start; }
+}
+.list { margin: 0; padding: 0; list-style: none; }
+.step { position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 16px; padding-bottom: 28px; }
+.step:last-child { padding-bottom: 0; }
+/* The rail between markers */
+.step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11.5px;
+  top: 28px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--line);
+}
+.step[data-status='done']:not(:last-child)::before { background: var(--accent); }
+.marker {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 1px;
+  border: 1.5px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--accent-fg);
+}
+.marker svg { width: 14px; height: 14px; }
+.step[data-status='done'] .marker { border-color: var(--accent); background: var(--accent); }
+.step[data-status='now'] .marker,
+.step[data-status='next'] .marker { border-color: var(--accent); }
+.step[data-status='now'] .marker::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.body { display: grid; gap: 4px; }
+.top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.num { color: var(--faint); font: 12px var(--font-mono); }
+.title { font-size: 21px; line-height: 1.25; letter-spacing: -0.005em; }
+.badge {
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: var(--line-soft);
+  color: var(--muted);
+  font: 500 10.5px/1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.step[data-status='done'] .badge,
+.step[data-status='now'] .badge,
+.step[data-status='next'] .badge { background: var(--accent-soft); color: var(--accent); }
+.text { color: var(--muted); font-size: 15.5px; }

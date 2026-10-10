@@ -1,0 +1,36 @@
+/* A ruled grid, like a table: hairlines between cells, no cards. */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+@media (min-width: 640px) {
+  .grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (min-width: 1024px) {
+  .grid { grid-template-columns: repeat(3, 1fr); }
+}
+.item {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 28px 0 32px;
+  border-bottom: 1px solid var(--line);
+}
+@media (min-width: 640px) {
+  .item { padding: 32px 28px 36px; }
+  .item:nth-child(2n + 1) { padding-left: 0; }
+  .item:nth-child(2n) { border-left: 1px solid var(--line); padding-right: 0; }
+}
+@media (min-width: 1024px) {
+  .item, .item:nth-child(2n), .item:nth-child(2n + 1) { padding: 36px 32px 40px; border-left: 0; }
+  .item:nth-child(3n + 1) { padding-left: 0; }
+  .item:nth-child(3n) { padding-right: 0; }
+  .item:not(:nth-child(3n + 1)) { border-left: 1px solid var(--line); }
+}
+.num { color: var(--accent); font: 500 12px/1 var(--font-mono); letter-spacing: 0.06em; }
+.title { font-size: 24px; line-height: 1.15; letter-spacing: -0.01em; }
+.text { color: var(--muted); font-size: 15.5px; line-height: 1.6; }

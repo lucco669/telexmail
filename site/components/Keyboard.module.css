@@ -1,0 +1,72 @@
+.section { background: var(--panel); border-block: 1px solid var(--line-soft); }
+.layout { display: grid; gap: 8px; }
+@media (min-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 64px; align-items: start; }
+  .head { position: sticky; top: 104px; margin-bottom: 0; }
+}
+
+/* Looks like the app's status bar */
+.readout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 15px;
+}
+.readKeys { display: inline-flex; gap: 6px; }
+.idle { color: var(--faint); font: 13px var(--font-mono); }
+.readAction { flex: 1; min-width: 0; font-weight: 500; }
+.count {
+  color: var(--faint);
+  font: 12px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Looks like the app's message list: ruled rows, the hit row selected in accent. */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.row td {
+  height: 46px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line-soft);
+  transition: background-color 0.35s, color 0.35s;
+}
+.row:last-child td { border-bottom: 0; }
+.keys { width: 168px; white-space: nowrap; }
+.combo { display: inline-flex; align-items: center; gap: 4px; }
+.or, .plus { color: var(--faint); font: 12px var(--font-mono); padding: 0 3px; }
+.action { color: var(--fg); font-size: 15px; }
+.row[data-tried] .action::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+}
+.row[data-hit] td { background: var(--accent); color: var(--accent-fg); transition: none; }
+.row[data-hit] .action::after { background: var(--accent-fg); }
+.row[data-hit] .or, .row[data-hit] .plus { color: inherit; opacity: 0.7; }
+.row[data-hit] :global(.kbd) { border-color: transparent; }
+@media (max-width: 480px) {
+  .row td { padding: 0 10px; height: 44px; }
+  .action { font-size: 14px; }
+}
+/* Phones and tablets without a keyboard: nothing to press, so no readout. */
+@media (hover: none) and (pointer: coarse) {
+  .readout { display: none; }
+}

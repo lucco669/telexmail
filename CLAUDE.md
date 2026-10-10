@@ -41,6 +41,9 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
   fonts/             IBM Plex (OFL) bundled so the app works offline.
+site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
+                     Separate npm project; see site/README.md. Its screenshots come from ui/ and
+                     sample.json via `npm run screens`; retake them after visible UI changes.
 .github/workflows/   CI: core tests on Linux, Windows installer build.
 ```
 
