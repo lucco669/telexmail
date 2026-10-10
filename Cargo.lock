@@ -4453,7 +4453,7 @@ dependencies = [
 
 [[package]]
 name = "telex"
-version = "0.2.1"
+version = "0.3.1"
 dependencies = [
  "chrono",
  "keyring",
@@ -4469,7 +4469,7 @@ dependencies = [
 
 [[package]]
 name = "telex-core"
-version = "0.2.1"
+version = "0.3.1"
 dependencies = [
  "ammonia",
  "async-imap",
