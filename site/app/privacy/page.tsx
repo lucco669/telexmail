@@ -32,8 +32,14 @@ export default function PrivacyPage() {
           <h3>What it stores on your PC</h3>
           <p>
             The messages it downloads (in full, so you can read and search them offline), your folders and your account
-            settings. All of it is in one file: <code>%APPDATA%\app.telexmail.desktop\telex.db</code>. Passwords are
-            kept apart from it, in Windows Credential Manager under “Telex”.
+            settings. All of it is in one file: <code>%APPDATA%\app.telexmail.desktop\telex.db</code>. Your choices in
+            Settings (theme, language and the like) are in <code>settings.json</code> next to it. Passwords are kept
+            apart from both, in Windows Credential Manager under “Telex”.
+          </p>
+          <p>
+            Exporting your settings writes a file wherever you choose, with your settings, rules, identities and
+            signatures, and your accounts’ server names and user names. It never holds passwords. Nothing is sent
+            anywhere: what you do with the file is up to you.
           </p>
           <h3>Who it talks to</h3>
           <p>

@@ -20,7 +20,7 @@ const outDir = join(here, '../public/screens');
 const W = 1280, H = 800, SCALE = 2;
 
 // Each scene runs after the app has booted. `ui` has small helpers, see SCENE_HELPERS.
-// `empty`: start with no account, as on first start.
+// `empty`: start with no account, as on first start. `lang`: the interface language (en by default).
 const scenes = {
   inbox: {},
   reply: { run: `ui.key('r'); await ui.wait(150);` },
@@ -35,6 +35,9 @@ const scenes = {
   },
   outbox: { run: `ui.pane(30); ui.folder('studio/outbox'); await ui.wait(100);` },
   comfortable: { run: `ui.click('#b-density'); ui.folder('home/inbox'); await ui.wait(100); ui.list.focus();` },
+  // Settings on its first tab: every theme drawn in its own colors.
+  settings: { run: `ui.click('#b-settings'); await ui.wait(150);` },
+  polish: { lang: 'pl' },
   account: {
     empty: true,
     run: `ui.fill('w-name', 'Sam Carter'); ui.fill('w-email', 'sam@lindenstudio.com'); ui.fill('w-pass', 'password');
@@ -53,7 +56,7 @@ const FRAME =
 
 // Runs in the page before app.js and stands in for Tauri, answering the way the core does.
 // It is turned into source with toString(), so it can use nothing from this file.
-function installMock({ data, scene, empty, version, frame }) {
+function installMock({ data, scene, empty, version, frame, theme, lang }) {
   // A fixed "now" keeps the list's relative dates (06:12, Fri 18:31) the same on every run.
   const RealDate = Date, NOW = new RealDate(2026, 9, 10, 9, 30).getTime();
   window.Date = class extends RealDate {
@@ -69,6 +72,8 @@ function installMock({ data, scene, empty, version, frame }) {
     date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged, has_attachments: m.attachments.length > 0,
   });
   const byId = (id) => msgs.find((m) => m.id === id);
+  const settings = { theme, language: lang, density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', check_every: 10, updates: 'off' };
+  const settingsView = () => ({ settings: { ...settings }, language: settings.language, offer: null, fresh: false });
 
   // The message list as crates/telex-core/src/list.rs answers it: one folder (or all mail
   // but Spam and Trash), sorted, filtered on headers as typed and, with `bodies`, on the text.
@@ -173,6 +178,9 @@ function installMock({ data, scene, empty, version, frame }) {
     push_changes: () => ({ errors: [], busy: false }),
     // The version number shows in the status bar; "can't update" keeps the one-time question away.
     update_info: () => ({ version, updatable: false }),
+    // settings.json, as crates/telex-core/src/settings.rs keeps it: the scene's theme and language.
+    get_settings: () => settingsView(),
+    update_settings: ({ changes }) => { Object.assign(settings, changes); return settingsView(); },
   };
   window.__TAURI__ = {
     core: { invoke: async (cmd, args = {}) => (commands[cmd] ? commands[cmd](args) ?? null : null) },
@@ -200,8 +208,8 @@ const scriptJson = (v) => JSON.stringify(v).replace(/</g, '\\u003c');
 
 function page(scene, theme) {
   const html = readFileSync(join(uiDir, 'index.html'), 'utf8');
-  const { run = '', empty = false } = scenes[scene];
-  const mock = `<script>(${installMock})(${scriptJson({ data: demo, scene, empty, version, frame: FRAME })});</script>`;
+  const { run = '', empty = false, lang = 'en' } = scenes[scene];
+  const mock = `<script>(${installMock})(${scriptJson({ data: demo, scene, empty, version, frame: FRAME, theme, lang })});</script>`;
   // The folder tree's "Add account" button is drawn with the first render, with or without
   // accounts; with accounts, the list's first page comes right after.
   const play = `<script>${SCENE_HELPERS}
@@ -212,7 +220,7 @@ function page(scene, theme) {
   document.body.dataset.ready = '1';
 })();</script>`;
   return html
-    .replace('<html lang="en">', `<html lang="en" data-theme="${theme}">`)
+    .replace('<html lang="en">', `<html lang="${lang}" data-theme="${theme}">`)
     .replace('<head>', `<head><base href="${pathToFileURL(uiDir + '/').href}">`)
     // A function as the replacement, so "$" in the inserted code is taken literally.
     .replace('<script src="app.js"></script>', () => `${mock}<script src="app.js"></script>${play}`);
@@ -288,6 +296,17 @@ for (const scene of Object.keys(scenes)) {
     writeFileSync(file, page(scene, theme));
     shoot(browser, file, join(outDir, `${scene}-${theme}.png`));
     console.log(`screens/${scene}-${theme}.png`);
+  }
+}
+// The inbox in every theme, for the accessibility page: public/screens/theme-<id>.png, at 1×
+// (they are shown small). The list is ui/themes.css's.
+if (!only.length || only.includes('themes')) {
+  const ids = [...readFileSync(join(uiDir, 'themes.css'), 'utf8').matchAll(/\[data-theme="([\w-]+)"\]\s*\{/g)].map((m) => m[1]);
+  for (const theme of ids) {
+    const file = join(work, `theme-${theme}.html`);
+    writeFileSync(file, page('inbox', theme));
+    shoot(browser, file, join(outDir, `theme-${theme}.png`), [W, H], 1);
+    console.log(`screens/theme-${theme}.png`);
   }
 }
 if (!only.length || only.includes('og')) {

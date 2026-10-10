@@ -1,8 +1,8 @@
 # Telex website
 
 The website for Telex: Next.js 16 (App Router), plain CSS with the app's color tokens, no other
-dependencies. Nine prerendered pages (home, features, keyboard, screenshots, download, roadmap,
-FAQ, about, privacy), light and dark, with a download button that finds the newest installer on
+dependencies. Ten prerendered pages (home, features, keyboard, accessibility, screenshots,
+download, roadmap, FAQ, about, privacy), light and dark, with a download button that finds the newest installer on
 its own.
 
 ```
@@ -11,6 +11,7 @@ npm run dev        # http://localhost:3000
 npm run build      # what Vercel runs
 npm run screens    # retake the screenshots from ../ui (needs Edge or Chrome)
 npm run icons      # rebuild every app and site icon from ../brand
+npm run themes     # measure the app's themes again into lib/themes.json (the accessibility page)
 ```
 
 ## Where things are
@@ -71,6 +72,10 @@ only your domain gets indexed.
   at least once a year.
 - Text colors are checked against WCAG AA (4.5:1). `--faint` is the lightest text allowed;
   don't make it lighter.
+- The accessibility page shows the app's themes as measured by `../scripts/check-contrast.mjs`
+  (`lib/themes.json`, from `npm run themes`) and one screenshot per theme
+  (`public/screens/theme-<id>.png`, from `npm run screens themes`). Redo both after a color in
+  `../ui/themes.css` changes.
 
 ## Screenshots
 

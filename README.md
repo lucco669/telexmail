@@ -15,7 +15,9 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > only check after you say yes (or click the version number). Adding an account takes a name,
 > an address and a password: Telex finds the server settings itself. The message list loads a
 > page at a time, so a mail base of 100,000 messages opens and scrolls as quickly as a small
-> one, and the quick filter looks in one folder or in all your mail.
+> one, and the quick filter looks in one folder or in all your mail. The interface speaks English
+> and Polish, comes in eight themes that all meet WCAG 2.2 AA contrast (two at AAA), and its
+> settings, rules and identities export to one file for another PC.
 
 ## Run it on Windows
 
@@ -62,12 +64,14 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 | U | toggle unread | Del / Z | delete / undo |
 | / | quick filter | Ctrl+Enter | send |
 | Tab (in the filter) | this folder / all mail | Enter | open an all-mail result in its folder |
+| Ctrl+, | settings | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text |
 
 ## Project layout
 
 - `crates/telex-core`: the mail engine in Rust, with tests (`cargo test -p telex-core`).
 - `src-tauri`: the desktop app shell that connects the engine to the window.
-- `ui`: the interface in plain HTML, CSS and JavaScript.
+- `ui`: the interface in plain HTML, CSS and JavaScript; themes in `themes.css`, English and Polish in `i18n.js`.
+- `scripts`: `check-contrast.mjs` (every theme meets WCAG 2.2) and `check-i18n.mjs` (every text has its Polish), both run in CI.
 - `docs`: [releasing](docs/releasing.md) a version, and the [storage plan](docs/storage.md).
 
 See [CLAUDE.md](CLAUDE.md) for design principles, architecture and the roadmap.

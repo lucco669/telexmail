@@ -19,8 +19,9 @@ plain sentences in your summary.
 - **Private by default.** Remote images in HTML mail are blocked until the user allows them.
   Links in spam are not clickable. Update checks happen only after the user says yes.
 - **Polish-friendly.** Old charsets (Windows-1250, ISO-8859-2) must decode correctly. Reply quote
-  header is Polish by default: `Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):`. The UI itself
-  is English for now.
+  header is Polish by default: `Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):`. The interface
+  speaks English and Polish, following the Windows display language unless the user picks one.
+- **Readable.** Every theme meets WCAG 2.2 AA contrast (high contrast: AAA), checked by a script.
 - **Plain text first.** Compose is plain text in a mono face; HTML compose may come later.
 
 Anti-goals: Electron, AI features by default, a web-app look, anything that phones home.
@@ -48,13 +49,19 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
                      the domain's autoconfig file, SRV and MX records (Windows DNS), probing.
+  src/settings.rs    Settings (settings.json next to the mail base), Windows' languages, and the
+                     settings file: export, and import as a plan (what changes) applied in parts.
   src/sample.rs      A Polish sample mailbox for the tests. Never in the app.
   tests/scale.rs     Benchmark on a synthetic 100k-message mail base (ignored; see Commands).
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
   src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
+  src/settings.rs    Settings commands; Save and Open dialogs (tauri-plugin-dialog, from Rust only).
   tauri.release.conf.json  Merged in by the release workflow: turns on the updater's files.
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
+  themes.css         Every color, one block per theme (data-theme on <html> and on theme cards).
+  i18n.js            English and Polish: t(), tn() (Polish plurals), data-i18n in index.html.
+  boot.js            Puts the saved theme, language and text size on <html> before first paint.
   fonts/             IBM Plex (OFL) bundled so the app works offline.
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
@@ -64,9 +71,12 @@ brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-smal
                      below). `npm run icons` in site/ makes every app and site icon from them.
 scripts/             set-version.mjs: sets the version in every file that has it, or checks them.
                      check-signing-key.mjs: the release key pair belongs together (release.yml).
+                     check-contrast.mjs: every theme meets its WCAG level (CI; --json for the site).
+                     check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
-.github/workflows/   ci.yml: core tests on Linux, Windows installer build (can't update itself).
+.github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Windows installer
+                     build (can't update itself).
                      release.yml: on a v* tag, signed installers + latest.json in a draft release.
 ```
 
@@ -107,6 +117,12 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `update_info`    | –                            | `{version, updatable}` (false: built without the release key) |
 | `check_update`   | –                            | `{version, notes, date}` of a newer release, or null |
 | `install_update` | –                            | `{busy}`; when it works Telex closes, updates and restarts |
+| `get_settings`   | –                            | `{settings, language, offer, fresh}` (`language`: the one on screen; `offer`: a language to offer once) |
+| `update_settings`| `changes` (only what changes) | the same; saved at once, unknown values left as they were |
+| `export_settings`| `choice` `{settings, rules, identities, servers}`, `words` | the path written, or null (cancelled); opens Save |
+| `show_export`    | –                            | – (the last exported file in Explorer) |
+| `open_import`    | `words` (dialog title, filter) | the plan, null (cancelled), or `{code, detail}` (not_json, not_telex, unreadable); opens Open |
+| `apply_import`   | `choice` `{settings, identities, rules}` | `{report, settings}`; the file is matched again first |
 
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
 user typed: threading headers, forwarded attachments, and the draft or unsent message it was
@@ -129,6 +145,14 @@ push) the UI asks for `folder_tree` and the open page again, nothing else.
 Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the bridge as local
 `YYYY-MM-DDTHH:MM:SS` strings.
 
+Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
+("auto", "en", "pl"), `density`, `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
+(moment, at_once, manual), `check_every` (minutes, 0 = only on Get mail) and `updates` (ask,
+daily, off). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
+all, even before the first account. The window keeps only its own state in localStorage
+(`telex-ui`: pane sizes, filter scope, "more" folders, the last update check; `telex-look`: a
+copy of theme, language and zoom for boot.js).
+
 ## Commands
 
 ```
@@ -142,6 +166,8 @@ cargo test -p telex-core --release --test scale -- --ignored --nocapture   # 100
 cargo clippy -p telex-core --all-targets -- -D warnings
 cargo clippy -p telex --all-targets -- -D warnings
 cargo fmt --all
+node scripts/check-contrast.mjs   # every theme meets its WCAG level (after changing a color)
+node scripts/check-i18n.mjs       # every text has its Polish (after changing a text)
 ```
 
 Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Tools with
@@ -156,7 +182,16 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   style-src, which would cancel it): the HTML mail frame inherits the app's CSP, and mail
   layout lives in inline styles. Remote mail images are fetched by the core
   (`html::fetch_images`) and passed in as data: URIs; the webview never loads them.
-- Colors are CSS tokens in `ui/styles.css` with light and dark sets. Do not hard-code colors.
+- Colors are tokens in `ui/themes.css`, set by every theme; `styles.css` only uses them. Do not
+  hard-code colors. A new token or a new place where text sits on a background goes into the
+  pairs of `scripts/check-contrast.mjs`. Text needs 4.5:1 (AAA themes 7:1), and the borders of
+  fields and buttons use `--field` (3:1), not `--line`. A new theme is a block in themes.css,
+  an id in `settings::THEMES` and in `THEMES` in app.js, and a name in i18n.js.
+- Every word on screen goes through `t()` / `tn()` (or `N_()` where it is defined), with its
+  Polish in `ui/i18n.js`; static text in index.html is marked `data-i18n`. The English is the
+  key; `|context` tells apart one English word that needs two Polish ones. The core's errors
+  are English sentences; fixed ones get a Polish line in `FROM_CORE`, new reasons should
+  cross the bridge as codes (like autoconfig's notes and the import's `skip`).
 - Keep the keyboard table below and the status-bar hints in `ui/index.html` in sync.
 - Run `cargo fmt`, clippy and the core tests before committing.
 - Status text in the UI is short and specific ("Moved to Trash. Press Z to undo.").
@@ -183,18 +218,42 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | H            | switch HTML / plain text view (remembered) |
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
+| Ctrl+,       | settings                       |
+| Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 
-## Current state (v0.2.1 and after: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, and storage phase 1)
+## Current state (v0.3.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
-  resizable panes, density toggle, light/dark theme.
+  resizable panes, density toggle, a settings window, eight themes, English and Polish.
+- Settings (`settings.rs`, a dialog with tabs Appearance, Language, Mail, Updates, Import and
+  export; toolbar button and Ctrl+,): every change is saved at once and shows at once. Themes:
+  Match Windows, Light, Dark, Paper, Heather, Fjord, Phosphor, High contrast light and dark
+  (AAA); each card in the dialog is drawn in its own colors (data-theme on the card) and shows
+  its level, read from the theme's `--wcag`. Rows, text size 90–200% (Ctrl+= / Ctrl+− /
+  Ctrl+0), how often to check mail, when a message counts as read, HTML or plain text, daily
+  update checks. Windows contrast themes (forced colors) get the system highlight for the
+  selection and pressed choices; reduced motion turns off spinners and transitions.
+- Language: "auto" takes the first of Windows' display languages Telex speaks
+  (`GetUserPreferredUILanguages`), else English. On the first start the account wizard has an
+  English | Polski switch, and when Windows is English but the region Polish
+  (`GetUserDefaultLocaleName`), a one-line nudge in Polish. Switching redraws everything live
+  (`relabel` in app.js). Polish plurals use `Intl.PluralRules`; dates and decimals follow.
+- Import and export: one JSON file (`format: telex-settings`, `version` 1) with the settings,
+  rules (account by address, move targets by folder id and name), identities (per account
+  address) and server settings, never passwords. Import reads it into a plan (`Import::read`):
+  settings that would change, each rule and identity as new, updated (same name / address),
+  unchanged or skipped with a reason code (no_account, no_folder, unreadable, invalid), and
+  accounts not set up here, whose "Set up…" opens the form filled in with a warning to check
+  the servers. The user ticks parts; `apply_import` matches again and applies. A file from a
+  newer Telex is read as far as it goes. Older versions' window preferences (density, HTML
+  view, update answer in localStorage) move into settings.json on the first start.
 - Real IMAP accounts: a wizard ("Add account" under the folder tree; opens by itself while
   there is none) asks for name, email and password, finds the servers (see below) and logs
   in to both before saving; the full settings form is behind "Set up manually", opens
   filled in when finding or logging in fails, and is where accounts are edited. SSL/TLS on port
   993 only (no STARTTLS yet), password login. Folders come from the server; special folders
   are recognized by RFC 6154 flags, then by common English/Polish names.
-- Two-way sync on start, on "Get mail" and every 10 minutes: push queued changes, download,
+- Two-way sync on start, on "Get mail" and as often as Settings › Mail says (10 minutes by default): push queued changes, download,
   push what changed meanwhile. The first sync takes the newest 300 messages per folder
   (`imap::FIRST_SYNC_LIMIT`); later syncs take everything new. Downloading uses EXAMINE and
   BODY.PEEK only. Mail deleted on the server disappears locally; flags changed elsewhere come
@@ -251,7 +310,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   iframe with `sandbox="allow-same-origin"` (no scripts can run; same-origin only lets the
   page size the frame, catch link clicks and pass keys on). Links open in the default
   browser via `open_link`; mailto: opens compose; links in Spam do nothing. H switches to
-  the plain-text body. The canvas is white in both themes.
+  the plain-text body. The canvas is white in every theme.
 - Rules (`filters.rs`, schema version 5: `rules`, `auto_replies`): name, account (or all),
   all/any conditions on From, To/Cc, Subject, Body or anywhere (contains, doesn't contain,
   is, starts with, ends with; case and diacritics ignored; addresses match by address and
@@ -295,8 +354,8 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
   can't update itself". The endpoint is set in code: `releases/latest/download/latest.json`
   of lucco669/telexmail (User-Agent "Telex", nothing else sent). The status bar shows the
   version; clicking it opens the update dialog and checks. Until answered, an updatable build
-  asks in the status bar "Check for updates once a day?"; the answer and the last check
-  are kept in the window's localStorage (`updates`, `updateChecked`). A found update shows as
+  asks in the status bar "Check for updates once a day?"; the answer is a setting (`updates`),
+  the last check is in the window's localStorage (`updateChecked`). A found update shows as
   a status-bar chip; installing saves an open compose to Drafts, waits until no check or send
   is running (it holds both busy flags), downloads with "update-progress" events, verifies,
   runs the installer and exits; the installer restarts Telex. Releases: `release.yml` on a
@@ -326,7 +385,7 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer). The repository is public and
-   v0.2.1 is released; docs/releasing.md has the process.
+   v0.3.1 is released; docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~: done, see Current state
    and the numbers in docs/storage.md. Next: "download older messages" (beyond the first 300
    per folder), then backup and restore with a movable mail base, local folders with .eml/mbox

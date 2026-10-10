@@ -16,6 +16,7 @@ pub mod list;
 pub mod mime;
 pub mod model;
 pub mod sample;
+pub mod settings;
 pub mod smtp;
 pub mod store;
 

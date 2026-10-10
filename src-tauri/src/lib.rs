@@ -2,6 +2,7 @@
 //! Keep logic out of here; put it in `crates/telex-core` where it can be tested.
 
 mod secrets;
+mod settings;
 mod updates;
 
 use std::collections::HashMap;
@@ -532,7 +533,9 @@ async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
 
 pub fn run() {
     let mut context = tauri::generate_context!();
-    let mut app = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+    let mut app = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init());
     // Release builds only: the others can't update themselves and say so.
     if let Some(updater) = updates::plugin(&mut context) {
         app = app.plugin(updater);
@@ -542,6 +545,7 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("telex.db");
+            app.manage(settings::SettingsState::load(dir.join("settings.json")));
             app.manage(AppState {
                 store: Mutex::new(open_store(&db_path)),
                 db_path,
@@ -578,6 +582,12 @@ pub fn run() {
             start_draft,
             save_identity,
             delete_identity,
+            settings::get_settings,
+            settings::update_settings,
+            settings::export_settings,
+            settings::show_export,
+            settings::open_import,
+            settings::apply_import,
             updates::update_info,
             updates::check_update,
             updates::install_update,

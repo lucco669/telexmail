@@ -22,9 +22,10 @@ ammonia = "4.2.1"
 ureq = "3.4.2"
 base64 = "0.22"
 
-# MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver.
+# MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver, and
+# Windows' display languages for the interface language.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_NetworkManagement_Dns"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_NetworkManagement_Dns"] }
 
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["rt", "macros", "io-util"] }

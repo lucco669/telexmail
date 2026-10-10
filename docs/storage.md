@@ -11,9 +11,12 @@ after v0.2.0. Phase 1 is done (after v0.2.1); the later phases are the plan, not
   body, the full raw message (attachments included), the FTS5 index, the queue of changes for
   the server (`pending_ops`), the Outbox, rules, identities and trusted senders. Created when
   the first account is added; until then the store is in memory.
-- **Not in it**: passwords (Windows Credential Manager, service "Telex"), window preferences
-  (WebView2 local storage under `%LOCALAPPDATA%\app.telexmail.desktop`), remote images (fetched
-  on request, kept in memory for the session only).
+- **Not in it**: passwords (Windows Credential Manager, service "Telex"), settings (theme,
+  language and the rest: `settings.json` in the same folder, written even before the first
+  account), window state such as pane sizes (WebView2 local storage under
+  `%LOCALAPPDATA%\app.telexmail.desktop`), remote images (fetched on request, kept in memory for
+  the session only). Settings, rules and identities also export to a file the user keeps
+  (Settings › Import and export), never with passwords.
 - **How much**: the first sync takes the newest 300 messages per folder
   (`imap::FIRST_SYNC_LIMIT`), then everything new. Mail deleted on the server is deleted
   locally; removing an account deletes its mail. No size cap, no expiry; the file never shrinks

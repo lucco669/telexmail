@@ -1,0 +1,3285 @@
+{
+  "checked": 46,
+  "themes": [
+    {
+      "id": "light",
+      "scheme": "light",
+      "level": "AA",
+      "tokens": {
+        "wcag": "AA",
+        "chrome": "#e8ebef",
+        "panel": "#f3f5f8",
+        "surface": "#ffffff",
+        "fg": "#1a1e23",
+        "muted": "#59636e",
+        "faint": "#68717d",
+        "line": "#d2d7de",
+        "line-soft": "#e9ecf0",
+        "field": "#858e99",
+        "accent": "#2453a6",
+        "accent-fg": "#ffffff",
+        "sel": "#d9e3f3",
+        "hover": "#eef2f7",
+        "flag": "#c2410c",
+        "warn-bg": "#fbf0d4",
+        "warn-fg": "#6b4a00",
+        "note-bg": "#fbe3e1",
+        "note-fg": "#8a1f17",
+        "chip-bg": "#dfe6f2",
+        "chip-fg": "#2c4a80",
+        "img-a": "#c9d7ee",
+        "img-b": "#eef2f8",
+        "acct-0": "#2453a6",
+        "acct-1": "#0e7f63",
+        "acct-2": "#b4541a",
+        "acct-3": "#7a47b5",
+        "acct-4": "#b3305a",
+        "acct-5": "#5b6b7a",
+        "scrim": "rgb(15 20 28 / .32)",
+        "shadow": "rgb(15 20 28 / .22)"
+      },
+      "minText": 4.53,
+      "minUi": 3.04,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 16.75
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 15.33
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 14.01
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 14.9
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.95
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.11
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.6
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.11
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.44
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 4.73
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 4.94
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 4.53
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.34
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.72
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.13
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.67
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.34
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 4.74
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.11
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.5
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.17
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.98
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.02
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.79
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.32
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.04
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.34
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.72
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.13
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.52
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.67
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.18
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.61
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.72
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.34
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.54
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.96
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.55
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.97
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.66
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.18
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.51
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.02
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.02
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.48
+        }
+      ]
+    },
+    {
+      "id": "dark",
+      "scheme": "dark",
+      "level": "AA",
+      "tokens": {
+        "wcag": "AA",
+        "chrome": "#1e2228",
+        "panel": "#191c21",
+        "surface": "#14171b",
+        "fg": "#e2e6eb",
+        "muted": "#9aa3ad",
+        "faint": "#858e98",
+        "line": "#2e343c",
+        "line-soft": "#22272e",
+        "field": "#6a737d",
+        "accent": "#6f9de6",
+        "accent-fg": "#0b1220",
+        "sel": "#22324d",
+        "hover": "#1d232b",
+        "flag": "#f08a4b",
+        "warn-bg": "#352b13",
+        "warn-fg": "#f0d697",
+        "note-bg": "#3a1c1c",
+        "note-fg": "#f2b6b2",
+        "chip-bg": "#26304a",
+        "chip-fg": "#b8c8e8",
+        "img-a": "#26365a",
+        "img-b": "#1a2233",
+        "acct-0": "#6f9de6",
+        "acct-1": "#4cc29f",
+        "acct-2": "#f08a4b",
+        "acct-3": "#b28be8",
+        "acct-4": "#ec7a9c",
+        "acct-5": "#9aa8b5",
+        "scrim": "rgb(0 0 0 / .5)",
+        "shadow": "rgb(0 0 0 / .5)"
+      },
+      "minText": 4.68,
+      "minUi": 3.55,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 14.34
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 13.63
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.74
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.62
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.27
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.03
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.68
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.25
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.19
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.04
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.41
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.14
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.54
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.22
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.81
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 4.68
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.81
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.87
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.81
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.89
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.37
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.77
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.09
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.44
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.73
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.55
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.54
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.22
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.81
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.76
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.68
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.23
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.36
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.17
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.22
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.54
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.75
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.15
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.87
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.23
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.3
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.64
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.37
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.7
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.03
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.4
+        }
+      ]
+    },
+    {
+      "id": "paper",
+      "scheme": "light",
+      "level": "AA",
+      "tokens": {
+        "wcag": "AA",
+        "chrome": "#e9e2d2",
+        "panel": "#f2ede1",
+        "surface": "#fbf8f1",
+        "fg": "#2a2620",
+        "muted": "#5c5347",
+        "faint": "#6b6255",
+        "line": "#d8cfbc",
+        "line-soft": "#e9e3d4",
+        "field": "#8c8170",
+        "accent": "#1d5b6c",
+        "accent-fg": "#fbf8f1",
+        "sel": "#f1e0b0",
+        "hover": "#f1eadb",
+        "flag": "#a5361b",
+        "warn-bg": "#f5e5bb",
+        "warn-fg": "#664400",
+        "note-bg": "#f5dcd3",
+        "note-fg": "#872414",
+        "chip-bg": "#dbe7e5",
+        "chip-fg": "#1b4d5a",
+        "img-a": "#d0e0dd",
+        "img-b": "#efebe0",
+        "acct-0": "#1d5b6c",
+        "acct-1": "#2f7a3a",
+        "acct-2": "#a85a14",
+        "acct-3": "#6c3f99",
+        "acct-4": "#a8304f",
+        "acct-5": "#5e5a50",
+        "scrim": "rgb(42 38 32 / .3)",
+        "shadow": "rgb(42 38 32 / .22)"
+      },
+      "minText": 5.13,
+      "minUi": 3.27,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 14.18
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.87
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.65
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.55
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.48
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.11
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.46
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.85
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.3
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.76
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.65
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.13
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.16
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.5
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.89
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.8
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.16
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.72
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.03
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.01
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.64
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.35
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.82
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.82
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.61
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.27
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.16
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.5
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.89
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.34
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.8
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.3
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.58
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.1
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.5
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.16
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.53
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.99
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.34
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.79
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.4
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.05
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.62
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.19
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.89
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.48
+        }
+      ]
+    },
+    {
+      "id": "heather",
+      "scheme": "light",
+      "level": "AA",
+      "tokens": {
+        "wcag": "AA",
+        "chrome": "#e6e2ef",
+        "panel": "#f1eef7",
+        "surface": "#fcfbfe",
+        "fg": "#221d2e",
+        "muted": "#5a5370",
+        "faint": "#6a6380",
+        "line": "#d5cfe2",
+        "line-soft": "#e9e5f1",
+        "field": "#8a83a0",
+        "accent": "#6034a6",
+        "accent-fg": "#ffffff",
+        "sel": "#e3d9f6",
+        "hover": "#efeaf7",
+        "flag": "#b0225a",
+        "warn-bg": "#f6ebd0",
+        "warn-fg": "#634500",
+        "note-bg": "#f8dee7",
+        "note-fg": "#8a1c42",
+        "chip-bg": "#e7dff6",
+        "chip-fg": "#4a2e80",
+        "img-a": "#d9cdf1",
+        "img-b": "#f2eef9",
+        "acct-0": "#6034a6",
+        "acct-1": "#1f7a5f",
+        "acct-2": "#a8561a",
+        "acct-3": "#2a5aa6",
+        "acct-4": "#b0225a",
+        "acct-5": "#5c5670",
+        "scrim": "rgb(34 29 46 / .32)",
+        "shadow": "rgb(34 29 46 / .22)"
+      },
+      "minText": 4.94,
+      "minUi": 3.14,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 15.87
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 14.27
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.85
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 13.86
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.1
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.01
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.3
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.67
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.12
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.34
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.49
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 4.94
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.02
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.21
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.49
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.11
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.27
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.68
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.44
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.14
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.76
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.17
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.22
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.49
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.14
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.02
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.21
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.49
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.11
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.32
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.52
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.82
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.21
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.02
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.57
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.08
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.57
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.08
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.89
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.55
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.68
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.32
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.06
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.74
+        }
+      ]
+    },
+    {
+      "id": "fjord",
+      "scheme": "dark",
+      "level": "AA",
+      "tokens": {
+        "wcag": "AA",
+        "chrome": "#1f2a37",
+        "panel": "#1a2430",
+        "surface": "#151e28",
+        "fg": "#e3ebf3",
+        "muted": "#a0b1c3",
+        "faint": "#8a9db1",
+        "line": "#2d3b4b",
+        "line-soft": "#223040",
+        "field": "#62758a",
+        "accent": "#6cc4dc",
+        "accent-fg": "#08161d",
+        "sel": "#1f3e52",
+        "hover": "#1d2a38",
+        "flag": "#f2a65a",
+        "warn-bg": "#3a2f17",
+        "warn-fg": "#f1d79a",
+        "note-bg": "#3d2026",
+        "note-fg": "#f4b7bf",
+        "chip-bg": "#1e3a4a",
+        "chip-fg": "#a9dcea",
+        "img-a": "#24485c",
+        "img-b": "#18303e",
+        "acct-0": "#6cc4dc",
+        "acct-1": "#7fd1a8",
+        "acct-2": "#f2a65a",
+        "acct-3": "#b9a3f0",
+        "acct-4": "#f08fb0",
+        "acct-5": "#a3b3c4",
+        "scrim": "rgb(5 10 16 / .55)",
+        "shadow": "rgb(0 0 0 / .5)"
+      },
+      "minText": 5.12,
+      "minUi": 3.31,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 13.97
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 13.03
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.08
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.11
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.33
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.67
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.15
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.63
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.64
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.12
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.04
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.63
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.47
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.89
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.31
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.65
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.25
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.75
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.34
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.63
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.91
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.02
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.54
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.22
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.55
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.31
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.47
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.89
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.31
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.34
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.65
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.31
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.2
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.55
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.89
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.47
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.65
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.28
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.75
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.31
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.14
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.66
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.92
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.42
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.32
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.85
+        }
+      ]
+    },
+    {
+      "id": "phosphor",
+      "scheme": "dark",
+      "level": "AA",
+      "tokens": {
+        "wcag": "AA",
+        "chrome": "#0f1a14",
+        "panel": "#0c150f",
+        "surface": "#08100b",
+        "fg": "#c6f5d2",
+        "muted": "#86c39a",
+        "faint": "#6fa983",
+        "line": "#1d3326",
+        "line-soft": "#14241a",
+        "field": "#3f7656",
+        "accent": "#4fe08a",
+        "accent-fg": "#04140a",
+        "sel": "#143b24",
+        "hover": "#10241a",
+        "flag": "#ffc24d",
+        "warn-bg": "#2e2a0e",
+        "warn-fg": "#f2de86",
+        "note-bg": "#3a1714",
+        "note-fg": "#ffb0a6",
+        "chip-bg": "#133322",
+        "chip-fg": "#9ff0bd",
+        "img-a": "#1a4a2e",
+        "img-b": "#0e2416",
+        "acct-0": "#4fe08a",
+        "acct-1": "#7cc8ff",
+        "acct-2": "#ffc24d",
+        "acct-3": "#d0a6ff",
+        "acct-4": "#ff9eb5",
+        "acct-5": "#a8c9b4",
+        "scrim": "rgb(0 0 0 / .6)",
+        "shadow": "rgb(0 0 0 / .6)"
+      },
+      "minText": 6.12,
+      "minUi": 3.48,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 15.97
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 15.39
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 14.76
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 13.49
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.35
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.44
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.1
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.73
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.98
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.12
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.05
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.8
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.35
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.94
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.49
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.35
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.14
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.57
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.71
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.15
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.03
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.28
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.6
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 12.22
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.61
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 3.48
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.35
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.94
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.49
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.59
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.35
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 12
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.14
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.78
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.94
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.35
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.23
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.62
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.57
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 12
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.36
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.71
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.57
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.92
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.34
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.72
+        }
+      ]
+    },
+    {
+      "id": "contrast-light",
+      "scheme": "light",
+      "level": "AAA",
+      "tokens": {
+        "wcag": "AAA",
+        "chrome": "#efefef",
+        "panel": "#ffffff",
+        "surface": "#ffffff",
+        "fg": "#000000",
+        "muted": "#2e2e2e",
+        "faint": "#454545",
+        "line": "#6e6e6e",
+        "line-soft": "#bdbdbd",
+        "field": "#4a4a4a",
+        "accent": "#0033a0",
+        "accent-fg": "#ffffff",
+        "sel": "#cfe0ff",
+        "hover": "#e8effc",
+        "flag": "#a11b00",
+        "warn-bg": "#fff0bf",
+        "warn-fg": "#3b2900",
+        "note-bg": "#ffe1dc",
+        "note-fg": "#690e04",
+        "chip-bg": "#e1e9ff",
+        "chip-fg": "#001f7a",
+        "img-a": "#c2d4f7",
+        "img-b": "#eef3fd",
+        "acct-0": "#0033a0",
+        "acct-1": "#006b3c",
+        "acct-2": "#8a3c00",
+        "acct-3": "#5b2a99",
+        "acct-4": "#9b1240",
+        "acct-5": "#3d3d3d",
+        "scrim": "rgb(0 0 0 / .45)",
+        "shadow": "rgb(0 0 0 / .3)"
+      },
+      "minText": 7.86,
+      "minUi": 5.9,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 7,
+          "ratio": 21
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 7,
+          "ratio": 21
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 7,
+          "ratio": 18.26
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 18.18
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 7,
+          "ratio": 15.76
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.58
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.58
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.81
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.76
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 7,
+          "ratio": 10.19
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 7,
+          "ratio": 9.59
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 7,
+          "ratio": 9.59
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 7,
+          "ratio": 10.6
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 7,
+          "ratio": 10.6
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 7,
+          "ratio": 9.22
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 7,
+          "ratio": 7.95
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 7,
+          "ratio": 10.6
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 7,
+          "ratio": 7.86
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.29
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 7,
+          "ratio": 10.24
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.61
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.71
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 7,
+          "ratio": 9.52
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.78
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.86
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.86
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.6
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.6
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.22
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.18
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.95
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.86
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.8
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.9
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.6
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.6
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.63
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.63
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.7
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.7
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.39
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.39
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.22
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.22
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.86
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.86
+        }
+      ]
+    },
+    {
+      "id": "contrast-dark",
+      "scheme": "dark",
+      "level": "AAA",
+      "tokens": {
+        "wcag": "AAA",
+        "chrome": "#0d0d0d",
+        "panel": "#000000",
+        "surface": "#000000",
+        "fg": "#ffffff",
+        "muted": "#e3e3e3",
+        "faint": "#c9c9c9",
+        "line": "#8c8c8c",
+        "line-soft": "#3d3d3d",
+        "field": "#a6a6a6",
+        "accent": "#8cc0ff",
+        "accent-fg": "#000000",
+        "sel": "#0a2b55",
+        "hover": "#1a1a1a",
+        "flag": "#ffb366",
+        "warn-bg": "#2b2200",
+        "warn-fg": "#ffe28c",
+        "note-bg": "#3b0a0a",
+        "note-fg": "#ffc4bf",
+        "chip-bg": "#0a2a4f",
+        "chip-fg": "#d2e5ff",
+        "img-a": "#1c3e69",
+        "img-b": "#0c1e33",
+        "acct-0": "#8cc0ff",
+        "acct-1": "#6fe3a8",
+        "acct-2": "#ffb366",
+        "acct-3": "#cfa8ff",
+        "acct-4": "#ff9ec4",
+        "acct-5": "#d0d0d0",
+        "scrim": "rgb(0 0 0 / .7)",
+        "shadow": "rgb(255 255 255 / .12)"
+      },
+      "minText": 7.45,
+      "minUi": 7.45,
+      "pairs": [
+        {
+          "fg": "fg",
+          "bg": "surface",
+          "what": "Message text, list rows",
+          "kind": "text",
+          "need": 7,
+          "ratio": 21
+        },
+        {
+          "fg": "fg",
+          "bg": "panel",
+          "what": "Folder names, dialogs",
+          "kind": "text",
+          "need": 7,
+          "ratio": 21
+        },
+        {
+          "fg": "fg",
+          "bg": "chrome",
+          "what": "Toolbar and status bar",
+          "kind": "text",
+          "need": 7,
+          "ratio": 19.44
+        },
+        {
+          "fg": "fg",
+          "bg": "hover",
+          "what": "A row under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 17.4
+        },
+        {
+          "fg": "fg",
+          "bg": "sel",
+          "what": "The selected row and folder",
+          "kind": "text",
+          "need": 7,
+          "ratio": 14.1
+        },
+        {
+          "fg": "muted",
+          "bg": "surface",
+          "what": "Dates and sizes",
+          "kind": "text",
+          "need": 7,
+          "ratio": 16.36
+        },
+        {
+          "fg": "muted",
+          "bg": "panel",
+          "what": "Labels and notes in dialogs",
+          "kind": "text",
+          "need": 7,
+          "ratio": 16.36
+        },
+        {
+          "fg": "muted",
+          "bg": "chrome",
+          "what": "Column headings, status bar",
+          "kind": "text",
+          "need": 7,
+          "ratio": 15.14
+        },
+        {
+          "fg": "muted",
+          "bg": "hover",
+          "what": "Dates under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.56
+        },
+        {
+          "fg": "muted",
+          "bg": "sel",
+          "what": "Dates in the selected row",
+          "kind": "text",
+          "need": 7,
+          "ratio": 10.98
+        },
+        {
+          "fg": "faint",
+          "bg": "surface",
+          "what": "Placeholders, image stand-ins",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.68
+        },
+        {
+          "fg": "faint",
+          "bg": "panel",
+          "what": "Account addresses, small notes",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.68
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Links in messages",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.1
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Unread counts, links in dialogs",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.1
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Sort arrows",
+          "kind": "text",
+          "need": 7,
+          "ratio": 10.27
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread count of the open folder",
+          "kind": "text",
+          "need": 7,
+          "ratio": 7.45
+        },
+        {
+          "fg": "accent-fg",
+          "bg": "accent",
+          "what": "Selected row in the focused list, main buttons",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.1
+        },
+        {
+          "fg": "flag",
+          "bg": "panel",
+          "what": "The Flagged label",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.89
+        },
+        {
+          "fg": "warn-fg",
+          "bg": "warn-bg",
+          "what": "Blocked images bar",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.4
+        },
+        {
+          "fg": "note-fg",
+          "bg": "note-bg",
+          "what": "Errors, rule notes in Spam",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.27
+        },
+        {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "Delete buttons",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.9
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "chip-bg",
+          "what": "Rule notes, tags, the update chip",
+          "kind": "text",
+          "need": 7,
+          "ratio": 11.25
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-a",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 7,
+          "ratio": 8.44
+        },
+        {
+          "fg": "chip-fg",
+          "bg": "img-b",
+          "what": "Loaded image stand-ins",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.12
+        },
+        {
+          "fg": "field",
+          "bg": "surface",
+          "what": "Field and button borders",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.63
+        },
+        {
+          "fg": "field",
+          "bg": "panel",
+          "what": "Field borders in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.63
+        },
+        {
+          "fg": "accent",
+          "bg": "surface",
+          "what": "Focus ring, unread dot",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.1
+        },
+        {
+          "fg": "accent",
+          "bg": "panel",
+          "what": "Focus ring in dialogs",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.1
+        },
+        {
+          "fg": "accent",
+          "bg": "chrome",
+          "what": "Focus ring on the toolbar",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.27
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread dot under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.2
+        },
+        {
+          "fg": "accent",
+          "bg": "sel",
+          "what": "Unread dot in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.45
+        },
+        {
+          "fg": "flag",
+          "bg": "surface",
+          "what": "Flag icon",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.89
+        },
+        {
+          "fg": "flag",
+          "bg": "hover",
+          "what": "Flag icon under the pointer",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.86
+        },
+        {
+          "fg": "flag",
+          "bg": "sel",
+          "what": "Flag icon in the selected row",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.98
+        },
+        {
+          "fg": "acct-0",
+          "bg": "panel",
+          "what": "Account 1's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.1
+        },
+        {
+          "fg": "acct-0",
+          "bg": "surface",
+          "what": "Account 1's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.1
+        },
+        {
+          "fg": "acct-1",
+          "bg": "panel",
+          "what": "Account 2's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 13.23
+        },
+        {
+          "fg": "acct-1",
+          "bg": "surface",
+          "what": "Account 2's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 13.23
+        },
+        {
+          "fg": "acct-2",
+          "bg": "panel",
+          "what": "Account 3's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.89
+        },
+        {
+          "fg": "acct-2",
+          "bg": "surface",
+          "what": "Account 3's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.89
+        },
+        {
+          "fg": "acct-3",
+          "bg": "panel",
+          "what": "Account 4's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.7
+        },
+        {
+          "fg": "acct-3",
+          "bg": "surface",
+          "what": "Account 4's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.7
+        },
+        {
+          "fg": "acct-4",
+          "bg": "panel",
+          "what": "Account 5's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.94
+        },
+        {
+          "fg": "acct-4",
+          "bg": "surface",
+          "what": "Account 5's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.94
+        },
+        {
+          "fg": "acct-5",
+          "bg": "panel",
+          "what": "Account 6's dot in the folder tree",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 13.62
+        },
+        {
+          "fg": "acct-5",
+          "bg": "surface",
+          "what": "Account 6's dot in All mail",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 13.62
+        }
+      ]
+    }
+  ]
+}

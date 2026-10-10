@@ -51,6 +51,15 @@ export const pages = {
     ogTitle: 'A closer look.',
     ogScreen: 'filter',
   },
+  accessibility: {
+    path: '/accessibility',
+    label: 'Accessibility',
+    title: 'Accessibility: eight themes, all WCAG 2.2',
+    description:
+      'Eight themes, each measured against WCAG 2.2: AA contrast everywhere, AAA in high contrast. Text up to 200%, keyboard access, English and Polish.',
+    ogTitle: 'Readable in every theme.',
+    ogScreen: 'settings',
+  },
   download: {
     path: '/download',
     label: 'Download',
@@ -98,12 +107,12 @@ export const pages = {
   },
 } satisfies Record<string, PageInfo>;
 
-export const nav: PageInfo[] = [pages.features, pages.keyboard, pages.screenshots, pages.roadmap, pages.faq];
+export const nav: PageInfo[] = [pages.features, pages.keyboard, pages.accessibility, pages.screenshots, pages.roadmap, pages.faq];
 
 export type FooterLink = { path: string; label: string };
 
 export const footerGroups: { title: string; items: FooterLink[] }[] = [
-  { title: 'Product', items: [pages.features, pages.keyboard, pages.screenshots, pages.download] },
+  { title: 'Product', items: [pages.features, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
   { title: 'Project', items: [pages.roadmap, pages.faq, pages.about] },
   { title: 'Legal', items: [pages.privacy, { path: '/privacy#cookies', label: 'Cookies' }] },
 ];

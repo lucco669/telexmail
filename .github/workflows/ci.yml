@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   core:
-    name: Core tests
+    name: Core tests and UI checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -20,6 +20,9 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+      # Every theme meets its WCAG 2.2 contrast level, and every text has its Polish.
+      - run: node scripts/check-contrast.mjs
+      - run: node scripts/check-i18n.mjs
       - run: cargo fmt --all -- --check
       - run: cargo clippy -p telex-core --all-targets -- -D warnings
       - run: cargo test -p telex-core

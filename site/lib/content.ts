@@ -24,12 +24,12 @@ export const features = [
     text: 'A Rust core in the WebView2 window that Windows already has. No Electron, no bundled browser, a small installer.',
   },
   {
-    title: 'Fluent in Polish mail',
-    text: 'Old charsets like Windows-1250 and ISO-8859-2 decode correctly, search ignores diacritics, and replies quote the Polish way: “Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):”.',
+    title: 'Fluent in Polish',
+    text: 'The whole interface speaks Polish as well as English, picked from Windows. Old charsets like Windows-1250 decode correctly, search ignores diacritics, and replies quote the Polish way: “Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):”.',
   },
 ];
 
-export const facts = ['Rust core', 'WebView2', 'SQLite + FTS5', 'IMAP + SMTP over TLS', 'No Electron', 'No telemetry'];
+export const facts = ['Rust core', 'WebView2', 'SQLite + FTS5', 'IMAP + SMTP over TLS', 'WCAG 2.2 AA', 'No Electron', 'No telemetry'];
 
 /** The features page: one row per area, each with a screenshot. */
 export type FeatureRow = { id: string; screen: string; title: string; text: string; points: string[]; soon?: boolean };
@@ -143,6 +143,19 @@ export const featureRows: FeatureRow[] = [
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
     ],
   },
+  {
+    id: 'settings',
+    screen: 'settings',
+    title: 'Your colors, your language',
+    text: 'Eight themes, from plain light to a green phosphor screen, each measured against WCAG 2.2. The interface speaks English and Polish. Settings save as you change them, and travel to another PC in one file.',
+    points: [
+      'Every theme meets AA contrast; the two high-contrast ones meet AAA',
+      'English or Polish, as in Windows or as you pick',
+      'Text from 90% to 200% with Ctrl+= and Ctrl+−',
+      'Export settings, rules, identities and servers to a file, never passwords',
+      'Import shows what would change, part by part, before anything does',
+    ],
+  },
 ];
 
 /** Honest gaps, shown on the features page. */
@@ -157,7 +170,7 @@ export const notYet = [
 // `match` lists the KeyboardEvent combinations that light the row up in the keyboard table.
 export type Shortcut = {
   id: string;
-  group: 'Move' | 'Write' | 'Organize' | 'Find';
+  group: 'Move' | 'Write' | 'Organize' | 'Find' | 'View';
   keys: string[][];
   action: string;
   match: { key: string; shift?: boolean; ctrl?: boolean }[];
@@ -179,6 +192,9 @@ export const shortcuts: Shortcut[] = [
   { id: 'filter', group: 'Find', keys: [['/']], action: 'Quick filter', match: [{ key: '/' }] },
   { id: 'view', group: 'Find', keys: [['H']], action: 'HTML / plain text view', match: [{ key: 'h' }] },
   { id: 'esc', group: 'Find', keys: [['Esc']], action: 'Clear filter · save draft and close', match: [{ key: 'Escape' }] },
+  { id: 'settings', group: 'View', keys: [['Ctrl', ',']], action: 'Settings', match: [{ key: ',', ctrl: true }] },
+  { id: 'larger', group: 'View', keys: [['Ctrl', '='], ['Ctrl', '−']], action: 'Larger / smaller text', match: [{ key: '=', ctrl: true }, { key: '+', ctrl: true }, { key: '-', ctrl: true }] },
+  { id: 'normal', group: 'View', keys: [['Ctrl', '0']], action: 'Normal text size', match: [{ key: '0', ctrl: true }] },
 ];
 
 export const keyboardTips = [
@@ -260,6 +276,18 @@ export const screens: Screen[] = [
     caption: 'Mail that couldn’t go out waits in the Outbox with the reason. “Sent” means your server accepted it.',
   },
   {
+    id: 'settings',
+    label: 'Themes',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Settings: eight themes, each card drawn in its own colors. Every one meets WCAG 2.2 AA contrast.',
+  },
+  {
+    id: 'polish',
+    label: 'Polski',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'The same window in Polish. Telex follows the Windows display language, or the one you pick.',
+  },
+  {
     id: 'comfortable',
     label: 'Comfortable',
     title: 'Inbox · sam@carterfamily.net – Telex',
@@ -313,6 +341,12 @@ export const roadmap: Step[] = [
     notYet: 'A code-signed installer, so Windows SmartScreen stops warning.',
   },
   {
+    title: 'Settings, themes and Polish',
+    text: 'A settings window, eight themes that all meet WCAG 2.2 AA contrast (two at AAA), text up to 200%, the whole interface in Polish, and settings, rules and identities exported to one file and imported with a preview.',
+    status: 'done',
+    notYet: 'More languages, and messages from the mail engine in Polish.',
+  },
+  {
     title: 'Archive and backup',
     text: 'Folders kept only on your PC, automatic backups you can restore, export and import as .eml or mbox, and POP3 accounts. Big mailboxes stay as fast as small ones.',
     status: 'later',
@@ -360,7 +394,11 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Where is my mail kept?',
-        a: 'In one file on your disk: %APPDATA%\\app.telexmail.desktop\\telex.db. Passwords are stored separately, in Windows Credential Manager.',
+        a: 'In one file on your disk: %APPDATA%\\app.telexmail.desktop\\telex.db. Your settings sit next to it in settings.json. Passwords are stored separately, in Windows Credential Manager.',
+      },
+      {
+        q: 'Can I move Telex to another PC?',
+        a: 'Yes. Settings › Import and export saves your settings, rules, identities and signatures, and your accounts’ server settings to one file. It never holds passwords. Importing it shows what would change, part by part, before anything does; accounts that aren’t set up yet open the setup form filled in, so you only type the password.',
       },
       {
         q: 'Can I search without an internet connection?',
@@ -384,6 +422,10 @@ export const faqGroups: { title: string; items: Question[] }[] = [
         a: 'Click the version number at the right end of the status bar. Telex asks GitHub for the newest version and, with your click, installs it and restarts. On first start it also asks whether to check once a day by itself. Installing a newer version over the old one works too; your mail and settings stay.',
       },
       {
+        q: 'Is Telex available in Polish?',
+        a: 'Yes. The interface speaks English and Polish and follows the Windows display language; if Windows is in English but set to Poland, Telex offers Polish on first start. You can switch any time in Settings › Language.',
+      },
+      {
         q: 'Is there a Mac or Linux version?',
         a: 'No. Telex is made for Windows first.',
       },
@@ -405,6 +447,7 @@ export const ticker = [
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
   'IMAP SYNC, SMTP SENDING, SAFE HTML MAIL AND RULES WORK TODAY',
   'NEXT: GMAIL AND OUTLOOK.COM SIGN-IN',
+  'EIGHT THEMES, ALL WCAG 2.2. ENGLISH AND POLISH.',
   'TRY: R = REPLY, F = FLAG, / = FILTER',
   'NNNN',
 ];
