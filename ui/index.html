@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Telex</title>
+  <link rel="stylesheet" href="fonts.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="win" id="win" data-density="compact">
+
+  <div class="toolbar" role="toolbar" aria-label="Mail actions">
+    <select id="folder-select" aria-label="Folder"></select>
+    <button class="tb key" id="b-get" type="button" title="Check all accounts for new mail"></button>
+    <span class="sep"></span>
+    <button class="tb" id="b-new" type="button" title="New message (N)"></button>
+    <button class="tb" id="b-reply" type="button" title="Reply (R)"></button>
+    <button class="tb" id="b-replyall" type="button" title="Reply to all (Shift+R)"></button>
+    <button class="tb" id="b-forward" type="button" title="Forward (Shift+F)"></button>
+    <span class="sep"></span>
+    <button class="tb" id="b-flag" type="button" title="Flag or unflag (F)"></button>
+    <button class="tb" id="b-delete" type="button" title="Move to Trash (Del)"></button>
+    <span class="sep"></span>
+    <button class="tb" id="b-density" type="button" title="Switch row density"></button>
+    <label class="search" for="q">
+      <span id="search-ic" aria-hidden="true"></span>
+      <input id="q" type="search" placeholder="Quick filter" autocomplete="off" spellcheck="false">
+      <kbd>/</kbd>
+    </label>
+  </div>
+
+  <div class="main">
+    <nav class="tree" id="tree" aria-label="Accounts and folders"></nav>
+    <div class="split split-v" id="split-v" role="separator" aria-orientation="vertical" aria-label="Resize folder pane" tabindex="0"></div>
+    <div class="right" id="right">
+      <div class="list" id="list" tabindex="0" aria-label="Messages">
+        <table>
+          <thead><tr>
+            <th class="c-ic" scope="col"><button type="button" data-sort="flag" aria-label="Sort by status">
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg><span class="arr"></span></button></th>
+            <th class="c-from" scope="col"><button type="button" data-sort="from"><span id="from-label">From</span><span class="arr"></span></button></th>
+            <th class="c-subj" scope="col"><button type="button" data-sort="subj">Subject<span class="arr"></span></button></th>
+            <th class="c-date" scope="col"><button type="button" data-sort="date">Received<span class="arr"></span></button></th>
+            <th class="c-size" scope="col"><button type="button" data-sort="size">Size<span class="arr"></span></button></th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="split split-h" id="split-h" role="separator" aria-orientation="horizontal" aria-label="Resize message list" tabindex="0"></div>
+      <section class="preview" id="preview" aria-label="Message" aria-live="polite"></section>
+    </div>
+  </div>
+
+  <footer class="status">
+    <span id="st-folder"></span>
+    <span id="st-msg"></span>
+    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>R</kbd> reply</span><span><kbd>F</kbd> flag</span><span class="more"><kbd>U</kbd> unread</span><span class="more"><kbd>Del</kbd> delete</span></span>
+    <span class="chip" title="Real accounts are not connected yet">Sample mailbox</span>
+    <span id="st-check"></span>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

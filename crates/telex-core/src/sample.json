@@ -1,0 +1,607 @@
+{
+  "accounts": [
+    {
+      "id": "firma",
+      "name": "Studio",
+      "email": "biuro@twojastudio.pl",
+      "folders": [
+        {
+          "id": "inbox",
+          "name": "Inbox",
+          "kind": "inbox"
+        },
+        {
+          "id": "drafts",
+          "name": "Drafts",
+          "kind": "drafts"
+        },
+        {
+          "id": "sent",
+          "name": "Sent",
+          "kind": "sent"
+        },
+        {
+          "id": "klienci",
+          "name": "Klienci",
+          "kind": "custom"
+        },
+        {
+          "id": "faktury",
+          "name": "Faktury",
+          "kind": "custom"
+        },
+        {
+          "id": "archive",
+          "name": "Archive",
+          "kind": "archive"
+        },
+        {
+          "id": "spam",
+          "name": "Spam",
+          "kind": "spam"
+        },
+        {
+          "id": "trash",
+          "name": "Trash",
+          "kind": "trash"
+        }
+      ]
+    },
+    {
+      "id": "gmail",
+      "name": "Gmail",
+      "email": "twoje.imie@gmail.com",
+      "folders": [
+        {
+          "id": "inbox",
+          "name": "Inbox",
+          "kind": "inbox"
+        },
+        {
+          "id": "drafts",
+          "name": "Drafts",
+          "kind": "drafts"
+        },
+        {
+          "id": "sent",
+          "name": "Sent",
+          "kind": "sent"
+        },
+        {
+          "id": "archive",
+          "name": "Archive",
+          "kind": "archive"
+        },
+        {
+          "id": "spam",
+          "name": "Spam",
+          "kind": "spam"
+        },
+        {
+          "id": "trash",
+          "name": "Trash",
+          "kind": "trash"
+        }
+      ]
+    }
+  ],
+  "messages": [
+    {
+      "folder": "firma/inbox",
+      "from_name": "Anna Kowalska",
+      "from_email": "anna@kowalska-architekci.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "Jan Kowalski <jan@kowalska-architekci.pl>",
+      "subject": "Poprawki do strony głównej – lista",
+      "date": "2026-10-10T06:12:00",
+      "size_kb": 14,
+      "unread": true,
+      "flagged": true,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dzień dobry,\n\nprzesyłam listę poprawek po wczorajszym spotkaniu:\n\n1. Zdjęcie w nagłówku – prosimy o jaśniejszą wersję.\n2. W stopce brakuje numeru NIP.\n3. Formularz kontaktowy: dodać zgodę RODO.\n4. Galeria realizacji – sortowanie od najnowszych.\n\nCzy dałoby się to wdrożyć do środy?\n\nPozdrawiam\nAnna Kowalska\nKowalska Architekci"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "GitHub",
+      "from_email": "notifications@github.com",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "[studio/klinika-lapa] Fix image sizes on mobile (PR #42)",
+      "date": "2026-10-10T05:48:00",
+      "size_kb": 9,
+      "unread": true,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "marta-zajac requested your review on this pull request.\n\nFix image sizes on mobile (#42)\n3 files changed: Hero.astro, global.css, astro.config.mjs\n\nView it on GitHub:\nhttps://github.com/studio/klinika-lapa/pull/42"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Piotr Nowak",
+      "from_email": "piotr@nowak-meble.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Re: Wycena sklepu internetowego",
+      "date": "2026-10-09T18:31:00",
+      "size_kb": 252,
+      "unread": true,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "Wycena_sklep_v2_uwagi.pdf",
+          "size_kb": 238
+        }
+      ],
+      "body": "Dzień dobry,\n\ndziękuję za wycenę. Mamy dwa pytania:\n– czy integracja z hurtownią jest wliczona w wariant B?\n– ile realnie trwa wdrożenie, jeśli zaczniemy w listopadzie?\n\nNasze uwagi naniosłem w załączonym PDF.\n\nPiotr Nowak\nNowak Meble\n\n> W załączniku wycena sklepu w dwóch wariantach.\n> Wariant B obejmuje integrację z systemem magazynowym\n> oraz migrację produktów ze starego sklepu.\n>\n> Pozdrawiam"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Marta Zając",
+      "from_email": "marta@zajac.design",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Makiety v3 – klinika weterynaryjna",
+      "date": "2026-10-09T16:05:00",
+      "size_kb": 31,
+      "unread": false,
+      "flagged": true,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Hej,\n\nwrzuciłam trzecią wersję makiet do Figmy. Zmiany:\n– karta lekarza jest teraz bardziej zwarta,\n– dodałam widok cennika na telefonie,\n– przycisk „Umów wizytę” jest przyklejony do dołu ekranu.\n\nDaj znać do piątku, czy idziemy w tę stronę.\n\nMarta"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Biuro Rachunkowe Saldo",
+      "from_email": "dokumenty@saldo-biuro.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Dokumenty za wrzesień – przypomnienie",
+      "date": "2026-10-09T09:14:00",
+      "size_kb": 6,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dzień dobry,\n\nprzypominamy o przesłaniu faktur kosztowych za wrzesień do 15 października.\n\nPozdrawiamy\nBiuro Rachunkowe Saldo"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Tomasz Wiśniewski",
+      "from_email": "tomek.wisniewski@poczta.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Pytanie o domenę .pl",
+      "date": "2026-10-08T21:40:00",
+      "size_kb": 4,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dobry wieczór,\n\nczy jest Pan w stanie przenieść naszą domenę do innego rejestratora? Obecny podnosi cenę odnowienia o 40%, a strona i poczta muszą działać bez przerwy.\n\nTomasz Wiśniewski"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Tygodnik Frontendowy",
+      "from_email": "newsletter@tygodnikfrontend.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "#312: View Transitions w praktyce, nowości w CSS",
+      "date": "2026-10-08T07:00:00",
+      "size_kb": 88,
+      "unread": false,
+      "flagged": false,
+      "remote_images": true,
+      "note": null,
+      "attachments": [],
+      "body": "[img:Nagłówek newslettera]\nW tym numerze:\n\n1. View Transitions między podstronami – praktyczny przewodnik\n2. Container queries w prawdziwym projekcie\n3. Jak odchudzić obrazy na stronach statycznych o 60%\n\n[img:Grafika do artykułu 1]\nMiłej lektury!\nRedakcja"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Panel hostingu",
+      "from_email": "powiadomienia@panelhosting.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Certyfikat SSL odnowiony: twojastudio.pl",
+      "date": "2026-10-07T03:12:00",
+      "size_kb": 5,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Certyfikat SSL dla domeny twojastudio.pl został odnowiony automatycznie.\n\nWażny do: 05.01.2027\nNie musisz nic robić."
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Jakub Zieliński",
+      "from_email": "jakub@zielinski-dev.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Spotkanie w poniedziałek 10:00?",
+      "date": "2026-10-06T14:22:00",
+      "size_kb": 3,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Cześć,\n\npasuje Ci poniedziałek o 10:00? Chciałbym omówić podział pracy przy sklepie dla Nowaka.\n\nKuba"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Ewa Lewandowska",
+      "from_email": "ewa@klinika-lapa.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Teksty na podstronę O nas",
+      "date": "2026-10-02T11:05:00",
+      "size_kb": 46,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "O-nas_teksty.docx",
+          "size_kb": 41
+        }
+      ],
+      "body": "Dzień dobry,\n\nw załączniku teksty na podstronę „O nas” oraz krótkie opisy lekarzy. Zdjęcia zespołu doślemy w przyszłym tygodniu.\n\nEwa Lewandowska\nKlinika Weterynaryjna Łapa"
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Sanity",
+      "from_email": "noreply@sanity.io",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Your usage summary for September",
+      "date": "2026-10-01T08:00:00",
+      "size_kb": 12,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Here is your usage summary for September.\n\nDocuments: 1 284\nAPI requests: 212k\nBandwidth: 3.1 GB\n\nAll projects are within plan limits."
+    },
+    {
+      "folder": "firma/inbox",
+      "from_name": "Kurier Szybki",
+      "from_email": "info@kurierszybki.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Paczka doręczona",
+      "date": "2026-09-28T13:47:00",
+      "size_kb": 7,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Twoja paczka nr 6300 4812 7720 została doręczona.\n\nDziękujemy za skorzystanie z naszych usług."
+    },
+    {
+      "folder": "firma/klienci",
+      "from_name": "Anna Kowalska",
+      "from_email": "anna@kowalska-architekci.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Akceptacja projektu graficznego",
+      "date": "2026-09-21T10:12:00",
+      "size_kb": 5,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dzień dobry,\n\nakceptujemy projekt graficzny w wersji 2. Prosimy o rozpoczęcie wdrożenia.\n\nAnna Kowalska"
+    },
+    {
+      "folder": "firma/klienci",
+      "from_name": "Piotr Nowak",
+      "from_email": "piotr@nowak-meble.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Zapytanie o sklep internetowy",
+      "date": "2026-09-15T08:47:00",
+      "size_kb": 7,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dzień dobry,\n\nszukamy wykonawcy nowego sklepu z meblami na wymiar. Mamy około 400 produktów. Czy możemy umówić się na rozmowę?\n\nPiotr Nowak"
+    },
+    {
+      "folder": "firma/klienci",
+      "from_name": "Ewa Lewandowska",
+      "from_email": "ewa@klinika-lapa.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Strona dla kliniki – brief",
+      "date": "2026-09-03T13:30:00",
+      "size_kb": 118,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "Brief_klinika.pdf",
+          "size_kb": 104
+        }
+      ],
+      "body": "Dzień dobry,\n\nw załączniku brief strony. Najważniejsze są dla nas rejestracja wizyt online i czytelny cennik.\n\nEwa"
+    },
+    {
+      "folder": "firma/faktury",
+      "from_name": "Panel hostingu",
+      "from_email": "faktury@panelhosting.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Faktura VAT FV/2026/10/0381",
+      "date": "2026-10-01T06:00:00",
+      "size_kb": 64,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "FV_2026_10_0381.pdf",
+          "size_kb": 52
+        }
+      ],
+      "body": "W załączniku faktura za hosting na październik 2026."
+    },
+    {
+      "folder": "firma/faktury",
+      "from_name": "Biuro Rachunkowe Saldo",
+      "from_email": "dokumenty@saldo-biuro.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Faktura za usługi księgowe – wrzesień",
+      "date": "2026-09-30T15:20:00",
+      "size_kb": 58,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "FV_09_2026_Saldo.pdf",
+          "size_kb": 47
+        }
+      ],
+      "body": "W załączniku faktura za usługi księgowe za wrzesień."
+    },
+    {
+      "folder": "firma/drafts",
+      "from_name": "Studio",
+      "from_email": "biuro@twojastudio.pl",
+      "to": "Ewa Lewandowska <ewa@klinika-lapa.pl>",
+      "cc": "",
+      "subject": "Oferta – rejestracja wizyt online",
+      "date": "2026-10-09T22:41:00",
+      "size_kb": 2,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dzień dobry,\n\nprzesyłam propozycję modułu rejestracji wizyt online. Zakres:\n– kalendarz dostępności lekarzy,\n– potwierdzenia SMS i e-mail,\n\n[dokończyć]"
+    },
+    {
+      "folder": "firma/sent",
+      "from_name": "Studio",
+      "from_email": "biuro@twojastudio.pl",
+      "to": "Piotr Nowak <piotr@nowak-meble.pl>",
+      "cc": "",
+      "subject": "Wycena sklepu internetowego",
+      "date": "2026-10-08T17:02:00",
+      "size_kb": 241,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "Wycena_sklep.pdf",
+          "size_kb": 230
+        }
+      ],
+      "body": "Dzień dobry,\n\nw załączniku wycena sklepu w dwóch wariantach.\nWariant B obejmuje integrację z systemem magazynowym\noraz migrację produktów ze starego sklepu.\n\nPozdrawiam"
+    },
+    {
+      "folder": "firma/sent",
+      "from_name": "Studio",
+      "from_email": "biuro@twojastudio.pl",
+      "to": "Anna Kowalska <anna@kowalska-architekci.pl>",
+      "cc": "",
+      "subject": "Re: Spotkanie w sprawie strony",
+      "date": "2026-10-07T12:15:00",
+      "size_kb": 4,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dzień dobry,\n\npotwierdzam piątek, 9 października, godz. 15:00.\n\nPozdrawiam"
+    },
+    {
+      "folder": "firma/spam",
+      "from_name": "SEO Mistrz",
+      "from_email": "oferta@seo-mistrz24.biz",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "TOP 1 w Google w 7 dni!!! Gwarancja",
+      "date": "2026-10-09T03:33:00",
+      "size_kb": 22,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": "Moved to Spam by your filter “Obietnice TOP 1”.",
+      "attachments": [],
+      "body": "Szanowni Państwo,\n\nPaństwa strona może być na pierwszym miejscu w Google już za tydzień. Gwarantujemy wyniki albo zwrot pieniędzy!!!"
+    },
+    {
+      "folder": "firma/spam",
+      "from_name": "Administrator poczty",
+      "from_email": "admin@mailbox-verify.top",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Twoja skrzynka jest prawie pełna",
+      "date": "2026-10-05T02:10:00",
+      "size_kb": 9,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": "Marked as spam: the sender failed SPF and DKIM checks. Links are disabled.",
+      "attachments": [],
+      "body": "Twoja skrzynka osiągnęła 98% pojemności. Zweryfikuj konto, aby uniknąć blokady."
+    },
+    {
+      "folder": "gmail/inbox",
+      "from_name": "Kasia Mazur",
+      "from_email": "kasia.mazur@gmail.com",
+      "to": "twoje.imie@gmail.com",
+      "cc": "",
+      "subject": "Rowery w niedzielę?",
+      "date": "2026-10-10T05:55:00",
+      "size_kb": 3,
+      "unread": true,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Hej!\n\nPrognoza na niedzielę wygląda dobrze. Jedziemy o 9:00 spod dworca? Trasa ok. 50 km, po drodze kawa.\n\nK."
+    },
+    {
+      "folder": "gmail/inbox",
+      "from_name": "Linie Bałtyckie",
+      "from_email": "odprawa@liniebaltyckie.pl",
+      "to": "twoje.imie@gmail.com",
+      "cc": "",
+      "subject": "Karta pokładowa: WAW → BCN, 24.10",
+      "date": "2026-10-09T20:12:00",
+      "size_kb": 96,
+      "unread": true,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "Karta_pokladowa_WAW_BCN.pdf",
+          "size_kb": 84
+        }
+      ],
+      "body": "Odprawa zakończona.\n\nLot: LB 2417\nWylot: 24.10.2026, 06:45, Warszawa\nPrzylot: 24.10.2026, 10:05, Barcelona\nMiejsce: 14C\n\nKartę pokładową znajdziesz w załączniku."
+    },
+    {
+      "folder": "gmail/inbox",
+      "from_name": "Sklep Rowerowy Szprycha",
+      "from_email": "sklep@szprycha.pl",
+      "to": "twoje.imie@gmail.com",
+      "cc": "",
+      "subject": "Zamówienie #10482 zostało wysłane",
+      "date": "2026-10-08T12:30:00",
+      "size_kb": 18,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Twoje zamówienie zostało przekazane kurierowi.\n\n– Dętka 28\" × 2\n– Lampka tylna USB\n\nNumer przesyłki: 6300 5521 0934"
+    },
+    {
+      "folder": "gmail/inbox",
+      "from_name": "Biblioteka Miejska",
+      "from_email": "wypozyczenia@biblioteka-miejska.pl",
+      "to": "twoje.imie@gmail.com",
+      "cc": "",
+      "subject": "Termin zwrotu: 3 książki",
+      "date": "2026-10-06T09:00:00",
+      "size_kb": 6,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Przypominamy, że termin zwrotu 3 wypożyczonych książek mija 13.10.2026. Wypożyczenie możesz przedłużyć w katalogu online."
+    },
+    {
+      "folder": "gmail/inbox",
+      "from_name": "Siłownia Atlas",
+      "from_email": "recepcja@atlasgym.pl",
+      "to": "twoje.imie@gmail.com",
+      "cc": "",
+      "subject": "Nowy grafik zajęć od 12.10",
+      "date": "2026-10-03T18:45:00",
+      "size_kb": 41,
+      "unread": false,
+      "flagged": false,
+      "remote_images": true,
+      "note": null,
+      "attachments": [],
+      "body": "[img:Grafik zajęć]\nOd poniedziałku 12.10 zmieniamy grafik zajęć grupowych. Szczegóły w recepcji i w aplikacji."
+    },
+    {
+      "folder": "gmail/sent",
+      "from_name": "Gmail",
+      "from_email": "twoje.imie@gmail.com",
+      "to": "Kasia Mazur <kasia.mazur@gmail.com>",
+      "cc": "",
+      "subject": "Re: Zdjęcia z wycieczki",
+      "date": "2026-10-04T21:10:00",
+      "size_kb": 3,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Dzięki! Super wyszły."
+    },
+    {
+      "folder": "gmail/spam",
+      "from_name": "Nagrody Online",
+      "from_email": "win@nagrody-online.click",
+      "to": "twoje.imie@gmail.com",
+      "cc": "",
+      "subject": "Odbierz swoją nagrodę – zostało 24h",
+      "date": "2026-10-07T04:02:00",
+      "size_kb": 15,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": "Marked as spam: the sender is on your block list.",
+      "attachments": [],
+      "body": "Gratulacje! Zostałeś wybrany. Odbierz nagrodę w ciągu 24 godzin."
+    }
+  ],
+  "incoming": [
+    {
+      "folder": "firma/inbox",
+      "from_name": "Anna Kowalska",
+      "from_email": "anna@kowalska-architekci.pl",
+      "to": "biuro@twojastudio.pl",
+      "cc": "",
+      "subject": "Re: Poprawki do strony głównej – jeszcze jedno",
+      "date": "2026-10-10T06:40:00",
+      "size_kb": 3,
+      "unread": true,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "I jeszcze jedno: czy możemy dodać mapę dojazdu na stronie kontaktu?\n\nAnna"
+    }
+  ]
+}

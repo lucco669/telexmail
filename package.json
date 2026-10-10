@@ -1,0 +1,15 @@
+{
+  "name": "telexmail",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Telex: a compact, keyboard-driven email client for Windows, built with Rust and Tauri",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "test": "cargo test -p telex-core",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1"
+  }
+}
