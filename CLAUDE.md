@@ -28,25 +28,39 @@ Anti-goals: Electron, AI features by default, a web-app look, anything that phon
 ## Layout of the repo
 
 ```
-crates/telex-core/   All mail logic. Models, MailStore, sample mailbox. Unit-tested. No UI, no Tauri.
+crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
+  src/store.rs       MailStore: the local mail base in SQLite (+ FTS5). Same API for sample and real mail.
+  src/schema.sql     Database schema. Bump SCHEMA_VERSION in store.rs when it changes.
+  src/imap.rs        Read-only IMAP sync (async-imap + rustls), folder mapping. Tests use a fake server.
+  src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
+  src/sample.rs      Built-in sample mailbox, shown until the first real account is added.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
+  src/secrets.rs     Passwords in Windows Credential Manager (keyring crate), service "Telex".
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
   fonts/             IBM Plex (OFL) bundled so the app works offline.
 .github/workflows/   CI: core tests on Linux, Windows installer build.
 ```
 
+The mail base is `%APPDATA%\app.telexmail.desktop\telex.db`. It is created when the first account
+is added; until then the app shows the sample mailbox (in memory, never saved).
+
 Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailStore`:
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `snapshot`       | –                            | accounts + all summaries    |
+| `snapshot`       | –                            | accounts + all summaries + `sample` flag |
 | `get_message`    | `id`                         | full message with body      |
-| `set_unread`     | `id`, `unread`               | –                           |
-| `set_flagged`    | `id`, `flagged`              | –                           |
-| `move_message`   | `id`, `folder`               | – (same account only)       |
-| `delete_message` | `id`                         | `moved_to_trash` / `removed`|
+| `set_unread`     | `id`, `unread`               | – (local only for server mail) |
+| `set_flagged`    | `id`, `flagged`              | – (local only for server mail) |
+| `move_message`   | `id`, `folder`               | – (same account only; refused for server mail) |
+| `delete_message` | `id`                         | `moved_to_trash` / `removed` (refused for server mail) |
 | `save_outgoing`  | `draft`, `send`              | new message id              |
-| `check_mail`     | –                            | ids of new messages         |
+| `search`         | `query`                      | ids matching subject, people or body (FTS5) |
+| `add_account`    | `setup`, `password`          | the account (logs in first; same address = update) |
+| `remove_account` | `id`                         | – (local copies and saved password only) |
+| `check_mail`     | –                            | `{new: [ids], errors: ["Account: reason"]}` |
+
+`check_mail` emits `sync-progress` events (`{account, folder, done, total}`) while it downloads.
 
 Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the bridge as local
 `YYYY-MM-DDTHH:MM:SS` strings.
@@ -58,6 +72,7 @@ npm install                  # once: installs the Tauri CLI
 npm run dev                  # run the app with live reload of ui/
 npm run build                # release build + installers in target/release/bundle/
 cargo test -p telex-core     # core tests (run these after every core change)
+cargo test -p telex-core -- --ignored   # also checks TLS against a real server (needs internet)
 cargo clippy -p telex-core --all-targets -- -D warnings
 cargo fmt --all
 ```
@@ -94,20 +109,30 @@ Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Too
 | Esc          | clear filter; in compose: save draft and close |
 | Ctrl+Enter   | send (compose)                 |
 
-## Current state (v0.1.0)
+## Current state (v0.1.0 + roadmap step 1)
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, light/dark theme.
-- Data is a built-in sample mailbox (`crates/telex-core/src/sample.json`), two accounts.
-- "Get mail" delivers one sample message. "Send" only files the message in Sent.
-- Nothing is persisted between runs except UI layout (localStorage).
+- Real IMAP accounts, read-only: account dialog ("Add account" under the folder tree), SSL/TLS
+  on port 993 only (no STARTTLS yet), password login. Folders come from the server; special
+  folders are recognized by RFC 6154 flags, then by common English/Polish names.
+- Sync: on start, on "Get mail" and every 10 minutes. The first sync takes the newest 300
+  messages per folder (`imap::FIRST_SYNC_LIMIT`); later syncs take everything new. Mail deleted
+  on the server disappears locally; a UIDVALIDITY change re-downloads the folder.
+- Server mail can't be moved or deleted (`StoreError::ReadOnly`). Read state and flags change
+  only the local copy; the server's flags are read once, at download.
+- Quick filter matches headers as you type and bodies through FTS5 (diacritics-insensitive).
+- Mail is stored in full (`messages.raw`), so HTML view and attachments can come later
+  without downloading again. The UI still shows the plain-text body.
+- Before an account is added: the built-in sample mailbox. "Get mail" delivers one sample
+  message there. "Send" only files the message in Sent, for every account.
 
 ## Roadmap
 
-1. **Real mail, read-only.** One IMAP account with password login (own domain first).
-   `async-imap` + `rustls`, `mail-parser` for MIME and charsets, credentials in Windows
-   Credential Manager (`keyring` crate). Store in SQLite (`rusqlite`) with FTS5 search.
-   Keep the `MailStore` API so the UI barely changes. Add an account setup dialog.
+1. ~~**Real mail, read-only.**~~ Done; see Current state. Not yet: STARTTLS, a way to
+   download messages older than the first 300, IMAP IDLE (push).
+1b. **Write back.** Read state, flags, moves and deletes reach the server (UID STORE,
+   UID MOVE or COPY + EXPUNGE). Filters (step 4) need this to move mail.
 2. **Sending.** SMTP via `lettre`, outbox with retry, Sent copy via IMAP APPEND.
 3. **HTML mail.** Render in a sandboxed iframe (`srcdoc`, no scripts), remote content blocked
    until allowed per message or per sender.

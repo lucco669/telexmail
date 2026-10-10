@@ -56,10 +56,31 @@
     <span id="st-folder"></span>
     <span id="st-msg"></span>
     <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>R</kbd> reply</span><span><kbd>F</kbd> flag</span><span class="more"><kbd>U</kbd> unread</span><span class="more"><kbd>Del</kbd> delete</span></span>
-    <span class="chip" title="Real accounts are not connected yet">Sample mailbox</span>
+    <button class="chip" id="st-sample" type="button" title="This is sample mail. Click to add your own account." hidden>Sample mailbox</button>
     <span id="st-check"></span>
   </footer>
 </div>
+
+<dialog class="dlg" id="acct-dlg" aria-labelledby="acct-title">
+  <form id="acct-form" novalidate>
+    <h2 class="dtitle" id="acct-title">Add a mail account</h2>
+    <div class="cf df">
+      <label for="a-email">Email</label><input id="a-email" type="email" autocomplete="off" spellcheck="false">
+      <label for="a-host">IMAP server</label>
+      <div class="hostrow"><input id="a-host" placeholder="mail.example.com" autocomplete="off" spellcheck="false"><label for="a-port">Port</label><input id="a-port" type="number" min="1" max="65535" value="993"></div>
+      <label for="a-user">User name</label><input id="a-user" placeholder="Same as email" autocomplete="off" spellcheck="false">
+      <label for="a-pass">Password</label><input id="a-pass" type="password" autocomplete="off">
+      <label for="a-name">Name</label><input id="a-name" placeholder="Shown in the folder list" autocomplete="off">
+    </div>
+    <p class="dnote">Telex connects over SSL/TLS and only reads: nothing on the server changes. The first check downloads the newest 300 messages of each folder. Your password is kept in Windows Credential Manager.</p>
+    <p class="derr" id="a-err" role="alert"></p>
+    <div class="cbar">
+      <button class="btn primary" type="submit" id="a-go"><span>Connect</span> <kbd>Enter</kbd></button>
+      <button class="btn" type="button" id="a-cancel">Cancel <kbd>Esc</kbd></button>
+    </div>
+    <div class="dlist" id="a-list"></div>
+  </form>
+</dialog>
 <script src="app.js"></script>
 </body>
 </html>

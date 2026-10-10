@@ -5,8 +5,9 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 
 ![Telex main window](docs/screenshot.png)
 
-> **Status: early prototype.** The window, keyboard navigation and compose work, but the data is a
-> built-in sample mailbox. Real IMAP accounts are the next milestone. Nothing is sent anywhere.
+> **Status: early prototype.** Telex reads real mail over IMAP (SSL/TLS, password login) into a
+> local, searchable mail base, but it doesn't change anything on the server yet and can't send:
+> "Send" only files the message in Sent. Until you add an account it shows a sample mailbox.
 
 ## Run it on Windows
 

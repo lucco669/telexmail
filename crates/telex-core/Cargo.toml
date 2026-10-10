@@ -1,6 +1,6 @@
 [package]
 name = "telex-core"
-description = "Mail engine for Telex: accounts, folders, messages and (later) IMAP/SMTP sync."
+description = "Mail engine for Telex: accounts, folders, messages, SQLite mail base and IMAP sync."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,3 +10,13 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
+rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
+mail-parser = "0.11.9"
+async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
+tokio = { version = "1.53.2", features = ["net", "time"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }
+webpki-roots = "1.0.9"
+futures-util = "0.3.34"
+
+[dev-dependencies]
+tokio = { version = "1.53.2", features = ["rt", "macros", "io-util"] }

@@ -27,11 +27,13 @@ const I = {
   archive: sv('<rect x="2" y="3" width="12" height="3" rx=".6"/><path d="M3 6v7h10V6M6.5 8.5h3"/>'),
   spam: sv('<circle cx="8" cy="8" r="5.5"/><path d="M4.2 11.8l7.6-7.6"/>'),
   mail: sv('<rect x="1.5" y="3" width="13" height="10" rx="1.2"/><path d="M2 4l6 5 6-5"/>'),
+  plus: sv('<path d="M8 3v10M3 8h10"/>'),
 };
 const KIND_ICON = {inbox:'inbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
 
 /* ---------- data (filled from Rust) ---------- */
 let ACCOUNTS = [], ACCT = {}, MSGS = [];
+let SAMPLE = true; // showing the built-in sample mailbox, not the user's mail
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -47,6 +49,11 @@ const fromSummary = s => ({
 });
 async function load(){
   const snap = await invoke('snapshot');
+  if (snap.sample !== SAMPLE){
+    // Switched between the sample and the real mail base: ids now mean other messages.
+    bodies.clear(); state.sel = {}; state.images.clear(); state.lastDeleted = null; state.hits = new Set();
+  }
+  SAMPLE = snap.sample;
   ACCOUNTS = snap.accounts;
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   MSGS = snap.messages.map(fromSummary);
@@ -88,6 +95,7 @@ const folderName = key => folderOf(key)?.name ?? key;
 const kindOf = key => folderOf(key)?.kind;
 const isOut = key => kindOf(key) === 'sent' || kindOf(key) === 'drafts';
 const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.kind === kind); return f ? acct + '/' + f.id : null; };
+const homeOf = acct => keyOfKind(acct, 'inbox') || (ACCT[acct]?.folders[0] ? acct + '/' + ACCT[acct].folders[0].id : '');
 const inFolder = key => MSGS.filter(m => m.f === key);
 const unreadIn = key => MSGS.filter(m => m.f === key && m.unread).length;
 const store = {
@@ -98,7 +106,7 @@ const store = {
 /* ---------- state ---------- */
 const saved = store.get();
 const state = {
-  folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'',
+  folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', hits:new Set(),
   collapsed:{}, compose:null, images:new Set(), lastDeleted:null,
   density: saved.density === 'comfortable' ? 'comfortable' : 'compact',
 };
@@ -132,6 +140,7 @@ function renderStatus(){
   const all = inFolder(state.folder), n = unreadIn(state.folder);
   $('st-folder').textContent = `${folderName(state.folder)} · ${all.length} ${all.length === 1 ? 'message' : 'messages'}${n ? `, ${n} unread` : ''}`;
   $('st-check').textContent = lastCheck ? 'Last check ' + hm(lastCheck) : '';
+  $('st-sample').hidden = !SAMPLE;
   const title = `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex`;
   if (title !== lastTitle){
     lastTitle = title;
@@ -152,7 +161,7 @@ function renderTree(){
       return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(f.name)}</span>${cnt}</button></li>`;
     }).join('') + '</ul>' : '';
     return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}">${I.caret}<span class="acct-name">${esc(a.name)}</span><span class="acct-mail">${esc(a.email)}</span></button>${items}`;
-  }).join('');
+  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${SAMPLE ? 'Add your account' : 'Add account'}</span></button>`;
   $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + a.folders.map(f => {
     const key = a.id + '/' + f.id, n = unreadIn(key);
     return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(f.name)}${n ? ` (${n})` : ''}</option>`;
@@ -160,13 +169,14 @@ function renderTree(){
 }
 treeEl.addEventListener('click', e => {
   const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]');
-  if (f) setFolder(f.dataset.folder);
+  if (e.target.closest('[data-act="add-account"]')) openAccountDialog();
+  else if (f) setFolder(f.dataset.folder);
   else if (a){ state.collapsed[a.dataset.acct] = !state.collapsed[a.dataset.acct]; renderTree(); }
 });
 $('folder-select').addEventListener('change', e => setFolder(e.target.value));
 
 function setFolder(key){
-  state.folder = key; state.q = ''; qEl.value = '';
+  state.folder = key; state.q = ''; qEl.value = ''; state.hits = new Set();
   const v = visible();
   if (!v.some(m => m.id === state.sel[key])) state.sel[key] = v[0]?.id;
   renderAll();
@@ -175,8 +185,9 @@ function setFolder(key){
 /* ---------- list ---------- */
 function visible(){
   const q = state.q.trim().toLowerCase();
+  // Header fields match as you type; bodies match through the core's full-text search (state.hits).
   const arr = MSGS.filter(m => m.f === state.folder &&
-    (!q || [m.from, m.email, m.subj, m.to].join(' ').toLowerCase().includes(q)));
+    (!q || state.hits.has(m.id) || [m.from, m.email, m.subj, m.to].join(' ').toLowerCase().includes(q)));
   const {key, dir} = state.sort, out = isOut(state.folder);
   const who = m => (out ? nameOf(m.to) : m.from || '').toLowerCase();
   const val = m => key === 'date' ? +m.date : key === 'size' ? m.kb
@@ -419,24 +430,48 @@ async function undo(){
   if (state.folder === d.from) state.sel[state.folder] = d.m.id;
   renderAll(); say('Restored to ' + folderName(d.from) + '.');
 }
-async function getMail(){
+// quiet: a background check, which speaks up only for new mail or errors.
+// first: the download right after adding an account.
+let checkAgain = null; // asked for while a check was running; runs when it ends
+async function getMail({quiet = false, first = false} = {}){
   const b = $('b-get');
-  if (b.classList.contains('busy')) return;
-  b.classList.add('busy'); say(`Checking ${ACCOUNTS.length} accounts…`, 0);
+  if (b.classList.contains('busy')){ if (first || !quiet) checkAgain = {quiet, first}; return; }
+  b.classList.add('busy');
+  const n = SAMPLE ? ACCOUNTS.length : ACCOUNTS.filter(a => a.imap).length;
+  if (!quiet) say(`Checking ${n} ${n === 1 ? 'account' : 'accounts'}…`, 0);
   try {
-    const ids = await call('check_mail');
+    const r = await invoke('check_mail');
     lastCheck = new Date();
     await load();
     renderAll();
-    if (ids.length){
-      const first = MSGS.find(m => m.id === ids[0]);
-      const where = first ? `${ACCT[acctId(first.f)].name} › ${folderName(first.f)}` : '';
-      say(`${ids.length} new ${ids.length === 1 ? 'message' : 'messages'}${where ? ' in ' + where : ''}.`);
-    } else say('No new messages.');
-  } catch {} finally { b.classList.remove('busy'); }
+    const ids = r.new, count = `${ids.length} ${first ? '' : 'new '}${ids.length === 1 ? 'message' : 'messages'}`;
+    let text = '';
+    if (first) text = `${count} downloaded.`;
+    else if (ids.length){
+      const m = MSGS.find(x => x.id === ids[ids.length - 1]);
+      const where = m ? `${ACCT[acctId(m.f)].name} › ${folderName(m.f)}` : '';
+      text = `${count}${where ? ' in ' + where : ''}.`;
+    } else if (!quiet) text = 'No new messages.';
+    if (r.errors.length) text = [r.errors.join(' · '), text].filter(Boolean).join(' · ');
+    say(text, r.errors.length ? 15000 : 6000);
+  } catch (e){ if (!quiet) say(String(e), 8000); }
+  finally {
+    b.classList.remove('busy');
+    if (checkAgain){ const next = checkAgain; checkAgain = null; getMail(next); }
+  }
 }
 
-$('b-get').addEventListener('click', getMail);
+// Progress while a folder downloads; each finished folder shows up right away.
+let reloadTimer;
+window.__TAURI__?.event?.listen('sync-progress', ({payload: p}) => {
+  say(`${p.account} › ${p.folder}: ${p.done} of ${p.total}`, 0);
+  if (p.done === p.total){
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(() => load().then(renderAll).catch(() => {}), 200);
+  }
+});
+
+$('b-get').addEventListener('click', () => getMail());
 $('b-new').addEventListener('click', () => openCompose('new'));
 $('b-reply').addEventListener('click', () => openCompose('reply'));
 $('b-replyall').addEventListener('click', () => openCompose('replyall'));
@@ -444,15 +479,90 @@ $('b-forward').addEventListener('click', () => openCompose('forward'));
 $('b-flag').addEventListener('click', toggleFlag);
 $('b-delete').addEventListener('click', del);
 $('b-density').addEventListener('click', () => { state.density = state.density === 'compact' ? 'comfortable' : 'compact'; paintDensity(); persist(); });
-qEl.addEventListener('input', () => { state.q = qEl.value; renderList(); });
+// The filter matches headers at once, then message bodies when the full-text search answers.
+let searchTimer, searchSeq = 0;
+qEl.addEventListener('input', () => {
+  state.q = qEl.value;
+  renderList();
+  clearTimeout(searchTimer);
+  const q = state.q.trim();
+  if (!q){ state.hits = new Set(); return; }
+  searchTimer = setTimeout(async () => {
+    const seq = ++searchSeq;
+    let ids;
+    try { ids = await invoke('search', {query:q}); } catch { return; }
+    if (seq !== searchSeq || state.q.trim() !== q) return;
+    state.hits = new Set(ids);
+    renderList();
+  }, 150);
+});
+
+/* ---------- account dialog ---------- */
+const dlg = $('acct-dlg'), aForm = $('acct-form'), aErr = $('a-err');
+function openAccountDialog(){
+  aForm.reset();
+  aErr.textContent = '';
+  $('a-host').placeholder = 'mail.example.com';
+  $('a-user').placeholder = 'Same as email';
+  renderAccountList();
+  dlg.showModal();
+  $('a-email').focus();
+}
+function renderAccountList(){
+  const real = ACCOUNTS.filter(a => a.imap);
+  $('a-list').innerHTML = real.length ? '<h3>Connected</h3>' + real.map(a => {
+    const where = `${a.email} · ${a.imap.host}`;
+    return `<div class="dacct"><span class="nm">${esc(a.name)}</span><span class="em" title="${esc(where)}">${esc(where)}</span><button type="button" class="btn danger" data-remove="${esc(a.id)}">Remove</button></div>`;
+  }).join('') + '<p class="dnote">To change a password or server, add the same address again.</p>' : '';
+}
+$('a-email').addEventListener('input', () => {
+  const email = $('a-email').value.trim(), domain = email.split('@')[1] || '';
+  $('a-host').placeholder = domain.includes('.') ? 'e.g. mail.' + domain : 'mail.example.com';
+  $('a-user').placeholder = email || 'Same as email';
+});
+$('st-sample').addEventListener('click', openAccountDialog);
+$('a-cancel').addEventListener('click', () => dlg.close());
+dlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
+aForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const go = $('a-go'), label = go.querySelector('span');
+  if (go.disabled) return;
+  const port = Number($('a-port').value);
+  if (!Number.isInteger(port) || port < 1 || port > 65535){ aErr.textContent = 'The port is a number from 1 to 65535. For SSL/TLS it is usually 993.'; $('a-port').focus(); return; }
+  const setup = {name:$('a-name').value, email:$('a-email').value, host:$('a-host').value, port, username:$('a-user').value};
+  aErr.textContent = '';
+  go.disabled = true; label.textContent = 'Connecting…';
+  let account;
+  try { account = await invoke('add_account', {setup, password:$('a-pass').value}); }
+  catch (err){ aErr.textContent = String(err); return; }
+  finally { go.disabled = false; label.textContent = 'Connect'; }
+  aForm.reset();
+  dlg.close();
+  await load();
+  setFolder(homeOf(account.id));
+  say(`Connected to ${account.email}. Downloading mail…`, 0);
+  getMail({first:true});
+});
+$('a-list').addEventListener('click', async e => {
+  const b = e.target.closest('[data-remove]');
+  if (!b) return;
+  if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = 'Remove it and its local mail'; return; }
+  try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ aErr.textContent = String(err); return; }
+  await load();
+  if (!ACCT[acctId(state.folder)]) setFolder(homeOf(ACCOUNTS[0]?.id)); else renderAll();
+  renderAccountList();
+  say('Account removed from Telex. The mail on the server is untouched.');
+  if (SAMPLE) dlg.close();
+});
 
 /* ---------- keyboard ---------- */
 document.addEventListener('keydown', e => {
+  if (dlg.open) return; // the dialog handles its own Enter and Esc
   const t = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
   if (e.key === 'Escape'){
     if (state.compose){ e.preventDefault(); closeCompose(false).then(ok => ok && say('Saved to Drafts.')); return; }
-    if (t === qEl){ qEl.value = ''; state.q = ''; renderList(); listEl.focus(); return; }
+    if (t === qEl){ qEl.value = ''; state.q = ''; state.hits = new Set(); renderList(); listEl.focus(); return; }
   }
   if (t.closest && (t.closest('input, textarea, select') || t.closest('.split'))) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -499,7 +609,11 @@ splitter($('split-h'),
   });
 
 /* ---------- boot ---------- */
-function renderAll(){ renderTree(); renderList(); if (!state.compose) renderPreview(); renderStatus(); }
+function renderAll(){
+  if (!folderOf(state.folder)) state.folder = homeOf(ACCOUNTS[0]?.id); // folder deleted on the server
+  if (!current()) state.sel[state.folder] = visible()[0]?.id; // e.g. mail just arrived in an empty folder
+  renderTree(); renderList(); if (!state.compose) renderPreview(); renderStatus();
+}
 async function boot(){
   paintDensity();
   if (!invoke){
@@ -507,11 +621,13 @@ async function boot(){
     return;
   }
   try { await load(); } catch (e){ previewEl.innerHTML = `<div class="pempty">Couldn’t load mail: ${esc(String(e))}</div>`; return; }
-  const first = ACCOUNTS[0];
-  state.folder = keyOfKind(first.id, 'inbox') || first.id + '/' + first.folders[0].id;
+  state.folder = homeOf(ACCOUNTS[0]?.id);
   state.sel[state.folder] = visible()[0]?.id;
   renderAll();
   listEl.focus({preventScroll:true});
+  // Real accounts: check now and every 10 minutes, quietly.
+  if (!SAMPLE) getMail({quiet:true});
+  setInterval(() => { if (!SAMPLE) getMail({quiet:true}); }, 10 * 60e3);
 }
 boot();
 })();
