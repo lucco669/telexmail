@@ -838,6 +838,26 @@ const PL = {
   'Bring in': 'Przenieś',
   'Moved in from {program}.': 'Przeniesiono z programu {program}.',
   'Bring them all, with their mail': 'Przenieś je wszystkie razem z pocztą',
+
+  // Spelling
+  'No suggestions': 'Brak podpowiedzi',
+  'the next spelling mistake, with suggestions; or right-click it': 'następny błąd pisowni z podpowiedziami; albo kliknij go prawym przyciskiem',
+  'Add “{word}” to the dictionary': 'Dodaj „{word}” do słownika',
+  'Ignore|spelling': 'Pomiń',
+  '“{word}” is in your dictionary now.': '„{word}” jest teraz w Twoim słowniku.',
+  'No spelling mistakes here.': 'Nie ma tu błędów pisowni.',
+  '{language} spelling isn’t on this PC yet: Settings › Writing can fetch it.': 'Słownika ({language}) nie ma jeszcze na tym komputerze: Ustawienia › Pisanie mogą go pobrać.',
+  'Spelling languages': 'Języki sprawdzania pisowni',
+  'Automatic|languages': 'Automatycznie',
+  'Looking for dictionaries…': 'Szukam słowników…',
+  'fetched by Telex': 'pobrany przez Telex',
+  'This PC has no spelling dictionaries yet.': 'Na tym komputerze nie ma jeszcze słowników.',
+  'Chosen by themselves from the languages of Windows and of Telex. Tick the ones you write in.': 'Wybrane same według języków Windows i Telexa. Zaznacz te, w których piszesz.',
+  'Dictionary to download': 'Słownik do pobrania',
+  'Downloading…': 'Pobieram…',
+  'For a language Windows has no dictionary for: LibreOffice’s, fetched from GitHub only when you click, and checked before use. Nothing about you is sent.': 'Dla języka, którego słownika Windows nie ma: słownik LibreOffice, pobierany z GitHuba tylko po kliknięciu i sprawdzany przed użyciem. Nic o Tobie nie jest wysyłane.',
+  '{language} spelling is on this PC now.': 'Słownik ({language}) jest już na tym komputerze.',
+  'Right-click an underlined word, or press F7 for the next one: suggestions, Add to dictionary, Ignore.': 'Kliknij podkreślone słowo prawym przyciskiem albo naciśnij F7, by przejść do następnego: podpowiedzi, Dodaj do słownika, Pomiń.',
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest

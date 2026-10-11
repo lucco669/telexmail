@@ -105,6 +105,8 @@ function installTelexDemo(options) {
       'To tylko demo: nie zapisuje ani nie czyta plików. Pobierz Telex, aby robić kopie zapasowe własnej poczty.'],
     mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
       'To tylko demo: nie zapisuje ani nie czyta plików z pocztą. Pobierz Telex, aby zapisywać foldery jako mbox i wczytywać pocztę z plików.'],
+    spell: ['This is a demo: it doesn’t download dictionaries. Download Telex to check your spelling.',
+      'To tylko demo: nie pobiera słowników. Pobierz Telex, aby sprawdzać pisownię.'],
     move: ['This is a demo: it doesn’t look for other mail programs or read their files. Download Telex to bring your mail from Thunderbird or Outlook.',
       'To tylko demo: nie szuka innych programów pocztowych ani nie czyta ich plików. Pobierz Telex, aby przenieść pocztę z Thunderbirda albo Outlooka.'],
     update: ['This is a demo: it doesn’t update itself. Download the newest Telex instead.',
@@ -1323,6 +1325,13 @@ function installTelexDemo(options) {
     find_programs: () => [],
     open_source: () => refuse('move'),
     move_in: () => refuse('move'),
+    // Spelling: the demo has no dictionaries, so nothing is underlined.
+    spell_languages: () => ({ languages: [], chosen: [], auto: true, downloads: [] }),
+    spell_check: () => [],
+    spell_suggest: () => [],
+    spell_add: () => null,
+    spell_download: () => refuse('spell'),
+    spell_remove: () => refuse('spell'),
   };
   const asText = (e) => (typeof e === 'string' ? e : String(e?.message ?? e));
   // Like Tauri's invoke: arguments and answers cross as JSON; a failure is the core's sentence.

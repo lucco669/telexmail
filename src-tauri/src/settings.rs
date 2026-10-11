@@ -66,6 +66,11 @@ impl SettingsState {
         Ok(lock(&self.settings)?.clone())
     }
 
+    /// Windows' languages and regional format, as read at start.
+    pub fn locale(&self) -> &SystemLocale {
+        &self.locale
+    }
+
     /// The settings now, for the rest of the shell (the defaults if the lock broke).
     pub fn get(&self) -> Settings {
         self.current().unwrap_or_default()

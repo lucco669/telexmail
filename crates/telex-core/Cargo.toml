@@ -26,11 +26,17 @@ base64 = "0.22"
 # has this cfb for file types).
 outlook-pst = "1.2.0"
 cfb = "0.14.0"
+# Spelling with Hunspell dictionaries (LibreOffice's, the system's), read in Rust, and the
+# SHA-256 a fetched dictionary must match (ring is here for TLS already).
+spellbook = "0.4.2"
+ring = "0.17"
 
 # MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver;
 # Windows' display languages for the interface language; Outlook's accounts in the registry.
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_NetworkManagement_Dns", "Win32_System_Registry"] }
+# Windows' own spell checker, a COM object (the same windows crate WebView2 brings in).
+windows = { version = "0.62.2", features = ["Win32_Globalization", "Win32_System_Com"] }
 
 # MX and SRV lookups elsewhere (Linux, macOS): a DNS client in Rust that reads the system's DNS
 # servers from /etc/resolv.conf. Plain DNS only, no DNS over TLS or HTTPS.

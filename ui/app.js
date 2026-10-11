@@ -1967,7 +1967,7 @@ const FORMATS = [['bold', '<b>B</b>', N_('Bold (Ctrl+B)')], ['italic', '<i>I</i>
   ['strikeThrough', '<s>S</s>', N_('Strikethrough')], ['insertUnorderedList', I.ul, N_('Bulleted list')], ['insertOrderedList', I.ol, N_('Numbered list')],
   ['quote', I.quote, N_('Quote')], ['link', I.link, N_('Link (Ctrl+K)')], ['removeFormat', I.clear, N_('Clear formatting')]];
 function renderCompose(){
-  const c = state.compose, html = c.html != null, spell = String(pref().spell_check);
+  const c = state.compose, html = c.html != null;
   const title = {new:t('New message'), reply:t('Reply|compose title'), replyall:t('Reply to all|compose title'), forward:t('Forward|compose title'), edit:t('Edit|compose title')}[c.kind];
   const note = composeNote(c);
   const bcc = !!c.bcc || c.showBcc;
@@ -1978,14 +1978,14 @@ function renderCompose(){
   <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">
   <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" title="${esc(t('Blind copy: they get it, the others don’t see them'))}">${esc(t('Bcc'))}</button>`}</div>
   ${bcc ? `<label for="c-bcc">${esc(t('Bcc'))}</label><input id="c-bcc" value="${esc(c.bcc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">` : ''}
-  <label for="c-subj">${esc(t('Subject'))}</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="${spell}">
+  <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
 </div>
 <div id="c-attbox">${attsHtml(c.attachments, true)}</div>
 ${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
     `<button type="button" class="fb" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">${label}</button>`).join('')}<span class="flink" hidden><input id="c-url" type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>
-<div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="${spell}"></div>`
-  : `<textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="${spell}">
-${esc(c.body)}</textarea>`}
+<div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
+  : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
+${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>`}
 <div class="cbar">
   <button class="btn primary" type="submit"><span>${esc(t('Send'))}</span> <kbd>Ctrl+Enter</kbd></button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
@@ -2004,6 +2004,7 @@ ${esc(c.body)}</textarea>`}
   if (html){ body.innerHTML = c.html; wireEditor(body); }
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else focusStart(body);
+  wireSpelling();
 }
 /* ---------- recipient suggestions ---------- */
 // People come from the mail base (recipients): those written to first, then those who write
@@ -2198,6 +2199,192 @@ function wireEditor(ed){
     catch { document.execCommand('insertText', false, plain); }
   });
 }
+/* ---------- spelling ---------- */
+// Telex's own checker (spell.rs), in the languages of Settings › Writing: the words none of them
+// knows get a wavy line. A text field can't style its words, so in the subject and in plain text a
+// layer over the field (the same face, wrapping and scroll, and no pointer) draws the lines; the
+// HTML editor uses the CSS Custom Highlight API. Right-click or the menu key on one: suggestions,
+// Add to dictionary, Ignore. F7: the next one.
+const spellOf = new WeakMap(); // field → {seq, timer, found: [{s, l, word, range?}]}
+const spellIgnored = new Set(); // "Ignore", for this session
+const spellMarks = window.Highlight && CSS.highlights ? new Highlight() : null;
+if (spellMarks) CSS.highlights.set('spell', spellMarks);
+const spellFields = () => ['c-subj', 'c-body', 'c-html'].map($).filter(Boolean);
+function wireSpelling(){
+  for (const el of spellFields()){
+    spellOf.set(el, {seq:0, timer:0, found:[]});
+    el.addEventListener('input', () => scheduleSpelling(el));
+    el.addEventListener('contextmenu', e => spellMenuAt(el, e));
+    el.addEventListener('keydown', e => spellKeys(el, e));
+    if (el.id !== 'c-html'){
+      // An input scrolls sideways with the caret, without a scroll event.
+      for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => syncLayer(el));
+      new ResizeObserver(() => syncLayer(el)).observe(el);
+    }
+    scheduleSpelling(el, 0);
+  }
+  spellNudge();
+}
+const respell = () => spellFields().forEach(el => scheduleSpelling(el, 0));
+function scheduleSpelling(el, ms = 400){
+  const st = spellOf.get(el);
+  if (!st) return;
+  clearTimeout(st.timer);
+  st.timer = setTimeout(() => checkSpelling(el), ms);
+}
+// The HTML editor's words as one text, each text node on a line of its own (quotes and links
+// left out), and where each node starts in it.
+function editorText(ed){
+  const nodes = [];
+  let text = '';
+  const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()){
+    if (n.parentElement.closest('blockquote, a')) continue;
+    if (text) text += '\n';
+    nodes.push({node:n, at:text.length});
+    text += n.data;
+  }
+  return {text, nodes};
+}
+async function checkSpelling(el){
+  const st = spellOf.get(el);
+  if (!st || !el.isConnected) return;
+  const seq = ++st.seq, html = el.id === 'c-html';
+  const {text, nodes} = html ? editorText(el) : {text:el.value, nodes:null};
+  let found = [];
+  if (pref().spell_check && text.trim()){
+    try { found = await invoke('spell_check', {text}); } catch { return; }
+  }
+  if (seq !== st.seq || !el.isConnected) return;
+  st.found = found.map(([s, l]) => ({s, l, word:text.slice(s, s + l)})).filter(m => !spellIgnored.has(m.word)).sort((a, b) => a.s - b.s);
+  if (html) paintHighlights(st.found, nodes); else paintLayer(el, st.found);
+}
+function paintHighlights(found, nodes){
+  if (!spellMarks) return;
+  spellMarks.clear();
+  for (const m of found){
+    const at = nodes.findLast(n => n.at <= m.s);
+    if (!at || m.s + m.l > at.at + at.node.data.length) continue;
+    m.range = new Range();
+    m.range.setStart(at.node, m.s - at.at); m.range.setEnd(at.node, m.s - at.at + m.l);
+    spellMarks.add(m.range);
+  }
+}
+function paintLayer(el, found){
+  const layer = el.parentElement.querySelector('.spellmarks');
+  if (!layer) return;
+  const text = el.value;
+  let html = '', at = 0;
+  for (const m of found){
+    html += esc(text.slice(at, m.s)) + '<mark>' + esc(text.slice(m.s, m.s + m.l)) + '</mark>';
+    at = m.s + m.l;
+  }
+  // A last empty line still takes room in a textarea.
+  layer.innerHTML = html + esc(text.slice(at)) + (el.tagName === 'TEXTAREA' ? '\n ' : '');
+  syncLayer(el);
+}
+// The layer covers the field's text box exactly: inside its border, beside its scroll bar.
+function syncLayer(el){
+  const layer = el.parentElement?.querySelector('.spellmarks');
+  if (!layer) return;
+  const cs = getComputedStyle(el);
+  Object.assign(layer.style, {left:el.offsetLeft + el.clientLeft + 'px', top:el.offsetTop + el.clientTop + 'px',
+    width:el.clientWidth + 'px', height:el.clientHeight + 'px', padding:cs.padding, font:cs.font, letterSpacing:cs.letterSpacing,
+    lineHeight:cs.lineHeight, tabSize:cs.tabSize, textIndent:cs.textIndent});
+  layer.scrollTop = el.scrollTop; layer.scrollLeft = el.scrollLeft;
+}
+const within = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+// The misspelt word under the pointer, if there is one.
+function spellHit(el, x, y){
+  const found = spellOf.get(el)?.found ?? [];
+  if (el.id === 'c-html') return found.find(m => m.range && [...m.range.getClientRects()].some(r => within(r, x, y)));
+  const marks = [...(el.parentElement.querySelector('.spellmarks')?.querySelectorAll('mark') ?? [])];
+  const i = marks.findIndex(mk => [...mk.getClientRects()].some(r => within(r, x, y)));
+  return i < 0 ? null : found[i];
+}
+function spellMenuAt(el, e){
+  const m = spellHit(el, e.clientX, e.clientY);
+  if (!m) return; // the browser's own menu: cut, copy, paste
+  e.preventDefault();
+  openSpellMenu(el, m, e.clientX, e.clientY);
+}
+async function openSpellMenu(el, m, x, y){
+  let list = [];
+  try { list = await invoke('spell_suggest', {word:m.word}); } catch {}
+  const items = list.length ? list.map(s => ({label:s, run:() => replaceWord(el, m, s)}))
+    : [{label:t('No suggestions'), disabled:true, run(){}}];
+  items.push({sep:true},
+    {label:t('Add “{word}” to the dictionary', {word:m.word}), run:() => addWord(el, m.word)},
+    {label:t('Ignore|spelling'), run:() => { spellIgnored.add(m.word); el.focus(); respell(); }});
+  openMenu(x, y, items, el);
+}
+// The word as the menu found it, if the text still has it there.
+function selectWord(el, m){
+  el.focus();
+  if (el.id === 'c-html'){
+    if (!m.range || m.range.toString() !== m.word) return false;
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(m.range);
+    return true;
+  }
+  if (el.value.slice(m.s, m.s + m.l) !== m.word) return false;
+  el.setSelectionRange(m.s, m.s + m.l);
+  return true;
+}
+function replaceWord(el, m, word){
+  // insertText keeps Ctrl+Z working, and the input event checks again.
+  if (selectWord(el, m)) document.execCommand('insertText', false, word);
+}
+async function addWord(el, word){
+  el.focus();
+  try { await invoke('spell_add', {word}); } catch (e){ say(tr(e), 8000); return; }
+  respell();
+  say(t('“{word}” is in your dictionary now.', {word}));
+}
+// Where the selection starts (or ends), in the text the checker got.
+function caretAt(el, end){
+  if (el.id !== 'c-html') return (end ? el.selectionEnd : el.selectionStart) ?? 0;
+  const sel = getSelection();
+  if (!sel.rangeCount) return 0;
+  const r = sel.getRangeAt(0), node = end ? r.endContainer : r.startContainer;
+  const n = editorText(el).nodes.find(x => x.node === node);
+  return n ? n.at + (end ? r.endOffset : r.startOffset) : 0;
+}
+function menuForMistake(el, m){
+  if (!selectWord(el, m)) return;
+  const r = el.id === 'c-html' ? m.range.getBoundingClientRect()
+    : [...el.parentElement.querySelectorAll('.spellmarks mark')][spellOf.get(el).found.indexOf(m)]?.getBoundingClientRect();
+  if (r) openSpellMenu(el, m, r.left, r.bottom + 2);
+}
+function spellKeys(el, e){
+  const found = spellOf.get(el)?.found ?? [];
+  if (e.key === 'F7' && !e.ctrlKey && !e.altKey){
+    // The next mistake after the caret, then from the top.
+    e.preventDefault(); e.stopPropagation();
+    const at = caretAt(el, true), next = found.find(m => m.s >= at) ?? found[0];
+    if (next) menuForMistake(el, next); else say(t('No spelling mistakes here.'));
+  } else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)){
+    const at = caretAt(el), m = found.find(x => at >= x.s && at <= x.s + x.l);
+    if (!m) return; // the browser's own menu
+    e.preventDefault(); e.stopPropagation();
+    menuForMistake(el, m);
+  }
+}
+// Once a session, when the language Telex speaks has no dictionary yet but one can be fetched.
+let spellNudged = false;
+async function spellNudge(){
+  if (spellNudged || !pref().spell_check || VIEWER) return;
+  spellNudged = true;
+  let info;
+  try { info = await invoke('spell_languages'); } catch { return; }
+  const ui = I18n.lang(), missing = info.downloads.find(d => d.tag.split('-')[0] === ui);
+  if (missing && !info.chosen.some(c => c.split('-')[0] === ui))
+    say(t('{language} spelling isn’t on this PC yet: Settings › Writing can fetch it.', {language:langName(missing.tag)}), 9000);
+}
+// "pl-PL" → "polski (Polska)", in the interface's language.
+function langName(tag){
+  try { return new Intl.DisplayNames([I18n.lang()], {type:'language'}).of(tag) ?? tag; } catch { return tag; }
+}
+
 // Switch the message between plain text and HTML. Plain text drops the formatting.
 async function setFormat(fmt){
   const c = readCompose();
@@ -2848,7 +3035,8 @@ function offerMoveIn(){
     const from = moveIn.sources?.find(src => src.accounts.some(canAdd));
     el.hidden = !from || accountView !== 'start';
     if (!from) return;
-    el.innerHTML = esc(tn(from.accounts.filter(canAdd).length, '{program} is on this PC with {n} account.', '{program} is on this PC with {n} accounts.', {program:programName(from.program)}))
+    const n = from.accounts.filter(canAdd).length;
+    el.innerHTML = esc(tn(n, '{program} is on this PC with {n} account.', '{program} is on this PC with {n} accounts.', {program:programName(from.program)}))
       + ` <button type="button" class="linkbtn" data-path="${esc(from.path)}">${esc(t('Bring them all, with their mail'))}</button>`;
   };
   if (moveIn.sources) show(); else findPrograms().then(show);
@@ -3487,6 +3675,7 @@ function paneOpened(tab){
     else if (accountView === 'start') renderLangPick();
   }
   if (tab === 'read') renderTrusted();
+  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); }
   if (tab === 'use') renderUsage();
   if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
@@ -3553,7 +3742,8 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
   else if (el.name === 'reply_format') changeSettings({reply_format:v});
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
-  else if (el.id === 's-spell') changeSettings({spell_check:el.checked});
+  else if (el.id === 's-spell') changeSettings({spell_check:el.checked}).then(respell);
+  else if (el.dataset.spell) toggleSpellLanguage(el);
   else if (el.id === 's-every') changeSettings({check_every:Number(v)});
   else if (el.id === 's-push') changeSettings({push_mail:el.checked});
   else if (el.id === 's-notify') changeSettings({notify:el.checked});
@@ -3579,7 +3769,7 @@ sdlg.addEventListener('close', () => {
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Account colors'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
-  spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
+  spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
 function settingValue(key, v){
@@ -3602,6 +3792,7 @@ function settingValue(key, v){
     case 'undo_send': return undoText(v);
     case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
     case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
+    case 'spell_languages': return v.length ? v.map(langName).join(', ') : t('Automatic|languages');
     default: return String(v);
   }
 }
@@ -3905,6 +4096,55 @@ window.__TAURI__?.event?.listen('move-progress', ({payload: p}) => {
   if (!moveIn.running) return;
   moveIn.running = p;
   if (sdlg.open && setTab === 'move') renderMove();
+});
+
+// Settings › Writing: the languages spelling is checked in, and dictionaries to fetch.
+let spellInfo = null, spellFetching = '', spellError = '';
+async function renderSpellLanguages(){
+  const el = $('s-spell-langs');
+  if (!spellInfo){
+    el.innerHTML = `<p class="dnote">${esc(t('Looking for dictionaries…'))}</p>`;
+    try { spellInfo = await invoke('spell_languages'); } catch (e){ el.innerHTML = `<p class="derr">${esc(tr(e))}</p>`; return; }
+  }
+  const info = spellInfo, chosen = new Set(info.chosen), ui = I18n.lang();
+  const langs = info.languages.length ? `<div class="sopts">${info.languages.map(l =>
+      `<label class="sopt"><input type="checkbox" data-spell="${esc(l.tag)}"${chosen.has(l.tag) ? ' checked' : ''}><span>${esc(langName(l.tag))}</span>`
+      + (l.own ? `<small class="sdim">${esc(t('fetched by Telex'))} · <button type="button" class="linkbtn" data-unspell="${esc(l.tag)}">${esc(t('Remove'))}</button></small>` : '')
+      + '</label>').join('')}</div>`
+    : `<p class="dnote">${esc(t('This PC has no spelling dictionaries yet.'))}</p>`;
+  const auto = info.auto && info.chosen.length ? `<p class="dnote snote">${esc(t('Chosen by themselves from the languages of Windows and of Telex. Tick the ones you write in.'))}</p>` : '';
+  // The interface's language first: the one most likely missing.
+  const offers = [...info.downloads].sort((a, b) => (b.tag.split('-')[0] === ui) - (a.tag.split('-')[0] === ui));
+  const get = offers.length ? `<div class="sbtns"><select id="s-dict" class="sselect" aria-label="${esc(t('Dictionary to download'))}">${offers.map(d =>
+      `<option value="${esc(d.tag)}">${esc(langName(d.tag))} · ${esc(fmtSize(Math.ceil(d.bytes / 1024)))}</option>`).join('')}</select>`
+    + `<button type="button" class="btn" id="s-dict-get"${spellFetching ? ' disabled' : ''}>${esc(spellFetching ? t('Downloading…') : t('Download'))}</button></div>`
+    + `<p class="dnote snote">${esc(t('For a language Windows has no dictionary for: LibreOffice’s, fetched from GitHub only when you click, and checked before use. Nothing about you is sent.'))}</p>` : '';
+  el.innerHTML = langs + auto + get + `<p class="derr" role="alert">${esc(spellError)}</p>`;
+}
+async function toggleSpellLanguage(box){
+  const list = new Set(spellInfo?.chosen ?? []);
+  if (box.checked) list.add(box.dataset.spell); else list.delete(box.dataset.spell);
+  await changeSettings({spell_languages:[...list]});
+  spellInfo = null; await renderSpellLanguages(); respell();
+  sdlg.querySelector(`[data-spell="${CSS.escape(box.dataset.spell)}"]`)?.focus();
+}
+$('s-spell-langs').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  spellError = '';
+  try {
+    if (b.id === 's-dict-get'){
+      const tag = $('s-dict').value;
+      spellFetching = tag; renderSpellLanguages();
+      try { spellInfo = await invoke('spell_download', {tag}); } finally { spellFetching = ''; }
+      // A language chosen by hand gets the new one too.
+      if (!spellInfo.auto && !spellInfo.chosen.includes(tag)){ await changeSettings({spell_languages:[...spellInfo.chosen, tag]}); spellInfo = null; }
+      say(t('{language} spelling is on this PC now.', {language:langName(tag)}));
+    } else if (b.dataset.unspell){
+      spellInfo = await invoke('spell_remove', {tag:b.dataset.unspell});
+    } else return;
+  } catch (err){ spellError = tr(err); }
+  await renderSpellLanguages(); respell();
 });
 
 // Settings › Reading: senders whose images load without asking. Removing one asks again.
@@ -4251,7 +4491,7 @@ const HELP_KEYS = [
     ['H', N_('HTML or plain text')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
-    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
+    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or right-click it')]]],
   [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
     ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],

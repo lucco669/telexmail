@@ -372,6 +372,15 @@ button.ph-who:hover .pn{text-decoration:underline}
 .hedit{flex:1;min-height:120px;overflow:auto;padding:10px 14px;background:var(--surface);color:var(--fg);font:13px/1.55 var(--font-ui);overflow-wrap:anywhere;user-select:text}
 .hedit:focus{outline:0;box-shadow:inset 0 0 0 1px var(--accent)}
 .hedit a{color:var(--accent)}
+/* Spelling: a layer over the subject and the plain text draws wavy lines under the words the
+   checker marks (a field can't style its own words); in HTML, the Highlight API does. */
+.spellfield{position:relative;min-width:0}
+.spellfield>input{width:100%}
+.spellfield.body{flex:1;display:flex;min-height:120px}
+.spellmarks{position:absolute;box-sizing:border-box;overflow:hidden;margin:0;pointer-events:none;user-select:none;color:transparent;white-space:pre-wrap;overflow-wrap:break-word}
+.spellfield>input~.spellmarks{white-space:pre;overflow-wrap:normal}
+.spellmarks mark{background:none;color:transparent;text-decoration:underline wavy var(--note-fg) 1px;text-decoration-skip-ink:none;text-underline-offset:3px}
+::highlight(spell){text-decoration:underline wavy var(--note-fg) 1px;text-decoration-skip-ink:none;text-underline-offset:3px}
 .hedit blockquote{margin:2px 0 2px 2px;padding-left:10px;border-left:2px solid var(--line);color:var(--muted)}
 .hedit ul,.hedit ol{margin:2px 0;padding-left:24px}
 .hedit p{margin:0 0 8px}

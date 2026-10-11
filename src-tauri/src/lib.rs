@@ -7,6 +7,7 @@ mod folders;
 mod migrate;
 mod secrets;
 mod settings;
+mod spell;
 mod updates;
 mod watch;
 
@@ -925,6 +926,7 @@ pub fn run() {
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("telex.db");
             app.manage(settings::SettingsState::load(dir.join("settings.json")));
+            app.manage(spell::SpellState::start(&dir));
             app.manage(AppState {
                 store: Mutex::new(open_store(&db_path)),
                 db_path,
@@ -990,6 +992,12 @@ pub fn run() {
             migrate::find_programs,
             migrate::open_source,
             migrate::move_in,
+            spell::spell_languages,
+            spell::spell_check,
+            spell::spell_suggest,
+            spell::spell_add,
+            spell::spell_download,
+            spell::spell_remove,
             save_outgoing,
             discard_draft,
             draft_html,

@@ -25,6 +25,7 @@ pub mod recipients;
 pub mod sample;
 pub mod settings;
 pub mod smtp;
+pub mod spell;
 pub mod store;
 pub mod usage;
 

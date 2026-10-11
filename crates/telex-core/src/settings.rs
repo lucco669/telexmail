@@ -69,6 +69,7 @@ const KEYS: &[&str] = &[
     "undo_send",
     "ask_subject",
     "spell_check",
+    "spell_languages",
     "updates",
     "backup_every",
     "backup_keep",
@@ -111,6 +112,9 @@ pub struct Settings {
     pub ask_subject: bool,
     /// Underline misspelt words while writing.
     pub spell_check: bool,
+    /// The languages spelling is checked in ("pl-PL"); a word any of them knows is right.
+    /// Empty: Windows' languages and the interface's, as far as there are dictionaries.
+    pub spell_languages: Vec<String>,
     pub updates: Updates,
     /// Back up the mail base by itself: never, every day or every week.
     pub backup_every: BackupEvery,
@@ -259,6 +263,7 @@ impl Default for Settings {
             undo_send: 5,
             ask_subject: true,
             spell_check: true,
+            spell_languages: Vec::new(),
             updates: Updates::Ask,
             backup_every: BackupEvery::Off,
             backup_dir: String::new(),
@@ -292,6 +297,11 @@ impl Settings {
             && CHECK_INTERVALS.contains(&self.check_every)
             && UNDO_SEND.contains(&self.undo_send)
             && BACKUP_KEEP.contains(&self.backup_keep)
+            && self.spell_languages.len() <= 12
+            && self.spell_languages.iter().all(|tag| {
+                (2..=20).contains(&tag.len())
+                    && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+            })
     }
 
     fn to_map(&self) -> Map<String, Value> {

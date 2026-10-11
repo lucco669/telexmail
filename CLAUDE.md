@@ -81,6 +81,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      hickory-resolver elsewhere), probing.
   src/settings.rs    Settings (settings.json next to the mail base), Windows' languages, and the
                      settings file: export, and import as a plan (what changes) applied in parts.
+  src/spell.rs       Spelling on a thread of its own: Windows' spell checker (COM, the windows
+                     crate) for the languages Windows has, Hunspell dictionaries (spellbook) for
+                     the rest: LibreOffice's, the distribution's, and those Telex fetches on
+                     request (LibreOffice's at a pinned commit, SHA-256 checked); the user's words
+                     (words.txt); which words to check (no quotes, links, addresses, ACRONYMS).
   src/sample.rs      A Polish sample mailbox for the tests. Never in the app.
   tests/scale.rs     Benchmark on a synthetic 100k-message mail base (ignored; see Commands).
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
@@ -92,6 +97,8 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
                      files read into one (dialogs, "import-progress" events).
   src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
                      bringing accounts (passwords saved, a first login each), mail and filters.
+  src/spell.rs       Spelling commands: the languages (the setting's, or Windows' and the
+                     interface's), checking, suggestions, the user's words, fetching dictionaries.
   src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
                      restoring (holds the busy flags, swaps the store) and compacting.
   src/watch.rs       One IMAP IDLE watcher per account ("inbox-changed" events), and the
@@ -206,6 +213,11 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC only |
 | `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
 | `open_source`    | `folder` (true: a folder, false: a .pst), `words` | the same for what the user picks, or null |
+| `spell_languages`| –                            | `{languages: [{tag, own}], chosen, auto, downloads: [{tag, bytes}]}` (`own`: fetched by Telex; `auto`: chosen from Windows' languages and the interface's) |
+| `spell_check`    | `text`                       | `[[start, length]]` in UTF-16 units: the words no chosen language knows |
+| `spell_suggest`  | `word`                       | up to 7 suggestions |
+| `spell_add`      | `word`                       | – (right from now on, in every language: words.txt next to the settings) |
+| `spell_download`, `spell_remove` | `tag`          | the languages again; fetches LibreOffice's dictionary (GitHub, pinned, SHA-256 checked) or removes one Telex fetched |
 | `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items]}`; "move-progress" events `{step, done, total, name}` |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
@@ -261,7 +273,7 @@ read with moment: 600, 1000, 2000, 3000, 5000, 10000), `check_every` (minutes, 0
 IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
 `mail_paper` (theme, white: HTML mail in a dark theme), `compose_format` (plain, html),
 `reply_format` (same, plain, html), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
-can take it back), `ask_subject`, `spell_check`, `updates` (ask, start: at each start and once a day, daily, off), `backup_every` (off, daily,
+can take it back), `ask_subject`, `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `backup_every` (off, daily,
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
 leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
@@ -355,6 +367,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+Enter   | send (compose)                 |
 | Ctrl+,       | settings                       |
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
+| F7           | in compose: the next spelling mistake and its suggestions (also right-click an underlined word, or the menu key on one) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 | ? / F1       | keys and tips (also on hover over the ? in the status bar) |
 | F2, Shift+F10 | in the folder tree: rename a folder on this PC; a folder's or account's menu (also right-click) |
@@ -381,6 +394,18 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
     Passwords are typed in the dialog; accounts log in six at a time; OAuth (Gmail,
     Outlook.com), POP3 and Exchange accounts are shown and why they can't come. Moving in twice
     brings nothing twice (Message-ID per folder, rules by name).
+  - Spelling (`spell.rs`), Telex's own instead of the webview's: Windows' checker for the
+    languages Windows has, Hunspell (spellbook) for the rest; on this PC Windows had only English,
+    so Polish comes from LibreOffice's dictionary, fetched when the user clicks Download in
+    Settings › Writing (pinned commit, SHA-256 checked; Polish loads in 67 ms, a check of a long
+    message takes 5 ms, then under 1 ms from the cache). A word is right in any chosen language;
+    the choice is automatic from Windows' languages and the interface's until the user ticks
+    languages (`spell_languages`). Quotes and their introducing line, a forwarded message, links,
+    addresses, words with digits, ACRONYMS and iPhone-like words aren't checked. In compose a
+    layer over the subject and the plain text draws wavy lines (`--note-fg`); the HTML editor
+    uses the CSS Custom Highlight API. Right-click, the menu key or F7: suggestions (inserted
+    with insertText, so Ctrl+Z works), Add to dictionary (words.txt), Ignore. Once a session, the
+    status bar says when the interface's language has no dictionary yet but one can be fetched.
   - Mail files: .msg (Outlook, was read as text before) and .emlx (Apple Mail) in Open and drops;
     Maildir and MH folders; messages Thunderbird deleted but hadn't compacted stay out; a file
     without a Date header gets the file's time. Reading mbox builds each message in one buffer
