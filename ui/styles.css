@@ -84,10 +84,24 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .acct svg{width:12px;height:12px;color:var(--muted);transition:transform .12s}
 .acct[aria-expanded="true"] svg{transform:rotate(90deg)}
 .acct-mail{flex:1;min-width:0;font-weight:600;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.adot{display:none;flex:none;width:7px;height:7px;border-radius:50%;background:var(--acct-0)}
+/* Each account has a color (--ac, by its place in the list), shown once there are two or more,
+   as Settings › Appearance says (data-mark on <html>): a line down the side of its folders, a
+   dot, its initials on a tint, a tint behind its line, or nothing. The same mark names it in
+   the list, the status bar and the pickers. */
+.a0{--ac:var(--acct-0)} .a1{--ac:var(--acct-1)} .a2{--ac:var(--acct-2)}
+.a3{--ac:var(--acct-3)} .a4{--ac:var(--acct-4)} .a5{--ac:var(--acct-5)}
+.adot{display:none;flex:none;width:7px;height:7px;border-radius:50%;background:var(--ac)}
 .multi .adot{display:inline-block}
-.adot.a1{background:var(--acct-1)} .adot.a2{background:var(--acct-2)} .adot.a3{background:var(--acct-3)}
-.adot.a4{background:var(--acct-4)} .adot.a5{background:var(--acct-5)}
+.agrp{position:relative}
+.multi .agrp+.agrp{margin-top:2px}
+[data-mark="rail"] .multi .agrp::before{content:"";position:absolute;left:0;top:3px;bottom:5px;width:3px;border-radius:0 2px 2px 0;background:var(--ac);pointer-events:none}
+[data-mark="rail"] .adot:not(.pc){width:3px;height:11px;border-radius:1.5px}
+[data-mark="rail"] .agrp>.acct .adot,[data-mark="tint"] .agrp>.acct .adot{display:none}
+[data-mark="tint"] .multi .agrp>.acct{background:color-mix(in oklab,var(--ac) 16%,transparent)}
+[data-mark="tint"] .multi .agrp>.acct:hover{background:color-mix(in oklab,var(--ac) 24%,transparent)}
+[data-mark="initials"] .adot:not(.pc){width:auto;min-width:18px;height:14px;padding:0 3px;border-radius:3px;background:color-mix(in oklab,var(--ac) 26%,var(--surface));color:var(--fg);font:600 9px/14px var(--font-data);letter-spacing:.03em;text-align:center}
+[data-mark="initials"] .adot:not(.pc)::before{content:attr(data-i)}
+[data-mark="none"] .adot:not(.pc){display:none}
 .fold{display:flex;align-items:center;gap:7px;width:100%;height:var(--row-tree);padding:0 10px 0 24px;border:0;background:none;cursor:pointer;text-align:left;font-size:12.5px}
 .fold svg{width:14px;height:14px;color:var(--muted)}
 .fold:hover{background:var(--hover)}
@@ -110,7 +124,14 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
   .fold.dropok{forced-color-adjust:none;background:Highlight;color:HighlightText}
   .dragghost{border-color:CanvasText}
 }
-.fold .cnt{margin-left:auto;font:600 11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--accent)}
+.fold>span:not(.cnt,.qchip){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fold .cnt,.fold .qchip{margin-left:auto}
+.fold .cnt{font:600 11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--accent)}
+/* Sent is quieter than the Inbox: mail that went out, not mail to read. */
+.fold.out:not(.active)>span:not(.cnt){color:var(--muted)}
+.fold .srv{font-style:normal;color:var(--muted)}
+/* What isn't sent yet, every account's at once, at the end: under a hairline, only while there is some. */
+.unsent{margin-top:6px!important;padding-top:4px!important;border-top:1px solid var(--line-soft)}
 .fold .cnt.dim{color:var(--faint);font-weight:400}
 .fold.active .cnt.dim{color:var(--muted)}
 .fold.more{color:var(--muted);font-size:11.5px}
@@ -473,6 +494,22 @@ button.ph-who:hover .pn{text-decoration:underline}
 .m-list b.s::after{background:var(--accent-fg)}
 .m-list b.f::before{content:"";position:absolute;right:7px;top:50%;width:6px;height:7px;margin-top:-3.5px;background:var(--flag);clip-path:polygon(0 0,100% 0,72% 50%,100% 100%,0 100%)}
 .tprev.both .mini+.mini{clip-path:polygon(58% 0,100% 0,100% 100%,42% 100%)}
+/* How accounts are told apart: two small account groups each, drawn with the real marks. */
+.marks{grid-template-columns:repeat(auto-fill,minmax(92px,1fr))}
+.mprev{grid-column:1/-1;display:flex;flex-direction:column;gap:5px;height:72px;padding:6px 0 0;border:1px solid var(--line-soft);border-radius:4px;background:var(--panel);overflow:hidden}
+.mprev .multi{display:contents}
+.mgrp{position:relative;display:flex;flex-direction:column;gap:4px}
+.mhead{display:flex;align-items:center;gap:5px;height:14px;padding:0 8px}
+.mhead b{width:58%;height:4px;border-radius:2px;background:var(--fg)}
+.mgrp .mf{width:46%;height:3px;margin-left:20px;border-radius:2px;background:var(--muted)}
+/* Each card its own mark, whatever the window uses. */
+.mprev[data-mark] .adot{display:inline-block;width:7px;min-width:0;height:7px;padding:0;border-radius:50%;background:var(--ac)}
+.mprev[data-mark] .adot::before{content:none}
+.mprev[data-mark="rail"] .mgrp::before{content:"";position:absolute;left:0;top:1px;bottom:0;width:3px;border-radius:0 2px 2px 0;background:var(--ac)}
+.mprev:is([data-mark="rail"],[data-mark="tint"],[data-mark="none"]) .mhead .adot{display:none}
+.mprev[data-mark="tint"] .mhead{background:color-mix(in oklab,var(--ac) 16%,transparent)}
+.mprev[data-mark="initials"] .adot{width:auto;min-width:18px;height:14px;padding:0 3px;border-radius:3px;background:color-mix(in oklab,var(--ac) 26%,var(--surface));color:var(--fg);font:600 9px/14px var(--font-data);letter-spacing:.03em;text-align:center}
+.mprev[data-mark="initials"] .adot::before{content:attr(data-i)}
 /* An import's plan: one box per part, ticked to import it */
 .ipart{margin:0 0 12px;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--surface)}
 .ihead{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 10px;background:var(--chrome);font-size:12.5px}
@@ -688,4 +725,23 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
   .hint{display:none}
   .search{min-width:110px;flex:1 1 120px}
   .search kbd{display:none}
+}
+
+/* Scrollbars: a slim thumb in the theme's field color that floats inside the pane it scrolls, no
+   track or arrows. Not scrollbar-color/-width, which turn these off in Chromium; Windows contrast
+   themes keep the system's. */
+@media (forced-colors: none){
+  ::-webkit-scrollbar{width:10px;height:10px;background:transparent}
+  ::-webkit-scrollbar-track,::-webkit-scrollbar-corner{background:transparent}
+  ::-webkit-scrollbar-button{display:none}
+  ::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:5px;background:color-mix(in oklab,var(--field) 70%,transparent) padding-box}
+  ::-webkit-scrollbar-thumb:vertical{min-height:32px}
+  ::-webkit-scrollbar-thumb:horizontal{min-width:32px}
+  ::-webkit-scrollbar-thumb:hover{border-width:1px;background-color:var(--field)}
+  ::-webkit-scrollbar-thumb:active{border-width:1px;background-color:color-mix(in oklab,var(--field),var(--fg) 40%)}
+  [data-theme^="contrast"] ::-webkit-scrollbar-thumb{background-color:var(--field)}
+  [data-theme^="contrast"] ::-webkit-scrollbar-thumb:hover,[data-theme^="contrast"] ::-webkit-scrollbar-thumb:active{background-color:var(--fg)}
+  /* The list's runs beside the rows; the column headings' strip goes on above it. */
+  .list::-webkit-scrollbar-track:vertical{margin-top:22px}
+  .list::-webkit-scrollbar:vertical{background:linear-gradient(var(--chrome) 21px,var(--line) 21px 22px,transparent 22px)}
 }

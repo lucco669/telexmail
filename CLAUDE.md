@@ -124,7 +124,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?}}, problems: {"<account>": reason}}` (empty folders left out; `older`: on the server, not downloaded; `problems`: accounts whose last check failed) |
+| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}}` (empty folders left out; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
@@ -137,6 +137,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none; within an account, or to and from the folders on this PC (server mail moved there leaves the server; moved back, it is uploaded) |
 | `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` |
 | `mark_folder_read` | `folder`                   | how many were unread        |
+| `choose_folder`  | `folder`, `kind` (sent, drafts, archive, spam, trash) | – (that server folder is used for it from now on; the one that was becomes the user's own; kept over the server's flags) |
 | `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
 | `save_attachment`| `id`, `index`, `words`       | the path saved to, or null (cancelled); opens Save |
 | `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
@@ -214,7 +215,8 @@ retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progr
 calls `check_mail` with that account.
 
 The window never loads all mail. `list_page` takes a `view` `{folder, sort, ascending, filter,
-bodies, thread}` (`folder: null` = all mail except Spam and Trash; `sort`: date, size, flag, from,
+bodies, thread}` (`folder: null` = all mail except Spam and Trash; `"*/drafts"`, `"*/outbox"`: that
+kind of folder of every account in one list (`list::every_kind`); `sort`: date, size, flag, from,
 subject; `filter`: the quick filter, `bodies` also searching the text; `thread`: a message id,
 whose conversation the list shows instead of a folder) and `at`: `"first"`,
 `"last"`, `{after: id}`, `{before: id}` (scrolling, keyset on (sort key, id)), `{around: id}`
@@ -228,7 +230,8 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this 
 `YYYY-MM-DDTHH:MM:SS` strings.
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
-("auto", "en", "pl"), `density`, `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
+("auto", "en", "pl"), `density`, `account_mark` (rail, dot, initials, tint, none: how accounts'
+colors show in the tree, list and status bar; `data-mark` on `<html>`), `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
 (moment, at_once, window, manual), `read_delay` (ms a message is on screen before it counts as
 read with moment: 600, 1000, 2000, 3000, 5000, 10000), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
 IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
@@ -242,7 +245,7 @@ all, even before the first account. The window keeps only its own state in local
 (`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
 dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
 update check; `telex-look`: a
-copy of theme, language and zoom for boot.js).
+copy of theme, language, zoom and account mark for boot.js).
 
 ## Commands
 
@@ -334,6 +337,29 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
 ## Current state (v0.7.2: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once)
+
+- New since 0.7.2, not released (schema version 11: `folders.chosen`):
+  - Which folder is Sent (`imap::plan_folders` with `FolderHints` from `MailStore::folder_hints`):
+    each special kind goes to the folder the user chose (`folders.chosen`, Settings › Accounts ›
+    Folders or "Use for sent mail" on a folder), else of those the server flags, whose name says
+    it or that had it before, one that holds mail before an empty one, then the one that had it,
+    then the flag, then the name. So a server's own empty "Sent" loses to the "Wysłane" another
+    program filled, and Sent doesn't hop back once both hold mail. A sync plans again after its
+    download, so a first check settles it. Server folders keep the server's own name in `name`
+    (the UI names special folders by kind; the tree adds "· Wysłane" when another folder has the
+    kind's name, and the server name is in the tooltip). Drafts written here follow Drafts to
+    another folder (`move_local_drafts`). `sync-progress` carries the folder's `key`.
+  - Drafts and the Outbox aren't in the accounts' folder lists: what isn't sent yet waits at the
+    end of the tree as one list each for every account (`"*/drafts"`, `"*/outbox"`, EVERY in
+    app.js, with an Account column), only while it holds something; Outbox mail that didn't go
+    shows as a red count there and a status-bar chip (`stuck`). G offers them the same way.
+  - Sent is quieter than the Inbox in the tree. The folders on this PC show Archive and Trash only
+    when they hold mail.
+  - Account colors (`account_mark`, Settings › Appearance, cards drawn with the real marks): a line
+    down each account's group (`.agrp`, the default), a dot, initials (from the name, else the
+    address; never two alike), a tint, or nothing; the same mark in the list, status bar, pickers.
+    Each `.a0`–`.a5` sets `--ac`. check-contrast.mjs checks text on the mixed backgrounds too.
+  - Slim scrollbars in each theme's colors (`--field`), on the site as well.
 
 - New in 0.7.2 (no schema change):
   - The message window no longer freezes Telex: `open_window` is async (a plain command runs
@@ -557,9 +583,10 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   ties are as before (newest first within equal keys). On the 100k benchmark: first list in
   about 60 ms, folder switch under 10 ms, an arrow key about 5 ms (docs/storage.md).
 - Folder tree: one line per account, its address (the name is in the tooltip); with more than
-  one account, each has a color dot (`--acct-0..5` tokens), also in the status bar and all-mail
-  results. Each account shows Inbox and Sent, Drafts and the Outbox when they hold mail, and the
-  open folder; the rest are behind "N more" (with their unread count), opened per account and
+  one account, each has a color (`--acct-0..5` tokens; shown as `account_mark` says), also in the
+  status bar and all-mail results. Each account shows Inbox and Sent and the open folder (Drafts
+  and the Outbox wait at the end of the tree for every account at once); the rest are behind
+  "N more" (with their unread count), opened per account and
   remembered (localStorage `telex-ui`: `more`, and `scope` for the filter).
 - Usage (`usage.rs`, schema version 8: `accounts.quota_used_kb`, `quota_limit_kb`, `synced_at`,
   `sync_error`): each sync asks servers with QUOTA (RFC 9208) for the storage of the Inbox's

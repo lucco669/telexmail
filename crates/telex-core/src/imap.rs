@@ -6,7 +6,7 @@
 //! delete and EXPUNGE on servers without MOVE), deletes from Trash with EXPUNGE.
 //! The tests run all of it against a small fake server.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -131,7 +131,9 @@ impl From<ImapError> for SyncError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SyncProgress {
     pub account: String,
+    /// The folder's name on the server; `key` lets the UI name a special folder its way.
     pub folder: String,
+    pub key: String,
     pub done: usize,
     pub total: usize,
 }
@@ -317,6 +319,7 @@ pub async fn download_older_in<T: ImapStream>(
         progress(SyncProgress {
             account: account.name.clone(),
             folder: folder.name.clone(),
+            key: folder_key.to_owned(),
             done: ids.len(),
             total,
         });
@@ -326,6 +329,7 @@ pub async fn download_older_in<T: ImapStream>(
     progress(SyncProgress {
         account: account.name.clone(),
         folder: folder.name.clone(),
+        key: folder_key.to_owned(),
         done: total,
         total,
     });
@@ -408,19 +412,26 @@ pub async fn sync_session<T: ImapStream>(
     progress: &(dyn Fn(SyncProgress) + Send + Sync),
     scope: Scope,
 ) -> Result<Downloaded, SyncError> {
-    let folders = match scope {
+    let (folders, remote) = match scope {
         Scope::All => {
             let remote = list_folders(session).await?;
-            let folders = plan_folders(&remote);
-            lock(store)?.set_folders(&account.id, &folders)?;
-            folders
+            let folders = {
+                let mut s = lock(store)?;
+                let folders = plan_folders(&remote, &s.folder_hints(&account.id)?);
+                s.set_folders(&account.id, &folders)?;
+                folders
+            };
+            (folders, Some(remote))
         }
-        Scope::Inbox => account
-            .folders
-            .iter()
-            .filter(|f| f.kind == FolderKind::Inbox)
-            .cloned()
-            .collect(),
+        Scope::Inbox => {
+            let inbox = account
+                .folders
+                .iter()
+                .filter(|f| f.kind == FolderKind::Inbox)
+                .cloned()
+                .collect();
+            (inbox, None)
+        }
     };
 
     let mut downloaded = Downloaded::default();
@@ -462,6 +473,7 @@ pub async fn sync_session<T: ImapStream>(
             progress(SyncProgress {
                 account: account.name.clone(),
                 folder: folder.name.clone(),
+                key: key.clone(),
                 done,
                 total,
             });
@@ -481,6 +493,14 @@ pub async fn sync_session<T: ImapStream>(
             report(done);
         }
         lock(store)?.note_server_count(&key, on_server.len())?;
+    }
+    // Which folder holds mail is known now: a first download can settle which is Sent.
+    if let Some(remote) = remote {
+        let mut s = lock(store)?;
+        let settled = plan_folders(&remote, &s.folder_hints(&account.id)?);
+        if settled != folders {
+            s.set_folders(&account.id, &settled)?;
+        }
     }
     Ok(downloaded)
 }
@@ -1344,35 +1364,64 @@ fn uid_set(uids: &[u32]) -> String {
     parts.join(",")
 }
 
+/// The kinds a server folder can be besides the Inbox and the user's own, in the order
+/// [`plan_folders`] hands them out.
+pub const SPECIAL_KINDS: [FolderKind; 5] = [
+    FolderKind::Sent,
+    FolderKind::Drafts,
+    FolderKind::Trash,
+    FolderKind::Spam,
+    FolderKind::Archive,
+];
+
+/// What Telex knows about an account's folders that the server's list doesn't say, by
+/// server name: the kinds the user chose, the kinds they had last time, and which hold mail.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FolderHints {
+    pub chosen: HashMap<String, FolderKind>,
+    pub was: HashMap<String, FolderKind>,
+    pub held: HashSet<String>,
+}
+
 /// Decide which server folders Telex shows, and their ids, names and kinds.
-/// Ids come from the server names, so they stay the same from one sync to the next.
-pub fn plan_folders(remote: &[RemoteFolder]) -> Vec<Folder> {
+/// Ids come from the server names, so they stay the same from one sync to the next; names
+/// are the server's own ("Wysłane"), and the UI shows special folders by their kind.
+pub fn plan_folders(remote: &[RemoteFolder], hints: &FolderHints) -> Vec<Folder> {
     let syncable: Vec<&RemoteFolder> = remote.iter().filter(|f| f.syncable).collect();
 
-    // Kinds: INBOX by name, then the server's special-use flags, then well-known names.
-    // Each special kind goes to one folder only; the rest stay custom.
+    // Kinds: INBOX by name. Each special kind then goes to one folder: the one the user
+    // chose; else, of those the server flags for it, whose name says it or that had it last
+    // time, one that holds mail before an empty one (a server's own empty "Sent" next to the
+    // "Wysłane" another program filled), then the one that had it (so it doesn't hop about),
+    // then the server's flag, then the name. The rest are the user's own.
     let mut kinds = vec![FolderKind::Custom; syncable.len()];
-    let mut taken = HashSet::new();
-    for (i, f) in syncable.iter().enumerate() {
-        if f.name.eq_ignore_ascii_case("INBOX") && taken.insert(FolderKind::Inbox) {
-            kinds[i] = FolderKind::Inbox;
-        }
+    if let Some(i) = syncable
+        .iter()
+        .position(|f| f.name.eq_ignore_ascii_case("INBOX"))
+    {
+        kinds[i] = FolderKind::Inbox;
     }
-    for (i, f) in syncable.iter().enumerate() {
-        if let Some(k) = f.special {
-            if kinds[i] == FolderKind::Custom && taken.insert(k) {
-                kinds[i] = k;
-            }
-        }
-    }
-    for (i, f) in syncable.iter().enumerate() {
-        if kinds[i] != FolderKind::Custom {
-            continue;
-        }
-        if let Some(k) = f.path().last().and_then(|leaf| guess_kind(leaf)) {
-            if taken.insert(k) {
-                kinds[i] = k;
-            }
+    for kind in SPECIAL_KINDS {
+        let best = syncable
+            .iter()
+            .enumerate()
+            .filter(|&(i, f)| {
+                kinds[i] == FolderKind::Custom
+                    && hints.chosen.get(&f.name).is_none_or(|&c| c == kind)
+            })
+            .filter_map(|(i, f)| {
+                let chosen = hints.chosen.contains_key(&f.name);
+                let was = hints.was.get(&f.name) == Some(&kind);
+                let flagged = f.special == Some(kind);
+                let named = f.path().last().and_then(|leaf| guess_kind(leaf)) == Some(kind);
+                let held = hints.held.contains(&f.name);
+                (chosen || was || flagged || named)
+                    .then_some((i, (chosen, held, was, flagged, named)))
+            })
+            // The best by those, in that order; of equals the first the server listed.
+            .min_by_key(|&(i, rank)| (std::cmp::Reverse(rank), i));
+        if let Some((i, _)) = best {
+            kinds[i] = kind;
         }
     }
 
@@ -1398,9 +1447,9 @@ pub fn plan_folders(remote: &[RemoteFolder]) -> Vec<Folder> {
                 }
                 id
             };
-            let name = match default_name(kind) {
-                Some(n) => n.to_owned(),
-                None => display_path(&path),
+            let name = match kind {
+                FolderKind::Inbox => "Inbox".to_owned(),
+                _ => display_path(&path),
             };
             Folder {
                 id,
@@ -1438,20 +1487,6 @@ fn guess_kind(leaf: &str) -> Option<FolderKind> {
         _ => return None,
     };
     Some(kind)
-}
-
-/// Special folders get the same English names on every account.
-fn default_name(kind: FolderKind) -> Option<&'static str> {
-    match kind {
-        FolderKind::Inbox => Some("Inbox"),
-        FolderKind::Outbox => Some("Outbox"),
-        FolderKind::Drafts => Some("Drafts"),
-        FolderKind::Sent => Some("Sent"),
-        FolderKind::Archive => Some("Archive"),
-        FolderKind::Spam => Some("Spam"),
-        FolderKind::Trash => Some("Trash"),
-        FolderKind::Custom => None,
-    }
 }
 
 /// Decode an IMAP folder name from modified UTF-7 (RFC 3501 §5.1.3):
@@ -1576,15 +1611,18 @@ mod tests {
 
     #[test]
     fn folders_get_kinds_from_flags_then_names() {
-        let plan = plan_folders(&[
-            remote("INBOX", None, true),
-            remote("INBOX.Sent", None, true),
-            remote("INBOX.Sent Items", None, true),
-            remote("INBOX.Robocze", None, true),
-            remote("INBOX.Klienci", None, true),
-            remote("Kopie", Some(FolderKind::Drafts), true),
-            remote("[Gmail]", None, false),
-        ]);
+        let plan = plan_folders(
+            &[
+                remote("INBOX", None, true),
+                remote("INBOX.Sent", None, true),
+                remote("INBOX.Sent Items", None, true),
+                remote("INBOX.Robocze", None, true),
+                remote("INBOX.Klienci", None, true),
+                remote("Kopie", Some(FolderKind::Drafts), true),
+                remote("[Gmail]", None, false),
+            ],
+            &FolderHints::default(),
+        );
         let got: Vec<_> = plan
             .iter()
             .map(|f| (f.id.as_str(), f.name.as_str(), f.kind))
@@ -1593,7 +1631,7 @@ mod tests {
             got,
             [
                 ("inbox", "Inbox", FolderKind::Inbox),
-                ("kopie", "Drafts", FolderKind::Drafts),
+                ("kopie", "Kopie", FolderKind::Drafts),
                 ("inbox-sent", "Sent", FolderKind::Sent),
                 ("inbox-klienci", "Klienci", FolderKind::Custom),
                 ("inbox-robocze", "Robocze", FolderKind::Custom),
@@ -1601,6 +1639,62 @@ mod tests {
             ]
         );
         assert_eq!(plan[2].remote.as_deref(), Some("INBOX.Sent"));
+    }
+
+    /// The kinds a plan gave, by server name, as the next plan's hints see them.
+    fn kinds_of(plan: &[Folder]) -> HashMap<String, FolderKind> {
+        plan.iter()
+            .map(|f| (f.remote.clone().unwrap(), f.kind))
+            .collect()
+    }
+
+    fn kind_in(plan: &[Folder], id: &str) -> FolderKind {
+        plan.iter().find(|f| f.id == id).unwrap().kind
+    }
+
+    #[test]
+    fn sent_is_the_folder_that_holds_sent_mail_and_stays_there() {
+        // A server's own empty "Sent" (flagged), next to the "Wysłane" another program filled.
+        let list = [
+            remote("INBOX", None, true),
+            remote("Sent", Some(FolderKind::Sent), true),
+            remote("Wys&AUI-ane", None, true),
+        ];
+        // Nothing downloaded yet: the server's flag decides.
+        let first = plan_folders(&list, &FolderHints::default());
+        assert_eq!(kind_in(&first, "sent"), FolderKind::Sent);
+        assert_eq!(kind_in(&first, "wysłane"), FolderKind::Custom);
+
+        // Only "Wysłane" holds mail: it is Sent, and the empty one the user's own.
+        let mut hints = FolderHints {
+            was: kinds_of(&first),
+            held: HashSet::from(["Wys&AUI-ane".to_owned()]),
+            ..FolderHints::default()
+        };
+        let second = plan_folders(&list, &hints);
+        assert_eq!(kind_in(&second, "wysłane"), FolderKind::Sent);
+        assert_eq!(kind_in(&second, "sent"), FolderKind::Custom);
+        let names: Vec<_> = second.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Inbox", "Wysłane", "Sent"],
+            "server names, Sent first"
+        );
+
+        // Later a phone saves into the server's own as well: Sent doesn't hop back.
+        hints.was = kinds_of(&second);
+        hints.held.insert("Sent".into());
+        assert_eq!(plan_folders(&list, &hints), second);
+
+        // The user's choice wins, and is not taken for another kind.
+        hints.chosen = HashMap::from([("Sent".to_owned(), FolderKind::Sent)]);
+        let chosen = plan_folders(&list, &hints);
+        assert_eq!(kind_in(&chosen, "sent"), FolderKind::Sent);
+        assert_eq!(kind_in(&chosen, "wysłane"), FolderKind::Custom);
+        hints.chosen = HashMap::from([("Sent".to_owned(), FolderKind::Archive)]);
+        let archive = plan_folders(&list, &hints);
+        assert_eq!(kind_in(&archive, "sent"), FolderKind::Archive);
+        assert_eq!(kind_in(&archive, "wysłane"), FolderKind::Sent);
     }
 
     // ---- A small scripted IMAP server: enough of RFC 3501, MOVE and UIDPLUS for sync ----
@@ -2164,13 +2258,13 @@ mod tests {
                 [
                     ("inbox".into(), "Inbox".into(), FolderKind::Inbox),
                     ("outbox".into(), "Outbox".into(), FolderKind::Outbox),
-                    ("wysłane".into(), "Sent".into(), FolderKind::Sent),
+                    ("wysłane".into(), "Wysłane".into(), FolderKind::Sent),
                     (
                         "projekty-klinika".into(),
                         "Projekty / Klinika".into(),
                         FolderKind::Custom
                     ),
-                    ("kosz".into(), "Trash".into(), FolderKind::Trash),
+                    ("kosz".into(), "Kosz".into(), FolderKind::Trash),
                 ]
             );
             let inbox = s.list(&account.folder_key("inbox")).unwrap();
@@ -2186,7 +2280,8 @@ mod tests {
             events.lock().unwrap().last(),
             Some(&SyncProgress {
                 account: "Studio".into(),
-                folder: "Sent".into(),
+                folder: "Wysłane".into(),
+                key: account.folder_key("wysłane"),
                 done: 1,
                 total: 1
             })

@@ -62,6 +62,13 @@ const UI = [
     [`acct-${i}`, 'surface', `Account ${i + 1}'s dot in All mail`],
   ]),
 ];
+// Text on backgrounds the stylesheet mixes from two tokens: [foreground, [a, share of a, b, how],
+// what]. "oklab" is color-mix(in oklab, a p%, b); "over" is color-mix(…, a p%, transparent)
+// drawn over b, as the browser blends it.
+const MIXED = [0, 1, 2, 3, 4, 5].flatMap((i) => [
+  ['fg', [`acct-${i}`, 0.26, 'surface', 'oklab'], `Account ${i + 1}'s initials`],
+  ['fg', [`acct-${i}`, 0.24, 'panel', 'over'], `Account ${i + 1}'s tinted line under the pointer`],
+]);
 const NEED = { AA: 4.5, AAA: 7 };
 
 const hex = (s) => {
@@ -76,6 +83,24 @@ export const ratio = (a, b) => {
   const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
   return (x + 0.05) / (y + 0.05);
 };
+// sRGB ⇄ OKLab (Björn Ottosson's matrices), for color-mix(in oklab, …).
+const lin = (v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+const gam = (v) => Math.round(255 * Math.min(1, Math.max(0, v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055)));
+const toLab = (rgb) => {
+  const [r, g, b] = rgb.map(lin);
+  const [l, m, s] = [0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b, 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b,
+    0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b].map(Math.cbrt);
+  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s, 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+};
+const fromLab = ([L, A, B]) => {
+  const [l, m, s] = [L + 0.3963377774 * A + 0.2158037573 * B, L - 0.1055613458 * A - 0.0638541728 * B, L - 0.0894841775 * A - 1.291485548 * B].map((v) => v ** 3);
+  return [4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s].map(gam);
+};
+const mix = (a, p, b, how) => (how === 'oklab'
+  ? fromLab(toLab(a).map((v, i) => v * p + toLab(b)[i] * (1 - p)))
+  : a.map((v, i) => Math.round(v * p + b[i] * (1 - p))));
 
 // Theme blocks: a selector list with [data-theme="id"], then its custom properties.
 function parseThemes(css) {
@@ -109,6 +134,14 @@ for (const t of themes.values()) {
   };
   for (const [fg, bg, what] of TEXT) check(fg, bg, what, NEED[t.level] ?? 4.5, 'text');
   for (const [fg, bg, what] of UI) check(fg, bg, what, 3, 'ui');
+  for (const [fg, [a, p, b, how], what] of MIXED) {
+    const [x, y, z] = [fg, a, b].map((k) => hex(t.tokens[k] ?? ''));
+    if (!x || !y || !z) continue; // a missing token is reported above
+    const back = mix(y, p, z, how), r = ratio(x, back), need = NEED[t.level] ?? 4.5, bg = `${a} ${p * 100}% ${how === 'over' ? 'over' : 'with'} ${b}`;
+    const color = '#' + back.map((v) => v.toString(16).padStart(2, '0')).join('');
+    pairs.push({ fg, bg, color, what, kind: 'text', need, ratio: Math.round(r * 100) / 100 });
+    if (r < need) problems.push(`${t.id}: --${fg} on ${bg} is ${r.toFixed(2)}:1, needs ${need}:1 (${what})`);
+  }
   const min = (kind) => Math.min(...pairs.filter((p) => p.kind === kind).map((p) => p.ratio));
   results.push({ ...t, minText: min('text'), minUi: min('ui'), pairs });
 }
@@ -130,11 +163,11 @@ const out = process.argv.indexOf('--json');
 if (out > 0) {
   const file = process.argv[out + 1];
   const data = results.map(({ id, scheme, level, tokens, minText, minUi, pairs }) => ({ id, scheme, level, tokens, minText, minUi, pairs }));
-  writeFileSync(file, JSON.stringify({ checked: TEXT.length + UI.length, themes: data }, null, 2) + '\n');
+  writeFileSync(file, JSON.stringify({ checked: TEXT.length + MIXED.length + UI.length, themes: data }, null, 2) + '\n');
   console.log(`Wrote ${file}`);
 }
 if (problems.length) {
   console.error(`\n${problems.length} problem${problems.length === 1 ? '' : 's'}:\n  ` + problems.join('\n  '));
   process.exit(1);
 }
-console.log(`\nAll ${results.length} themes pass (${TEXT.length} text and ${UI.length} UI pairs each).`);
+console.log(`\nAll ${results.length} themes pass (${TEXT.length + MIXED.length} text and ${UI.length} UI pairs each).`);

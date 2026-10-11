@@ -54,6 +54,7 @@ const KEYS: &[&str] = &[
     "theme",
     "language",
     "density",
+    "account_mark",
     "text_size",
     "prefer_text",
     "mark_read",
@@ -79,6 +80,8 @@ pub struct Settings {
     /// "auto" follows Windows' display language; otherwise one of [`LANGUAGES`].
     pub language: String,
     pub density: Density,
+    /// How each account's color shows, once there is more than one.
+    pub account_mark: AccountMark,
     /// Percent, one of [`TEXT_SIZES`].
     pub text_size: u16,
     /// Show HTML mail as plain text (H switches).
@@ -171,6 +174,22 @@ pub enum Density {
     Comfortable,
 }
 
+/// How the folder tree (and wherever an account is named) tells accounts apart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountMark {
+    /// A thin line in the account's color down the side of its folders.
+    Rail,
+    /// A small dot before the address.
+    Dot,
+    /// The account's initials on a tint of its color.
+    Initials,
+    /// A soft wash of its color behind the account's line.
+    Tint,
+    /// Nothing: the addresses say it.
+    None,
+}
+
 /// When a message on screen counts as read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -204,6 +223,7 @@ impl Default for Settings {
             theme: "system".into(),
             language: "auto".into(),
             density: Density::Compact,
+            account_mark: AccountMark::Rail,
             text_size: 100,
             prefer_text: false,
             mark_read: MarkRead::Moment,
@@ -1173,6 +1193,7 @@ mod tests {
             "language": "pl",
             "text_size": 133,           // not one of the sizes
             "density": "comfortable",
+            "account_mark": "initials",
             "colour": "blue",           // a key Telex doesn't have
         });
         let (s, ignored) = Settings::default().merged(&changes);
@@ -1180,6 +1201,7 @@ mod tests {
         assert_eq!(s.language, "pl");
         assert_eq!(s.text_size, 100);
         assert_eq!(s.density, Density::Comfortable);
+        assert_eq!(s.account_mark, AccountMark::Initials);
         let mut ignored = ignored;
         ignored.sort();
         assert_eq!(ignored, ["colour", "text_size", "theme"]);
@@ -1195,6 +1217,7 @@ mod tests {
         assert!(ignored.is_empty(), "{ignored:?}");
         assert_eq!((s.theme.as_str(), s.check_every), ("fjord", 15));
         assert_eq!(s.mail_paper, MailPaper::Theme);
+        assert_eq!(s.account_mark, AccountMark::Rail);
         assert_eq!(s.compose_format, ComposeFormat::Plain);
         assert_eq!(s.reply_format, ReplyFormat::Same);
         assert!(s.ask_subject && s.spell_check);

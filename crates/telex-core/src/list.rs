@@ -16,7 +16,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Account, MessageId, MessageSummary};
+use crate::model::{Account, FolderKind, MessageId, MessageSummary};
 use crate::store::{fts_query, summary_from_row, MailStore, StoreError, LOCAL_ID, SUMMARY_COLUMNS};
 
 /// The list's columns that it can be sorted by.
@@ -37,8 +37,9 @@ pub enum SortKey {
 /// Which messages a list shows, and in what order.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct ListView {
-    /// A folder key ("firma/inbox"), or `None` for all mail: every folder of every
-    /// account except Spam and Trash.
+    /// A folder key ("firma/inbox"), `"*/drafts"` for that kind of folder in every account
+    /// (see [`every_kind`]), or `None` for all mail: every folder of every account except
+    /// Spam and Trash.
     #[serde(default)]
     pub folder: Option<String>,
     #[serde(default)]
@@ -261,6 +262,10 @@ pub struct FolderCount {
     /// newest 300), as of the last sync.
     #[serde(skip_serializing_if = "is_zero")]
     pub older: usize,
+    /// In an Outbox: messages that didn't go (a server refused them, the last try failed,
+    /// or the user took them back), rather than waiting their turn.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub stuck: usize,
 }
 
 fn is_zero(n: &usize) -> bool {
@@ -299,6 +304,14 @@ pub(crate) struct Found {
     at: HashMap<MessageId, usize>,
 }
 
+/// The kind of folder a view of every account shows ("*/drafts": every Drafts, "*/outbox"),
+/// if `key` is one.
+pub fn every_kind(key: &str) -> Option<FolderKind> {
+    key.strip_prefix("*/")
+        .map(FolderKind::from_name)
+        .filter(|&k| k != FolderKind::Custom)
+}
+
 /// Folder keys of the given kinds, for SQL: `folder IN (…)`.
 fn folders_of_kind(kinds: &str) -> String {
     format!("(SELECT account || '/' || id FROM folders WHERE kind IN ({kinds}))")
@@ -325,6 +338,11 @@ impl Query {
                 args.push(Value::Text(
                     serde_json::to_string(&ids).map_err(|e| StoreError::Database(e.to_string()))?,
                 ));
+            }
+            (Some(key), None) if every_kind(key).is_some() => {
+                let kind = every_kind(key).map_or("", FolderKind::as_str);
+                filter.push_str("folder IN ");
+                filter.push_str(&folders_of_kind(&format!("'{kind}'")));
             }
             (Some(key), None) => {
                 if store.kind_of(key).is_none() {
@@ -394,7 +412,7 @@ impl Query {
 
         let desc = !view.ascending;
         let folder = view.folder.as_deref().filter(|_| view.thread.is_none());
-        let who = match folder.and_then(|k| store.kind_of(k)) {
+        let who = match folder.and_then(|k| every_kind(k).or_else(|| store.kind_of(k))) {
             Some(kind) if kind.is_outgoing() => "telex_recipient(to_addr)".to_owned(),
             Some(_) => "telex_lower(from_name)".to_owned(),
             None => format!(
@@ -567,7 +585,7 @@ impl MailStore {
                     FolderCount {
                         total: usize::try_from(total).unwrap_or_default(),
                         unread: usize::try_from(unread).unwrap_or_default(),
-                        older: 0,
+                        ..FolderCount::default()
                     },
                 ))
             })?
@@ -579,6 +597,15 @@ impl MailStore {
         for row in older {
             let (key, n) = row?;
             counts.entry(key).or_default().older = usize::try_from(n).unwrap_or_default();
+        }
+        let mut stmt = self.db.prepare_cached(
+            "SELECT m.folder, COUNT(*) FROM outbox o JOIN messages m ON m.id = o.message
+             WHERE o.refused OR o.last_error IS NOT NULL GROUP BY m.folder",
+        )?;
+        let stuck = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        for row in stuck {
+            let (key, n) = row?;
+            counts.entry(key).or_default().stuck = usize::try_from(n).unwrap_or_default();
         }
         let mut stmt = self
             .db
@@ -930,7 +957,7 @@ pub(crate) fn subject_key(subject: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{AccountSetup, Attachment, Folder, FolderKind, Message};
+    use crate::model::{AccountSetup, Attachment, Folder, FolderKind, Message, OutgoingDraft};
     use crate::store::SyncedMessage;
     use chrono::{NaiveDate, TimeDelta};
     use std::cmp::Ordering;
@@ -1561,5 +1588,106 @@ mod tests {
             "only Re and Fwd, as before"
         );
         assert_eq!(subject_key("Rekrutacja"), "rekrutacja");
+    }
+
+    #[test]
+    fn every_accounts_drafts_and_outbox_in_one_list() {
+        let mut store = store(1);
+        let other = store
+            .upsert_account(&AccountSetup {
+                name: "Dom".into(),
+                email: "jan@dom.pl".into(),
+                host: "mail.dom.pl".into(),
+                port: 993,
+                ..Default::default()
+            })
+            .unwrap();
+        let drafts = |id: &str| Folder {
+            id: id.into(),
+            name: id.into(),
+            kind: FolderKind::Drafts,
+            remote: Some(id.into()),
+        };
+        let mut studio = store.account("studio").unwrap().folders.clone();
+        studio.retain(|f| f.remote.is_some());
+        studio.push(drafts("drafts"));
+        store.set_folders("studio", &studio).unwrap();
+        store.set_folders(&other.id, &[drafts("Robocze")]).unwrap();
+        let day = NaiveDate::from_ymd_opt(2026, 10, 2)
+            .unwrap()
+            .and_hms_opt(8, 0, 0)
+            .unwrap();
+        let mut outbox = Vec::new();
+        for account in ["studio", other.id.as_str()] {
+            let draft = OutgoingDraft {
+                account: account.into(),
+                to: format!("Zofia <z@{account}.pl>"),
+                subject: format!("Szkic {account}"),
+                ..OutgoingDraft::default()
+            };
+            store
+                .save_outgoing(draft, None, FolderKind::Drafts, day)
+                .unwrap();
+            let mut message = store.list("studio/inbox").unwrap()[0].clone();
+            message.subject = format!("Wysyłka {account}");
+            let full = store.get(message.id).unwrap();
+            let id = store
+                .queue_outgoing(
+                    account,
+                    &full,
+                    b"raw",
+                    "a@b.pl",
+                    &["c@d.pl".into()],
+                    None,
+                    None,
+                )
+                .unwrap();
+            outbox.push(id);
+        }
+        store
+            .outgoing_failed(outbox[1], "550 no such user", true)
+            .unwrap();
+
+        let rows = |folder: &str| -> Vec<String> {
+            let view = ListView {
+                folder: Some(folder.into()),
+                sort: SortKey::From,
+                ascending: true,
+                ..ListView::default()
+            };
+            let page = store.page(&view, PageAt::First, 10).unwrap();
+            page.rows.iter().map(|r| r.folder.clone()).collect()
+        };
+        let mut drafts = rows("*/drafts");
+        drafts.sort();
+        assert_eq!(
+            drafts,
+            [other.folder_key("Robocze"), "studio/drafts".into()]
+        );
+        let mut outboxes = rows("*/outbox");
+        outboxes.sort();
+        assert_eq!(
+            outboxes,
+            [other.folder_key("outbox"), "studio/outbox".into()]
+        );
+        let custom = ListView {
+            folder: Some("*/klienci".into()),
+            ..ListView::default()
+        };
+        assert!(
+            store.page(&custom, PageAt::First, 10).is_err(),
+            "kinds only"
+        );
+
+        let tree = store.folder_tree().unwrap();
+        let outbox_of = |a: &str| tree.counts[&format!("{a}/outbox")];
+        assert_eq!(
+            (outbox_of("studio").total, outbox_of("studio").stuck),
+            (1, 0)
+        );
+        assert_eq!(
+            (outbox_of(&other.id).total, outbox_of(&other.id).stuck),
+            (1, 1)
+        );
     }
 }

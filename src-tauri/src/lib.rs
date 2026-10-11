@@ -173,6 +173,12 @@ fn mark_folder_read(state: State<'_, AppState>, folder: String) -> CmdResult<usi
     with_store(&state, |s| s.mark_folder_read(&folder))
 }
 
+/// Use a server folder for sent mail (drafts, archive, spam, trash) from now on.
+#[tauri::command]
+fn choose_folder(state: State<'_, AppState>, folder: String, kind: FolderKind) -> CmdResult<()> {
+    with_store(&state, |s| s.choose_folder(&folder, kind))
+}
+
 /// The messages of a list between two (Shift selection), or all of it (Ctrl+A).
 #[tauri::command]
 fn list_ids(
@@ -520,7 +526,8 @@ async fn add_account(
             *s = MailStore::open(&state.db_path)?;
         }
         let account = s.upsert_account(&setup)?;
-        s.set_folders(&account.id, &imap::plan_folders(&folders))?;
+        let plan = imap::plan_folders(&folders, &s.folder_hints(&account.id)?);
+        s.set_folders(&account.id, &plan)?;
         s.account(&account.id).cloned()
     })?;
     watch::restart(&app);
@@ -955,6 +962,7 @@ pub fn run() {
             move_messages,
             delete_messages,
             mark_folder_read,
+            choose_folder,
             list_ids,
             next_unread,
             recipients,

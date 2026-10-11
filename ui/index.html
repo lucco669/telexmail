@@ -48,7 +48,7 @@
               <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg><span class="arr"></span></button></th>
             <th class="c-from" scope="col"><button type="button" data-sort="from"><span id="from-label">From</span><span class="arr"></span></button></th>
             <th class="c-subj" scope="col"><span class="grip" data-grip="from" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the From column" data-i18n></span><button type="button" data-sort="subject" data-i18n>Subject<span class="arr"></span></button></th>
-            <th class="c-where" scope="col"><span class="grip" data-grip="where" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the Folder column" data-i18n></span><span class="th-lbl" data-i18n>Folder</span></th>
+            <th class="c-where" scope="col"><span class="grip" data-grip="where" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the Folder column" data-i18n></span><span class="th-lbl" id="where-label">Folder</span></th>
             <th class="c-date" scope="col"><button type="button" data-sort="date" data-i18n>Received<span class="arr"></span></button></th>
             <th class="c-size" scope="col"><button type="button" data-sort="size" data-i18n>Size<span class="arr"></span></button></th>
           </tr></thead>
@@ -70,6 +70,7 @@
       <button class="chip" id="st-update" type="button" hidden></button>
       <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
       <button class="chip bad" id="st-sync" type="button" hidden></button>
+      <button class="chip bad" id="st-unsent" type="button" hidden></button>
       <span id="st-check"></span>
       <button class="helpbtn" id="st-help" type="button" aria-expanded="false" aria-controls="help-pop" aria-label="Keys and tips" data-i18n><span aria-hidden="true">?</span></button>
       <button class="ver" id="st-ver" type="button" hidden></button>
@@ -109,6 +110,11 @@
         <fieldset class="sgroup">
           <legend data-i18n>Rows</legend>
           <div class="segs" id="s-density"></div>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Accounts in the folder list</legend>
+          <div class="themes marks" id="s-marks"></div>
+          <p class="dnote snote" data-i18n>Each account has a color of its own, shown this way once there is more than one, also in the list and the status bar.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Text size</legend>
@@ -189,6 +195,15 @@
           <div class="sbtns">
             <button class="btn primary" type="button" id="i-new" data-i18n>New identity</button>
             <button class="btn" type="button" id="i-close" data-i18n>Back to accounts</button>
+          </div>
+        </div>
+        <div id="f-view" hidden>
+          <h3 class="rh" id="f-title">Folders</h3>
+          <p class="dnote" data-i18n>Which of the server’s folders Telex uses for each kind of mail. Telex finds them itself and prefers the one that holds mail; choose another where it got it wrong. Your choice stays.</p>
+          <div class="cf df" id="f-list"></div>
+          <p class="derr" id="f-err" role="alert"></p>
+          <div class="sbtns">
+            <button class="btn" type="button" id="f-close" data-i18n>Back to accounts</button>
           </div>
         </div>
         <form id="i-form" novalidate hidden>

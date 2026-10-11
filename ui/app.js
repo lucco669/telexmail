@@ -84,6 +84,22 @@ async function loadTree(){
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   COUNTS = t.counts;
   PROBLEMS = t.problems ?? {};
+  INITIALS = initialsOf(ACCOUNTS.filter(a => a.imap));
+}
+// Two letters for each account, from its name ("Łukasz Szramuk" → ŁS, "Sales 750xl.com" → S7),
+// else its address; two accounts never share them while another pair is free.
+let INITIALS = {};
+function initialsOf(accounts){
+  const used = new Set(), out = {};
+  const up = s => s.toLocaleUpperCase();
+  for (const a of accounts){
+    const words = String(a.name || '').split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+    const local = String(a.email).split('@')[0].replace(/[^\p{L}\p{N}]/gu, ''), domain = String(a.email).split('@')[1] ?? '';
+    const tries = [words.length > 1 ? words[0][0] + words[1][0] : (words[0] ?? '').slice(0, 2), local[0] + domain[0], local.slice(0, 2), (words[0] ?? local)[0] + (accounts.indexOf(a) + 1)];
+    const pick = tries.map(x => up(String(x ?? ''))).find(x => x.length === 2 && !used.has(x)) ?? up(local.slice(0, 2));
+    used.add(pick); out[a.id] = pick;
+  }
+  return out;
 }
 // The core's errors and notes come in the interface's language already (its tr! macro).
 const tr = e => String(e);
@@ -152,13 +168,21 @@ const sentLine = s => String(s).replace(/^"(.*)" to (.*)$/, (_, subject, who) =>
 // Lowercase without diacritics, for matching what is typed: "Łódź" → "lodz".
 const fold = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L').toLowerCase();
 const acctId = key => key.split('/')[0];
-const folderOf = key => { const [a, f] = key.split('/'); return ACCT[a]?.folders.find(x => x.id === f); };
+// Every account's Drafts, or every Outbox, as one list: "*/drafts", "*/outbox" (EVERY).
+const EVERY = '*';
+const isEvery = key => acctId(String(key)) === EVERY;
+const folderOf = key => {
+  const [a, f] = key.split('/');
+  return a === EVERY ? (KIND_NAME[f] ? {id:f, kind:f, name:f} : undefined) : ACCT[a]?.folders.find(x => x.id === f);
+};
 const folderName = key => { const f = folderOf(key); return !f ? key : KIND_NAME[f.kind] ? t(KIND_NAME[f.kind]) : f.name; };
 const kindOf = key => folderOf(key)?.kind;
 const isOut = key => ['sent', 'drafts', 'outbox'].includes(kindOf(key));
 const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.kind === kind); return f ? acct + '/' + f.id : null; };
 const homeOf = acct => keyOfKind(acct, 'inbox') || (ACCT[acct]?.folders[0] ? acct + '/' + ACCT[acct].folders[0].id : '');
-const countOf = key => COUNTS[key] ?? {total:0, unread:0};
+// An EVERY list counts what its folders hold together.
+const countOf = key => !isEvery(key) ? COUNTS[key] ?? {total:0, unread:0}
+  : servers().reduce((n, a) => { const c = COUNTS[keyOfKind(a.id, kindOf(key))]; return c ? {total:n.total + c.total, unread:n.unread + c.unread, stuck:n.stuck + (c.stuck ?? 0)} : n; }, {total:0, unread:0, stuck:0});
 const num = n => n.toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en');
 // The folders on this PC ("On this PC"): mail kept only here. The core keeps them as an
 // account without servers, with this id, listed last.
@@ -168,13 +192,15 @@ const servers = () => ACCOUNTS.filter(a => a.imap); // the accounts that live on
 // A folder's name where it could be mistaken for a server folder: "Archive on this PC".
 const placeName = key => isLocal(key) ? t('{folder} on this PC', {folder:folderName(key)}) : folderName(key);
 // Who a folder belongs to, in words: the account's address, or "On this PC".
-const acctLabel = acct => acct === LOCAL ? t('On this PC') : ACCT[acct]?.email ?? '';
+const acctLabel = acct => acct === LOCAL ? t('On this PC') : acct === EVERY ? t('All accounts') : ACCT[acct]?.email ?? '';
 // Each account has a color, shown as a dot once there is more than one account; the folders
 // on this PC have a small screen instead.
+// Settings › Appearance says how (account_mark: rail, dot, initials, tint, none).
+const acolor = acct => { const i = ACCOUNTS.findIndex(a => a.id === acct); return i < 0 ? '' : 'a' + i % 6; };
 const adot = acct => {
   if (acct === LOCAL) return `<i class="adot pc" aria-hidden="true"></i>`;
-  const i = ACCOUNTS.findIndex(a => a.id === acct);
-  return i < 0 ? '' : `<i class="adot a${i % 6}" aria-hidden="true"></i>`;
+  const c = acolor(acct);
+  return c ? `<i class="adot ${c}" data-i="${esc(INITIALS[acct] ?? '')}" aria-hidden="true"></i>` : '';
 };
 // The window's own state: pane sizes, the filter's scope, when updates were last checked. Settings are elsewhere.
 const store = {
@@ -240,7 +266,7 @@ const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light')
 // Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
-  settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
+  settings:{theme:'system', language:'auto', density:'compact', account_mark:'rail', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
     spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
@@ -257,6 +283,7 @@ function darkPaper(id){
 function applySettings(){
   const s = pref(), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = shownTheme(s.theme);
+  document.documentElement.dataset.mark = s.account_mark;
   // HTML mail on dark paper takes the theme's colors: show it again in the new ones.
   if (theme !== shownTheme(s.theme) && !state.compose && ACCOUNTS.length) renderPreview();
   if (s.text_size !== zoomed){
@@ -269,7 +296,7 @@ function applySettings(){
   scheduleChecks();
   if (SETTINGS.language !== I18n.lang()){ I18n.setLang(SETTINGS.language); relabel(); }
   renderUpdates();
-  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size})); } catch {}
+  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark})); } catch {}
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
 // Saved at once; the window follows. Resolves to true when it worked.
@@ -376,6 +403,15 @@ function renderSync(){
   b.title = ids.map(id => `${acctLabel(id)}: ${PROBLEMS[id]}`).join('\n') + '\n' + t('Click to check again.');
 }
 $('st-sync').addEventListener('click', () => getMail());
+// Mail that didn't go (refused, a failed try, taken back), whichever folder is open; a click shows it.
+function renderUnsent(){
+  const n = VIEWER ? 0 : countOf(EVERY + '/outbox').stuck, b = $('st-unsent');
+  b.hidden = !n;
+  if (!n) return;
+  b.textContent = tn(n, '{n} not sent', '{n} not sent', {n:num(n)});
+  b.title = t('Not sent: open the message to see why.');
+}
+$('st-unsent').addEventListener('click', () => setFolder(EVERY + '/outbox'));
 // How many older messages the "download" button in the status bar asks for at a time.
 const OLDER_BATCH = 1000;
 function renderStatus(){
@@ -389,6 +425,7 @@ function renderStatus(){
     : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}${more}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderSync();
+  renderUnsent();
   renderMeter();
   const title = VIEWER ? `${selRow?.subj || t('Message')} – Telex` : ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
   if (title !== lastTitle){
@@ -441,22 +478,43 @@ async function loadUsage(){
 $('st-usage').addEventListener('click', () => openSettings('use'));
 
 /* ---------- tree ---------- */
-// Each account shows its Inbox and Sent, Drafts and the Outbox when they hold something,
-// and the open folder. The rest wait behind a quiet "more" line, remembered per account.
+// Each account shows its Inbox and Sent (quieter: mail that went out), and the open folder.
+// The rest wait behind a quiet "more" line, remembered per account. Drafts and the Outbox
+// aren't places to keep mail: what isn't sent yet, from any account, waits at the end of the
+// tree as one list each (EVERY), only while it holds something.
 const MAIN_KINDS = new Set(['inbox', 'sent']);
-const COUNT_ALL = new Set(['drafts', 'outbox']); // these count everything, not unread
+const UNSENT = ['drafts', 'outbox'];
+const COUNT_ALL = new Set(UNSENT); // these count everything, not unread
 function folderButton(a, f){
-  const key = a.id + '/' + f.id, c = countOf(key), all = COUNT_ALL.has(f.kind);
+  const key = a.id + '/' + f.id;
   if (state.naming?.key === key) return `<li><span class="fold naming">${I[KIND_ICON[f.kind] || 'folder']}${nameInput()}</span></li>`;
+  // A special folder is named by its kind; its own name on the server is in the tooltip, and
+  // next to it when another folder has the kind's name ("Sent · Wysłane" next to an unused "Sent").
+  const shown = folderName(key), same = (x, y) => x.toLocaleLowerCase() === y.toLocaleLowerCase();
+  const own = f.kind !== 'custom' && !isLocal(key) && f.name && !same(f.name, shown) ? f.name : '';
+  const twin = own && a.folders.some(x => x.kind === 'custom' && same(x.name, shown));
+  return foldButton(key, f.kind, own, twin);
+}
+function foldButton(key, kind, own = '', twin = false){
+  const c = countOf(key), all = COUNT_ALL.has(kind), on = key === state.folder;
   const n = all ? c.total : c.unread;
-  const cnt = n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
-  const on = key === state.folder;
-  return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(folderName(key))}</span>${cnt}</button></li>`;
+  // The Outbox says what didn't go, in the warning colors, before what waits its turn.
+  const cnt = c.stuck ? `<span class="qchip" data-level="full" title="${esc(tn(c.stuck, '{n} not sent', '{n} not sent', {n:num(c.stuck)}) + ' · ' + t('Not sent: open the message to see why.'))}">${num(c.stuck)}</span>`
+    : n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
+  const tip = isEvery(key) ? t('{folder} of every account', {folder:folderName(key)}) : own ? t('“{name}” on the server', {name:own}) : '';
+  const name = esc(folderName(key)) + (twin ? `<i class="srv"> · ${esc(own)}</i>` : '');
+  return `<li><button type="button" class="fold${kind === 'sent' ? ' out' : ''}${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}${tip ? ` title="${esc(tip)}"` : ''}>${I[KIND_ICON[kind] || 'folder']}<span>${name}</span>${cnt}</button></li>`;
+}
+// What isn't sent yet, at the end of the tree: every account's drafts, and the Outbox.
+const unsentKeys = () => UNSENT.map(kind => EVERY + '/' + kind).filter(key => countOf(key).total || key === state.folder);
+function unsentGroup(){
+  const keys = unsentKeys();
+  return keys.length ? `<ul class="unsent" aria-label="${esc(t('Not sent yet'))}">${keys.map(key => foldButton(key, kindOf(key))).join('')}</ul>` : '';
 }
 // The box a folder on this PC is named in, in the tree itself.
 const nameInput = () => `<input id="nf-name" class="nfname" value="${esc(state.naming.value)}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Folder name'))}" placeholder="${esc(t('Folder name'))}">`;
-// The folders on this PC: their own group under the accounts, with a + for a new one. Trash
-// shows only when it holds something.
+// The folders on this PC: their own group under the accounts, with a + for a new one. Archive
+// and Trash show only when they hold something.
 // Mail on this PC exists nowhere else: the group says so while there is no backup, or (with
 // backups off) none for a month.
 function backupNudge(){
@@ -469,7 +527,7 @@ function localGroup(a){
   const open = !state.collapsed[LOCAL];
   let items = '';
   if (open){
-    const shown = a.folders.filter(f => f.kind !== 'trash' || countOf(LOCAL + '/' + f.id).total > 0 || LOCAL + '/' + f.id === state.folder);
+    const shown = a.folders.filter(f => f.kind === 'custom' || countOf(LOCAL + '/' + f.id).total > 0 || LOCAL + '/' + f.id === state.folder);
     items = '<ul>' + (state.naming?.key === 'new' ? `<li><span class="fold naming">${I.folder}${nameInput()}</span></li>` : '')
       + shown.map(f => folderButton(a, f)).join('') + '</ul>';
   }
@@ -486,14 +544,15 @@ function renderTree(){
   const caret = typing ? [typing.selectionStart, typing.selectionEnd] : null;
   treeEl.innerHTML = ACCOUNTS.map(a => {
     if (a.id === LOCAL) return localGroup(a);
-    const open = !state.collapsed[a.id];
+    const open = !state.collapsed[a.id], key = f => a.id + '/' + f.id;
     let items = '';
     if (open){
-      const shown = f => MAIN_KINDS.has(f.kind) || state.pinned.has(a.id + '/' + f.id) || a.id + '/' + f.id === state.folder || (COUNT_ALL.has(f.kind) && countOf(a.id + '/' + f.id).total > 0);
-      const main = a.folders.filter(shown), rest = a.folders.filter(f => !shown(f)), more = !!state.more[a.id];
-      items = '<ul>' + (more ? a.folders : main).map(f => folderButton(a, f)).join('');
+      const own = a.folders.filter(f => !COUNT_ALL.has(f.kind) || key(f) === state.folder);
+      const shown = f => MAIN_KINDS.has(f.kind) || state.pinned.has(key(f)) || key(f) === state.folder;
+      const main = own.filter(shown), rest = own.filter(f => !shown(f)), more = !!state.more[a.id];
+      items = '<ul>' + (more ? own : main).map(f => folderButton(a, f)).join('');
       if (rest.length){
-        const unread = more ? 0 : rest.reduce((n, f) => n + (COUNT_ALL.has(f.kind) ? 0 : countOf(a.id + '/' + f.id).unread), 0);
+        const unread = more ? 0 : rest.reduce((n, f) => n + countOf(key(f)).unread, 0);
         items += `<li><button type="button" class="fold more" data-more="${esc(a.id)}" aria-expanded="${more}">${I.caret}<span>${esc(more ? t('Fewer folders') : tn(rest.length, '{n} more', '{n} more'))}</span>${unread ? `<span class="cnt">${num(unread)}</span>` : ''}</button></li>`;
       }
       items += '</ul>';
@@ -504,18 +563,19 @@ function renderTree(){
     // An account whose last check failed says so until one works (the status bar can retry).
     const failed = PROBLEMS[a.id] ? t('The last check failed: {reason}', {reason:PROBLEMS[a.id]}) : '';
     const bad = failed ? `<span class="qchip" data-level="full" title="${esc(failed)}" aria-hidden="true">!</span><span class="vh">${esc(failed)}</span>` : '';
-    return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}${failed ? '\n' + esc(failed) : ''}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}${bad}</button>${items}`;
-  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(servers().length ? t('Add account') : t('Add your account'))}</span></button>`;
+    return `<div class="agrp ${acolor(a.id)}"><button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}${failed ? '\n' + esc(failed) : ''}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}${bad}</button>${items}</div>`;
+  }).join('') + unsentGroup() + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(servers().length ? t('Add account') : t('Add your account'))}</span></button>`;
   const input = $('nf-name');
   if (input){
     wireNaming(input);
     if (had){ input.focus(); if (caret) input.setSelectionRange(...caret); }
   }
   if (drag?.started) paintDrag(); // the folders under a drag show it again
-  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(acctLabel(a.id))}">` + a.folders.map(f => {
-    const key = a.id + '/' + f.id, n = countOf(key).unread;
-    return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(folderName(key))}${n ? ` (${n})` : ''}</option>`;
-  }).join('') + '</optgroup>').join('');
+  const option = key => { const n = countOf(key).unread; return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(folderName(key))}${n ? ` (${n})` : ''}</option>`; };
+  const unsent = unsentKeys();
+  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(acctLabel(a.id))}">`
+    + a.folders.filter(f => !COUNT_ALL.has(f.kind) || a.id + '/' + f.id === state.folder).map(f => option(a.id + '/' + f.id)).join('') + '</optgroup>').join('')
+    + (unsent.length ? `<optgroup label="${esc(t('Not sent yet'))}">${unsent.map(option).join('')}</optgroup>` : '');
 }
 treeEl.addEventListener('click', e => {
   const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]'), m = e.target.closest('[data-more]');
@@ -553,6 +613,7 @@ function accountMenu(id){
     {label:t('Move down'), key:'Alt+↓', disabled:i === list.length - 1, run:() => moveAccount(id, 1)},
     {sep:true},
     {label:state.more[id] ? t('Show fewer folders') : t('Show all folders'), run:() => toggleMore(id)},
+    {label:t('Which folder is which…'), run:() => openFolderChoices(id)},
     {label:t('Account settings…'), run:() => { openSettings('accts'); editAccount(id); }},
   ];
 }
@@ -644,12 +705,15 @@ window.__TAURI__?.event?.listen('import-progress', ({payload: p}) => say(t('Read
 // What a right-click (or the menu key) on a folder offers.
 function folderMenu(key){
   const f = folderOf(key);
-  if (!f) return [];
+  if (!f || isEvery(key)) return [];
   const local = isLocal(key), own = local && f.kind === 'custom';
   const sections = [
     local ? [{label:t('New folder…'), run:() => startNaming('new')}] : [],
     // Inbox and Sent are always in view; the folders on this PC too.
     !local && !MAIN_KINDS.has(f.kind) ? [{label:t('Keep in view'), checked:state.pinned.has(key), run:() => togglePin(key)}] : [],
+    // A server folder another program kept sent mail in ("Wysłane", "Sent Items").
+    !local && f.kind === 'custom' ? [{label:t('Use for sent mail'), run:() => chooseFolder(key, 'sent')},
+      {label:t('Which folder is which…'), run:() => openFolderChoices(acctId(key))}] : [],
     own ? [{label:t('Rename…'), key:'F2', run:() => startNaming(key)}, {label:t('Delete folder'), disabled:countOf(key).total > 0, run:() => deleteFolder(key)}] : [],
     [...(countOf(key).unread ? [{label:t('Mark all as read'), key:'Shift+U', run:() => markFolderRead(key)}] : []),
       ...(local && f.kind !== 'trash' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
@@ -748,10 +812,12 @@ const list = {total:0, start:0, rows:[], seq:0};
 let rowH = 21, selRow = null; // selRow: the selected message, also when its row isn't loaded
 // All mail (the filter in every account) or a conversation: lists across folders, with a Folder column.
 const allMail = () => !!state.thread || (state.scope === 'all' && !!state.q.trim());
+// Lists whose rows come from more than one folder: all mail, and every account's Drafts or Outbox.
+const across = () => allMail() || isEvery(state.folder);
 const selKey = () => state.thread ? '#' : allMail() ? '*' : state.folder;
 const viewArgs = () => ({folder:allMail() ? null : state.folder, sort:state.sort.key, ascending:state.sort.dir > 0,
   filter:state.q, bodies:state.inText, thread:state.thread?.id ?? null});
-const current = () => selRow && selRow.id === state.sel[selKey()] && (allMail() || selRow.f === state.folder) ? selRow : null;
+const current = () => selRow && selRow.id === state.sel[selKey()] && (allMail() || selRow.f === state.folder || (isEvery(state.folder) && kindOf(selRow.f) === kindOf(state.folder))) ? selRow : null;
 // The messages an action is for: those picked with Shift or Ctrl, else the selected one.
 const chosen = () => state.picked.size ? [...state.picked] : current() ? [current().id] : [];
 function unpick(){
@@ -836,7 +902,7 @@ let colCount = 5, colsDone = '';
 function fitColumns(){
   const w = listEl.clientWidth;
   if (!w) return;
-  const where = allMail(), size = colPref.size && !where && w >= COL.narrow, m = measure();
+  const where = across(), size = colPref.size && !where && w >= COL.narrow, m = measure();
   const fixed = COL.ic + m.date + (size ? m.size : 0);
   let flex = Math.max(0, w - fixed);
   let whereW = 0;
@@ -862,7 +928,7 @@ function fitColumns(){
 function fitToNames(which){
   const font = `600 12.5px ${cssVar('--font-list')}`;
   const texts = list.rows.slice(Math.max(0, visibleRange()[0] - list.start - MARGIN)).slice(0, 200)
-    .map(m => which === 'where' ? folderName(m.f) : whoOf(m));
+    .map(m => which === 'where' ? (isEvery(state.folder) && !allMail() ? acctLabel(acctId(m.f)) : folderName(m.f)) : whoOf(m));
   const px = Math.ceil(Math.max(0, ...texts.map(s => textWidth(s, font)))) + COL.pad + (which === 'where' ? 14 : 4);
   colPref[which] = Math.max(which === 'where' ? COL.minWhere : COL.minFrom, px);
   colsDone = ''; fitColumns(); persist();
@@ -912,7 +978,7 @@ function columnMenu(){
     {label:t('Short dates: {examples}', {examples:`${hm(day)}, ${t(DOW[day.getDay()])} ${hm(day)}, ${dmy(old)}`}), checked:colPref.dates === 'short', run:() => setDates('short')},
     {label:t('Full dates: {example}', {example:`${dmy(old)} ${hm(old)}`}), checked:colPref.dates === 'full', run:() => setDates('full')},
     {sep:true},
-    {label:t('Size column'), checked:colPref.size, disabled:allMail(), run:() => { colPref.size = !colPref.size; persist(); colsDone = ''; fitColumns(); }},
+    {label:t('Size column'), checked:colPref.size, disabled:across(), run:() => { colPref.size = !colPref.size; persist(); colsDone = ''; fitColumns(); }},
     {sep:true},
     {label:t('Fit columns to the list'), disabled:!colPref.from && !colPref.where, run:resetColumns},
   ];
@@ -939,7 +1005,7 @@ function rowHtml(m, sel, hl){
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${marked(whoOf(m), hl?.[out ? 'to' : 'from'])}</td>
 <td class="c-subj" title="${esc(m.subj)}">${marked(m.subj, hl?.subject)}</td>
-<td class="c-where" title="${esc(acctLabel(acctId(m.f)))} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(folderName(m.f))}</td>
+<td class="c-where" title="${esc(acctLabel(acctId(m.f)))} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(isEvery(state.folder) && !allMail() ? acctLabel(acctId(m.f)) : folderName(m.f))}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
 }
@@ -1120,6 +1186,7 @@ async function refresh({skip} = {}){
 function renderHead(){
   const out = !allMail() && isOut(state.folder);
   $('from-label').textContent = out ? t('To') : t('From');
+  $('where-label').textContent = isEvery(state.folder) && !allMail() ? t('Account') : t('Folder');
   document.querySelectorAll('th button[data-sort]').forEach(b => {
     const on = b.dataset.sort === state.sort.key, th = b.parentElement;
     if (on) th.setAttribute('aria-sort', state.sort.dir > 0 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
@@ -2277,7 +2344,7 @@ async function markAllRead(){
   if (!list.total) return;
   let n;
   try {
-    if (allMail()) n = await call('set_unread_many', {ids:await invoke('list_ids', {view:viewArgs(), from:null, to:null}), unread:false});
+    if (across()) n = await call('set_unread_many', {ids:await invoke('list_ids', {view:viewArgs(), from:null, to:null}), unread:false});
     else n = await call('mark_folder_read', {folder:state.folder});
   } catch { return; }
   await refresh();
@@ -2344,7 +2411,7 @@ async function undo(){
   try { for (const [folder, ids] of groups) await call('move_messages', {ids, folder}); } catch { return; }
   setUndo(null);
   const first = u.items[0];
-  if (first && (allMail() || state.folder === first.from)){ state.sel[selKey()] = first.id; selRow = null; }
+  if (first && (allMail() || state.folder === first.from || (isEvery(state.folder) && kindOf(first.from) === kindOf(state.folder)))){ state.sel[selKey()] = first.id; selRow = null; }
   await loadTree().catch(() => {});
   renderTree();
   await loadView();
@@ -2373,10 +2440,12 @@ function openPicker(mode){
     accts = targetsFor(folders);
     if (folders.length === 1) skip = folders[0];
   }
-  const items = accts.flatMap(a => (ACCT[a]?.folders ?? [])
-    .filter(f => mode !== 'move' || f.kind !== 'outbox')
-    .map(f => ({key:a + '/' + f.id, name:folderName(a + '/' + f.id), acct:a}))
-    .filter(it => it.key !== skip));
+  // G goes to every account's drafts and to the Outbox as one list each, as the tree shows them.
+  const items = (mode === 'move' ? [] : UNSENT.map(kind => ({key:EVERY + '/' + kind, name:t(KIND_NAME[kind]), acct:EVERY})))
+    .concat(accts.flatMap(a => (ACCT[a]?.folders ?? [])
+      .filter(f => mode === 'move' ? f.kind !== 'outbox' : !COUNT_ALL.has(f.kind))
+      .map(f => ({key:a + '/' + f.id, name:folderName(a + '/' + f.id), acct:a}))
+      .filter(it => it.key !== skip)));
   pick = {mode, items, shown:[], at:0};
   const n = chosen().length;
   $('pk-title').textContent = mode === 'move' ? tn(n, 'Move {n} message to', 'Move {n} messages to', {n:num(n)}) : t('Go to folder');
@@ -2505,7 +2574,7 @@ listenMain('inbox-changed', ({payload: account}) => {
 // Progress while a folder downloads; each finished folder shows up right away.
 let reloadTimer;
 listenMain('sync-progress', ({payload: p}) => {
-  say(t('{account} › {folder}: {done} of {total}', p), 0);
+  say(t('{account} › {folder}: {done} of {total}', {...p, folder:p.key && folderOf(p.key) ? folderName(p.key) : p.folder}), 0);
   if (p.done === p.total){
     clearTimeout(reloadTimer);
     reloadTimer = setTimeout(refresh, 200);
@@ -2662,7 +2731,7 @@ qPop.addEventListener('click', e => {
 addEventListener('resize', () => { if (!qPop.hidden) suggest(); });
 function paintScope(){
   const all = state.scope === 'all';
-  win.classList.toggle('allmail', allMail());
+  win.classList.toggle('allmail', across());
   $('q').closest('.search').classList.toggle('active', !!state.q);
   $('q-scope').textContent = all ? t('All mail') : t('This folder');
   $('q-scope').setAttribute('aria-pressed', String(all));
@@ -2692,7 +2761,7 @@ let editing = null;     // id of the account being edited, or null when adding
 let wizardSeq = 0;      // each run gets a number; answers for an older run are dropped
 let wizardBusy = null;  // 'find' or 'login' while the wizard works
 let accountView = 'home';
-const ACCOUNT_VIEWS = {home:'a-home', start:'w-start', work:'w-work', form:'acct-form', ids:'i-list-view', idform:'i-form'};
+const ACCOUNT_VIEWS = {home:'a-home', start:'w-start', work:'w-work', form:'acct-form', ids:'i-list-view', idform:'i-form', folders:'f-view'};
 function showAccountView(view){
   accountView = view;
   for (const [v, id] of Object.entries(ACCOUNT_VIEWS)) $(id).hidden = v !== view;
@@ -2762,7 +2831,7 @@ function renderAccountList(){
     const sync = u?.sync_error ? `<div class="st warn" title="${esc(u.sync_error)}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</div>`
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
     return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="nm">${esc(a.name)}</div><div class="em" title="${esc(where)}">${esc(where)}</div>${sync}</div>${order}`
-      + `<button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div>`;
+      + `<button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
   $('a-list-err').textContent = '';
 }
@@ -2960,6 +3029,8 @@ $('a-list').addEventListener('click', async e => {
   if (ed){ editAccount(ed.dataset.edit); return; }
   const ids = e.target.closest('[data-ids]');
   if (ids){ openIdentities(ids.dataset.ids); return; }
+  const fo = e.target.closest('[data-folders]');
+  if (fo){ openFolderChoices(fo.dataset.folders); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = t('Remove it and its local mail'); return; }
@@ -2969,6 +3040,50 @@ $('a-list').addEventListener('click', async e => {
   renderAccountList();
   say(t('Account removed from Telex. The mail on the server is untouched.'));
 });
+
+/* ---------- which folder is which ---------- */
+// Per account, the server folder Telex uses for sent mail, drafts, archive, spam and trash.
+// The core finds them (the server's flags, the names, which holds mail); a choice here wins.
+const CHOOSABLE = [['sent', N_('Sent mail')], ['drafts', N_('Drafts')], ['archive', N_('Archive')], ['spam', N_('Spam')], ['trash', N_('Trash')]];
+let foldersOf = null;
+function openFolderChoices(account){
+  foldersOf = account;
+  if (!sdlg.open || setTab !== 'accts') openSettings('accts');
+  showFolderChoices();
+  $('f-list').querySelector('select')?.focus();
+}
+function showFolderChoices(){
+  const a = ACCT[foldersOf];
+  if (!a){ showAccountView('home'); return; }
+  showAccountView('folders');
+  $('f-err').textContent = '';
+  $('f-title').textContent = t('Folders') + ' · ' + a.email;
+  // Each folder by its own name on the server, with what it holds here.
+  const server = a.folders.filter(f => f.kind !== 'inbox' && f.kind !== 'outbox');
+  const label = f => { const n = countOf(a.id + '/' + f.id).total; return f.name + (n ? ` (${num(n)})` : ''); };
+  $('f-list').innerHTML = CHOOSABLE.map(([kind, name]) => {
+    const now = server.find(f => f.kind === kind);
+    const opts = (now ? '' : `<option value="" selected disabled>${esc(t('None on the server'))}</option>`)
+      + server.map(f => `<option value="${esc(a.id + '/' + f.id)}"${f === now ? ' selected' : ''}>${esc(label(f))}</option>`).join('');
+    return `<label for="f-${kind}">${esc(t(name))}</label><select id="f-${kind}" class="sselect" data-kind="${kind}">${opts}</select>`;
+  }).join('');
+}
+async function chooseFolder(key, kind){
+  const name = folderOf(key)?.name ?? key;
+  try { await invoke('choose_folder', {folder:key, kind}); } catch (e){ say(tr(e), 8000); return false; }
+  await loadTree();
+  renderTree(); renderStatus(); renderHead(); drawRows();
+  say(kind === 'sent' ? t('Sent mail goes to {folder} from now on.', {folder:name}) : t('{folder} is the {kind} folder from now on.', {folder:name, kind:t(KIND_NAME[kind])}), 5000);
+  return true;
+}
+$('f-list').addEventListener('change', async e => {
+  const sel = e.target.closest('select[data-kind]');
+  if (!sel?.value) return;
+  if (await chooseFolder(sel.value, sel.dataset.kind)) showFolderChoices();
+  else $('f-err').textContent = t('That didn’t work. Try again.');
+  $('f-' + sel.dataset.kind)?.focus();
+});
+$('f-close').addEventListener('click', () => showAccountView('home'));
 
 /* ---------- identities ---------- */
 let idAccount = null, identity = null; // identity: the one being edited
@@ -3205,6 +3320,14 @@ function themeCards(){
       + `<span class="tname">${esc(t(THEME_NAMES[id]))}</span><span class="tlvl"></span></label>`;
   }).join('');
 }
+// How accounts are told apart in the tree: each card draws two accounts that way, in their colors.
+const MARKS = [['rail', N_('Line')], ['dot', N_('Dot')], ['initials', N_('Initials')], ['tint', N_('Tint')], ['none', N_('None|mark')]];
+function markCards(){
+  const group = (c, who) => `<span class="mgrp ${c}"><span class="mhead"><i class="adot ${c}" data-i="${who}"></i><b></b></span><b class="mf"></b><b class="mf on"></b></span>`;
+  return MARKS.map(([id, name]) => `<label class="tcard mcard"><input type="radio" name="account_mark" value="${id}"${pref().account_mark === id ? ' checked' : ''}>`
+    + `<span class="mprev" data-mark="${id}" aria-hidden="true"><span class="multi">${group('a0', 'AK')}${group('a1', 'JN')}</span></span>`
+    + `<span class="tname">${esc(t(name))}</span></label>`).join('');
+}
 function renderSettings(keepFocus){
   const focused = keepFocus && document.activeElement?.closest?.('#set-dlg') ? document.activeElement : null;
   const again = focused && (focused.name ? `[name="${focused.name}"][value="${focused.value}"]` : focused.id ? '#' + focused.id : null);
@@ -3224,6 +3347,7 @@ function renderSettings(keepFocus){
   });
   $('s-forced').hidden = !forcedColors.matches;
   $('s-density').innerHTML = segs('density', [['compact', esc(t('Compact'))], ['comfortable', esc(t('Comfortable'))]], s.density);
+  $('s-marks').innerHTML = markCards();
   $('s-size').innerHTML = segs('text_size', TEXT_SIZES.map(n => [n, n + '%']), s.text_size);
   const auto = LANG_NAMES[SETTINGS.settings.language === 'auto' ? SETTINGS.language : ''] ?? '';
   $('s-langs').innerHTML = radios('language', [
@@ -3260,6 +3384,7 @@ function paneOpened(tab){
   if (tab === 'accts'){
     if (accountView === 'home') renderAccountList();
     else if (accountView === 'ids') showIdentityList();
+    else if (accountView === 'folders') showFolderChoices();
     else if (accountView === 'start') renderLangPick();
   }
   if (tab === 'read') renderTrusted();
@@ -3270,7 +3395,7 @@ function paneOpened(tab){
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
-  const want = {theme:s.theme, density:s.density, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
+  const want = {theme:s.theme, density:s.density, account_mark:s.account_mark, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
     mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
@@ -3317,6 +3442,7 @@ sdlg.addEventListener('change', e => {
   const el = e.target, v = el.value;
   if (el.name === 'theme') changeSettings({theme:v});
   else if (el.name === 'density') changeSettings({density:v});
+  else if (el.name === 'account_mark') changeSettings({account_mark:v});
   else if (el.name === 'text_size') changeSettings({text_size:Number(v)});
   else if (el.name === 'language') changeSettings({language:v});
   else if (el.name === 'mark_read') changeSettings({mark_read:v});
@@ -3348,7 +3474,7 @@ sdlg.addEventListener('close', () => {
 
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
-const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
+const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Accounts in the folder list'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
@@ -3359,6 +3485,7 @@ function settingValue(key, v){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
     case 'language': return v === 'auto' ? t('Automatic, as in Windows') : LANG_NAMES[v] ?? v;
     case 'density': return v === 'comfortable' ? t('Comfortable') : t('Compact');
+    case 'account_mark': return MARKS.find(([id]) => id === v) ? t(MARKS.find(([id]) => id === v)[1]) : v;
     case 'text_size': return v + '%';
     case 'prefer_text': return v ? t('Show the plain text') : t('Show the HTML');
     case 'mark_read': return {moment:t('After a moment on screen'), at_once:t('As soon as I select them'), window:t('When I open them in their own window'), manual:t('Only when I mark them myself')}[v] ?? v;

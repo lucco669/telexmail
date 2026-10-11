@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::filters::{Action, Rule};
 use crate::html;
+use crate::imap;
 use crate::list;
 use crate::mime::parse_message_id;
 use crate::model::{
@@ -30,6 +31,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/008_usage.sql"),
     include_str!("migrations/009_conversations_and_sending.sql"),
     include_str!("migrations/010_local_folders.sql"),
+    include_str!("migrations/011_folder_choices.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -1282,13 +1284,83 @@ impl MailStore {
         self.reload_accounts()
     }
 
+    /// What `imap::plan_folders` needs to know besides the server's list: the kinds the user
+    /// chose, the kinds the folders have now, and which hold mail. Empty for a new account.
+    pub fn folder_hints(&self, account: &str) -> Result<imap::FolderHints, StoreError> {
+        let mut hints = imap::FolderHints::default();
+        let mut stmt = self.db.prepare_cached(
+            "SELECT f.remote, f.kind, f.chosen,
+                    EXISTS (SELECT 1 FROM messages WHERE folder = f.account || '/' || f.id)
+             FROM folders f WHERE f.account = ?1 AND f.remote IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([account], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, bool>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (remote, kind, chosen, held) = row?;
+            if let Some(chosen) = chosen {
+                hints
+                    .chosen
+                    .insert(remote.clone(), FolderKind::from_name(&chosen));
+            }
+            hints
+                .was
+                .insert(remote.clone(), FolderKind::from_name(&kind));
+            if held {
+                hints.held.insert(remote);
+            }
+        }
+        Ok(hints)
+    }
+
+    /// Use a server folder for sent mail (or drafts, archive, spam, trash) from now on, as
+    /// the user chose; the folder that had that kind becomes one of the user's own. The next
+    /// sync keeps the choice while the folder exists.
+    pub fn choose_folder(&mut self, key: &str, kind: FolderKind) -> Result<(), StoreError> {
+        let (account, id) =
+            split_folder_key(key).ok_or_else(|| StoreError::UnknownFolder(key.to_owned()))?;
+        self.folder(key)
+            .filter(|f| f.remote.is_some() && f.kind != FolderKind::Inbox)
+            .ok_or_else(|| StoreError::UnknownFolder(key.to_owned()))?;
+        if !imap::SPECIAL_KINDS.contains(&kind) {
+            return Err(StoreError::Invalid(format!("{kind:?}")));
+        }
+        let tx = self.db.transaction()?;
+        let drafts_before = drafts_folder(&tx, account)?;
+        tx.execute(
+            "UPDATE folders SET chosen = NULL WHERE account = ?1 AND chosen = ?2",
+            params![account, kind.as_str()],
+        )?;
+        tx.execute(
+            "UPDATE folders SET kind = 'custom' WHERE account = ?1 AND kind = ?2",
+            params![account, kind.as_str()],
+        )?;
+        tx.execute(
+            "UPDATE folders SET kind = ?3, chosen = ?3 WHERE account = ?1 AND id = ?2",
+            params![account, id, kind.as_str()],
+        )?;
+        let drafts_after = drafts_folder(&tx, account)?;
+        move_local_drafts(&tx, account, drafts_before, drafts_after.as_deref())?;
+        tx.commit()?;
+        self.reload_accounts()
+    }
+
     /// Replace an account's server folders with what the server has now. Folders that
     /// disappeared from the server are dropped together with their local copies; local
-    /// folders (the Outbox) stay.
+    /// folders (the Outbox) stay. Drafts written here follow Drafts to another folder.
     pub fn set_folders(&mut self, account: &str, folders: &[Folder]) -> Result<(), StoreError> {
         self.account(account)?;
         let keep: HashSet<&str> = folders.iter().map(|f| f.id.as_str()).collect();
         let tx = self.db.transaction()?;
+        // Before a vanished folder takes its messages along.
+        let drafts = folders.iter().find(|f| f.kind == FolderKind::Drafts);
+        let drafts_before = drafts_folder(&tx, account)?;
+        move_local_drafts(&tx, account, drafts_before, drafts.map(|f| f.id.as_str()))?;
         let existing: Vec<String> = {
             let mut stmt =
                 tx.prepare("SELECT id FROM folders WHERE account = ?1 AND remote IS NOT NULL")?;
@@ -2406,6 +2478,38 @@ fn insert_folder(
 }
 
 /// `srv_folder` and `uid` are set for mail from a server, `None` for mail that exists only here.
+/// The id of an account's Drafts on the server, if it has one.
+fn drafts_folder(db: &Connection, account: &str) -> Result<Option<String>, StoreError> {
+    Ok(db
+        .query_row(
+            "SELECT id FROM folders WHERE account = ?1 AND kind = 'drafts' AND remote IS NOT NULL",
+            [account],
+            |r| r.get(0),
+        )
+        .optional()?)
+}
+
+/// Drafts written here are on no server: when another server folder becomes Drafts, they
+/// go there too (not what waits for an upload, which knows where it goes).
+fn move_local_drafts(
+    db: &Connection,
+    account: &str,
+    from: Option<String>,
+    to: Option<&str>,
+) -> Result<(), StoreError> {
+    let (Some(from), Some(to)) = (from, to) else {
+        return Ok(());
+    };
+    if from != to {
+        db.execute(
+            "UPDATE messages SET folder = ?2 WHERE folder = ?1 AND srv_folder IS NULL
+               AND id NOT IN (SELECT message FROM pending_ops WHERE message IS NOT NULL)",
+            params![format!("{account}/{from}"), format!("{account}/{to}")],
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn insert_message(
     db: &Connection,
     folder: &str,
@@ -2650,6 +2754,79 @@ mod tests {
         assert!(store
             .save_outgoing(draft("nope"), None, FolderKind::Sent, now())
             .is_err());
+    }
+
+    #[test]
+    fn a_chosen_folder_takes_its_kind_and_drafts_written_here_follow() {
+        let (mut store, account) = store_with_server_account();
+        let folder = |id: &str, kind| Folder {
+            id: id.into(),
+            name: id.into(),
+            kind,
+            remote: Some(id.to_uppercase()),
+        };
+        let mut list = vec![
+            folder("inbox", FolderKind::Inbox),
+            folder("drafts", FolderKind::Drafts),
+            folder("robocze", FolderKind::Custom),
+            folder("sent", FolderKind::Sent),
+        ];
+        store.set_folders(&account.id, &list).unwrap();
+        let written = OutgoingDraft {
+            account: account.id.clone(),
+            to: "anna@kowalska-architekci.pl".into(),
+            subject: "Oferta".into(),
+            ..OutgoingDraft::default()
+        };
+        let draft = store
+            .save_outgoing(written, None, FolderKind::Drafts, now())
+            .unwrap();
+        let kind = |s: &MailStore, id: &str| s.kind_of(&account.folder_key(id)).unwrap();
+
+        store
+            .choose_folder(&account.folder_key("robocze"), FolderKind::Drafts)
+            .unwrap();
+        assert_eq!(kind(&store, "robocze"), FolderKind::Drafts);
+        assert_eq!(kind(&store, "drafts"), FolderKind::Custom);
+        assert_eq!(
+            store.get(draft).unwrap().folder,
+            account.folder_key("robocze")
+        );
+        let hints = store.folder_hints(&account.id).unwrap();
+        assert_eq!(hints.chosen.get("ROBOCZE"), Some(&FolderKind::Drafts));
+        assert!(hints.held.contains("ROBOCZE") && !hints.held.contains("DRAFTS"));
+
+        // A sync's plan keeps the choice and the folder it had; were Drafts to move back,
+        // the draft would go along.
+        list[1].kind = FolderKind::Drafts;
+        list[2].kind = FolderKind::Custom;
+        store.set_folders(&account.id, &list).unwrap();
+        assert_eq!(
+            store.get(draft).unwrap().folder,
+            account.folder_key("drafts")
+        );
+        assert_eq!(
+            store
+                .folder_hints(&account.id)
+                .unwrap()
+                .chosen
+                .get("ROBOCZE"),
+            Some(&FolderKind::Drafts),
+            "the choice stays for the next plan"
+        );
+
+        // Only server folders, never the Inbox, only special kinds.
+        for (key, kind) in [
+            (account.folder_key("inbox"), FolderKind::Sent),
+            (account.folder_key("outbox"), FolderKind::Sent),
+            ("local/archive".to_owned(), FolderKind::Sent),
+            (account.folder_key("sent"), FolderKind::Inbox),
+        ] {
+            assert!(
+                store.choose_folder(&key, kind).is_err(),
+                "{key} as {kind:?}"
+            );
+        }
     }
 
     #[test]
