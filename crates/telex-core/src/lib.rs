@@ -9,6 +9,7 @@
 
 pub mod attachments;
 pub mod autoconfig;
+pub mod away;
 pub mod backup;
 mod colors;
 pub mod drafts;
@@ -24,6 +25,7 @@ pub mod model;
 pub mod recipients;
 pub mod sample;
 pub mod settings;
+pub mod sieve;
 pub mod smtp;
 pub mod spell;
 pub mod store;

@@ -1,6 +1,7 @@
 //! Tauri shell: exposes `telex_core::MailStore` to the UI as commands.
 //! Keep logic out of here; put it in `crates/telex-core` where it can be tested.
 
+mod away;
 mod backup;
 mod files;
 mod folders;
@@ -536,14 +537,27 @@ async fn add_account(
     Ok(account)
 }
 
-/// Remove an account, its local mail and its saved password. The server is not touched.
+/// Remove an account, its local mail and its saved password. The server's mail is not
+/// touched; an away reply Telex put on the server is taken off first, as nobody could later.
 #[tauri::command]
-fn remove_account(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
+async fn remove_account(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
     if state.busy.load(Ordering::SeqCst) {
         return Err(tr!(
             "Telex is talking to the mail server. Try again in a moment.",
             "Telex rozmawia z serwerem poczty. Spróbuj za chwilę."
         ));
+    }
+    let (account, away) = with_store(&state, |s| Ok((s.account(&id)?.clone(), s.away(&id)?)))?;
+    if away.place == telex_core::away::Place::Server {
+        if let (Some(imap), Ok(password)) = (&account.imap, secrets::load_password(&account.email))
+        {
+            let off = telex_core::away::Away {
+                enabled: false,
+                ..away
+            };
+            // Best effort: the account goes either way.
+            let _ = telex_core::away::apply(&account, imap, &password, off).await;
+        }
     }
     let email = with_store(&state, |s| {
         let email = s.account(&id)?.email.clone();
@@ -998,6 +1012,8 @@ pub fn run() {
             spell::spell_add,
             spell::spell_download,
             spell::spell_remove,
+            away::get_away,
+            away::save_away,
             save_outgoing,
             discard_draft,
             draft_html,

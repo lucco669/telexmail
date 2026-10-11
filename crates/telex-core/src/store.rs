@@ -32,6 +32,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/009_conversations_and_sending.sql"),
     include_str!("migrations/010_local_folders.sql"),
     include_str!("migrations/011_folder_choices.sql"),
+    include_str!("migrations/012_away.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it

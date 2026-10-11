@@ -371,7 +371,9 @@ pub fn run(
                         }
                     }
                     Action::AutoReply { body } if trigger == Trigger::Arrival => {
-                        match auto_reply(store, rule, &message, body, now) {
+                        let replier = Replier::Rule(rule.id);
+                        match auto_reply(store, replier, &message, "", body, AUTO_REPLY_EVERY, now)
+                        {
                             Ok(true) => {
                                 did.push(tr!("answered it", "odpowiedziała na nią"));
                                 report.replied += 1;
@@ -414,13 +416,25 @@ pub fn run(
     Ok(report)
 }
 
-/// Queue an automatic answer, unless RFC 3834 or common sense says not to. `Ok(false)`
-/// means it was rightly skipped.
-fn auto_reply(
+/// Who answers automatically, and so who remembers whom it answered: a rule, or an account's
+/// away reply.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Replier<'a> {
+    Rule(i64),
+    Away(&'a str),
+}
+
+/// Queue an automatic answer, unless RFC 3834 or common sense says not to: not to lists, bulk
+/// mail, robots, the account's own address or Spam, and to the same sender at most once in
+/// `every`. `Ok(false)` means it was rightly skipped. An empty `subject` is "Re: " and the
+/// original's.
+pub(crate) fn auto_reply(
     store: &mut MailStore,
-    rule: &Rule,
+    replier: Replier<'_>,
     m: &Message,
+    subject: &str,
     body: &str,
+    every: TimeDelta,
     now: DateTime<Local>,
 ) -> Result<bool, String> {
     let account = store
@@ -442,10 +456,12 @@ fn auto_reply(
     if auto_reply_blocker(&raw).is_some() {
         return Ok(false);
     }
-    let last = store
-        .last_auto_reply(rule.id, sender)
-        .map_err(|e| e.to_string())?;
-    if last.is_some_and(|at| now.naive_local() - at < AUTO_REPLY_EVERY) {
+    let last = match replier {
+        Replier::Rule(id) => store.last_auto_reply(id, sender),
+        Replier::Away(account) => store.last_away_reply(account, sender),
+    }
+    .map_err(|e| e.to_string())?;
+    if last.is_some_and(|at| now.naive_local() - at < every) {
         return Ok(false);
     }
     let to = if m.from_name.trim().is_empty() || m.from_name == m.from_email {
@@ -453,14 +469,16 @@ fn auto_reply(
     } else {
         format!("\"{}\" <{sender}>", m.from_name.replace('"', "'"))
     };
-    let subject = m.subject.trim();
+    let theirs = m.subject.trim();
     let draft = OutgoingDraft {
         account: account.id.clone(),
         to,
-        subject: if subject.to_ascii_lowercase().starts_with("re:") {
-            subject.to_owned()
+        subject: if !subject.trim().is_empty() {
+            subject.trim().to_owned()
+        } else if theirs.to_ascii_lowercase().starts_with("re:") {
+            theirs.to_owned()
         } else {
-            format!("Re: {subject}")
+            format!("Re: {theirs}")
         },
         body: body.to_owned(),
         reply_to: Some(m.id),
@@ -482,9 +500,11 @@ fn auto_reply(
             None,
         )
         .map_err(|e| e.to_string())?;
-    store
-        .record_auto_reply(rule.id, sender, now.naive_local())
-        .map_err(|e| e.to_string())?;
+    match replier {
+        Replier::Rule(id) => store.record_auto_reply(id, sender, now.naive_local()),
+        Replier::Away(account) => store.record_away_reply(account, sender, now.naive_local()),
+    }
+    .map_err(|e| e.to_string())?;
     Ok(true)
 }
 
@@ -535,7 +555,7 @@ fn join_and(parts: &[String]) -> String {
     }
 }
 
-fn account_of(folder_key: &str) -> &str {
+pub(crate) fn account_of(folder_key: &str) -> &str {
     split_folder_key(folder_key).map_or(folder_key, |(a, _)| a)
 }
 

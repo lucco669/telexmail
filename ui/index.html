@@ -71,6 +71,7 @@
       <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
       <button class="chip bad" id="st-sync" type="button" hidden></button>
       <button class="chip bad" id="st-unsent" type="button" hidden></button>
+      <button class="chip" id="st-away" type="button" hidden></button>
       <span id="st-check"></span>
       <button class="helpbtn" id="st-help" type="button" aria-expanded="false" aria-controls="help-pop" aria-label="Keys and tips" data-i18n><span aria-hidden="true">?</span></button>
       <button class="ver" id="st-ver" type="button" hidden></button>
@@ -212,6 +213,24 @@
             <button class="btn" type="button" id="f-close" data-i18n>Back to accounts</button>
           </div>
         </div>
+        <form id="away-view" novalidate hidden>
+          <h3 class="rh" id="away-title">Auto-reply</h3>
+          <label class="rcheck"><input type="checkbox" id="away-on"> <span data-i18n>Reply automatically while I’m away</span></label>
+          <div class="cf df">
+            <label for="away-from" data-i18n>First day</label><input id="away-from" type="date">
+            <label for="away-until" data-i18n>Last day</label><input id="away-until" type="date">
+            <label for="away-subj" data-i18n>Subject</label><input id="away-subj" autocomplete="off" placeholder="Re: and the subject of their message" data-i18n>
+            <label for="away-body" data-i18n>Message</label><textarea id="away-body" rows="7"></textarea>
+            <label for="away-days" data-i18n>Each person</label><select id="away-days"></select>
+          </div>
+          <p class="dnote" data-i18n>Without days it starts now and goes on until you turn it off. Mailing lists, newsletters, robots and Spam never get it.</p>
+          <p class="whint" id="away-where" hidden></p>
+          <p class="derr" id="away-err" role="alert"></p>
+          <div class="sbtns">
+            <button class="btn primary" type="submit" id="away-save" data-i18n>Save</button>
+            <button class="btn" type="button" id="away-back" data-i18n>Back to accounts</button>
+          </div>
+        </form>
         <form id="i-form" novalidate hidden>
           <h3 class="rh" id="i-form-title">New identity</h3>
           <div class="cf df">

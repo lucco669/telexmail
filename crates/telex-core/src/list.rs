@@ -288,6 +288,8 @@ pub struct FolderTree {
     pub counts: HashMap<String, FolderCount>,
     /// Why an account's last check failed, by account id; gone once a check works.
     pub problems: HashMap<String, String>,
+    /// The away replies that are on.
+    pub away: Vec<crate::away::AwayOn>,
 }
 
 /// An unread message and where it is in its list: what Space goes to.
@@ -632,7 +634,9 @@ impl MailStore {
         let problems = stmt
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
+        let away = self.away_on()?;
         Ok(FolderTree {
+            away,
             accounts: self.accounts().to_vec(),
             counts,
             problems,

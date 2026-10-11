@@ -582,6 +582,7 @@ button.ph-who:hover .pn{text-decoration:underline}
 .ist.same{background:var(--panel);color:var(--muted)}
 .ist.skip{background:var(--warn-bg);color:var(--warn-fg)}
 .ipart .dnote{padding:6px 10px 8px}
+.sacct .btn.on{border-color:var(--accent);color:var(--accent)}
 /* Moving in from another program: a tick and a name, a password per account. */
 .mvpick{display:flex;align-items:center;gap:8px;min-width:0;max-width:45%;cursor:pointer}
 .mvpick .iname{max-width:none}

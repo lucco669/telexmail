@@ -72,7 +72,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      out, top senders, largest messages, the last sync.
   src/i18n.rs        The core's language: `tr!("English", "Polski")`, set from the settings.
   src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
-                     auto-replies with RFC 3834 safeguards.
+                     auto-replies with RFC 3834 safeguards (shared with the away reply).
+  src/away.rs        The away reply, one per account: on the server as a Sieve vacation where
+                     it takes one, else Telex answers new mail when it checks.
+  src/sieve.rs       ManageSieve (RFC 5804, port 4190, STARTTLS before the login) and Telex's
+                     marked part of the running Sieve script, put in and taken out whole.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
                      signature and templates: recipients, subject, quoted text.
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
@@ -97,6 +101,7 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
                      files read into one (dialogs, "import-progress" events).
   src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
                      bringing accounts (passwords saved, a first login each), mail and filters.
+  src/away.rs        The away reply's commands: reading, and saving (onto the server or not).
   src/spell.rs       Spelling commands: the languages (the setting's, or Windows' and the
                      interface's), checking, suggestions, the user's words, fetching dictionaries.
   src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
@@ -147,7 +152,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}}` (empty folders left out; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed) |
+| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}, away: [{account, place, starts, ends}]}` (empty folders left out; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
@@ -193,7 +198,9 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `known_provider` | `email`                      | what the provider list knows (no network), or null |
 | `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help}` or null; emits `detect-progress` |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
-| `remove_account` | `id`                         | – (local copies and saved password only) |
+| `remove_account` | `id`                         | – (local copies and saved password only; an away reply on the server is taken off first) |
+| `get_away`       | `account`                    | `{account, enabled, starts, ends, subject, body, days, place, script, created}` (off when never set) |
+| `save_away`      | `away`                       | `{away, why}`: onto the server (ManageSieve) where it takes it (`place: server`), else Telex answers (`why: {code, detail}`: no_server, no_tls, no_vacation, no_dates, login, refused) |
 | `check_mail`     | `account` (null = all)       | `{new: [ids], new_in, sent: [lines], sorted, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest; with `account`, only its Inbox) |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
 | `download_older` | `folder`, `limit`            | `{new, busy}`: up to `limit` of the newest messages the first download left on the server |
@@ -376,7 +383,18 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Current state (v0.8.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts)
 
-- Not released yet (no schema change):
+- Not released yet (schema version 12: `away`, `away_replies`):
+  - The away reply (`away.rs`, `sieve.rs`; Settings › Accounts › Auto-reply, a status-bar chip
+    while one is on): per account a text, an optional subject, first and last day, and how
+    often one person may get it. Saving tries the server first: ManageSieve on the IMAP host's
+    port 4190, STARTTLS before the login (never plain), PLAIN login with the account's
+    password; with `vacation` (and `date`, `relational` for days) Telex writes its part
+    between two marked lines into the running script, after its `require` lines, so the
+    user's own filters stay; turning it off takes exactly that part out, and a script Telex
+    made goes when left empty. Purelymail takes it here; OVH, home.pl and nazwa.pl don't answer
+    on 4190, so for them Telex answers new mail when it checks (after the rules), with the rule
+    auto-replies' safeguards (`filters::auto_reply`, `Replier::Away`). Removing an account
+    takes its server reply off first.
   - Moving in from another mail program (`migrate/`, Settings › Import and export, and the
     add-account wizard when one is found): Thunderbird (Betterbird, SeaMonkey, Postbox) from
     profiles.ini and prefs.js: IMAP accounts with their servers, identities and signatures (an

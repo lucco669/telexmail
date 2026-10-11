@@ -64,6 +64,7 @@ const KIND_NAME = {inbox:N_('Inbox'), outbox:N_('Outbox'), drafts:N_('Drafts'), 
 // The folder tree and its counts; the message list asks the core for pages (see "list").
 let ACCOUNTS = [], ACCT = {}, COUNTS = {};
 let PROBLEMS = {}; // account id -> why its last check failed (kept by the core until one works)
+let AWAY = []; // the away replies that are on: [{account, place, starts, ends}]
 let USAGE = null; // the last answer of `usage`: quotas for the meter and the Usage tab
 const bodies = new Map(); // id -> full message from get_message
 
@@ -85,6 +86,7 @@ async function loadTree(){
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   COUNTS = t.counts;
   PROBLEMS = t.problems ?? {};
+  AWAY = t.away ?? [];
   INITIALS = initialsOf(ACCOUNTS.filter(a => a.imap));
 }
 // Two letters for each account, from its name ("Łukasz Szramuk" → ŁS, "Sales 750xl.com" → S7),
@@ -445,6 +447,7 @@ function renderStatus(){
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderSync();
   renderUnsent();
+  renderAway();
   renderMeter();
   const title = VIEWER ? `${selRow?.subj || t('Message')} – Telex` : ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
   if (title !== lastTitle){
@@ -3019,7 +3022,7 @@ let editing = null;     // id of the account being edited, or null when adding
 let wizardSeq = 0;      // each run gets a number; answers for an older run are dropped
 let wizardBusy = null;  // 'find' or 'login' while the wizard works
 let accountView = 'home';
-const ACCOUNT_VIEWS = {home:'a-home', start:'w-start', work:'w-work', form:'acct-form', ids:'i-list-view', idform:'i-form', folders:'f-view'};
+const ACCOUNT_VIEWS = {home:'a-home', start:'w-start', work:'w-work', form:'acct-form', ids:'i-list-view', idform:'i-form', folders:'f-view', away:'away-view'};
 function showAccountView(view){
   accountView = view;
   for (const [v, id] of Object.entries(ACCOUNT_VIEWS)) $(id).hidden = v !== view;
@@ -3105,6 +3108,7 @@ function renderAccountList(){
     const sync = u?.sync_error ? `<div class="st warn" title="${esc(u.sync_error)}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</div>`
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
     return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="nm">${esc(a.name)}</div><div class="em" title="${esc(where)}">${esc(where)}</div>${sync}</div>${order}`
+      + `<button type="button" class="btn${awayOn(a.id) ? ' on' : ''}" data-away="${esc(a.id)}" title="${esc(awayOn(a.id) ? t('Auto-reply is on') : t('Auto-reply while you’re away'))}">${esc(t('Auto-reply'))}</button>`
       + `<button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
   $('a-list-err').textContent = '';
@@ -3305,6 +3309,8 @@ $('a-list').addEventListener('click', async e => {
   if (ids){ openIdentities(ids.dataset.ids); return; }
   const fo = e.target.closest('[data-folders]');
   if (fo){ openFolderChoices(fo.dataset.folders); return; }
+  const aw = e.target.closest('[data-away]');
+  if (aw){ openAway(aw.dataset.away); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = t('Remove it and its local mail'); return; }
@@ -3314,6 +3320,83 @@ $('a-list').addEventListener('click', async e => {
   renderAccountList();
   say(t('Account removed from Telex. The mail on the server is untouched.'));
 });
+
+/* ---------- away reply ---------- */
+// Per account, what people get while the user is away. Saved, it goes onto the server where the
+// server takes it (ManageSieve): it answers even while Telex is closed, and keeps to the days
+// itself. Elsewhere Telex answers new mail when it checks. The status bar says while one is on.
+const AWAY_DAYS = [1, 2, 3, 4, 7, 14, 30];
+let awayOf = null, awayData = null, awayBusy = false;
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// On, and today within its days (or before them: it is set).
+const awayOn = id => AWAY.some(a => a.account === id && (!a.ends || a.ends >= ymd(new Date())));
+async function openAway(account){
+  if (!ACCT[account]){ showAccountView('home'); return; }
+  awayOf = account; awayData = null;
+  if (!sdlg.open || setTab !== 'accts') openSettings('accts');
+  showAccountView('away');
+  $('away-title').textContent = t('Auto-reply') + ' · ' + ACCT[account].email;
+  $('away-err').textContent = '';
+  try { awayData = await invoke('get_away', {account}); } catch (e){ $('away-err').textContent = tr(e); return; }
+  if (awayOf !== account) return;
+  fillAway(awayData, null);
+  $('away-on').focus();
+}
+function fillAway(a, why){
+  $('away-on').checked = a.enabled;
+  $('away-from').value = a.starts ?? ''; $('away-until').value = a.ends ?? '';
+  $('away-subj').value = a.subject;
+  $('away-body').value = a.body || [t('Hello,|away'), '', t('I’m away and will answer your message when I’m back.'), '', t('Best regards|away')].join('\n');
+  $('away-days').innerHTML = AWAY_DAYS.map(n => `<option value="${n}"${n === a.days ? ' selected' : ''}>${esc(tn(n, 'at most once a day', 'at most once in {n} days'))}</option>`).join('');
+  paintAwayWhere(a, why);
+}
+// Why the server didn't take it, in words.
+function awayWhy(why){
+  const words = {no_server:t('your server doesn’t take automatic replies from mail programs'), no_tls:t('your server’s filter service doesn’t encrypt the connection'),
+    no_vacation:t('your server’s filters can’t send automatic replies'), no_dates:t('your server’s filters can’t keep to dates')}[why.code];
+  return words ?? tr(why.detail);
+}
+function paintAwayWhere(a, why){
+  const el = $('away-where');
+  let text = '';
+  if (why && !a.enabled && a.place === 'server') text = t('Telex couldn’t take it off the server: {why}. Save again to try once more.', {why:awayWhy(why)});
+  else if (a.enabled && a.place === 'server') text = t('On the server: it answers even while Telex is closed, and keeps to the days by itself.');
+  else if (a.enabled) text = why ? t('Telex answers new mail when it checks, while it is open: {why}.', {why:awayWhy(why)}) : t('Telex answers new mail when it checks, while it is open.');
+  el.hidden = !text; el.textContent = text;
+  el.classList.toggle('warn', !!why && a.place === 'server' && !a.enabled);
+}
+$('away-view').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (awayBusy || !awayData) return;
+  const a = {...awayData, enabled:$('away-on').checked, starts:$('away-from').value || null, ends:$('away-until').value || null,
+    subject:$('away-subj').value.trim(), body:$('away-body').value, days:Number($('away-days').value)};
+  awayBusy = true; $('away-save').disabled = true; $('away-err').textContent = '';
+  const where = $('away-where');
+  where.hidden = false; where.classList.remove('warn');
+  where.textContent = a.enabled ? t('Asking your server whether it can answer for you…') : t('Saving…');
+  let r;
+  try { r = await invoke('save_away', {away:a}); }
+  catch (err){ $('away-err').textContent = tr(err); paintAwayWhere(awayData, null); return; }
+  finally { awayBusy = false; $('away-save').disabled = false; }
+  awayData = r.away;
+  paintAwayWhere(r.away, r.why);
+  await loadTree(); renderStatus();
+  say(!r.away.enabled ? t('Auto-reply is off.') : r.away.place === 'server' ? t('Auto-reply is on, on the server.') : t('Auto-reply is on: Telex answers while it is open.'));
+});
+$('away-back').addEventListener('click', () => showAccountView('home'));
+// While a reply is on: a chip on the right; a click opens it.
+function renderAway(){
+  const b = $('st-away'), on = VIEWER ? [] : AWAY.filter(a => awayOn(a.account) && ACCT[a.account]);
+  b.hidden = !on.length;
+  if (!on.length) return;
+  b.textContent = on.length === 1 ? t('Auto-reply on') : tn(on.length, 'Auto-reply on · {n} account', 'Auto-reply on · {n} accounts', {n:num(on.length)});
+  b.title = on.map(a => {
+    const days = a.starts && a.ends ? t('{from} to {to}', {from:fmtDay(a.starts), to:fmtDay(a.ends)}) : a.ends ? t('until {day}', {day:fmtDay(a.ends)}) : a.starts ? t('from {day}', {day:fmtDay(a.starts)}) : '';
+    return [ACCT[a.account].email, days, a.place === 'server' ? t('on the server') : t('Telex answers')].filter(Boolean).join(' · ');
+  }).join('\n');
+}
+const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString(I18n.lang() === 'pl' ? 'pl-PL' : 'en-GB');
+$('st-away').addEventListener('click', () => { const a = AWAY.find(x => awayOn(x.account)); if (a) openAway(a.account); });
 
 /* ---------- which folder is which ---------- */
 // Per account, the server folder Telex uses for sent mail, drafts, archive, spam and trash.
@@ -3672,6 +3755,7 @@ function paneOpened(tab){
     if (accountView === 'home') renderAccountList();
     else if (accountView === 'ids') showIdentityList();
     else if (accountView === 'folders') showFolderChoices();
+    else if (accountView === 'away') openAway(awayOf);
     else if (accountView === 'start') renderLangPick();
   }
   if (tab === 'read') renderTrusted();

@@ -392,6 +392,10 @@ pub async fn sync_all<T: ImapStream>(
         report.sorted = run.matched;
         report.answered = run.replied;
         report.refused.extend(run.problems);
+        // The away reply, where Telex sends it, after the rules have filed the mail.
+        let away = crate::away::answer(&mut *lock(store)?, &downloaded.arrived, Local::now());
+        report.answered += away.replied;
+        report.refused.extend(away.problems);
     }
     // Send what the user did during the download, but don't retry what was just refused.
     // The folder list may have changed, so read the account again.

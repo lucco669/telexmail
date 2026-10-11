@@ -105,6 +105,8 @@ function installTelexDemo(options) {
       'To tylko demo: nie zapisuje ani nie czyta plików. Pobierz Telex, aby robić kopie zapasowe własnej poczty.'],
     mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
       'To tylko demo: nie zapisuje ani nie czyta plików z pocztą. Pobierz Telex, aby zapisywać foldery jako mbox i wczytywać pocztę z plików.'],
+    away: ['This is a demo: it doesn’t send automatic replies. Download Telex to set one up for your own mail.',
+      'To tylko demo: nie wysyła automatycznych odpowiedzi. Pobierz Telex, aby ustawić ją dla własnej poczty.'],
     spell: ['This is a demo: it doesn’t download dictionaries. Download Telex to check your spelling.',
       'To tylko demo: nie pobiera słowników. Pobierz Telex, aby sprawdzać pisownię.'],
     move: ['This is a demo: it doesn’t look for other mail programs or read their files. Download Telex to bring your mail from Thunderbird or Outlook.',
@@ -1332,6 +1334,9 @@ function installTelexDemo(options) {
     spell_add: () => null,
     spell_download: () => refuse('spell'),
     spell_remove: () => refuse('spell'),
+    // The away reply: off, and the demo can't turn it on.
+    get_away: ({ account }) => ({ account, enabled: false, starts: null, ends: null, subject: '', body: '', days: 4, place: 'telex', script: null, created: false }),
+    save_away: () => refuse('away'),
   };
   const asText = (e) => (typeof e === 'string' ? e : String(e?.message ?? e));
   // Like Tauri's invoke: arguments and answers cross as JSON; a failure is the core's sentence.
