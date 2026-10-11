@@ -7,10 +7,10 @@
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.7.2';
+export const NEXT = '0.8.0';
 
 /** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
-export const nextTeaser = 'Faster mail checks, drafts that save themselves, an Undo you can click.';
+export const nextTeaser = 'Sent where your sent mail is, unsent mail at the end, accounts in color.';
 
 /** The six points on the home page: short, the features page has the detail. */
 export const features = [
@@ -180,8 +180,8 @@ export const featureRows: FeatureRow[] = [
       'A From picker with all your identities; the signature follows',
       'Ctrl+Enter sends, Esc saves a draft and closes',
       'E reopens a draft or a message still in the Outbox',
-      { text: 'Drafts save themselves while you write; New or Reply in the middle of a message puts it in Drafts first', since: NEXT },
-      { text: 'Discard can be undone: Z or the Undo button brings the message back', since: NEXT },
+      { text: 'Drafts save themselves while you write; New or Reply in the middle of a message puts it in Drafts first', since: '0.7.2' },
+      { text: 'Discard can be undone: Z or the Undo button brings the message back', since: '0.7.2' },
     ],
   },
   {
@@ -219,10 +219,11 @@ export const featureRows: FeatureRow[] = [
     points: [
       'SMTP on port 465 (SSL/TLS) or 587 (STARTTLS), same login as IMAP',
       { text: 'Undo send: mail waits 5 seconds (or up to 30), and Z takes it back to change it', since: '0.5.0' },
-      { text: 'An Undo button in the status bar counts down the seconds left', since: NEXT },
+      { text: 'An Undo button in the status bar counts down the seconds left', since: '0.7.2' },
       'An Outbox that retries at every check when the connection fails',
       'A copy of every sent message lands in your server’s Sent folder',
       'Forwarded attachments travel with the forward',
+      { text: 'Drafts and the Outbox of every account wait at the end of the folder list, only while they hold something; what didn’t go shows in red', since: NEXT },
     ],
   },
   {
@@ -248,10 +249,11 @@ export const featureRows: FeatureRow[] = [
       'IMAP over SSL/TLS, folders straight from the server',
       { text: 'IMAP over STARTTLS on port 143 too, never unencrypted', since: '0.5.0' },
       'Inbox, Sent, Trash and others found by their flags or by English and Polish names',
+      { text: 'Sent is the folder that holds your sent mail, even next to a server’s own empty one; or choose it, and Drafts, Archive, Spam and Trash, in Settings', since: NEXT },
       'The first sync takes the newest 300 messages of each folder',
       { text: 'Older mail on request, newest first, a thousand at a time', since: '0.5.0' },
-      { text: 'Every account checked at the same time, so several take about as long as one', since: NEXT },
-      { text: 'An account whose last check failed says so in the folder tree and the status bar; one click tries again', since: NEXT },
+      { text: 'Every account checked at the same time, so several take about as long as one', since: '0.7.2' },
+      { text: 'An account whose last check failed says so in the folder tree and the status bar; one click tries again', since: '0.7.2' },
     ],
   },
   {
@@ -320,6 +322,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Updates checked when Telex starts, once a day, or only when you ask; never before you say yes', since: '0.7.1' },
       'English or Polish, as in Windows or as you pick, down to the error messages',
       'Accounts, identities and servers in the same window',
+      { text: 'Each account’s color as a line down its folders, a dot, its initials or a tint', since: NEXT },
       { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
       { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
@@ -687,6 +690,26 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Sent where your sent mail is, a calmer folder list',
+    date: '2026-10-11',
+    summary: 'Telex finds the folder that really holds your sent mail, keeps Drafts and the Outbox out of the way until they matter, and lets you choose how accounts are told apart.',
+    points: [
+      'Sent is the folder that holds your sent mail: next to a server’s own empty “Sent”, the “Wysłane” another program filled wins, and stays Sent from then on.',
+      'Settings › Accounts › Folders: choose which server folder is Sent, Drafts, Archive, Spam and Trash; right-click any folder for “Use for sent mail”. Your choice stays.',
+      'Drafts and the Outbox of every account wait at the end of the folder list as one list each, and only while they hold something; mail that didn’t go shows its count in red, also in the status bar.',
+      'Sent is quieter than the Inbox in the folder list, and folders on this PC show Archive and Trash only when they hold mail.',
+      'Each account’s color as a line down its folders, a dot, its initials or a tint, or not at all: Settings › Appearance.',
+      'Slim scrollbars in each theme’s colors, here and on this site.',
+    ],
+    upgrade: 'The mail base gets one new column (which folder you chose for what); older versions can’t open it afterwards.',
+    highlights: [
+      { title: 'The right Sent', text: 'The folder that holds your sent mail, whatever the server calls it; or the one you choose.' },
+      { title: 'Unsent at the end', text: 'Drafts and the Outbox of every account, one list each, only while they hold something.' },
+      { title: 'Accounts in color', text: 'A line down each account’s folders, or a dot, its initials, a tint: your pick.' },
+    ],
+  },
+  {
+    version: '0.7.2',
     title: 'Faster checks, drafts that keep, an Undo you can see',
     date: '2026-10-11',
     summary: 'Mail checks take seconds, nothing you write gets lost, and a message opens in its own window every time.',

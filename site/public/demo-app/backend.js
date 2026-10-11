@@ -77,7 +77,7 @@ function installTelexDemo(options) {
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
-    density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
+    density: 'compact', account_mark: 'rail', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
     updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
@@ -166,6 +166,9 @@ function installTelexDemo(options) {
   const keyOfKind = (acct, kind) => { const f = account(acct)?.folders.find((x) => x.kind === kind); return f ? `${acct}/${f.id}` : null; };
   const PL_KIND = { inbox: 'Odebrane', outbox: 'Skrzynka nadawcza', drafts: 'Szkice', sent: 'Wysłane', archive: 'Archiwum', spam: 'Spam', trash: 'Kosz' };
   const isOutgoing = (kind) => kind === 'sent' || kind === 'drafts' || kind === 'outbox';
+  // list.rs's every_kind: "*/drafts" is every account's Drafts in one list.
+  const every = (key) => { const k = String(key ?? ''); return k.startsWith('*/') && SPECIAL.has(k.slice(2)) ? k.slice(2) : null; };
+  const SPECIAL = new Set(['inbox', 'outbox', 'drafts', 'sent', 'archive', 'spam', 'trash']);
   for (const m of msgs) if (kindOf(m.folder) === 'outbox') m.out = { send_after: null, held: false };
   const defaultIdentity = (a) => a.identities.find((i) => i.is_default) ?? a.identities[0];
 
@@ -313,6 +316,7 @@ function installTelexDemo(options) {
     const t = parseTerms(view.filter || '');
     let base;
     if (view.thread != null) { const ids = new Set(conversation(view.thread)); base = (m) => ids.has(m.id); }
+    else if (every(view.folder)) base = (m) => kindOf(m.folder) === every(view.folder);
     else if (view.folder) { needFolder(view.folder); base = (m) => m.folder === view.folder; }
     else base = (m) => !['spam', 'trash'].includes(kindOf(m.folder));
     const needle = t.text.trim().toLowerCase(), words = view.bodies ? ftsWords(t.text) : [];
@@ -326,7 +330,7 @@ function installTelexDemo(options) {
       && (!t.after || m.date >= t.after) && (!t.before || m.date < t.before)
       && (t.larger == null || m.size_kb >= t.larger) && (t.smaller == null || m.size_kb < t.smaller);
     const desc = !view.ascending, sort = view.sort || 'date';
-    const fixed = view.thread == null && view.folder ? kindOf(view.folder) : null;
+    const fixed = view.thread == null && view.folder ? every(view.folder) ?? kindOf(view.folder) : null;
     const out = (m) => isOutgoing(fixed ?? kindOf(m.folder));
     const key = {
       date: (m) => m.date, size: (m) => m.size_kb, flag: (m) => (m.flagged ? 2 : 0) + (m.unread ? 1 : 0),
@@ -368,6 +372,7 @@ function installTelexDemo(options) {
       const c = (counts[m.folder] ??= { total: 0, unread: 0 });
       c.total++;
       if (m.unread) c.unread++;
+      if (m.out?.held) c.stuck = (c.stuck ?? 0) + 1; // taken back: it didn't go
     }
     for (const [key, n] of Object.entries(older)) if (n > 0 && folderOf(key)) (counts[key] ??= { total: 0, unread: 0 }).older = n;
     return { accounts, counts, problems: {} };
@@ -1040,7 +1045,7 @@ function installTelexDemo(options) {
   /* ---------- checking mail ---------- */
   function emitProgress(folder, done, total) {
     const a = account(acctId(folder)), f = folderOf(folder);
-    emit('sync-progress', { account: a?.name ?? acctId(folder), folder: f?.name ?? folder, done, total });
+    emit('sync-progress', { account: a?.name ?? acctId(folder), folder: f?.name ?? folder, key: folder, done, total });
   }
   async function checkMail({ account: only = null } = {}) {
     if (busy) return { new: [], new_in: null, sent: [], sorted: 0, errors: [], busy: true };
@@ -1128,7 +1133,7 @@ function installTelexDemo(options) {
 
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
-    theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], text_size: [90, 100, 110, 125, 150, 175, 200],
+    theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20],
@@ -1226,6 +1231,14 @@ function installTelexDemo(options) {
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
     set_unread_many: ({ ids, unread }) => setMany(ids, 'unread', !!unread),
     set_flagged_many: ({ ids, flagged }) => setMany(ids, 'flagged', !!flagged),
+    // store.rs's choose_folder: a server folder becomes Sent (Drafts, Archive, Spam, Trash).
+    choose_folder: ({ folder, kind }) => {
+      const f = needFolder(folder), a = account(acctId(folder));
+      if (!a?.imap || f.kind === 'inbox' || f.kind === 'outbox' || !['sent', 'drafts', 'archive', 'spam', 'trash'].includes(kind)) fail('folder "{k}" does not exist', 'folder „{k}” nie istnieje', { k: folder });
+      for (const x of a.folders) if (x.kind === kind) x.kind = 'custom';
+      f.kind = kind;
+      return null;
+    },
     mark_folder_read: ({ folder }) => { needFolder(folder); return setMany(msgs.filter((m) => m.folder === folder).map((m) => m.id), 'unread', false); },
     move_message: ({ id, folder }) => { moveMany([id], folder); },
     move_messages: ({ ids, folder }) => moveMany(ids, folder),

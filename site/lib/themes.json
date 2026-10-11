@@ -1,5 +1,5 @@
 {
-  "checked": 46,
+  "checked": 61,
   "themes": [
     {
       "id": "light",
@@ -204,10 +204,18 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
           "kind": "text",
           "need": 4.5,
           "ratio": 9.17
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.4
         },
         {
           "fg": "chip-fg",
@@ -314,6 +322,22 @@
           "ratio": 4
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 4.33
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.67
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -408,6 +432,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 5.48
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#c3d2ea",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.95
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#c1cee4",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.54
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#c7ddd4",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.74
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#bcd9d4",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.18
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#efd2c5",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.72
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#e4cec3",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.1
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#dacfee",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.28
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#d6cbe8",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.82
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#f1cbd1",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.33
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#e4c6d2",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.61
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#d2d6db",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.47
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#cfd4da",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.23
         }
       ]
     },
@@ -614,10 +746,18 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
           "kind": "text",
           "need": 4.5,
           "ratio": 10.37
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.85
         },
         {
           "fg": "chip-fg",
@@ -724,6 +864,22 @@
           "ratio": 5.17
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.42
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.21
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -818,6 +974,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 7.4
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#2a3649",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.73
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#2e3b50",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.02
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#253e3a",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.16
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#25443f",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.47
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#46332a",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.48
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#4d362b",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.92
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#38324a",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.72
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#3e3751",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.96
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#462f39",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.71
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#4c333f",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.04
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#33383e",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.43
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#383e45",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.62
         }
       ]
     },
@@ -1024,10 +1288,18 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
           "kind": "text",
           "need": 4.5,
           "ratio": 8.64
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.84
         },
         {
           "fg": "chip-fg",
@@ -1134,6 +1406,22 @@
           "ratio": 5.1
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.18
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.1
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -1228,6 +1516,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 6.48
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#c1cdcd",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.22
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#bfcac5",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.93
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#c6d7bf",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.93
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#c3d1b9",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.41
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#e7ceba",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.98
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#e0cab0",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.48
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#d4c7dc",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.31
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#d2c3d0",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.92
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#eac5c4",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.51
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#e0c0be",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.92
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#d0ccc4",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.39
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#cecabe",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.18
         }
       ]
     },
@@ -1434,10 +1830,18 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
           "kind": "text",
           "need": 4.5,
           "ratio": 8.76
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.88
         },
         {
           "fg": "chip-fg",
@@ -1544,6 +1948,22 @@
           "ratio": 4.82
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 5.12
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.09
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -1638,6 +2058,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 6.74
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#d0c7ea",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.16
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#cec1e4",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.64
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#c5d9d2",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.09
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#bfd2d3",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.42
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#e8cfc4",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 11.03
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#dfcac2",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.42
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#c3d0e9",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.54
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#c1cae4",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#eec6d1",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.62
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#e1bdd1",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.66
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#d0cdd7",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.44
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#cdcad7",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.15
         }
       ]
     },
@@ -1844,10 +2372,18 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
           "kind": "text",
           "need": 4.5,
           "ratio": 9.91
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.24
         },
         {
           "fg": "chip-fg",
@@ -1954,6 +2490,22 @@
           "ratio": 5.55
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 7.18
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.56
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -2048,6 +2600,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 7.85
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#2a4452",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.52
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#2e4a59",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.79
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#2e4747",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.27
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#324e4d",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.48
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#483f39",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.53
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#4e433a",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.97
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#3b3d56",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.78
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#40425e",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.08
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#493a48",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.8
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#4d3e4f",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.24
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#36414d",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.63
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#3b4654",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.97
         }
       ]
     },
@@ -2254,10 +2914,18 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
           "kind": "text",
           "need": 4.5,
           "ratio": 11.03
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.63
         },
         {
           "fg": "chip-fg",
@@ -2364,6 +3032,22 @@
           "ratio": 7.78
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.1
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.2
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -2458,6 +3142,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 10.72
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#1b3e28",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.85
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#1c462d",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.86
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#223940",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.07
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#274049",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.08
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#3f381e",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.69
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#463f1e",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 8.74
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#343341",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.26
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#3b3849",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.41
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#3f3131",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.26
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#463637",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.44
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#2b3930",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 10.05
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#314037",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.06
         }
       ]
     },
@@ -2664,7 +3456,15 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.61
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
           "kind": "text",
           "need": 7,
           "ratio": 12.61
@@ -2774,6 +3574,22 @@
           "ratio": 5.9
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 6.83
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.97
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -2868,6 +3684,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 10.86
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#bacbea",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.82
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#c2cee8",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.29
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#c3d7c9",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.88
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#c2dbd0",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 14.34
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#e3cbbf",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.56
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#e3d0c2",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 14.07
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#d1c7e7",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.03
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#d8cce7",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.71
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#ebc5c9",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.36
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#e7c6d1",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.4
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#c8c8c8",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.55
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#d0d0d0",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.62
         }
       ]
     },
@@ -3074,7 +3998,15 @@
         {
           "fg": "note-fg",
           "bg": "surface",
-          "what": "Delete buttons",
+          "what": "Delete buttons, a failed check in Usage",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.9
+        },
+        {
+          "fg": "note-fg",
+          "bg": "panel",
+          "what": "A failed check in Settings › Accounts",
           "kind": "text",
           "need": 7,
           "ratio": 13.9
@@ -3184,6 +4116,22 @@
           "ratio": 7.98
         },
         {
+          "fg": "flag",
+          "bg": "chrome",
+          "what": "Usage meter, nearly full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.01
+        },
+        {
+          "fg": "note-fg",
+          "bg": "chrome",
+          "what": "Usage meter, full",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 12.86
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -3278,6 +4226,114 @@
           "kind": "ui",
           "need": 3,
           "ratio": 13.62
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 26% with surface",
+          "color": "#0f1824",
+          "what": "Account 1's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 17.85
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-0 24% over panel",
+          "color": "#222e3d",
+          "what": "Account 1's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.76
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 26% with surface",
+          "color": "#091f14",
+          "what": "Account 2's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 17.25
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-1 24% over panel",
+          "color": "#1b3628",
+          "what": "Account 2's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.08
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 26% with surface",
+          "color": "#241608",
+          "what": "Account 3's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 17.6
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-2 24% over panel",
+          "color": "#3d2b18",
+          "what": "Account 3's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.49
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 26% with surface",
+          "color": "#1b1424",
+          "what": "Account 4's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 17.92
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-3 24% over panel",
+          "color": "#32283d",
+          "what": "Account 4's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.94
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 26% with surface",
+          "color": "#241219",
+          "what": "Account 5's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 17.86
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-4 24% over panel",
+          "color": "#3d262f",
+          "what": "Account 5's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 13.85
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 26% with surface",
+          "color": "#1b1b1b",
+          "what": "Account 6's initials",
+          "kind": "text",
+          "need": 7,
+          "ratio": 17.22
+        },
+        {
+          "fg": "fg",
+          "bg": "acct-5 24% over panel",
+          "color": "#323232",
+          "what": "Account 6's tinted line under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 12.82
         }
       ]
     }

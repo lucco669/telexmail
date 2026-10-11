@@ -217,7 +217,7 @@ export default function AccessibilityPage() {
                       <tr key={`${p.kind}-${p.fg}-${p.bg}`}>
                         <td>{p.what}</td>
                         <td>
-                          <span className={s.chip} style={{ background: tokens[p.bg], color: tokens[p.fg] }} aria-hidden="true">
+                          <span className={s.chip} style={{ background: (p as { color?: string }).color ?? tokens[p.bg], color: tokens[p.fg] }} aria-hidden="true">
                             Aa
                           </span>
                           {p.fg} on {p.bg}

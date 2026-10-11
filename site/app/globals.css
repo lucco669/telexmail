@@ -267,3 +267,27 @@ img { display: block; max-width: 100%; height: auto; }
 }
 .skip:focus { transform: none; }
 main { scroll-margin-top: 80px; }
+
+/* Scrollbars, as in the app: a slim thumb in the page's colors that floats inside what it scrolls,
+   no track or arrows. Chromium and Safari draw ::-webkit-scrollbar; Firefox gets thin ones in the
+   same colors (scrollbar-color would turn the others off in Chromium, so only where they're missing;
+   asked about the thumb, as Firefox 153 knows ::-webkit-scrollbar itself). Windows contrast themes
+   keep the system's. */
+@media (forced-colors: none) {
+  ::-webkit-scrollbar { width: 12px; height: 12px; background: transparent; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; }
+  ::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--muted) 50%, transparent) padding-box;
+  }
+  ::-webkit-scrollbar-thumb:vertical { min-height: 40px; }
+  ::-webkit-scrollbar-thumb:horizontal { min-width: 40px; }
+  ::-webkit-scrollbar-thumb:hover { border-width: 2px; background-color: color-mix(in srgb, var(--muted) 80%, transparent); }
+  ::-webkit-scrollbar-thumb:active { border-width: 2px; background-color: var(--muted); }
+  @supports not selector(::-webkit-scrollbar-thumb) {
+    :root { scrollbar-color: color-mix(in srgb, var(--muted) 60%, transparent) transparent; }
+    * { scrollbar-width: thin; }
+  }
+}

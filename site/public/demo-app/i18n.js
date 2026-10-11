@@ -659,6 +659,28 @@ const PL = {
   'Show all folders': 'Pokaż wszystkie foldery',
   'Account settings…': 'Ustawienia konta…',
   'Keep in view': 'Zawsze na widoku',
+  'Not sent: open the message to see why.': 'Nie wysłano: otwórz wiadomość, żeby zobaczyć dlaczego.',
+  '{folder} of every account': '{folder} ze wszystkich kont',
+  'Not sent yet': 'Jeszcze niewysłane',
+  'Which folder is which…': 'Który folder do czego…',
+  'Use for sent mail': 'Używaj jako Wysłane',
+  '“{name}” on the server': '„{name}” na serwerze',
+  'Sent mail': 'Wysłana poczta',
+  'None on the server': 'Brak na serwerze',
+  'Sent mail goes to {folder} from now on.': 'Od teraz wysłana poczta trafia do folderu {folder}.',
+  '{folder} is the {kind} folder from now on.': 'Od teraz folder {folder} służy jako {kind}.',
+  'That didn’t work. Try again.': 'Nie udało się. Spróbuj ponownie.',
+  'Which of the server’s folders Telex uses for each kind of mail. Telex finds them itself and prefers the one that holds mail; choose another where it got it wrong. Your choice stays.':
+    'Których folderów na serwerze Telex używa do każdego rodzaju poczty. Telex znajduje je sam i wybiera ten, w którym jest poczta; jeśli się pomylił, wybierz inny. Twój wybór zostaje.',
+  // How accounts are told apart (Settings › Appearance)
+  'Accounts in the folder list': 'Konta na liście folderów',
+  'Each account has a color of its own, shown this way once there is more than one, also in the list and the status bar.':
+    'Każde konto ma swój kolor, pokazany w ten sposób, gdy kont jest więcej niż jedno, także na liście wiadomości i w pasku stanu.',
+  'Line': 'Linia',
+  'Dot': 'Kropka',
+  'Initials': 'Inicjały',
+  'Tint': 'Odcień',
+  'None|mark': 'Bez oznaczenia',
 
   // The list's columns
   'Columns fit the list again.': 'Kolumny znów pasują do listy.',
@@ -755,6 +777,7 @@ const PL = {
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest
 // (5–21, 25–31, …). The key is the English text for 1.
 const PL_N = {
+  '{n} not sent': ['{n} niewysłana', '{n} niewysłane', '{n} niewysłanych'],
   '{n} message': ['{n} wiadomość', '{n} wiadomości', '{n} wiadomości'],
   '{n} unread': ['{n} nieprzeczytana', '{n} nieprzeczytane', '{n} nieprzeczytanych'],
   '{n} match': ['{n} wynik', '{n} wyniki', '{n} wyników'],
