@@ -7,10 +7,10 @@
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.8.1';
+export const NEXT = '0.9.0';
 
 /** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
-export const nextTeaser = 'Unread at hand, accounts on every row, five fonts.';
+export const nextTeaser = 'Move in from Thunderbird and Outlook, spelling, away replies.';
 
 /** The six points on the home page: short, the features page has the detail. */
 export const features = [
@@ -32,7 +32,7 @@ export const features = [
   },
   {
     title: 'Light on your PC',
-    text: 'A Rust core in the web view your system already has. No Electron, no bundled browser, an installer under 4 MB.',
+    text: 'A Rust core in the web view your system already has. No Electron, no bundled browser, an installer of about 4 MB.',
   },
   {
     title: 'Fluent in Polish',
@@ -99,9 +99,9 @@ export const featureRows: FeatureRow[] = [
       { text: 'Double-click or Enter opens a message in a window of its own, to read side by side', since: '0.6.0' },
       { text: 'Columns fit the window, so a date is never cut; drag From wider, double-click to fit the names, right-click the headings for full dates', since: '0.7.1' },
       { text: 'Click the dot to mark a message read or unread, the flag to flag it; right-click a message for everything else', since: '0.7.1' },
-      { text: 'Unread at the top of the folders: the unread mail of every folder and account in one list; what you read stays until you leave', since: NEXT },
-      { text: 'O, or the dot above the list, shows only the unread mail of a folder', since: NEXT },
-      { text: 'In lists that mix accounts, every row carries its account’s color', since: NEXT },
+      { text: 'Unread at the top of the folders: the unread mail of every folder and account in one list; what you read stays until you leave', since: '0.8.1' },
+      { text: 'O, or the dot above the list, shows only the unread mail of a folder', since: '0.8.1' },
+      { text: 'In lists that mix accounts, every row carries its account’s color', since: '0.8.1' },
     ],
   },
   {
@@ -155,6 +155,7 @@ export const featureRows: FeatureRow[] = [
       'Searchable offline like everything else, and part of conversations (T)',
       'Rules can file mail from any account there',
       'Drop .eml and mbox files on a folder to bring the mail in; Thunderbird’s read and starred marks come along',
+      { text: 'Move in from Thunderbird or Outlook: their local folders and .pst files come over folder by folder, with their accounts and filters', since: NEXT },
     ],
   },
   {
@@ -185,6 +186,7 @@ export const featureRows: FeatureRow[] = [
       'E reopens a draft or a message still in the Outbox',
       { text: 'Drafts save themselves while you write; New or Reply in the middle of a message puts it in Drafts first', since: '0.7.2' },
       { text: 'Discard can be undone: Z or the Undo button brings the message back', since: '0.7.2' },
+      { text: 'Spelling in your languages, Polish and English together: right-click a word or press F7 for suggestions', since: NEXT },
     ],
   },
   {
@@ -313,6 +315,7 @@ export const featureRows: FeatureRow[] = [
       'Run on arrival, or on any folder when you ask',
       { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
+      { text: 'An away reply per account, kept on your server where it can be, so it answers while Telex is closed', since: NEXT },
     ],
   },
   {
@@ -326,7 +329,7 @@ export const featureRows: FeatureRow[] = [
       'English or Polish, as in Windows or as you pick, down to the error messages',
       'Accounts, identities and servers in the same window',
       { text: 'Each account’s color as a line down its folders, a dot, its initials or a tint', since: '0.8.0' },
-      { text: 'Five fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, and Atkinson Hyperlegible for low vision', since: NEXT },
+      { text: 'Five fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, and Atkinson Hyperlegible for low vision', since: '0.8.1' },
       { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
       { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
@@ -375,6 +378,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'forward', group: 'Write', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }] },
   { id: 'edit', group: 'Write', keys: [['E']], action: 'Edit a draft or an unsent message', match: [{ key: 'e' }] },
   { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }] },
+  { id: 'spell', group: 'Write', keys: [['F7']], action: 'The next spelling mistake, with suggestions (compose)', match: [{ key: 'F7' }], since: NEXT },
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
   { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }] },
   { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread (or click the dot in the row)', match: [{ key: 'u' }] },
@@ -383,7 +387,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: '0.5.0', home: true },
   { id: 'undo', group: 'Organize', keys: [['Z']], action: 'Undo the last delete, move or discard · take back what you just sent', match: [{ key: 'z' }], home: true },
   { id: 'filter', group: 'Find', keys: [['/']], action: 'Search, with from: is:unread has:file …', match: [{ key: '/' }], home: true },
-  { id: 'onlyunread', group: 'Find', keys: [['O']], action: 'Only the unread mail of the list (O again: all of it)', match: [{ key: 'o' }], since: NEXT },
+  { id: 'onlyunread', group: 'Find', keys: [['O']], action: 'Only the unread mail of the list (O again: all of it)', match: [{ key: 'o' }], since: '0.8.1' },
   { id: 'scope', group: 'Find', keys: [['Tab']], action: 'In the filter: this folder / all mail', match: [{ key: 'Tab', shift: false }] },
   { id: 'view', group: 'Find', keys: [['H']], action: 'HTML / plain text view', match: [{ key: 'h' }] },
   { id: 'esc', group: 'Find', keys: [['Esc']], action: 'Clear the filter, the selection or the conversation · save draft and close', match: [{ key: 'Escape' }] },
@@ -409,7 +413,7 @@ export const keyboardTips: Tip[] = [
   {
     title: 'Only what’s new',
     text: 'Unread at the top of the folders gathers the unread mail of every account, wherever rules filed it; O shows a folder’s alone. What you read stays in the list until you leave it.',
-    since: NEXT,
+    since: '0.8.1',
   },
   {
     title: 'Unread until you say so',
@@ -474,7 +478,7 @@ export const screens: Screen[] = [
     label: 'Unread',
     title: 'Unread · All accounts – Telex',
     caption: 'Unread at the top of the folders: new mail from every folder and account in one list, each row with its account’s line.',
-    since: NEXT,
+    since: '0.8.1',
   },
   {
     id: 'thread',
@@ -712,6 +716,24 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Move in from Thunderbird and Outlook, spelling, away replies',
+    date: '2026-10-11',
+    summary: 'Everything from your old mail program in one go, spelling in the languages you write, and an automatic reply while you’re away.',
+    points: [
+      'Move in from another mail program: Telex finds Thunderbird (and Betterbird, SeaMonkey, Postbox) and Outlook on your PC by itself. Thunderbird brings its accounts with their identities and signatures, the mail it keeps on your PC and its filters, as rules where Telex can do the same; Outlook brings its IMAP accounts and its .pst data files, folder by folder. You type each password once; mail on your servers is downloaded from them, not copied. Nothing comes twice if you do it again.',
+      'Spelling in the languages you write: Windows’ own dictionaries, and for a language Windows lacks, LibreOffice’s, fetched only when you click Download and checked before use. Wavy lines in plain text and HTML; right-click a word or press F7 for suggestions, Add to dictionary or Ignore. Quotes, links and addresses are left alone.',
+      'An away reply for each account (Settings › Accounts › Auto-reply): on your server where it can hold one (ManageSieve), so it answers while Telex is closed and your own server filters stay; elsewhere Telex answers when it checks. Mailing lists, robots and Spam never get it, and each person gets it once in the days you choose.',
+      'Mail files: Outlook’s .msg and Apple Mail’s .emlx come in too, and Maildir and MH folders; messages Thunderbird deleted but hadn’t compacted stay out.',
+    ],
+    upgrade: 'The mail base gets two new tables (the away replies); older versions can’t open it afterwards.',
+    highlights: [
+      { title: 'Move in', text: 'Thunderbird’s and Outlook’s accounts, local mail and filters in one go.' },
+      { title: 'Spelling', keys: 'F7', text: 'Windows’ dictionaries or LibreOffice’s, with suggestions on a right-click.' },
+      { title: 'Away replies', text: 'On your server where it can be, so it answers while Telex is closed.' },
+    ],
+  },
+  {
+    version: '0.8.1',
     title: 'Unread at hand, accounts on every row, five fonts',
     date: '2026-10-11',
     summary: 'One list of everything unread, one key for only the unread mail of a folder, each account’s color on its rows, and fonts to choose from.',
@@ -1002,6 +1024,10 @@ export const faqGroups: { title: string; items: Question[] }[] = [
         id: 'providers',
         q: 'Which mail providers work?',
         a: 'Any provider that offers IMAP (SSL/TLS on port 993, or STARTTLS on 143) and SMTP (SSL/TLS on 465, or STARTTLS on 587) with a password: your own domain or hosting mailbox, and providers such as Gmail, iCloud, Yahoo, Fastmail, Zoho, GMX, WP, Onet and Interia. Telex finds the settings from your address and tells you when a provider wants an app password (Gmail, iCloud, Yahoo) or IMAP turned on. Not yet: Outlook.com, Hotmail and Microsoft 365, which accept only Microsoft sign-in (planned), and Proton Mail, which needs its Bridge.',
+      },
+      {
+        q: 'Can I bring my mail from Thunderbird or Outlook?',
+        a: 'From version 0.9, yes. Settings › Import and export finds Thunderbird (and Betterbird, SeaMonkey, Postbox) and Outlook on your PC, and the add-account window offers it too. Accounts come with their servers, identities and signatures, and you type each password once; mail on your servers is downloaded from them. Mail kept only on your PC (Thunderbird’s Local Folders, Outlook’s .pst files) comes into folders on this PC, and Thunderbird’s filters become rules where Telex can do the same. Before 0.9, mbox and .eml files could be brought in by hand.',
       },
       {
         id: 'setup',
