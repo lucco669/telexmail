@@ -402,21 +402,40 @@ fn worth_checking(word: &str) -> bool {
 /// The languages to check in when the user hasn't chosen: Windows' display languages and its
 /// regional format, then the interface's, as far as there are dictionaries for them.
 pub fn default_languages(available: &[String], wanted: &[String]) -> Vec<String> {
+    let base = |tag: &str| {
+        tag.split(['-', '_'])
+            .next()
+            .unwrap_or(tag)
+            .to_ascii_lowercase()
+    };
     let mut out: Vec<String> = Vec::new();
+    // Exactly the languages asked for first.
     for tag in wanted {
-        let exact = available.iter().find(|a| a.eq_ignore_ascii_case(tag));
-        let base = tag.split(['-', '_']).next().unwrap_or(tag);
-        let found = exact.or_else(|| {
-            available.iter().find(|a| {
-                a.split(['-', '_'])
-                    .next()
-                    .is_some_and(|b| b.eq_ignore_ascii_case(base))
-            })
-        });
-        if let Some(found) = found {
+        if let Some(found) = available.iter().find(|a| a.eq_ignore_ascii_case(tag)) {
             if !out.contains(found) {
                 out.push(found.clone());
             }
+        }
+    }
+    // Then, for a language none of those covers, another country's: its own country's first
+    // (pl-PL, de-DE), then the United States' and Britain's, then any.
+    for tag in wanted {
+        let lang = base(tag);
+        if out.iter().any(|o| base(o) == lang) {
+            continue;
+        }
+        let same: Vec<&String> = available.iter().filter(|a| base(a) == lang).collect();
+        let preferred = [
+            format!("{lang}-{}", lang.to_ascii_uppercase()),
+            "en-US".into(),
+            "en-GB".into(),
+        ];
+        let found = preferred
+            .iter()
+            .find_map(|p| same.iter().find(|a| a.eq_ignore_ascii_case(p)))
+            .or_else(|| same.first());
+        if let Some(found) = found {
+            out.push((*found).clone());
         }
     }
     out
@@ -1049,12 +1068,19 @@ mod tests {
             .map(|s| (*s).to_owned())
             .collect();
         assert_eq!(default_languages(&available, &wanted), ["en-US", "pl-PL"]);
-        let wanted = vec!["en-AU".to_owned()];
+        let wanted = vec!["en-AU".to_owned(), "de".to_owned()];
         assert_eq!(
             default_languages(&available, &wanted),
-            ["en-GB"],
+            ["en-US", "de-DE"],
             "the same language, another country"
         );
+        // Windows in US English, the interface in English: one English, not two.
+        let windows: Vec<String> = ["en-CA", "en-LR", "en-PH", "en-US"]
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        let wanted = vec!["en-US".to_owned(), "en".to_owned()];
+        assert_eq!(default_languages(&windows, &wanted), ["en-US"]);
     }
 
     #[test]

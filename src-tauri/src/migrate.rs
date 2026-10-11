@@ -2,8 +2,9 @@
 //! bringing their accounts, mail and filters. The work is in `telex_core::migrate`; this is
 //! the commands, the dialogs, the passwords and the first login of each new account.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex};
 
 use futures_util::stream::{self, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -23,13 +24,32 @@ fn failed(e: impl std::fmt::Display) -> String {
     tr!("It didn't work: {e}", "Nie udało się: {e}")
 }
 
+/// The sources found or picked this session: the only ones `move_in` reads, as only files
+/// the user chose can be attached.
+#[derive(Default)]
+pub struct Sources(Mutex<HashSet<String>>);
+
+impl Sources {
+    fn allow(&self, found: &[Source]) {
+        if let Ok(mut set) = self.0.lock() {
+            set.extend(found.iter().map(|s| s.path.clone()));
+        }
+    }
+
+    fn allowed(&self, path: &str) -> bool {
+        self.0.lock().is_ok_and(|set| set.contains(path))
+    }
+}
+
 /// Mail programs on this PC and what each has. Nothing goes over the network.
 #[tauri::command]
 pub async fn find_programs(app: AppHandle) -> CmdResult<Vec<Source>> {
     let accounts = with_store(&app.state::<AppState>(), |s| Ok(s.accounts().to_vec()))?;
-    tauri::async_runtime::spawn_blocking(move || migrate::find(&accounts))
+    let found = tauri::async_runtime::spawn_blocking(move || migrate::find(&accounts))
         .await
-        .map_err(failed)
+        .map_err(failed)?;
+    app.state::<Sources>().allow(&found);
+    Ok(found)
 }
 
 /// The words of the Open dialogs.
@@ -69,11 +89,12 @@ pub async fn open_source(
         return Ok(None);
     };
     let accounts = with_store(&app.state::<AppState>(), |s| Ok(s.accounts().to_vec()))?;
-    tauri::async_runtime::spawn_blocking(move || migrate::open(&path, &accounts))
+    let source = tauri::async_runtime::spawn_blocking(move || migrate::open(&path, &accounts))
         .await
         .map_err(failed)?
-        .map(Some)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    app.state::<Sources>().allow(std::slice::from_ref(&source));
+    Ok(Some(source))
 }
 
 /// Progress for the window: the step, how far it is, and what it is on.
@@ -111,6 +132,12 @@ pub async fn move_in(
     path: String,
     choice: Choice,
 ) -> CmdResult<MoveReport> {
+    if !app.state::<Sources>().allowed(&path) {
+        return Err(failed(tr!(
+            "Telex reads only what it found or what you chose",
+            "Telex czyta tylko to, co znalazł albo co wybrano"
+        )));
+    }
     let accounts = with_store(&state, |s| Ok(s.accounts().to_vec()))?;
     let source = {
         let path = PathBuf::from(&path);

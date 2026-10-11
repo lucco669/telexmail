@@ -408,6 +408,10 @@ pub struct SystemLocale {
     pub languages: Vec<String>,
     /// The regional format, e.g. "pl-PL": dates, numbers. Often Polish on an English Windows.
     pub region: Option<String>,
+    /// The languages the user writes in (Settings › Time & language › Language, with their
+    /// keyboards), e.g. `["pl", "en-US"]`: Polish here even when Windows shows English.
+    #[serde(default)]
+    pub writing: Vec<String>,
 }
 
 /// "pl-PL" → "pl" when Telex speaks it.
@@ -456,7 +460,45 @@ pub fn system_locale() -> SystemLocale {
         .ok()
         .filter(|n| *n > 1)
         .map(|n| String::from_utf16_lossy(&buf[..n - 1]));
-    SystemLocale { languages, region }
+    SystemLocale {
+        languages,
+        region,
+        writing: writing_languages(),
+    }
+}
+
+/// The user's language list, as Windows keeps it for Settings › Language.
+#[cfg(windows)]
+fn writing_languages() -> Vec<String> {
+    use windows_sys::Win32::System::Registry::{
+        RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_MULTI_SZ,
+    };
+    let key: Vec<u16> = "Control Panel\\International\\User Profile\0"
+        .encode_utf16()
+        .collect();
+    let value: Vec<u16> = "Languages\0".encode_utf16().collect();
+    let mut buf = vec![0u16; 1024];
+    let mut size = (buf.len() * 2) as u32;
+    // SAFETY: both names are NUL-terminated; Windows writes at most `size` bytes into `buf`.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_MULTI_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if status != 0 {
+        return Vec::new();
+    }
+    buf.truncate(size as usize / 2);
+    buf.split(|c| *c == 0)
+        .filter(|name| !name.is_empty())
+        .map(String::from_utf16_lossy)
+        .collect()
 }
 
 /// Elsewhere (the tests on Linux): the LANG variable, e.g. "pl_PL.UTF-8".
@@ -472,6 +514,7 @@ pub fn system_locale() -> SystemLocale {
     };
     SystemLocale {
         region: languages.first().cloned(),
+        writing: languages.clone(),
         languages,
     }
 }
@@ -1162,6 +1205,7 @@ mod tests {
         SystemLocale {
             languages: languages.iter().map(|l| (*l).to_owned()).collect(),
             region: (!region.is_empty()).then(|| region.to_owned()),
+            writing: Vec::new(),
         }
     }
 

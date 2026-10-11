@@ -2379,9 +2379,8 @@ async function spellNudge(){
   spellNudged = true;
   let info;
   try { info = await invoke('spell_languages'); } catch { return; }
-  const ui = I18n.lang(), missing = info.downloads.find(d => d.tag.split('-')[0] === ui);
-  if (missing && !info.chosen.some(c => c.split('-')[0] === ui))
-    say(t('{language} spelling isn’t on this PC yet: Settings › Writing can fetch it.', {language:langName(missing.tag)}), 9000);
+  const missing = info.missing?.[0];
+  if (missing) say(t('{language} spelling isn’t on this PC yet: Settings › Writing can fetch it.', {language:langName(missing)}), 9000);
 }
 // "pl-PL" → "polski (Polska)", in the interface's language.
 function langName(tag){
@@ -4197,8 +4196,9 @@ async function renderSpellLanguages(){
       + '</label>').join('')}</div>`
     : `<p class="dnote">${esc(t('This PC has no spelling dictionaries yet.'))}</p>`;
   const auto = info.auto && info.chosen.length ? `<p class="dnote snote">${esc(t('Chosen by themselves from the languages of Windows and of Telex. Tick the ones you write in.'))}</p>` : '';
-  // The interface's language first: the one most likely missing.
-  const offers = [...info.downloads].sort((a, b) => (b.tag.split('-')[0] === ui) - (a.tag.split('-')[0] === ui));
+  // The languages the user writes in first: the ones most likely wanted.
+  const first = d => (info.missing ?? []).includes(d.tag) || d.tag.split('-')[0] === ui;
+  const offers = [...info.downloads].sort((a, b) => first(b) - first(a));
   const get = offers.length ? `<div class="sbtns"><select id="s-dict" class="sselect" aria-label="${esc(t('Dictionary to download'))}">${offers.map(d =>
       `<option value="${esc(d.tag)}">${esc(langName(d.tag))} · ${esc(fmtSize(Math.ceil(d.bytes / 1024)))}</option>`).join('')}</select>`
     + `<button type="button" class="btn" id="s-dict-get"${spellFetching ? ' disabled' : ''}>${esc(spellFetching ? t('Downloading…') : t('Download'))}</button></div>`
@@ -4221,8 +4221,8 @@ $('s-spell-langs').addEventListener('click', async e => {
       const tag = $('s-dict').value;
       spellFetching = tag; renderSpellLanguages();
       try { spellInfo = await invoke('spell_download', {tag}); } finally { spellFetching = ''; }
-      // A language chosen by hand gets the new one too.
-      if (!spellInfo.auto && !spellInfo.chosen.includes(tag)){ await changeSettings({spell_languages:[...spellInfo.chosen, tag]}); spellInfo = null; }
+      // What was fetched is checked from now on, besides what was checked before.
+      if (!spellInfo.chosen.includes(tag)){ await changeSettings({spell_languages:[...spellInfo.chosen, tag]}); spellInfo = null; }
       say(t('{language} spelling is on this PC now.', {language:langName(tag)}));
     } else if (b.dataset.unspell){
       spellInfo = await invoke('spell_remove', {tag:b.dataset.unspell});

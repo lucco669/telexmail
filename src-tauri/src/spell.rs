@@ -45,41 +45,61 @@ pub struct SpellLanguages {
     auto: bool,
     /// Dictionaries Telex can fetch, for languages the system lacks.
     downloads: Vec<Offer>,
+    /// Of those, the ones for languages the user writes in (Windows' language list, its
+    /// display and regional languages, the interface's): worth offering unasked.
+    missing: Vec<&'static str>,
 }
 
-/// The languages to check in: the user's, or Windows' display languages, its regional format
-/// and the interface's language, as far as there are dictionaries.
+/// The languages to check in: the user's, or Windows' display languages, the languages the
+/// user writes in (Windows' language list), its regional format and the interface's language,
+/// as far as there are dictionaries.
 fn chosen(app: &AppHandle, languages: &[Language]) -> (Vec<String>, bool) {
-    let settings = app.state::<SettingsState>();
-    let current = settings.get();
+    let current = app.state::<SettingsState>().get();
     if !current.spell_languages.is_empty() {
         return (current.spell_languages, false);
     }
+    let available: Vec<String> = languages.iter().map(|l| l.tag.clone()).collect();
+    (spell::default_languages(&available, &wanted(app)), true)
+}
+
+/// The languages the user is likely to write in, from Windows and the interface.
+fn wanted(app: &AppHandle) -> Vec<String> {
+    let settings = app.state::<SettingsState>();
     let locale = settings.locale();
     let mut wanted = locale.languages.clone();
+    wanted.extend(locale.writing.iter().cloned());
     wanted.extend(locale.region.clone());
-    wanted.push(current.effective_language(locale).to_owned());
-    let available: Vec<String> = languages.iter().map(|l| l.tag.clone()).collect();
-    (spell::default_languages(&available, &wanted), true)
+    wanted.push(settings.get().effective_language(locale).to_owned());
+    wanted
 }
 
 fn view(app: &AppHandle) -> SpellLanguages {
     let state = app.state::<SpellState>();
     let languages = state.speller.languages();
     let (chosen, auto) = chosen(app, &languages);
-    let downloads = spell::DOWNLOADS
+    let base = |tag: &str| tag.split('-').next().unwrap_or(tag).to_ascii_lowercase();
+    let offers: Vec<&spell::Download> = spell::DOWNLOADS
         .iter()
-        .filter(|d| !languages.iter().any(|l| l.tag == d.tag))
-        .map(|d| Offer {
-            tag: d.tag,
-            bytes: d.bytes,
-        })
+        .filter(|d| !languages.iter().any(|l| base(&l.tag) == base(d.tag)))
+        .collect();
+    let wanted: Vec<String> = wanted(app).iter().map(|w| base(w)).collect();
+    let missing = offers
+        .iter()
+        .filter(|d| wanted.contains(&base(d.tag)))
+        .map(|d| d.tag)
         .collect();
     SpellLanguages {
         languages,
         chosen,
         auto,
-        downloads,
+        downloads: offers
+            .iter()
+            .map(|d| Offer {
+                tag: d.tag,
+                bytes: d.bytes,
+            })
+            .collect(),
+        missing,
     }
 }
 

@@ -1328,7 +1328,7 @@ function installTelexDemo(options) {
     open_source: () => refuse('move'),
     move_in: () => refuse('move'),
     // Spelling: the demo has no dictionaries, so nothing is underlined.
-    spell_languages: () => ({ languages: [], chosen: [], auto: true, downloads: [] }),
+    spell_languages: () => ({ languages: [], chosen: [], auto: true, downloads: [], missing: [] }),
     spell_check: () => [],
     spell_suggest: () => [],
     spell_add: () => null,

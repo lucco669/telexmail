@@ -934,6 +934,7 @@ pub fn run() {
     }
     app.manage(updates::Found::default())
         .manage(FilesState::default())
+        .manage(migrate::Sources::default())
         .manage(watch::Watchers::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
