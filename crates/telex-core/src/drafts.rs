@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::mime::reply_to_of;
 use crate::model::{split_folder_key, Account, Attachment, Identity, Message, MessageId};
 use crate::smtp::split_addresses;
-use crate::store::{MailStore, StoreError};
+use crate::store::{MailStore, StoreError, LOCAL_ID};
 use crate::tr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -52,7 +52,7 @@ pub fn start(
             )))
         }
     };
-    let account = store.account(original.as_ref().map_or(account, |m| account_of(&m.folder)))?;
+    let account = sender(store, original.as_ref(), account)?;
     let identity = match &original {
         Some(m) => identity_for(account, m),
         None => account.identity(None),
@@ -129,6 +129,43 @@ pub fn start(
         DraftKind::New => {}
     }
     Ok(draft)
+}
+
+/// The account a draft is from: the original's, or for a new message the one asked for. Mail
+/// on this PC belongs to no server, so a reply to it goes from the account whose address or
+/// identity it was sent to (or from), else from the one asked for, else the first that can.
+fn sender<'s>(
+    store: &'s MailStore,
+    original: Option<&Message>,
+    asked: &str,
+) -> Result<&'s Account, StoreError> {
+    let servers = || store.accounts().iter().filter(|a| a.imap.is_some());
+    if let Some(m) = original {
+        let own = store.account(account_of(&m.folder))?;
+        if own.id != LOCAL_ID {
+            return Ok(own);
+        }
+        let addressed: Vec<String> =
+            split_addresses(&format!("{}, {}, {}", m.to, m.cc, m.from_email))
+                .iter()
+                .map(|a| key(a))
+                .collect();
+        let mine = |a: &&Account| {
+            addressed.contains(&key(&a.email))
+                || a.identities
+                    .iter()
+                    .any(|i| addressed.contains(&key(&i.email)))
+        };
+        if let Some(a) = servers().find(mine) {
+            return Ok(a);
+        }
+    }
+    match store.account(asked) {
+        Ok(a) if a.id != LOCAL_ID => Ok(a),
+        _ => servers()
+            .next()
+            .ok_or_else(|| StoreError::UnknownAccount(asked.to_owned())),
+    }
 }
 
 /// The identity a reply or forward is from: the one the message was sent to (an alias),
@@ -412,6 +449,28 @@ mod tests {
             "{:?}",
             d.body
         );
+    }
+
+    #[test]
+    fn replies_to_mail_on_this_pc_come_from_the_account_it_was_sent_to() {
+        let (mut store, account) = store_with_alias();
+        let id = deliver(
+            &mut store,
+            &account,
+            "From: Anna <anna@x.pl>\r\nTo: jan@twojastudio.pl\r\n",
+        );
+        store.move_to(id, "local/archive").unwrap();
+        let d = start(&store, DraftKind::Reply, Some(id), LOCAL_ID).unwrap();
+        assert_eq!(d.account, account.id);
+        let jan = account
+            .identities
+            .iter()
+            .find(|i| i.email == "jan@twojastudio.pl")
+            .unwrap();
+        assert_eq!(d.identity, jan.id, "the alias it was sent to");
+        // A new message while a folder on this PC is open: from an account that can send.
+        let d = start(&store, DraftKind::New, None, LOCAL_ID).unwrap();
+        assert_eq!(d.account, account.id);
     }
 
     #[test]

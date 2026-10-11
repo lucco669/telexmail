@@ -2,6 +2,7 @@
 //! Keep logic out of here; put it in `crates/telex-core` where it can be tested.
 
 mod files;
+mod folders;
 mod secrets;
 mod settings;
 mod updates;
@@ -15,7 +16,7 @@ use std::time::Duration;
 
 use chrono::{Local, TimeDelta};
 use serde::Serialize;
-use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::drafts::{self, DraftKind, DraftStart};
@@ -846,8 +847,8 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. }) = event {
-                files::dropped(window.app_handle(), paths);
+            if let WindowEvent::DragDrop(drop) = event {
+                files::drag_drop(window, drop);
             }
         })
         .invoke_handler(tauri::generate_handler![
@@ -872,6 +873,11 @@ pub fn run() {
             files::save_attachments,
             files::show_saved,
             files::pick_files,
+            folders::create_local_folder,
+            folders::rename_local_folder,
+            folders::delete_local_folder,
+            folders::export_folder,
+            folders::import_mail,
             save_outgoing,
             draft_html,
             html_to_text,

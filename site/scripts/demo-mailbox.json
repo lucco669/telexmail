@@ -82,6 +82,17 @@
           "is_default": true
         }
       ]
+    },
+    {
+      "id": "local",
+      "name": "On this PC",
+      "email": "",
+      "folders": [
+        { "id": "clients-2025", "name": "Clients 2025", "kind": "custom" },
+        { "id": "archive", "name": "Archive", "kind": "archive" },
+        { "id": "trash", "name": "Trash", "kind": "trash" }
+      ],
+      "identities": []
     }
   ],
   "rules": [
@@ -859,6 +870,70 @@
       "note": null,
       "attachments": [],
       "body": "Congratulations! You have been selected. Claim your prize now: http://prizes-online.click/claim"
+    },
+    {
+      "folder": "local/clients-2025",
+      "thread": "anna",
+      "from_name": "Anna Kowalska",
+      "from_email": "anna@kowalska-architects.pl",
+      "to": "Sam Carter <sam@lindenstudio.com>",
+      "cc": "",
+      "subject": "Our new website – a first brief",
+      "date": "2025-03-12T10:24:00",
+      "size_kb": 38,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "brief-kowalska-architects.pdf",
+          "size_kb": 31
+        }
+      ],
+      "body": "Hi Sam,\n\nas promised, a first brief for our new website is attached: who we are, the projects we would like to show, and a few sites we like.\n\nWe would love to have it live before the summer.\n\nBest regards,\nAnna Kowalska"
+    },
+    {
+      "folder": "local/clients-2025",
+      "from_name": "Daniel Price",
+      "from_email": "daniel@pawsclinic.co.uk",
+      "to": "Sam Carter <sam@lindenstudio.com>",
+      "cc": "",
+      "subject": "Paws Clinic – contract signed",
+      "date": "2025-06-02T15:08:00",
+      "size_kb": 212,
+      "unread": false,
+      "flagged": true,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "contract-signed.pdf",
+          "size_kb": 204
+        }
+      ],
+      "body": "Hi Sam,\n\nthe signed contract is attached. Looking forward to working with you!\n\nDaniel"
+    },
+    {
+      "folder": "local/clients-2025",
+      "from_name": "Maya Chen",
+      "from_email": "maya@chen.design",
+      "to": "Sam Carter <sam@lindenstudio.com>",
+      "cc": "",
+      "subject": "Launch photos for the case study",
+      "date": "2025-11-20T09:41:00",
+      "size_kb": 1840,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [
+        {
+          "name": "launch-photos.zip",
+          "size_kb": 1832
+        }
+      ],
+      "body": "Hi Sam,\n\nhere are the photos from the launch, for your case study. Use any of them.\n\nMaya"
     }
   ],
   "incoming": [

@@ -982,7 +982,10 @@ JVBERi0xLjQK\r\n\
         assert_eq!(changes.len(), 1);
         assert_eq!(
             changes[0].kind,
-            ChangeKind::Append(account.folder_key("sent"))
+            ChangeKind::Append {
+                to: account.folder_key("sent"),
+                flags: None
+            }
         );
         assert!(!s.has_outgoing(&account.id, due()).unwrap());
     }

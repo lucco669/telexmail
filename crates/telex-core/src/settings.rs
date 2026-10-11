@@ -20,7 +20,7 @@ use serde_json::{Map, Value};
 
 use crate::filters::{Action, Condition, Rule};
 use crate::model::{split_folder_key, Account, AccountSetup, Identity, ImapSettings, SmtpSettings};
-use crate::store::{MailStore, StoreError};
+use crate::store::{MailStore, StoreError, LOCAL_ID};
 
 /// Themes in the order the settings show them. "system" follows Windows' light or dark mode;
 /// each of the others has a block in `ui/themes.css`. `scripts/check-contrast.mjs` checks that
@@ -458,15 +458,22 @@ fn yes() -> bool {
     true
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 /// [`Action`] with the folder spelled out, so it can be found on another PC.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ActionEntry {
-    /// Move to a folder of the rule's account: by its id, else by its name.
+    /// Move to a folder of the rule's account (or with `this_pc`, a folder on this PC): by its
+    /// id, else by its name.
     Move {
         folder: String,
         #[serde(default)]
         folder_id: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        this_pc: bool,
     },
     MarkRead,
     Flag,
@@ -497,13 +504,19 @@ fn rule_entry(rule: &Rule, accounts: &[Account]) -> RuleEntry {
         .iter()
         .map(|action| match action {
             Action::Move { folder } => {
-                let folder_id = split_folder_key(folder).map_or(folder.as_str(), |(_, f)| f);
-                let name = account
-                    .and_then(|a| a.folders.iter().find(|f| f.id == folder_id))
-                    .map_or(folder_id, |f| f.name.as_str());
+                let (owner, folder_id) = split_folder_key(folder).unwrap_or(("", folder.as_str()));
+                let this_pc = owner == LOCAL_ID;
+                let name = if this_pc {
+                    accounts.iter().find(|a| a.id == LOCAL_ID)
+                } else {
+                    account
+                }
+                .and_then(|a| a.folders.iter().find(|f| f.id == folder_id))
+                .map_or(folder_id, |f| f.name.as_str());
                 ActionEntry::Move {
                     folder: name.to_owned(),
                     folder_id: folder_id.to_owned(),
+                    this_pc,
                 }
             }
             Action::MarkRead => ActionEntry::MarkRead,
@@ -855,8 +868,13 @@ impl Import {
             let mut missing = None;
             for action in &entry.actions {
                 actions.push(match action {
-                    ActionEntry::Move { folder, folder_id } => {
-                        let found = account.and_then(|a| {
+                    ActionEntry::Move {
+                        folder,
+                        folder_id,
+                        this_pc,
+                    } => {
+                        let owner = if *this_pc { store.this_pc() } else { account };
+                        let found = owner.and_then(|a| {
                             a.folders
                                 .iter()
                                 .find(|f| !folder_id.is_empty() && f.id == *folder_id)
@@ -1309,6 +1327,42 @@ mod tests {
             .identities
             .iter()
             .all(|i| i.status == Status::Same));
+    }
+
+    #[test]
+    fn rules_that_file_mail_on_this_pc_find_that_folder_on_another_pc() {
+        let (mut old, account) = store_with("anna@firma.pl", "faktury");
+        let projects = old.create_local_folder("Projekty").unwrap();
+        let mut rule = invoices_rule(&account, "faktury");
+        rule.account = None;
+        rule.actions = vec![Action::Move { folder: projects }];
+        old.save_rule(&rule).unwrap();
+        let text = export(&old, &Settings::default(), ALL, "0.6.0", now()).unwrap();
+        assert!(text.contains("\"this_pc\": true"), "{text}");
+        assert!(text.contains("\"folder\": \"Projekty\""));
+
+        // Another PC whose folder on this PC got another id, but has the name.
+        let (mut new, _) = store_with("anna@firma.pl", "faktury");
+        new.create_local_folder("Projekty: stare").unwrap(); // takes no slug of "Projekty"
+        let there = new.create_local_folder("PROJEKTY").unwrap();
+        new.rename_local_folder(&there, "Projekty").unwrap();
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert_eq!(import.plan.rules[0].status, Status::Add);
+        import.apply(&mut new, EVERYTHING);
+        assert_eq!(
+            new.rules().unwrap()[0].actions,
+            [Action::Move { folder: there }]
+        );
+
+        // One without that folder says so.
+        let (bare, _) = store_with("anna@firma.pl", "faktury");
+        let import = Import::read(&text, &bare, &Settings::default()).unwrap();
+        assert_eq!(
+            import.plan.rules[0].skip,
+            Some(Skip::NoFolder {
+                folder: "Projekty".into()
+            })
+        );
     }
 
     #[test]

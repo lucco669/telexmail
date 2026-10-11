@@ -487,7 +487,6 @@ const PL = {
   'Not sent. Change it and send it again, or press Esc to keep it as a draft.': 'Nie wysłano. Zmień ją i wyślij ponownie albo naciśnij Esc, żeby zachować ją jako szkic.',
   'Everything here was read already.': 'Wszystko tutaj było już przeczytane.',
   'Moved to {folder}. Press Z to undo.': 'Przeniesiono do folderu {folder}. Z cofa.',
-  'Messages from different accounts can’t be moved together.': 'Wiadomości z różnych kont nie da się przenieść razem.',
   'Go to folder': 'Przejdź do folderu',
   'No folder matches.': 'Żaden folder nie pasuje.',
   'The conversation. T or Esc goes back.': 'Cały wątek. T albo Esc wraca.',
@@ -559,6 +558,40 @@ const PL = {
   'Errors and notes from rules show above the message they are about.': 'Błędy i notatki reguł pojawiają się nad wiadomością, której dotyczą.',
   '{size} free': '{size} wolne',
   '{email} on the server: {used} of {limit} used ({pct}%), {free} free.': '{email} na serwerze: zajęte {used} z {limit} ({pct}%), wolne {free}.',
+
+  // Folders on this PC
+  '{folder} on this PC': '{folder} na tym komputerze',
+  'Mail kept only on this PC, on no server. Right-click a folder for more.': 'Poczta trzymana tylko na tym komputerze, na żadnym serwerze. Kliknij folder prawym przyciskiem, żeby zobaczyć więcej.',
+  'New folder on this PC': 'Nowy folder na tym komputerze',
+  'Made the folder {folder} on this PC. Drag mail onto it, or press M.': 'Utworzono folder {folder} na tym komputerze. Przeciągnij na niego pocztę albo naciśnij M.',
+  'Removed the folder {folder}.': 'Usunięto folder {folder}.',
+  'Save {folder} as mbox': 'Zapisz {folder} jako mbox',
+  'mbox files': 'Pliki mbox',
+  'Saved {folder} to {path}.': 'Zapisano {folder} w {path}.',
+  'Bring mail into {folder}': 'Wczytaj pocztę do folderu {folder}',
+  'Mail files': 'Pliki z pocztą',
+  'All files': 'Wszystkie pliki',
+  'Reading mail from {file}: {n} so far…': 'Wczytywanie poczty z {file}: na razie {n}…',
+  'New folder…': 'Nowy folder…',
+  'Rename…': 'Zmień nazwę…',
+  'Delete folder': 'Usuń folder',
+  'Mark all as read': 'Oznacz wszystkie jako przeczytane',
+  'Bring mail in from files…': 'Wczytaj pocztę z plików…',
+  'Save as mbox…': 'Zapisz jako mbox…',
+  'To bring in mail files (.eml, mbox), drop them on a folder on this PC. Dropped anywhere else, files are attached to a message.': 'Żeby wczytać pliki z pocztą (.eml, mbox), upuść je na folder na tym komputerze. Upuszczone gdzie indziej zostaną dołączone do wiadomości.',
+  'This mail is kept only on this PC, on no server. Back it up now and then: Settings › Backups.': 'Ta poczta jest tylko na tym komputerze, na żadnym serwerze. Rób jej kopię od czasu do czasu: Ustawienia › Kopie zapasowe.',
+
+  // Drag and drop
+  'Rest on a folder for a moment, then let go.': 'Zatrzymaj się chwilę na folderze, potem puść.',
+  'It is in this folder already.': 'Już jest w tym folderze.',
+  'Not to another account: put it in a folder on this PC first.': 'Nie na inne konto: najpierw przenieś do folderu na tym komputerze.',
+  'Let go to move it to {folder}.': 'Puść, żeby przenieść do folderu {folder}.',
+  'Hold on {folder}…': 'Przytrzymaj na folderze {folder}…',
+  'Not moved: rest on the folder until it fills, then let go.': 'Nie przeniesiono: zatrzymaj się na folderze, aż się wypełni, potem puść.',
+  'Nothing moved.': 'Nic nie przeniesiono.',
+  'Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.': 'Przeciągnij wiadomości na folder: zatrzymaj się na nim, aż się wypełni, potem puść. Esc przerywa, Z je przywraca.',
+  'Folders on this PC keep mail only here, off the server. Right-click one to name it, save it as mbox or bring mail in.': 'Foldery na tym komputerze trzymają pocztę tylko tutaj, poza serwerem. Kliknij folder prawym przyciskiem, żeby zmienić nazwę, zapisać go jako mbox albo wczytać pocztę.',
+  'Drop .eml or mbox files on a folder on this PC to bring that mail in.': 'Upuść pliki .eml lub mbox na folder na tym komputerze, żeby wczytać tę pocztę.',
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest
@@ -618,6 +651,11 @@ const PL_N = {
   'Restored {n} message.': ['Przywrócono {n} wiadomość.', 'Przywrócono {n} wiadomości.', 'Przywrócono {n} wiadomości.'],
   'Move {n} message to': ['Przenieś {n} wiadomość do', 'Przenieś {n} wiadomości do', 'Przenieś {n} wiadomości do'],
   '{n} second': ['{n} sekunda', '{n} sekundy', '{n} sekund'],
+
+  // Folders on this PC
+  '{n} rule no longer moves mail there.': ['{n} reguła już tam nie przenosi poczty.', '{n} reguły już tam nie przenoszą poczty.', '{n} reguł już tam nie przenosi poczty.'],
+  'Brought {n} message into {folder}.': ['Wczytano {n} wiadomość do folderu {folder}.', 'Wczytano {n} wiadomości do folderu {folder}.', 'Wczytano {n} wiadomości do folderu {folder}.'],
+  '{n} was there already.': ['{n} już tam była.', '{n} już tam były.', '{n} już tam było.'],
 };
 
 let lang = document.documentElement.lang === 'pl' ? 'pl' : 'en';

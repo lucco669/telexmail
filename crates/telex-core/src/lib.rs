@@ -16,6 +16,7 @@ pub mod html;
 pub mod i18n;
 pub mod imap;
 pub mod list;
+pub mod mailbox;
 pub mod mime;
 pub mod model;
 pub mod recipients;
@@ -28,5 +29,5 @@ pub mod usage;
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey};
 pub use model::*;
 pub use store::{
-    DeleteOutcome, DeleteReport, FolderSyncState, MailStore, StoreError, SyncedMessage,
+    DeleteOutcome, DeleteReport, FolderSyncState, MailStore, StoreError, SyncedMessage, LOCAL_ID,
 };

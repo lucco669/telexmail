@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::mime::auto_reply_blocker;
 use crate::model::{split_folder_key, Account, FolderKind, Message, MessageId, OutgoingDraft};
 use crate::smtp::{self, Originals};
-use crate::store::{MailStore, StoreError};
+use crate::store::{MailStore, StoreError, LOCAL_ID};
 use crate::tr;
 
 /// How long a rule waits before auto-replying to the same sender again.
@@ -134,6 +134,19 @@ impl Rule {
         }
         for action in &self.actions {
             match action {
+                // A folder on this PC takes mail from any account; a server folder only from
+                // its own.
+                Action::Move { folder } if is_local(folder) => {
+                    let here = accounts.iter().find(|a| a.id == LOCAL_ID);
+                    if !here
+                        .is_some_and(|a| a.folders.iter().any(|f| &a.folder_key(&f.id) == folder))
+                    {
+                        return Err(tr!(
+                            "Pick the folder to move to.",
+                            "Wybierz folder, do którego przenieść."
+                        ));
+                    }
+                }
                 Action::Move { folder } => {
                     let account = account.ok_or_else(|| {
                         tr!(
@@ -328,16 +341,20 @@ pub fn run(
                     }
                     Action::Move { folder } if folder != &message.folder => {
                         match store.folder_name(folder) {
-                            Some(to) if account_of(folder) == account => {
+                            Some(to) if account_of(folder) == account || is_local(folder) => {
                                 // The Polish interface names special folders by their kind.
                                 let pl_to = store
                                     .kind_of(folder)
                                     .and_then(FolderKind::pl_name)
                                     .unwrap_or(to.as_str());
-                                did.push(tr!(
-                                    "moved it to {to}",
-                                    "przeniosła ją do folderu {pl_to}"
-                                ));
+                                did.push(if is_local(folder) {
+                                    tr!(
+                                        "moved it to {to} on this PC",
+                                        "przeniosła ją do folderu {pl_to} na tym komputerze"
+                                    )
+                                } else {
+                                    tr!("moved it to {to}", "przeniosła ją do folderu {pl_to}")
+                                });
                                 destination = Some(Destination::Folder(folder.clone()));
                             }
                             _ => report.problems.push(tr!(
@@ -520,6 +537,11 @@ fn join_and(parts: &[String]) -> String {
 
 fn account_of(folder_key: &str) -> &str {
     split_folder_key(folder_key).map_or(folder_key, |(a, _)| a)
+}
+
+/// A folder on this PC, which takes mail from every account.
+fn is_local(folder_key: &str) -> bool {
+    account_of(folder_key) == LOCAL_ID
 }
 
 #[cfg(test)]
@@ -971,5 +993,44 @@ mod tests {
         store.move_to(id, &account.folder_key("spam")).unwrap();
         run(&mut store, &[id], Trigger::Arrival, when(10)).unwrap();
         assert_eq!(outbox(&store, &account), 0);
+    }
+
+    #[test]
+    fn rules_file_mail_from_any_account_on_this_pc() {
+        let (mut store, account, holiday) = holiday_store();
+        store.delete_rule(holiday.id).unwrap();
+        let archive = rule(
+            "Newslettery",
+            None,
+            vec![cond(Field::Subject, Op::Contains, "pytanie")],
+            vec![Action::Move {
+                folder: "local/archive".into(),
+            }],
+        );
+        assert_eq!(
+            archive.check(store.accounts()),
+            Ok(()),
+            "no account needed for this PC"
+        );
+        let mut gone = archive.clone();
+        gone.actions = vec![Action::Move {
+            folder: "local/nowhere".into(),
+        }];
+        assert!(gone.check(store.accounts()).is_err());
+        store.save_rule(&archive).unwrap();
+        let id = deliver(&mut store, &account, 1, "From: Anna <anna@x.pl>\r\n");
+        let report = run(&mut store, &[id], Trigger::Arrival, when(10)).unwrap();
+        assert_eq!((report.matched, report.moved), (1, 1));
+        let m = store.get(id).unwrap();
+        assert_eq!(m.folder, "local/archive");
+        assert_eq!(
+            m.note.as_deref(),
+            Some("Rule \"Newslettery\" moved it to Archive on this PC.")
+        );
+        assert_eq!(
+            store.pending_changes(&account.id).unwrap()[0].kind,
+            crate::store::ChangeKind::Expunge,
+            "it leaves the server in the same sync"
+        );
     }
 }

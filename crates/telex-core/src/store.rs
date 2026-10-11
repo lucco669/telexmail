@@ -7,7 +7,7 @@ use chrono::NaiveDateTime;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
-use crate::filters::Rule;
+use crate::filters::{Action, Rule};
 use crate::html;
 use crate::list;
 use crate::mime::parse_message_id;
@@ -29,11 +29,26 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/007_message_content.sql"),
     include_str!("migrations/008_usage.sql"),
     include_str!("migrations/009_conversations_and_sending.sql"),
+    include_str!("migrations/010_local_folders.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
 /// to a server folder.
 pub const OUTBOX_ID: &str = "outbox";
+
+/// The folders on this PC ("On this PC"): mail that is kept only here. They are stored as an
+/// account without servers that has this id, so their keys are "local/<folder>".
+pub const LOCAL_ID: &str = "local";
+
+/// The folders on this PC with their Archive and Trash, unless they are there already, as
+/// migrations/010_local_folders.sql makes them for mail bases that have server accounts.
+const ENSURE_LOCAL: &str = "
+    INSERT OR IGNORE INTO accounts (id, position, name, email) VALUES ('local', 1000000, 'On this PC', '');
+    INSERT OR IGNORE INTO folders (account, id, position, name, kind) VALUES ('local', 'archive', 0, 'Archive', 'archive');
+    INSERT OR IGNORE INTO folders (account, id, position, name, kind) VALUES ('local', 'trash', 1, 'Trash', 'trash');";
+
+/// The longest name a folder on this PC can have.
+const FOLDER_NAME_MAX: usize = 80;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
@@ -117,6 +132,14 @@ fn rule_gone() -> StoreError {
     StoreError::Invalid(tr!("That rule no longer exists.", "Tej reguły już nie ma."))
 }
 
+/// A mail base without server accounts has no folders on this PC yet.
+fn no_local_folders() -> StoreError {
+    StoreError::Invalid(tr!(
+        "Folders on this PC come with your first mail account.",
+        "Foldery na tym komputerze pojawiają się z pierwszym kontem pocztowym."
+    ))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeleteOutcome {
@@ -161,8 +184,13 @@ pub enum ChangeKind {
     Move(String),
     /// Remove for good (Del in Trash).
     Expunge,
-    /// Save a copy of a sent message in this server folder (IMAP APPEND).
-    Append(String),
+    /// Upload the message to this server folder (IMAP APPEND): a copy of sent mail for Sent
+    /// (`flags` None: always read), or mail moved there from this PC with its read state and
+    /// flag, `(seen, flagged)`.
+    Append {
+        to: String,
+        flags: Option<(bool, bool)>,
+    },
 }
 
 /// A message waiting in an Outbox, with what SMTP needs.
@@ -461,23 +489,30 @@ impl MailStore {
         self.set_unread_many(&ids, false)
     }
 
-    /// Move a message to another folder of the same account.
+    /// Move a message to another folder (see [`MailStore::move_many`]).
     pub fn move_to(&mut self, id: MessageId, folder: &str) -> Result<(), StoreError> {
         self.move_many(&[id], folder).map(|_| ())
     }
 
-    /// Move messages to another folder of their account, all or none: a message of
-    /// another account (or one that is gone) stops the whole move. Returns where each was.
+    /// Move messages to another folder, all or none: a message that is gone, or one of
+    /// another server account, stops the whole move. Returns where each one was.
+    ///
+    /// Within an account, server mail moves on the server too. Server mail moved to a folder
+    /// on this PC leaves the server (an expunge, taken back when the message returns before
+    /// the server heard of it); mail from this PC moved to a server folder is uploaded there.
+    /// Between two server accounts mail goes by way of this PC, in two moves.
     pub fn move_many(
         &mut self,
         ids: &[MessageId],
         folder: &str,
     ) -> Result<Vec<(MessageId, String)>, StoreError> {
         let target_acct = self.check_folder(folder)?.to_owned();
+        let on_server = self.folder(folder).is_some_and(|f| f.remote.is_some());
         let mut places = Vec::with_capacity(ids.len());
         for &id in ids {
             let (source, srv_folder) = self.locate(id)?;
-            if account_of(&source) != target_acct {
+            let from = account_of(&source);
+            if from != target_acct && from != LOCAL_ID && target_acct != LOCAL_ID {
                 return Err(StoreError::CrossAccountMove {
                     from: source,
                     to: folder.to_owned(),
@@ -486,8 +521,21 @@ impl MailStore {
             places.push((id, source, srv_folder));
         }
         let tx = self.db.transaction()?;
-        for (id, _, srv_folder) in &places {
-            move_row(&tx, *id, srv_folder.as_deref(), folder, &target_acct)?;
+        for (id, source, srv_folder) in &places {
+            if account_of(source) == target_acct {
+                move_row(
+                    &tx,
+                    *id,
+                    srv_folder.as_deref(),
+                    folder,
+                    &target_acct,
+                    on_server,
+                )?;
+            } else if target_acct == LOCAL_ID {
+                to_this_pc(&tx, *id, srv_folder.as_deref(), folder)?;
+            } else {
+                from_this_pc(&tx, *id, folder, &target_acct, on_server)?;
+            }
         }
         tx.commit()?;
         Ok(places.into_iter().map(|(id, from, _)| (id, from)).collect())
@@ -512,7 +560,9 @@ impl MailStore {
             let to_trash = if self.folder_kind(&folder) == Some(FolderKind::Trash) {
                 None
             } else {
-                Some(self.folder_key_of_kind(account_of(&folder), FolderKind::Trash)?)
+                let trash = self.folder_key_of_kind(account_of(&folder), FolderKind::Trash)?;
+                let on_server = self.folder(&trash).is_some_and(|f| f.remote.is_some());
+                Some((trash, on_server))
             };
             plan.push((id, folder, srv_folder, to_trash));
         }
@@ -520,8 +570,9 @@ impl MailStore {
         let tx = self.db.transaction()?;
         for (id, folder, srv_folder, to_trash) in plan {
             match to_trash {
-                Some(trash) => {
-                    move_row(&tx, id, srv_folder.as_deref(), &trash, account_of(&trash))?;
+                Some((trash, on_server)) => {
+                    let account = account_of(&trash);
+                    move_row(&tx, id, srv_folder.as_deref(), &trash, account, on_server)?;
                     report.trashed.push((id, folder));
                 }
                 None => {
@@ -1117,7 +1168,7 @@ impl MailStore {
             tx.execute(
                 "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user,
                      smtp_host, smtp_port, smtp_security, imap_security)
-                 VALUES (?1, (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts),
+                 VALUES (?1, (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts WHERE id <> 'local'),
                      ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     id,
@@ -1137,6 +1188,8 @@ impl MailStore {
                 params![id, OUTBOX_ID],
             )?;
             insert_identity(&tx, &Identity::new(&id, &setup.name, &setup.email), 0)?;
+            // The first server account brings the folders on this PC.
+            tx.execute_batch(ENSURE_LOCAL)?;
             tx.commit()?;
             id
         };
@@ -1153,7 +1206,7 @@ impl MailStore {
         };
         let mut id = base.clone();
         let mut n = 2;
-        while self.accounts.iter().any(|a| a.id == id) {
+        while id == LOCAL_ID || self.accounts.iter().any(|a| a.id == id) {
             id = format!("{base}-{n}");
             n += 1;
         }
@@ -1161,8 +1214,15 @@ impl MailStore {
     }
 
     /// Remove an account, every local copy of its mail and its queued changes.
-    /// The server is not touched.
+    /// The server is not touched. The folders on this PC can't be removed this way: their
+    /// mail is nowhere else, and it stays when the accounts it came from go.
     pub fn remove_account(&mut self, id: &str) -> Result<(), StoreError> {
+        if id == LOCAL_ID {
+            return Err(StoreError::Invalid(tr!(
+                "The folders on this PC stay: their mail is nowhere else.",
+                "Foldery na tym komputerze zostają: ich poczty nie ma nigdzie indziej."
+            )));
+        }
         self.account(id)?;
         let tx = self.db.transaction()?;
         tx.execute(
@@ -1219,6 +1279,143 @@ impl MailStore {
         }
         tx.commit()?;
         self.reload_accounts()
+    }
+
+    // ---- Folders on this PC ----
+
+    /// The folders on this PC, once the mail base has them: from the first server account on.
+    pub fn this_pc(&self) -> Option<&Account> {
+        self.accounts
+            .iter()
+            .find(|a| a.id == LOCAL_ID && a.imap.is_none())
+    }
+
+    /// A name for a folder on this PC, trimmed, or what is wrong with it. `except` is the
+    /// folder being renamed, which may keep its own name.
+    fn check_local_name(&self, name: &str, except: Option<&str>) -> Result<String, StoreError> {
+        let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+        if name.is_empty() {
+            return Err(StoreError::Invalid(tr!(
+                "Type a name for the folder.",
+                "Wpisz nazwę folderu."
+            )));
+        }
+        if name.chars().count() > FOLDER_NAME_MAX {
+            return Err(StoreError::Invalid(tr!(
+                "That name is too long: {FOLDER_NAME_MAX} characters at most.",
+                "Ta nazwa jest za długa: najwyżej {FOLDER_NAME_MAX} znaków."
+            )));
+        }
+        let pc = self.this_pc().ok_or_else(no_local_folders)?;
+        let taken = pc.folders.iter().any(|f| {
+            Some(f.id.as_str()) != except
+                && (f.name.to_lowercase() == name.to_lowercase()
+                    || f.kind
+                        .pl_name()
+                        .is_some_and(|pl| pl.to_lowercase() == name.to_lowercase()))
+        });
+        if taken {
+            return Err(StoreError::Invalid(tr!(
+                "There is a folder called \"{name}\" on this PC already.",
+                "Na tym komputerze jest już folder „{name}”."
+            )));
+        }
+        Ok(name)
+    }
+
+    /// Make a folder on this PC. Returns its key.
+    pub fn create_local_folder(&mut self, name: &str) -> Result<String, StoreError> {
+        let name = self.check_local_name(name, None)?;
+        let pc = self.this_pc().ok_or_else(no_local_folders)?;
+        let base = match slug(&name) {
+            s if s.is_empty() => "folder".to_owned(),
+            s => s,
+        };
+        let mut id = base.clone();
+        let mut n = 2;
+        while id == OUTBOX_ID || pc.folders.iter().any(|f| f.id == id) {
+            id = format!("{base}-{n}");
+            n += 1;
+        }
+        self.db.execute(
+            "INSERT INTO folders (account, id, position, name, kind) VALUES (?1, ?2, 2, ?3, 'custom')",
+            params![LOCAL_ID, id, name],
+        )?;
+        self.reload_accounts()?;
+        Ok(format!("{LOCAL_ID}/{id}"))
+    }
+
+    /// The user's own folder on this PC, by key: Archive and Trash there are for good.
+    fn own_local_folder(&self, key: &str) -> Result<Folder, StoreError> {
+        let folder = match split_folder_key(key) {
+            Some((LOCAL_ID, _)) => self.folder(key).cloned(),
+            _ => None,
+        }
+        .ok_or_else(|| StoreError::UnknownFolder(key.to_owned()))?;
+        if folder.kind != FolderKind::Custom {
+            return Err(StoreError::Invalid(tr!(
+                "Archive and Trash on this PC stay as they are.",
+                "Archiwum i Kosz na tym komputerze zostają takie, jakie są."
+            )));
+        }
+        Ok(folder)
+    }
+
+    /// Give a folder on this PC another name. Its key stays, so rules keep working.
+    pub fn rename_local_folder(&mut self, key: &str, name: &str) -> Result<(), StoreError> {
+        let folder = self.own_local_folder(key)?;
+        let name = self.check_local_name(name, Some(&folder.id))?;
+        self.db.execute(
+            "UPDATE folders SET name = ?3 WHERE account = ?1 AND id = ?2",
+            params![LOCAL_ID, folder.id, name],
+        )?;
+        self.reload_accounts()
+    }
+
+    /// Remove an empty folder on this PC, and the rules' moves to it with it: a rule that
+    /// would have nothing left to do goes too. Returns how many rules changed.
+    pub fn delete_local_folder(&mut self, key: &str) -> Result<usize, StoreError> {
+        let folder = self.own_local_folder(key)?;
+        let held: i64 = self.db.query_row(
+            "SELECT COUNT(*) FROM messages WHERE folder = ?1",
+            [key],
+            |r| r.get(0),
+        )?;
+        if held > 0 {
+            let name = &folder.name;
+            return Err(StoreError::Invalid(tr!(
+                "Move or delete the messages in \"{name}\" first.",
+                "Najpierw przenieś albo usuń wiadomości z folderu „{name}”."
+            )));
+        }
+        let mut changed = 0;
+        for mut rule in self.rules()? {
+            let before = rule.actions.len();
+            rule.actions
+                .retain(|a| !matches!(a, Action::Move { folder } if folder == key));
+            if rule.actions.len() == before {
+                continue;
+            }
+            changed += 1;
+            if rule.actions.is_empty() {
+                self.delete_rule(rule.id)?;
+            } else {
+                self.db.execute(
+                    "UPDATE rules SET actions = ?2 WHERE id = ?1",
+                    params![
+                        rule.id,
+                        serde_json::to_string(&rule.actions)
+                            .map_err(|e| StoreError::Database(e.to_string()))?
+                    ],
+                )?;
+            }
+        }
+        self.db.execute(
+            "DELETE FROM folders WHERE account = ?1 AND id = ?2",
+            params![LOCAL_ID, folder.id],
+        )?;
+        self.reload_accounts()?;
+        Ok(changed)
     }
 
     // ---- Downloading (server → here) ----
@@ -1451,7 +1648,13 @@ impl MailStore {
                 "flagged" => Some(ChangeKind::Flagged(value.unwrap_or_default())),
                 "move" => r.get::<_, Option<String>>(4)?.map(ChangeKind::Move),
                 "expunge" => Some(ChangeKind::Expunge),
-                "append" => r.get::<_, Option<String>>(4)?.map(ChangeKind::Append),
+                "append" => {
+                    let flags = r
+                        .get::<_, Option<i64>>(3)?
+                        .map(|bits| (bits & 1 != 0, bits & 2 != 0));
+                    r.get::<_, Option<String>>(4)?
+                        .map(|to| ChangeKind::Append { to, flags })
+                }
                 _ => None,
             };
             let (op, message, attempts): (i64, Option<i64>, u32) =
@@ -1516,8 +1719,10 @@ impl MailStore {
         Ok(())
     }
 
-    /// The server saved a copy of a sent message in `folder_key`. Its UID comes with the
-    /// next download, which recognizes it by Message-ID instead of storing it twice.
+    /// The server saved the message in `folder_key` (a copy of sent mail, or mail from this
+    /// PC). Its UID comes with the next download, which recognizes it by Message-ID instead of
+    /// storing it twice. When the message moved on (or went) while it was being uploaded, the
+    /// copy on the server is removed again.
     pub fn change_appended(
         &mut self,
         op: i64,
@@ -1526,15 +1731,35 @@ impl MailStore {
     ) -> Result<(), StoreError> {
         let tx = self.db.transaction()?;
         tx.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
-        tx.execute(
-            "UPDATE messages SET srv_folder = ?1 WHERE id = ?2 AND srv_folder IS NULL",
-            params![folder_key, id as i64],
-        )?;
+        let now: Option<(String, Option<String>, String)> = tx
+            .query_row(
+                "SELECT folder, message_id, subject FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        match now {
+            Some((folder, ..)) if folder == folder_key => {
+                tx.execute(
+                    "UPDATE messages SET srv_folder = ?1 WHERE id = ?2 AND srv_folder IS NULL",
+                    params![folder_key, id as i64],
+                )?;
+            }
+            Some((_, Some(message_id), subject)) => {
+                tx.execute(
+                    "INSERT INTO pending_ops (account, kind, srv_folder, message_id, subject, origin)
+                     VALUES (?1, 'expunge', ?2, ?3, ?4, ?5)",
+                    params![account_of(folder_key), folder_key, message_id, subject, id as i64],
+                )?;
+            }
+            _ => {}
+        }
         tx.commit()?;
         Ok(())
     }
 
-    /// The server moved the message to `folder_key`, where its UID is `uid` if known.
+    /// The server moved the message to `folder_key`, where its UID is `uid` if known. When it
+    /// was moved to this PC meanwhile, it leaves the server from its new place instead.
     pub fn change_moved(
         &mut self,
         op: i64,
@@ -1544,7 +1769,31 @@ impl MailStore {
     ) -> Result<(), StoreError> {
         let tx = self.db.transaction()?;
         tx.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
-        set_server_location(&tx, id, folder_key, uid)?;
+        let here: Option<(Option<String>, Option<String>, String)> = tx
+            .query_row(
+                "SELECT srv_folder, message_id, subject FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        match here {
+            Some((None, message_id, subject)) => {
+                tx.execute(
+                    "UPDATE pending_ops SET srv_folder = ?2, uid = ?3
+                     WHERE kind = 'expunge' AND origin = ?1",
+                    params![id as i64, folder_key, uid],
+                )?;
+                if tx.changes() == 0 {
+                    tx.execute(
+                        "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject, origin)
+                         VALUES (?1, 'expunge', ?2, ?3, ?4, ?5, ?6)",
+                        params![account_of(folder_key), folder_key, uid, message_id, subject, id as i64],
+                    )?;
+                }
+            }
+            Some(_) => set_server_location(&tx, id, folder_key, uid)?,
+            None => {}
+        }
         tx.commit()?;
         Ok(())
     }
@@ -1718,29 +1967,133 @@ fn set_flags(
     Ok(done)
 }
 
-/// File one message in `folder` (of `account`), and queue the move for server mail.
+/// File one message in `folder` of its own account, and queue the move for server mail. A
+/// message that is still to be uploaded (a copy of sent mail) goes up to its new folder
+/// instead, or stays here when that folder is on no server (`on_server`).
 fn move_row(
     db: &Connection,
     id: MessageId,
     srv_folder: Option<&str>,
     folder: &str,
     account: &str,
+    on_server: bool,
 ) -> Result<(), StoreError> {
     db.prepare_cached("UPDATE messages SET folder = ?1 WHERE id = ?2")?
         .execute(params![folder, id as i64])?;
     // Leaving the Outbox means it's no longer to be sent.
     db.prepare_cached("DELETE FROM outbox WHERE message = ?1")?
         .execute([id as i64])?;
-    if let Some(srv) = srv_folder {
-        // One move per message: moving again replaces it, moving back cancels it.
-        db.prepare_cached("DELETE FROM pending_ops WHERE message = ?1 AND kind = 'move'")?
-            .execute([id as i64])?;
-        if srv != folder {
-            db.prepare_cached(
-                "INSERT INTO pending_ops (account, message, kind, target) VALUES (?1, ?2, 'move', ?3)",
-            )?
-            .execute(params![account, id as i64, folder])?;
+    match srv_folder {
+        Some(srv) => {
+            // One move per message: moving again replaces it, moving back cancels it.
+            db.prepare_cached("DELETE FROM pending_ops WHERE message = ?1 AND kind = 'move'")?
+                .execute([id as i64])?;
+            if srv != folder {
+                db.prepare_cached(
+                    "INSERT INTO pending_ops (account, message, kind, target) VALUES (?1, ?2, 'move', ?3)",
+                )?
+                .execute(params![account, id as i64, folder])?;
+            }
         }
+        None if on_server => {
+            db.prepare_cached(
+                "UPDATE pending_ops SET target = ?2 WHERE message = ?1 AND kind = 'append'",
+            )?
+            .execute(params![id as i64, folder])?;
+        }
+        None => {
+            db.prepare_cached("DELETE FROM pending_ops WHERE message = ?1 AND kind = 'append'")?
+                .execute([id as i64])?;
+        }
+    }
+    Ok(())
+}
+
+/// File a message on this PC. Server mail leaves the server: its queued changes are moot,
+/// and an expunge that remembers where it was, and which message it came from, goes out
+/// instead (see [`from_this_pc`]).
+fn to_this_pc(
+    db: &Connection,
+    id: MessageId,
+    srv_folder: Option<&str>,
+    folder: &str,
+) -> Result<(), StoreError> {
+    let (uid, message_id, subject): (Option<u32>, Option<String>, String) = db.query_row(
+        "SELECT uid, message_id, subject FROM messages WHERE id = ?1",
+        [id as i64],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    db.execute("DELETE FROM pending_ops WHERE message = ?1", [id as i64])?;
+    db.execute("DELETE FROM outbox WHERE message = ?1", [id as i64])?;
+    db.execute(
+        "UPDATE messages SET folder = ?1, srv_folder = NULL, uid = NULL WHERE id = ?2",
+        params![folder, id as i64],
+    )?;
+    if let Some(srv) = srv_folder {
+        if uid.is_some() || message_id.is_some() {
+            db.execute(
+                "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject, origin)
+                 VALUES (?1, 'expunge', ?2, ?3, ?4, ?5, ?6)",
+                params![account_of(srv), srv, uid, message_id, subject, id as i64],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Bring a message from this PC to `folder` of the server account `account`. When it left that
+/// account so recently that the server hasn't removed it yet, the expunge is taken back and it
+/// simply moves to `folder` there, with the read state and flag it has now. Otherwise it is
+/// uploaded, with them; to a folder on no server (`on_server` false) it just moves.
+fn from_this_pc(
+    db: &Connection,
+    id: MessageId,
+    folder: &str,
+    account: &str,
+    on_server: bool,
+) -> Result<(), StoreError> {
+    let queued: Option<(i64, String, Option<u32>)> = db
+        .query_row(
+            "SELECT id, srv_folder, uid FROM pending_ops
+             WHERE kind = 'expunge' AND origin = ?1 AND account = ?2 ORDER BY id DESC LIMIT 1",
+            params![id as i64, account],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    let (unread, flagged): (bool, bool) = db.query_row(
+        "SELECT unread, flagged FROM messages WHERE id = ?1",
+        [id as i64],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    db.execute(
+        "DELETE FROM pending_ops WHERE message = ?1 AND kind = 'append'",
+        [id as i64],
+    )?;
+    db.execute(
+        "UPDATE messages SET folder = ?1 WHERE id = ?2",
+        params![folder, id as i64],
+    )?;
+    let queue = "INSERT INTO pending_ops (account, message, kind, value, target) VALUES (?1, ?2, ?3, ?4, ?5)";
+    if let Some((op, srv, uid)) = queued {
+        db.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
+        set_server_location(db, id, &srv, uid)?;
+        if srv != folder {
+            db.execute(
+                queue,
+                params![account, id as i64, "move", None::<i64>, folder],
+            )?;
+        }
+        db.execute(
+            queue,
+            params![account, id as i64, "seen", !unread, None::<String>],
+        )?;
+        db.execute(
+            queue,
+            params![account, id as i64, "flagged", flagged, None::<String>],
+        )?;
+    } else if on_server {
+        let flags = i64::from(!unread) | i64::from(flagged) << 1;
+        db.execute(queue, params![account, id as i64, "append", flags, folder])?;
     }
     Ok(())
 }
@@ -1851,7 +2204,7 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
     let mut stmt = db.prepare(
         "SELECT id, name, email, imap_host, imap_port, imap_user, smtp_host, smtp_port, smtp_security,
              imap_security
-         FROM accounts ORDER BY position, id",
+         FROM accounts ORDER BY id = 'local', position, id",
     )?;
     let mut accounts = stmt
         .query_map([], |r| {
@@ -1929,9 +2282,19 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
             a.folders.push(folder);
         }
     }
-    // Server folders arrive in plan order and the Outbox is local; rank puts it in place.
+    // Server folders arrive in plan order and the Outbox is local; rank puts it in place. The
+    // user's own folders on this PC go A to Z.
     for a in &mut accounts {
-        a.folders.sort_by_key(|f| f.kind.rank());
+        let by_name = a.id == LOCAL_ID;
+        a.folders.sort_by(|x, y| {
+            x.kind.rank().cmp(&y.kind.rank()).then_with(|| {
+                if by_name && x.kind == FolderKind::Custom && y.kind == FolderKind::Custom {
+                    x.name.to_lowercase().cmp(&y.name.to_lowercase())
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+        });
     }
     Ok(accounts)
 }
@@ -1998,7 +2361,7 @@ fn insert_folder(
 }
 
 /// `srv_folder` and `uid` are set for mail from a server, `None` for mail that exists only here.
-fn insert_message(
+pub(crate) fn insert_message(
     db: &Connection,
     folder: &str,
     srv_folder: Option<&str>,
@@ -2491,7 +2854,8 @@ mod tests {
             5,
             "server folders and the Outbox are kept"
         );
-        assert_eq!(store.accounts().len(), 1);
+        let ids: Vec<&str> = store.accounts().iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, [account.id.as_str(), LOCAL_ID]);
     }
 
     #[test]
@@ -2501,10 +2865,370 @@ mod tests {
         store.delete(id).unwrap();
         store.delete(id).unwrap(); // queues an expunge, which has no message row
         store.remove_account(&account.id).unwrap();
-        assert!(store.accounts().is_empty());
+        let ids: Vec<&str> = store.accounts().iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, [LOCAL_ID], "the folders on this PC stay");
         assert!(store.folder_tree().unwrap().counts.is_empty());
         assert!(store.search("zolwia").unwrap().is_empty());
         assert!(!store.has_pending_changes(&account.id).unwrap());
+        assert!(store.remove_account(LOCAL_ID).is_err());
+    }
+
+    // ---- Folders on this PC ----
+
+    #[test]
+    fn the_first_account_brings_folders_on_this_pc() {
+        let empty = MailStore::in_memory().unwrap();
+        assert!(
+            empty.this_pc().is_none(),
+            "nothing before the first account"
+        );
+        let (mut store, account) = store_with_server_account();
+        let pc = store.this_pc().unwrap();
+        let kinds: Vec<_> = pc.folders.iter().map(|f| (f.id.as_str(), f.kind)).collect();
+        assert_eq!(
+            kinds,
+            [
+                ("archive", FolderKind::Archive),
+                ("trash", FolderKind::Trash)
+            ]
+        );
+        assert!(pc.imap.is_none() && pc.identities.is_empty());
+        // A second account goes before them; neither can take their id.
+        let second = store
+            .upsert_account(&AccountSetup {
+                name: "Dom".into(),
+                email: "jan@local.pl".into(),
+                host: "mail.local.pl".into(),
+                port: 993,
+                ..Default::default()
+            })
+            .unwrap();
+        assert_ne!(second.id, LOCAL_ID);
+        let ids: Vec<&str> = store.accounts().iter().map(|a| a.id.as_str()).collect();
+        assert_eq!(ids, [account.id.as_str(), second.id.as_str(), LOCAL_ID]);
+    }
+
+    #[test]
+    fn version_10_adds_folders_on_this_pc_to_bases_with_accounts() {
+        let base = |with_account: bool| {
+            let db = Connection::open_in_memory().unwrap();
+            for sql in &MIGRATIONS[..9] {
+                db.execute_batch(sql).unwrap();
+            }
+            db.pragma_update(None, "user_version", 9).unwrap();
+            if with_account {
+                db.execute_batch(
+                    "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user)
+                         VALUES ('studio', 0, 'Studio', 'biuro@x.pl', 'mail.x.pl', 993, 'biuro@x.pl');",
+                )
+                .unwrap();
+            }
+            MailStore::with_connection(db, false).unwrap()
+        };
+        let store = base(true);
+        assert_eq!(store.this_pc().unwrap().folders.len(), 2);
+        assert_eq!(store.accounts().last().unwrap().id, LOCAL_ID);
+        assert!(base(false).this_pc().is_none());
+    }
+
+    #[test]
+    fn folders_on_this_pc_are_made_renamed_and_removed() {
+        let (mut store, account) = store_with_server_account();
+        let key = store.create_local_folder("  Projekty   2026 ").unwrap();
+        assert_eq!(key, "local/projekty-2026");
+        assert_eq!(store.folder_name(&key).unwrap(), "Projekty 2026");
+        assert_eq!(store.kind_of(&key), Some(FolderKind::Custom));
+        // Names are unique on this PC, case and the special folders' Polish names included.
+        assert!(store.create_local_folder("projekty 2026").is_err());
+        assert!(store.create_local_folder("Archive").is_err());
+        assert!(store.create_local_folder("kosz").is_err());
+        assert!(store.create_local_folder("   ").is_err());
+        assert!(store.create_local_folder(&"x".repeat(81)).is_err());
+        // Same slug, another name: another id.
+        assert_eq!(
+            store.create_local_folder("Projekty: 2026").unwrap(),
+            "local/projekty-2026-2"
+        );
+        // A to Z after the special folders' rank.
+        let a = store.create_local_folder("Aaa").unwrap();
+        let names: Vec<String> = store
+            .this_pc()
+            .unwrap()
+            .folders
+            .iter()
+            .map(|f| f.name.clone())
+            .collect();
+        assert_eq!(
+            names,
+            ["Aaa", "Projekty 2026", "Projekty: 2026", "Archive", "Trash"]
+        );
+
+        store.rename_local_folder(&key, "Klienci").unwrap();
+        assert_eq!(store.folder_name(&key).unwrap(), "Klienci");
+        store.rename_local_folder(&key, "klienci").unwrap(); // its own name, written otherwise
+        assert!(store.rename_local_folder(&key, "Aaa").is_err());
+        assert!(store.rename_local_folder("local/archive", "Stare").is_err());
+        assert!(store.delete_local_folder("local/trash").is_err());
+        assert!(store
+            .rename_local_folder(&account.folder_key("inbox"), "X")
+            .is_err());
+
+        // Not while it holds mail; a rule that moves there loses that move, or goes.
+        let id = one_in_inbox(&mut store, &account, 1);
+        store.move_to(id, &key).unwrap();
+        assert!(store.delete_local_folder(&key).is_err());
+        store.move_to(id, &a).unwrap();
+        let rule = |name: &str, actions| Rule {
+            id: 0,
+            name: name.into(),
+            enabled: true,
+            account: None,
+            match_all: true,
+            conditions: vec![crate::filters::Condition {
+                field: crate::filters::Field::From,
+                op: crate::filters::Op::Contains,
+                value: "anna".into(),
+            }],
+            actions,
+            stop: false,
+        };
+        let to_key = Action::Move {
+            folder: key.clone(),
+        };
+        store
+            .save_rule(&rule("Tylko", vec![to_key.clone()]))
+            .unwrap();
+        store
+            .save_rule(&rule("I flaga", vec![to_key, Action::Flag]))
+            .unwrap();
+        assert_eq!(store.delete_local_folder(&key).unwrap(), 2);
+        let rules = store.rules().unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].actions, [Action::Flag]);
+        assert!(store.folder_name(&key).is_none());
+    }
+
+    #[test]
+    fn server_mail_moved_to_this_pc_leaves_the_server() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.set_flagged(id, true).unwrap();
+        store.move_many(&[id], "local/archive").unwrap();
+        let m = store.get(id).unwrap();
+        assert_eq!(m.folder, "local/archive");
+        assert_eq!(
+            store.locate(id).unwrap().1,
+            None,
+            "it no longer has a place on the server"
+        );
+        let changes = store.pending_changes(&account.id).unwrap();
+        assert_eq!(changes.len(), 1, "the flag is moot now: {changes:?}");
+        assert_eq!(changes[0].kind, ChangeKind::Expunge);
+        assert_eq!(
+            (changes[0].folder.as_str(), changes[0].uid),
+            ("twojastudio/inbox", Some(7))
+        );
+        assert_eq!(changes[0].message, None);
+        // Read and flag here touch nothing on any server.
+        store.set_unread(id, false).unwrap();
+        assert_eq!(store.pending_changes(&account.id).unwrap().len(), 1);
+        // The next download doesn't take it back, nor drop it when the server has.
+        assert!(store
+            .local_uids(&account.folder_key("inbox"))
+            .unwrap()
+            .is_empty());
+        store
+            .forget_vanished(&account.folder_key("inbox"), &HashSet::new())
+            .unwrap();
+        assert!(store.get(id).is_ok());
+        // Even after the expunge went out, it stays here when deleted from this PC: to its
+        // Trash, then for good, with nothing for the server.
+        let op = changes[0].op;
+        store.change_done(op).unwrap();
+        assert_eq!(store.delete(id).unwrap(), DeleteOutcome::MovedToTrash);
+        assert_eq!(store.get(id).unwrap().folder, "local/trash");
+        assert_eq!(store.delete(id).unwrap(), DeleteOutcome::Removed);
+        assert!(!store.has_pending_changes(&account.id).unwrap());
+    }
+
+    #[test]
+    fn mail_back_from_this_pc_before_the_server_heard_just_moves() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        let places = store.move_many(&[id], "local/archive").unwrap();
+        assert_eq!(places, [(id, account.folder_key("inbox"))]);
+        store.set_unread(id, false).unwrap();
+        // Z: back where it was. No expunge, no upload; what changed here goes to the server.
+        store
+            .move_many(&[id], &account.folder_key("inbox"))
+            .unwrap();
+        assert_eq!(
+            store.locate(id).unwrap(),
+            (
+                account.folder_key("inbox"),
+                Some(account.folder_key("inbox"))
+            )
+        );
+        assert_eq!(
+            store.local_uids(&account.folder_key("inbox")).unwrap(),
+            HashSet::from([7])
+        );
+        assert_eq!(
+            kinds(&store, &account),
+            [ChangeKind::Seen(true), ChangeKind::Flagged(false)]
+        );
+        // Back to another folder of that account: a move on the server.
+        store.move_many(&[id], "local/archive").unwrap();
+        store
+            .move_many(&[id], &account.folder_key("archive"))
+            .unwrap();
+        assert_eq!(
+            kinds(&store, &account),
+            [
+                ChangeKind::Move(account.folder_key("archive")),
+                ChangeKind::Seen(true),
+                ChangeKind::Flagged(false)
+            ]
+        );
+    }
+
+    #[test]
+    fn mail_from_this_pc_is_uploaded_with_its_flags() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.move_many(&[id], "local/archive").unwrap();
+        let expunge = store.pending_changes(&account.id).unwrap()[0].op;
+        store.change_done(expunge).unwrap(); // the server removed it
+        store.set_flagged(id, true).unwrap();
+        store
+            .move_many(&[id], &account.folder_key("archive"))
+            .unwrap();
+        let changes = store.pending_changes(&account.id).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(
+            changes[0].kind,
+            ChangeKind::Append {
+                to: account.folder_key("archive"),
+                flags: Some((false, true))
+            },
+            "unread as it is, and flagged"
+        );
+        // Moved on before it went up: it goes up to the new place instead.
+        store
+            .move_many(&[id], &account.folder_key("inbox"))
+            .unwrap();
+        let changes = store.pending_changes(&account.id).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert!(
+            matches!(&changes[0].kind, ChangeKind::Append { to, .. } if to == &account.folder_key("inbox"))
+        );
+        // Uploaded: the next download adopts the server's copy instead of storing it twice.
+        store
+            .change_appended(changes[0].op, id, &account.folder_key("inbox"))
+            .unwrap();
+        let mut copy = synced(9, "Poprawki");
+        copy.message.message_id = Some("7.Poprawki@kowalska-architekci.pl".into());
+        let new = store
+            .add_synced(&account.folder_key("inbox"), &[copy])
+            .unwrap();
+        assert!(new.is_empty());
+        assert_eq!(
+            store.local_uids(&account.folder_key("inbox")).unwrap(),
+            HashSet::from([9])
+        );
+        // Back to this PC before the upload went out: no upload at all.
+        let other = one_in_inbox(&mut store, &account, 10);
+        store.move_many(&[other], "local/archive").unwrap();
+        let op = store.pending_changes(&account.id).unwrap()[0].op;
+        store.change_done(op).unwrap();
+        store
+            .move_many(&[other], &account.folder_key("inbox"))
+            .unwrap();
+        store.move_many(&[other], "local/archive").unwrap();
+        assert!(!store.has_pending_changes(&account.id).unwrap());
+    }
+
+    #[test]
+    fn mail_that_moved_on_while_it_was_uploading_leaves_the_server_again() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.move_many(&[id], "local/archive").unwrap();
+        let op = store.pending_changes(&account.id).unwrap()[0].op;
+        store.change_done(op).unwrap();
+        store
+            .move_many(&[id], &account.folder_key("inbox"))
+            .unwrap();
+        let append = store.pending_changes(&account.id).unwrap()[0].op;
+        // While the upload was on its way, the message went back to this PC.
+        store.move_many(&[id], "local/archive").unwrap();
+        store
+            .change_appended(append, id, &account.folder_key("inbox"))
+            .unwrap();
+        let changes = store.pending_changes(&account.id).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, ChangeKind::Expunge);
+        assert_eq!(
+            (
+                changes[0].folder.as_str(),
+                changes[0].uid,
+                changes[0].message_id.as_deref()
+            ),
+            (
+                "twojastudio/inbox",
+                None,
+                Some("7.Poprawki@kowalska-architekci.pl")
+            ),
+            "found on the server by its Message-ID"
+        );
+        assert_eq!(store.locate(id).unwrap(), ("local/archive".into(), None));
+    }
+
+    #[test]
+    fn mail_moved_to_this_pc_during_a_move_on_the_server_leaves_from_its_new_place() {
+        let (mut store, account) = store_with_server_account();
+        let id = one_in_inbox(&mut store, &account, 7);
+        store.move_to(id, &account.folder_key("archive")).unwrap();
+        let mv = store.pending_changes(&account.id).unwrap()[0].op;
+        // The server is moving it when the user puts it on this PC.
+        store.move_to(id, "local/archive").unwrap();
+        store
+            .change_moved(mv, id, &account.folder_key("archive"), Some(31))
+            .unwrap();
+        let changes = store.pending_changes(&account.id).unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].kind, ChangeKind::Expunge);
+        assert_eq!(
+            (changes[0].folder.as_str(), changes[0].uid),
+            ("twojastudio/archive", Some(31))
+        );
+        assert_eq!(store.locate(id).unwrap(), ("local/archive".into(), None));
+    }
+
+    #[test]
+    fn mail_goes_between_server_accounts_by_way_of_this_pc() {
+        let (mut store, account) = store_with_server_account();
+        let other = store
+            .upsert_account(&AccountSetup {
+                name: "Dom".into(),
+                email: "jan@dom.pl".into(),
+                host: "mail.dom.pl".into(),
+                port: 993,
+                ..Default::default()
+            })
+            .unwrap();
+        let id = one_in_inbox(&mut store, &account, 7);
+        let outbox = other.folder_key(OUTBOX_ID);
+        assert!(matches!(
+            store.move_many(&[id], &outbox),
+            Err(StoreError::CrossAccountMove { .. })
+        ));
+        store.move_many(&[id], "local/archive").unwrap();
+        store.move_many(&[id], &outbox).unwrap();
+        assert_eq!(store.get(id).unwrap().folder, outbox);
+        assert!(
+            !store.has_pending_changes(&other.id).unwrap(),
+            "the Outbox is on no server: nothing to upload"
+        );
     }
 
     #[test]

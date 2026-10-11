@@ -572,12 +572,13 @@ async fn push_queued_after<T: ImapStream>(
         .pending_changes(&account.id)?
         .into_iter()
         .filter(|c| c.op > after_op)
-        .partition(|c| matches!(c.kind, ChangeKind::Append(_)));
+        .partition(|c| matches!(c.kind, ChangeKind::Append { .. }));
     let mut refused = Vec::new();
 
-    // Copies of sent mail for the Sent folder. APPEND needs no selected folder.
+    // Copies of sent mail for the Sent folder, and mail moved here from this PC. APPEND needs
+    // no selected folder.
     for change in &appends {
-        let (ChangeKind::Append(to), Some(id)) = (&change.kind, change.message) else {
+        let (ChangeKind::Append { to, flags }, Some(id)) = (&change.kind, change.message) else {
             continue;
         };
         let raw = lock(store)?.raw_of(id)?;
@@ -585,12 +586,15 @@ async fn push_queued_after<T: ImapStream>(
             lock(store)?.change_done(change.op)?; // nothing to save, or nowhere to save it
             continue;
         };
-        let result = timeout(
-            FETCH_TIMEOUT,
-            session.append(&remote, Some("(\\Seen)"), None, &raw),
-        )
-        .await
-        .map_err(|_| SyncError::Timeout)?;
+        let flags = match flags {
+            None | Some((true, false)) => Some("(\\Seen)"),
+            Some((true, true)) => Some("(\\Seen \\Flagged)"),
+            Some((false, true)) => Some("(\\Flagged)"),
+            Some((false, false)) => None,
+        };
+        let result = timeout(FETCH_TIMEOUT, session.append(&remote, flags, None, &raw))
+            .await
+            .map_err(|_| SyncError::Timeout)?;
         match result {
             Ok(()) => lock(store)?.change_appended(change.op, id, to)?,
             Err(ImapError::No(reason) | ImapError::Bad(reason)) => {
@@ -601,6 +605,38 @@ async fn push_queued_after<T: ImapStream>(
                 note_refusal(store, change, &reason, &mut refused)?;
             }
             Err(e) => return Err(e.into()),
+        }
+    }
+
+    // Mail that left for this PC before Telex knew its UID on the server (just moved or
+    // uploaded there): find it by its Message-ID, never taking a message that is still here.
+    // When it isn't there, there is nothing left to remove.
+    let mut changes = changes;
+    for change in changes
+        .iter_mut()
+        .filter(|c| c.kind == ChangeKind::Expunge && c.uid.is_none())
+    {
+        let (Some(mid), Some(remote)) = (&change.message_id, remote_name(account, &change.folder))
+        else {
+            lock(store)?.change_done(change.op)?;
+            continue;
+        };
+        match timeout(COMMAND_TIMEOUT, session.examine(&remote))
+            .await
+            .map_err(|_| SyncError::Timeout)?
+        {
+            Ok(_) => {}
+            Err(ImapError::No(_)) => continue,
+            Err(e) => return Err(e.into()),
+        }
+        let query = format!("HEADER Message-ID {}", quote(&format!("<{mid}>")));
+        let found = timeout(COMMAND_TIMEOUT, session.uid_search(query))
+            .await
+            .map_err(|_| SyncError::Timeout)??;
+        let known = lock(store)?.local_uids(&change.folder)?;
+        match found.into_iter().filter(|u| !known.contains(u)).max() {
+            Some(uid) => change.uid = Some(uid),
+            None => lock(store)?.change_done(change.op)?,
         }
     }
 
@@ -1064,7 +1100,7 @@ async fn apply_batch<T: ImapStream>(
             .await
             .map(|()| none),
         ChangeKind::Expunge => expunge(session, &set, caps).await.map(|()| none),
-        ChangeKind::Append(_) => Ok(none), // sent before the folders, in push_queued_after
+        ChangeKind::Append { .. } => Ok(none), // sent before the folders, in push_queued_after
         ChangeKind::Move(to) => {
             let dest = remote_name(account, to).ok_or_else(|| {
                 ImapError::No(tr!(
@@ -1207,11 +1243,12 @@ fn note_refusal(
             ChangeKind::Flagged(false) => ("unflag", "zdjąć flagi z", ""),
             ChangeKind::Move(_) => ("move", "przenieść", ""),
             ChangeKind::Expunge => ("delete", "usunąć", ""),
-            ChangeKind::Append(_) => (
+            ChangeKind::Append { flags: None, .. } => (
                 "save a copy in Sent of",
                 "zapisać kopii",
                 " w folderze Wysłane",
             ),
+            ChangeKind::Append { .. } => ("upload", "przesłać", ""),
         };
         let (subject, reason) = (&change.subject, reason.trim());
         refused.push(tr!(
@@ -2291,6 +2328,74 @@ mod tests {
             !commands.iter().any(|c| c == "EXPUNGE"),
             "never a blanket EXPUNGE with UIDPLUS"
         );
+    }
+
+    #[tokio::test]
+    async fn mail_moved_to_this_pc_leaves_the_server_and_comes_back_with_its_flags() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        let poprawki = id_of(&store, &account, "inbox", "Poprawki");
+        let wycena = id_of(&store, &account, "inbox", "Wycena");
+        {
+            let mut s = store.lock().unwrap();
+            s.move_many(&[poprawki, wycena], "local/archive").unwrap();
+            // One of them had its UID forgotten, as when it moved on the server just before:
+            // it is found by its Message-ID.
+            s.db.execute(
+                "UPDATE pending_ops SET uid = NULL WHERE kind = 'expunge' AND origin = ?1",
+                [wycena as i64],
+            )
+            .unwrap();
+        }
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(
+            report.refused.is_empty() && report.new.is_empty(),
+            "{report:?}"
+        );
+        assert!(server.lock().unwrap().subjects("INBOX").is_empty());
+        {
+            let s = store.lock().unwrap();
+            assert!(!s.has_pending_changes(&account.id).unwrap());
+            let kept = s.list("local/archive").unwrap();
+            assert_eq!(kept.len(), 2, "both stay on this PC, not downloaded again");
+            assert!(s
+                .local_uids(&account.folder_key("inbox"))
+                .unwrap()
+                .is_empty());
+        }
+
+        // Back to the Inbox, flagged: uploaded as it is now, then adopted, not stored twice.
+        {
+            let mut s = store.lock().unwrap();
+            s.set_flagged(poprawki, true).unwrap();
+            s.move_to(poprawki, &account.folder_key("inbox")).unwrap();
+        }
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(
+            report.refused.is_empty() && report.new.is_empty(),
+            "{report:?}"
+        );
+        {
+            let srv = server.lock().unwrap();
+            assert_eq!(srv.subjects("INBOX"), ["Poprawki"]);
+            let p = srv.mail("INBOX", "Poprawki");
+            assert!(p.has("\\Flagged") && !p.has("\\Seen"), "{:?}", p.flags);
+        }
+        {
+            let s = store.lock().unwrap();
+            let inbox = s.list(&account.folder_key("inbox")).unwrap();
+            assert_eq!(inbox.len(), 1);
+            assert_eq!(inbox[0].id, poprawki, "same message, same id");
+            assert_eq!(s.local_uids(&account.folder_key("inbox")).unwrap().len(), 1);
+        }
+        logout(&mut session).await;
+        let commands = server.lock().unwrap().commands.clone();
+        assert!(commands
+            .iter()
+            .any(|c| c == "UID SEARCH HEADER Message-ID \"<m1@kowalska-architekci.pl>\""));
     }
 
     #[tokio::test]

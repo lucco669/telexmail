@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WebviewWindow, Window};
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::attachments::{self, is_risky};
@@ -40,6 +40,28 @@ impl FilesState {
                 .max(1),
             path: Some(path.display().to_string()),
         })
+    }
+
+    /// Files to read mail from were dropped on the window this session, like attachments.
+    pub fn check_paths(&self, paths: &[PathBuf]) -> CmdResult<()> {
+        let picked = self.picked.lock().map_err(|_| poisoned())?;
+        match paths.iter().find(|p| !picked.contains(*p)) {
+            None => Ok(()),
+            Some(p) => {
+                let name = p.file_name().unwrap_or_default().to_string_lossy();
+                Err(tr!(
+                    "Drop \"{name}\" again: Telex reads only files chosen in it.",
+                    "Upuść plik „{name}” jeszcze raz: Telex czyta tylko pliki wybrane w nim."
+                ))
+            }
+        }
+    }
+
+    /// The file "Show in folder" shows: the last attachment or folder saved.
+    pub fn remember_saved(&self, path: &Path) {
+        if let Ok(mut saved) = self.saved.lock() {
+            *saved = Some(path.to_path_buf());
+        }
     }
 
     /// Every file a draft attaches from this PC was chosen in Telex.
@@ -241,18 +263,46 @@ pub async fn pick_files(
         .collect())
 }
 
-/// Files dropped on the window: remembered, and handed to the window as attachments in a
-/// "files-dropped" event. Folders are left out.
-pub fn dropped(app: &AppHandle, paths: &[PathBuf]) {
-    let files = app.state::<FilesState>();
-    let attachments: Vec<Attachment> = paths.iter().filter_map(|p| files.remember(p)).collect();
-    if !attachments.is_empty() {
-        let _ = app.emit("files-dropped", attachments);
+/// Files dropped on a window, and where (physical pixels from its top left): attached to the
+/// message being written, or read into the folder on this PC they were dropped on.
+#[derive(Debug, Clone, Serialize)]
+struct Dropped {
+    files: Vec<Attachment>,
+    x: f64,
+    y: f64,
+}
+
+/// Files dragged over a window and dropped on it. While they are over it, "files-over" says
+/// where (so a folder on this PC can light up), and `null` when they leave; dropped, they are
+/// remembered and handed to that window in a "files-dropped" event. Folders are left out.
+pub fn drag_drop(window: &Window, event: &DragDropEvent) {
+    let label = window.label();
+    match event {
+        DragDropEvent::Enter { position, .. } | DragDropEvent::Over { position } => {
+            let _ = window.emit_to(label, "files-over", Some((position.x, position.y)));
+        }
+        DragDropEvent::Leave => {
+            let _ = window.emit_to(label, "files-over", None::<(f64, f64)>);
+        }
+        DragDropEvent::Drop { paths, position } => {
+            let files = window.state::<FilesState>();
+            let attachments: Vec<Attachment> =
+                paths.iter().filter_map(|p| files.remember(p)).collect();
+            if !attachments.is_empty() {
+                let dropped = Dropped {
+                    files: attachments,
+                    x: position.x,
+                    y: position.y,
+                };
+                let _ = window.emit_to(label, "files-dropped", dropped);
+            }
+        }
+        _ => {}
     }
 }
 
 /// Waits for a dialog without holding up the async runtime.
-async fn picked(rx: mpsc::Receiver<Option<FilePath>>) -> Option<PathBuf> {
+pub(crate) async fn picked(rx: mpsc::Receiver<Option<FilePath>>) -> Option<PathBuf> {
     tauri::async_runtime::spawn_blocking(move || rx.recv().ok().flatten())
         .await
         .ok()

@@ -145,8 +145,22 @@ const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.ki
 const homeOf = acct => keyOfKind(acct, 'inbox') || (ACCT[acct]?.folders[0] ? acct + '/' + ACCT[acct].folders[0].id : '');
 const countOf = key => COUNTS[key] ?? {total:0, unread:0};
 const num = n => n.toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en');
-// Each account has a color, shown as a dot once there is more than one account.
-const adot = acct => { const i = ACCOUNTS.findIndex(a => a.id === acct); return i < 0 ? '' : `<i class="adot a${i % 6}" aria-hidden="true"></i>`; };
+// The folders on this PC ("On this PC"): mail kept only here. The core keeps them as an
+// account without servers, with this id, listed last.
+const LOCAL = 'local';
+const isLocal = key => acctId(String(key)) === LOCAL;
+const servers = () => ACCOUNTS.filter(a => a.imap); // the accounts that live on a server
+// A folder's name where it could be mistaken for a server folder: "Archive on this PC".
+const placeName = key => isLocal(key) ? t('{folder} on this PC', {folder:folderName(key)}) : folderName(key);
+// Who a folder belongs to, in words: the account's address, or "On this PC".
+const acctLabel = acct => acct === LOCAL ? t('On this PC') : ACCT[acct]?.email ?? '';
+// Each account has a color, shown as a dot once there is more than one account; the folders
+// on this PC have a small screen instead.
+const adot = acct => {
+  if (acct === LOCAL) return `<i class="adot pc" aria-hidden="true"></i>`;
+  const i = ACCOUNTS.findIndex(a => a.id === acct);
+  return i < 0 ? '' : `<i class="adot a${i % 6}" aria-hidden="true"></i>`;
+};
 // The window's own state: pane sizes, the filter's scope, when updates were last checked. Settings are elsewhere.
 const store = {
   get(){ try { return JSON.parse(localStorage.getItem('telex-ui') || '{}'); } catch { return {}; } },
@@ -311,7 +325,7 @@ function renderStatus(){
     : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}${more}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderMeter();
-  const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex` : 'Telex';
+  const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
   if (title !== lastTitle){
     lastTitle = title;
     document.title = title;
@@ -368,15 +382,36 @@ const MAIN_KINDS = new Set(['inbox', 'sent']);
 const COUNT_ALL = new Set(['drafts', 'outbox']); // these count everything, not unread
 function folderButton(a, f){
   const key = a.id + '/' + f.id, c = countOf(key), all = COUNT_ALL.has(f.kind);
+  if (state.naming?.key === key) return `<li><span class="fold naming">${I[KIND_ICON[f.kind] || 'folder']}${nameInput()}</span></li>`;
   const n = all ? c.total : c.unread;
   const cnt = n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
   const on = key === state.folder;
   return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(folderName(key))}</span>${cnt}</button></li>`;
 }
+// The box a folder on this PC is named in, in the tree itself.
+const nameInput = () => `<input id="nf-name" class="nfname" value="${esc(state.naming.value)}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Folder name'))}" placeholder="${esc(t('Folder name'))}">`;
+// The folders on this PC: their own group under the accounts, with a + for a new one. Trash
+// shows only when it holds something.
+function localGroup(a){
+  const open = !state.collapsed[LOCAL];
+  let items = '';
+  if (open){
+    const shown = a.folders.filter(f => f.kind !== 'trash' || countOf(LOCAL + '/' + f.id).total > 0 || LOCAL + '/' + f.id === state.folder);
+    items = '<ul>' + (state.naming?.key === 'new' ? `<li><span class="fold naming">${I.folder}${nameInput()}</span></li>` : '')
+      + shown.map(f => folderButton(a, f)).join('') + '</ul>';
+  }
+  return `<div class="pcrow"><button type="button" class="acct" data-acct="${LOCAL}" aria-expanded="${open}" title="${esc(t('Mail kept only on this PC, on no server. Right-click a folder for more.'))}">${I.caret}${adot(LOCAL)}<span class="acct-mail">${esc(t('On this PC'))}</span></button>`
+    + `<button type="button" class="pcadd" data-act="new-folder" title="${esc(t('New folder on this PC'))}" aria-label="${esc(t('New folder on this PC'))}">${I.plus}</button></div>${items}`;
+}
 function renderTree(){
   win.classList.toggle('noacct', !ACCOUNTS.length); // the welcome takes the whole right side
-  win.classList.toggle('multi', ACCOUNTS.length > 1);
+  win.classList.toggle('multi', servers().length > 1);
+  // A folder being named keeps what was typed, and the focus, when the tree is drawn again.
+  const typing = state.naming && $('nf-name'), had = typing && document.activeElement === typing;
+  if (typing) state.naming.value = typing.value;
+  const caret = typing ? [typing.selectionStart, typing.selectionEnd] : null;
   treeEl.innerHTML = ACCOUNTS.map(a => {
+    if (a.id === LOCAL) return localGroup(a);
     const open = !state.collapsed[a.id];
     let items = '';
     if (open){
@@ -393,8 +428,14 @@ function renderTree(){
     const q = quotaOf(a.id), pct = q ? pctOf(q) : 0;
     const full = pct >= 90 ? `<span class="qchip" data-level="${levelOf(pct)}" title="${esc(quotaText(q))}">${pct}%</span>` : '';
     return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}</button>${items}`;
-  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(ACCOUNTS.length ? t('Add account') : t('Add your account'))}</span></button>`;
-  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(a.email)}">` + a.folders.map(f => {
+  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(servers().length ? t('Add account') : t('Add your account'))}</span></button>`;
+  const input = $('nf-name');
+  if (input){
+    wireNaming(input);
+    if (had){ input.focus(); if (caret) input.setSelectionRange(...caret); }
+  }
+  if (drag?.started) paintDrag(); // the folders under a drag show it again
+  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(acctLabel(a.id))}">` + a.folders.map(f => {
     const key = a.id + '/' + f.id, n = countOf(key).unread;
     return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(folderName(key))}${n ? ` (${n})` : ''}</option>`;
   }).join('') + '</optgroup>').join('');
@@ -402,11 +443,168 @@ function renderTree(){
 treeEl.addEventListener('click', e => {
   const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]'), m = e.target.closest('[data-more]');
   if (e.target.closest('[data-act="add-account"]')) openAccountDialog();
+  else if (e.target.closest('[data-act="new-folder"]')) startNaming('new');
   else if (f) setFolder(f.dataset.folder);
   else if (m){ state.more[m.dataset.more] = !state.more[m.dataset.more]; if (!state.more[m.dataset.more]) delete state.more[m.dataset.more]; persist(); renderTree(); }
   else if (a){ state.collapsed[a.dataset.acct] = !state.collapsed[a.dataset.acct]; renderTree(); }
 });
 $('folder-select').addEventListener('change', e => setFolder(e.target.value));
+
+/* ---------- folders on this PC ---------- */
+// Made and renamed right in the tree: the name is typed where the folder shows; Enter keeps
+// it, Esc doesn't. Removed only when empty. Right-click (or the menu key) for more.
+function startNaming(key){
+  if (!ACCT[LOCAL]) return;
+  delete state.collapsed[LOCAL];
+  state.naming = {key, value:key === 'new' ? '' : folderName(key), busy:false};
+  renderTree();
+  const input = $('nf-name');
+  input?.focus(); input?.select();
+}
+function wireNaming(input){
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter'){ e.preventDefault(); e.stopPropagation(); finishNaming(true); }
+    else if (e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); finishNaming(false); }
+  });
+  input.addEventListener('input', () => { if (state.naming) state.naming.value = input.value; });
+  input.addEventListener('blur', () => setTimeout(() => {
+    if (state.naming && !state.naming.busy && document.activeElement !== $('nf-name')) finishNaming(!!input.value.trim());
+  }, 0));
+}
+async function finishNaming(save){
+  const n = state.naming;
+  if (!n || n.busy) return;
+  const name = ($('nf-name')?.value ?? n.value).trim();
+  const back = () => { state.naming = null; renderTree(); treeEl.querySelector(`[data-folder="${n.key}"]`)?.focus(); };
+  if (!save || !name || (n.key !== 'new' && name === folderName(n.key))){ back(); return; }
+  n.busy = true;
+  try {
+    if (n.key === 'new'){
+      const key = await invoke('create_local_folder', {name});
+      state.naming = null;
+      await loadTree();
+      await setFolder(key);
+      say(t('Made the folder {folder} on this PC. Drag mail onto it, or press M.', {folder:name}), 6000);
+      treeEl.querySelector(`[data-folder="${key}"]`)?.focus();
+    } else {
+      await invoke('rename_local_folder', {folder:n.key, name});
+      await loadTree();
+      back();
+      renderStatus();
+    }
+  } catch (e){
+    n.busy = false;
+    say(tr(e), 8000);
+    $('nf-name')?.focus();
+  }
+}
+async function markFolderRead(key){
+  let n;
+  try { n = await call('mark_folder_read', {folder:key}); } catch { return; }
+  await refresh();
+  say(tn(n, 'Marked {n} message as read.', 'Marked {n} messages as read.', {n:num(n)}), 3000);
+}
+async function deleteFolder(key){
+  const name = folderName(key);
+  let rules;
+  try { rules = await invoke('delete_local_folder', {folder:key}); } catch (e){ say(tr(e), 8000); return; }
+  await loadTree();
+  if (state.folder === key) setFolder(LOCAL + '/archive'); else renderTree();
+  say(t('Removed the folder {folder}.', {folder:name}) + (rules ? ' ' + tn(rules, '{n} rule no longer moves mail there.', '{n} rules no longer move mail there.') : ''), 6000);
+}
+// A folder as one mbox file, which other mail programs read.
+async function exportFolder(key){
+  let path;
+  try {
+    path = await invoke('export_folder', {folder:key, words:{title:t('Save {folder} as mbox', {folder:placeName(key)}), filter:t('mbox files'), file_name:folderName(key)}});
+  } catch (e){ say(tr(e), 8000); return; }
+  if (path) say(t('Saved {folder} to {path}.', {folder:placeName(key), path}), 8000);
+}
+// .eml and mbox files into a folder on this PC: dropped on it (`paths`), or chosen in Open.
+async function importInto(key, paths = null){
+  let r;
+  try {
+    r = await invoke('import_mail', {folder:key, paths, words:{title:t('Bring mail into {folder}', {folder:placeName(key)}), filter:t('Mail files'), all:t('All files')}});
+  } catch (e){ say(tr(e), 10000); return; }
+  if (!r) return; // cancelled
+  await refresh();
+  const lines = [tn(r.added, 'Brought {n} message into {folder}.', 'Brought {n} messages into {folder}.', {n:num(r.added), folder:placeName(key)})];
+  if (r.already) lines.push(tn(r.already, '{n} was there already.', '{n} were there already.', {n:num(r.already)}));
+  say([...lines, ...r.problems].join(' '), r.problems.length ? 15000 : 8000);
+}
+window.__TAURI__?.event?.listen('import-progress', ({payload: p}) => say(t('Reading mail from {file}: {n} so far…', {file:p.file, n:num(p.done)}), 0));
+// What a right-click (or the menu key) on a folder offers.
+function folderMenu(key){
+  const f = folderOf(key);
+  if (!f) return [];
+  const local = isLocal(key), own = local && f.kind === 'custom';
+  const sections = [
+    local ? [{label:t('New folder…'), run:() => startNaming('new')}] : [],
+    own ? [{label:t('Rename…'), key:'F2', run:() => startNaming(key)}, {label:t('Delete folder'), disabled:countOf(key).total > 0, run:() => deleteFolder(key)}] : [],
+    [...(countOf(key).unread ? [{label:t('Mark all as read'), key:'Shift+U', run:() => markFolderRead(key)}] : []),
+      ...(local && f.kind !== 'trash' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
+      {label:t('Save as mbox…'), run:() => exportFolder(key)}],
+  ];
+  return sections.filter(s => s.length).flatMap((s, i) => i ? [{sep:true}, ...s] : s);
+}
+treeEl.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const f = e.target.closest('[data-folder]'), g = e.target.closest(`[data-acct="${LOCAL}"]`);
+  const items = f ? folderMenu(f.dataset.folder) : g ? [{label:t('New folder…'), run:() => startNaming('new')}] : [];
+  if (items.length) openMenu(e.clientX, e.clientY, items, f || g);
+});
+treeEl.addEventListener('keydown', e => {
+  const f = e.target.closest?.('[data-folder]');
+  if (!f) return;
+  if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)){
+    e.preventDefault(); e.stopPropagation();
+    const r = f.getBoundingClientRect(), items = folderMenu(f.dataset.folder);
+    if (items.length) openMenu(r.left + 24, r.bottom, items, f);
+  } else if (e.key === 'F2' && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) === 'custom'){
+    e.preventDefault(); e.stopPropagation(); startNaming(f.dataset.folder);
+  }
+});
+
+/* ---------- a small menu ---------- */
+// Right-click menus: ↑ ↓ choose, Enter takes, Esc or a click elsewhere closes, and the focus
+// goes back where it was.
+const menuEl = document.createElement('ul');
+menuEl.className = 'cmenu'; menuEl.setAttribute('role', 'menu'); menuEl.hidden = true;
+document.body.append(menuEl);
+let menuItems = [], menuFrom = null;
+function openMenu(x, y, items, from){
+  menuItems = items; menuFrom = from;
+  menuEl.innerHTML = items.map((it, i) => it.sep ? '<li class="msep" role="separator"></li>'
+    : `<li role="menuitem" tabindex="-1" data-i="${i}"${it.disabled ? ' aria-disabled="true"' : ''}><span>${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
+  menuEl.hidden = false;
+  const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
+  menuEl.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + 'px';
+  menuEl.style.top = Math.max(4, Math.min(y, innerHeight - h - 4)) + 'px';
+  menuEl.querySelector('[role="menuitem"]:not([aria-disabled])')?.focus();
+}
+function closeMenu(refocus = true){
+  if (menuEl.hidden) return;
+  menuEl.hidden = true;
+  if (refocus) menuFrom?.focus?.();
+}
+function runMenu(li){
+  const it = menuItems[Number(li?.dataset.i)];
+  if (!it || it.disabled) return;
+  closeMenu(false);
+  it.run();
+}
+menuEl.addEventListener('click', e => runMenu(e.target.closest('[role="menuitem"]')));
+menuEl.addEventListener('keydown', e => {
+  const all = [...menuEl.querySelectorAll('[role="menuitem"]:not([aria-disabled])')], i = all.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){ all[(i + (e.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length]?.focus(); }
+  else if (e.key === 'Home' || e.key === 'End'){ all[e.key === 'Home' ? 0 : all.length - 1]?.focus(); }
+  else if (e.key === 'Enter' || e.key === ' '){ runMenu(document.activeElement); }
+  else if (e.key === 'Escape' || e.key === 'Tab'){ closeMenu(); }
+  else return;
+  e.preventDefault(); e.stopPropagation();
+});
+document.addEventListener('pointerdown', e => { if (!menuEl.hidden && !menuEl.contains(e.target)) closeMenu(false); }, true);
+addEventListener('blur', () => closeMenu(false));
 
 function setFolder(key){
   state.folder = key; state.q = ''; qEl.value = ''; state.inText = false; state.thread = null;
@@ -483,7 +681,7 @@ function rowHtml(m, sel){
 <td class="c-ic"><span class="ic"><i class="dot"></i>${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : '<i class="sp"></i>'}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${esc(who)}</td>
 <td class="c-subj" title="${esc(m.subj)}">${esc(m.subj)}</td>
-<td class="c-where" title="${esc(ACCT[acctId(m.f)]?.email ?? '')} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(folderName(m.f))}</td>
+<td class="c-where" title="${esc(acctLabel(acctId(m.f)))} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(folderName(m.f))}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
 }
@@ -630,6 +828,115 @@ rowsEl.addEventListener('click', e => {
   listEl.focus({preventScroll:true});
 });
 rowsEl.addEventListener('dblclick', e => { if (e.target.closest('tr[data-id]') && allMail()) openInFolder(); });
+
+/* ---------- drag and drop ---------- */
+// Messages dragged from the list onto a folder in the tree move there, as with M. So nothing
+// moves by accident: a drag starts only after the pointer has gone a few pixels; a folder takes
+// the messages only after the pointer has rested on it for a moment (it fills up, then shows
+// it is ready), and folders that can't take them say no; letting go anywhere else, or Esc,
+// does nothing; and Z puts them back. Resting on a closed account or "more" opens it.
+const DRAG_START = 6, ARM_MS = 350, SPRING_MS = 650;
+let drag = null; // {pointer, x, y, row, started, ids, folders, over, armed, timers, ghost}
+function dragTarget(x, y){
+  const el = document.elementFromPoint(x, y);
+  if (!el?.closest?.('#tree')) return null;
+  const f = el.closest('[data-folder]'), more = el.closest('[data-more]'), acct = el.closest('[data-acct]');
+  if (f){
+    const key = f.dataset.folder, kind = kindOf(key);
+    const ok = !drag.folders.includes(key) && kind !== 'outbox' && targetsFor(drag.folders).includes(acctId(key));
+    return {key, ok, el:f};
+  }
+  if (more && more.getAttribute('aria-expanded') === 'false') return {spring:() => { state.more[more.dataset.more] = true; persist(); renderTree(); }, el:more, key:'more:' + more.dataset.more};
+  if (acct && acct.getAttribute('aria-expanded') === 'false') return {spring:() => { delete state.collapsed[acct.dataset.acct]; renderTree(); }, el:acct, key:'acct:' + acct.dataset.acct};
+  return null;
+}
+// What the ghost under the pointer says, and which folder shows what.
+function paintDrag(){
+  if (!drag?.started) return;
+  treeEl.querySelectorAll('.dragover, .dropok, .dropno').forEach(el => el.classList.remove('dragover', 'dropok', 'dropno'));
+  const o = drag.over, el = o && !o.spring ? treeEl.querySelector(`[data-folder="${o.key}"]`) : null;
+  if (el) el.classList.add(o.ok ? (drag.armed ? 'dropok' : 'dragover') : 'dropno');
+  const what = drag.subject || tn(drag.ids.length, '{n} message', '{n} messages', {n:num(drag.ids.length)});
+  const hint = !o || o.spring ? t('Rest on a folder for a moment, then let go.')
+    : !o.ok ? (drag.folders.includes(o.key) ? t('It is in this folder already.') : t('Not to another account: put it in a folder on this PC first.'))
+    : drag.armed ? t('Let go to move it to {folder}.', {folder:placeName(o.key)}) : t('Hold on {folder}…', {folder:placeName(o.key)});
+  drag.ghost.innerHTML = `<b>${esc(what)}</b><span>${esc(hint)}</span>`;
+  drag.ghost.classList.toggle('ready', !!(o?.ok && drag.armed));
+}
+function startDrag(){
+  const d = drag, row = list.rows.find(r => r.id === d.row) ?? (selRow?.id === d.row ? selRow : null);
+  if (!row) { drag = null; return; }
+  // Dragging a message that isn't among those picked takes just that one, selected.
+  if (!state.picked.has(row.id)){ if (unpick()) paintSelection(); if (current()?.id !== row.id) select(row.id); }
+  d.ids = chosen();
+  const rows = state.picked.size > 1 ? pickedRows() : [row];
+  d.folders = [...new Set(rows.map(r => r.f))];
+  d.subject = d.ids.length === 1 ? row.subj : '';
+  d.started = true; d.over = null; d.armed = false; d.timers = [];
+  d.ghost = document.createElement('div');
+  d.ghost.className = 'dragghost'; d.ghost.setAttribute('aria-hidden', 'true');
+  document.body.append(d.ghost);
+  win.classList.add('dragging');
+  try { listEl.setPointerCapture(d.pointer); } catch {}
+  paintDrag();
+}
+function endDrag(){
+  const d = drag; drag = null;
+  if (!d?.started) return;
+  d.timers.forEach(clearTimeout); cancelAnimationFrame(d.scroll);
+  d.ghost.remove();
+  win.classList.remove('dragging');
+  treeEl.querySelectorAll('.dragover, .dropok, .dropno').forEach(el => el.classList.remove('dragover', 'dropok', 'dropno'));
+  try { listEl.releasePointerCapture(d.pointer); } catch {}
+  return d;
+}
+// Near the tree's top or bottom edge, the tree scrolls by itself.
+function dragScroll(){
+  const d = drag; if (!d?.started) return;
+  const r = treeEl.getBoundingClientRect(), edge = 28;
+  const step = d.x < r.left || d.x > r.right ? 0 : d.y < r.top + edge ? -6 : d.y > r.bottom - edge ? 6 : 0;
+  if (step){ treeEl.scrollTop += step; d.scroll = requestAnimationFrame(dragScroll); } else d.scroll = 0;
+}
+rowsEl.addEventListener('pointerdown', e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr || e.button !== 0 || e.pointerType === 'touch') return;
+  drag = {pointer:e.pointerId, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, row:Number(tr.dataset.id), started:false};
+});
+listEl.addEventListener('pointermove', e => {
+  const d = drag;
+  if (!d || e.pointerId !== d.pointer) return;
+  d.x = e.clientX; d.y = e.clientY;
+  if (!d.started){
+    if (Math.hypot(d.x - d.x0, d.y - d.y0) < DRAG_START) return;
+    startDrag();
+    if (!drag) return;
+  }
+  // Above the pointer, so the folders below it stay in sight; below it at the top of the window.
+  const gh = d.ghost.offsetHeight, gy = d.y - gh - 10 < 4 ? d.y + 18 : d.y - gh - 10;
+  d.ghost.style.transform = `translate(${d.x + 14}px, ${gy}px)`;
+  const over = dragTarget(d.x, d.y);
+  if ((over?.key ?? null) !== (d.over?.key ?? null)){
+    d.timers.forEach(clearTimeout); d.timers = [];
+    d.over = over; d.armed = false;
+    if (over?.ok) d.timers.push(setTimeout(() => { if (drag === d){ d.armed = true; paintDrag(); } }, ARM_MS));
+    if (over?.spring) d.timers.push(setTimeout(() => { if (drag === d){ over.spring(); d.over = null; paintDrag(); } }, SPRING_MS));
+    paintDrag();
+  }
+  if (!d.scroll) dragScroll();
+});
+listEl.addEventListener('pointerup', e => {
+  if (!drag || e.pointerId !== drag.pointer) return;
+  const d = endDrag();
+  if (!d) return;
+  if (d.over?.ok && d.armed){ moveChosen(d.over.key); listEl.focus({preventScroll:true}); }
+  else if (d.over?.ok) say(t('Not moved: rest on the folder until it fills, then let go.'), 5000);
+});
+listEl.addEventListener('pointercancel', () => endDrag());
+listEl.addEventListener('lostpointercapture', () => { if (drag?.started) endDrag(); });
+// Esc while dragging: nothing moves.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && drag?.started){ e.preventDefault(); e.stopPropagation(); endDrag(); say(t('Nothing moved.'), 2500); }
+}, true);
 document.querySelectorAll('th button[data-sort]').forEach(b => b.addEventListener('click', () => {
   const k = b.dataset.sort;
   state.sort = state.sort.key === k ? {key:k, dir:-state.sort.dir} : {key:k, dir:(k === 'date' || k === 'size' || k === 'flag') ? -1 : 1};
@@ -1008,7 +1315,7 @@ previewEl.addEventListener('click', async e => {
 // says which a new message, a reply and a forward start in, and Text | HTML switches.
 // `of`: the message to edit when it isn't the selected one (one just taken back from sending).
 async function openCompose(kind, preset = {}, of = null){
-  if (!ACCOUNTS.length){ say(t('Add a mail account first.')); openAccountDialog(); return; }
+  if (!servers().length){ say(t('Add a mail account first.')); openAccountDialog(); return; }
   const s = of != null ? {id:of, f:(await full(of).catch(() => null))?.folder} : current();
   if (kind !== 'new' && !s?.f){ say(t('Select a message first.')); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say(t('Only drafts and unsent messages in the Outbox can be edited.')); return; }
@@ -1037,10 +1344,10 @@ async function openCompose(kind, preset = {}, of = null){
   state.compose = c;
   renderCompose();
 }
-const allIdentities = () => ACCOUNTS.flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
+const allIdentities = () => servers().flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
 const composeNote = c => !ACCT[c.account]?.smtp ? t('This account has no SMTP server yet: add one in Settings › Accounts to send.') : '';
 function fromOptions(c){
-  return ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + (a.identities || []).map(i =>
+  return servers().map(a => `<optgroup label="${esc(a.name)}">` + (a.identities || []).map(i =>
     `<option value="${i.id}"${i.id === c.identity ? ' selected' : ''}>${esc(i.name)} &lt;${esc(i.email)}&gt;</option>`).join('') + '</optgroup>').join('');
 }
 // Another identity: the account follows it, and its signature replaces the old one.
@@ -1215,9 +1522,31 @@ async function pickFiles(){
   try { files = await invoke('pick_files', {words:{title:t('Attach files')}}); } catch (e){ say(tr(e), 8000); return; }
   await addFiles(files);
 }
+// Files dragged in from Explorer. Over a folder on this PC it lights up, and dropped there they
+// are read into it as mail (.eml, mbox); anywhere else they are attached to a message. The
+// core says where in physical pixels.
+let fileTarget = null;
+function dropSpot(x, y){
+  const el = document.elementFromPoint(x / (devicePixelRatio || 1), y / (devicePixelRatio || 1));
+  if (!el?.closest?.('#tree')) return null;
+  const f = el.closest('[data-folder]');
+  return {folder:f && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) !== 'trash' ? f : null};
+}
+window.__TAURI__?.event?.listen('files-over', ({payload}) => {
+  const f = payload ? dropSpot(payload[0], payload[1])?.folder ?? null : null;
+  if (f === fileTarget) return;
+  fileTarget?.classList.remove('dropok');
+  f?.classList.add('dropok');
+  fileTarget = f;
+});
 window.__TAURI__?.event?.listen('files-dropped', ({payload}) => {
+  fileTarget?.classList.remove('dropok'); fileTarget = null;
   if (document.querySelector('dialog[open]')) return; // not while a dialog is open
-  addFiles(payload);
+  const p = Array.isArray(payload) ? {files:payload} : payload; // the demo sends just the files
+  const spot = p.x != null ? dropSpot(p.x, p.y) : null;
+  if (spot?.folder){ importInto(spot.folder.dataset.folder, p.files.map(f => f.path)); return; }
+  if (spot){ say(t('To bring in mail files (.eml, mbox), drop them on a folder on this PC. Dropped anywhere else, files are attached to a message.'), 9000); return; }
+  addFiles(p.files);
 });
 // The caret at the very start, above the quote, as in the plain-text editor.
 function focusStart(body){
@@ -1451,7 +1780,7 @@ async function moveChosen(folder){
   let places;
   try { places = await call('move_messages', {ids, folder}); } catch { return; }
   state.undo = {kind:'move', items:places.filter(([, from]) => from !== folder).map(([id, from]) => ({id, from}))};
-  const n = ids.length, where = folderName(folder);
+  const n = ids.length, where = placeName(folder);
   say(n === 1 ? t('Moved to {folder}. Press Z to undo.', {folder:where}) : tn(n, 'Moved {n} message to {folder}. Press Z to undo.', 'Moved {n} messages to {folder}. Press Z to undo.', {n:num(n), folder:where}));
   unpick();
   if (next){ state.sel[selKey()] = next.id; selRow = next; }
@@ -1471,13 +1800,20 @@ async function undo(){
   await loadTree().catch(() => {});
   renderTree();
   await loadView();
-  say(u.items.length === 1 ? t('Restored to {folder}.', {folder:folderName(first.from)}) : tn(u.items.length, 'Restored {n} message.', 'Restored {n} messages.', {n:num(u.items.length)}));
+  say(u.items.length === 1 ? t('Restored to {folder}.', {folder:placeName(first.from)}) : tn(u.items.length, 'Restored {n} message.', 'Restored {n} messages.', {n:num(u.items.length)}));
 }
 /* ---------- folder picker: M moves, G goes ---------- */
 // Type part of a folder's name (diacritics don't matter), ↑ ↓ to choose, Enter. Folders used
 // last come first. M lists the folders of the selected messages' account; G every folder.
 const pdlg = $('pick-dlg');
 let pick = null; // {mode, items:[{key, name, acct}], shown:[], at}
+// Where messages from these folders can go: a folder of their own account, or one on this
+// PC; mail on this PC can go anywhere. Messages of two server accounts go to this PC only.
+function targetsFor(folders){
+  const from = [...new Set(folders.map(acctId))].filter(a => a !== LOCAL);
+  const accts = from.length > 1 ? [] : from.length === 1 ? from : servers().map(a => a.id);
+  return ACCT[LOCAL] ? [...accts, LOCAL] : accts;
+}
 function openPicker(mode){
   if (state.compose || !ACCOUNTS.length) return;
   let accts = ACCOUNTS.map(a => a.id), skip = null;
@@ -1485,11 +1821,9 @@ function openPicker(mode){
     const ids = chosen();
     if (!ids.length){ say(t('Select a message first.')); return; }
     const rows = state.picked.size > 1 ? pickedRows() : [current()];
-    const from = [...new Set(rows.map(r => acctId(r.f)))];
-    if (from.length > 1){ say(t('Messages from different accounts can’t be moved together.')); return; }
-    accts = from;
-    const folders = new Set(rows.map(r => r.f));
-    if (folders.size === 1) skip = [...folders][0];
+    const folders = [...new Set(rows.map(r => r.f))];
+    accts = targetsFor(folders);
+    if (folders.length === 1) skip = folders[0];
   }
   const items = accts.flatMap(a => (ACCT[a]?.folders ?? [])
     .filter(f => mode !== 'move' || f.kind !== 'outbox')
@@ -1511,7 +1845,7 @@ function filterPicker(){
       : name.startsWith(q) ? (recent >= 0 ? recent : 20) + i / 1000
       : name.split(/[\s/._-]+/).some(w => w.startsWith(q)) ? 40 + i / 1000
       : name.includes(q) ? 60 + i / 1000
-      : fold(ACCT[it.acct]?.email ?? '').startsWith(q) ? 80 + i / 1000 : -1;
+      : fold(acctLabel(it.acct)).startsWith(q) ? 80 + i / 1000 : -1;
     return {it, r};
   }).filter(x => x.r >= 0).sort((a, b) => a.r - b.r);
   pick.shown = ranked.map(x => x.it);
@@ -1519,7 +1853,7 @@ function filterPicker(){
   const many = new Set(pick.items.map(it => it.acct)).size > 1; // say whose folder only when it isn't obvious
   $('pk-list').innerHTML = pick.shown.length ? pick.shown.map((it, i) => {
     const f = folderOf(it.key);
-    return `<li role="option" id="pk-${i}" data-i="${i}" aria-selected="${i === pick.at}">${I[KIND_ICON[f?.kind] || 'folder']}${many ? adot(it.acct) : ''}<span class="nm">${esc(it.name)}</span>${many ? `<span class="em">${esc(ACCT[it.acct]?.email ?? '')}</span>` : ''}</li>`;
+    return `<li role="option" id="pk-${i}" data-i="${i}" aria-selected="${i === pick.at}">${I[KIND_ICON[f?.kind] || 'folder']}${many ? adot(it.acct) : ''}<span class="nm">${esc(it.name)}</span>${many ? `<span class="em">${esc(acctLabel(it.acct))}</span>` : ''}</li>`;
   }).join('') : `<li class="none">${esc(t('No folder matches.'))}</li>`;
   $('pk-q').setAttribute('aria-activedescendant', pick.shown.length ? 'pk-' + pick.at : '');
   $('pk-list').querySelector('[aria-selected="true"]')?.scrollIntoView({block:'nearest'});
@@ -2014,14 +2348,19 @@ const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contai
 const ACTIONS = [['move', N_('Move to folder')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
 const labelOf = (list, v) => { const l = list.find(([k]) => k === v)?.[1]; return l ? t(l) : v; };
 const options = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(t(l))}</option>`).join('');
-// Folders a rule can move mail to: the account's own, not its Outbox. Their names are the server's.
-const moveTargets = acct => (ACCT[acct]?.folders ?? []).filter(f => f.kind !== 'outbox').map(f => [acct + '/' + f.id, f.name]);
-const folderOptions = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('');
+// Folders a rule can move mail to: its account's own but the Outbox, by their names on the
+// server, and the folders on this PC (not its Trash), which take mail from any account.
+const moveTargets = acct => [
+  ...(acct && acct !== LOCAL ? (ACCT[acct]?.folders ?? []).filter(f => f.kind !== 'outbox').map(f => [acct + '/' + f.id, f.name, ACCT[acct].email]) : []),
+  ...(ACCT[LOCAL]?.folders ?? []).filter(f => f.kind !== 'trash').map(f => [LOCAL + '/' + f.id, folderName(LOCAL + '/' + f.id), t('On this PC')]),
+];
+const folderOptions = (list, v) => [...new Set(list.map(x => x[2]))].map(g => `<optgroup label="${esc(g)}">`
+  + list.filter(x => x[2] === g).map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('') + '</optgroup>').join('');
 
 function ruleSummary(r){
   const conds = r.conditions.map(c => t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field), op:labelOf(OPS, c.op), value:c.value}))
     .join(r.match_all ? t(' and ') : t(' or '));
-  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:folderName(a.folder)}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
+  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
   return t('If {conds}: {acts}.', {conds, acts}) + (r.account ? ' ' + t('{name} only.', {name:ACCT[r.account]?.email ?? r.account}) : '') + (r.stop ? ' ' + t('Then stop.') : '');
 }
 async function openRules(){
@@ -2048,18 +2387,18 @@ async function showRuleList(){
 // filed where this one is when that is one of the user's folders, else flagged.
 function ruleFrom(m){
   const out = isOut(m.f), to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0] ?? '';
-  return {id:0, name:out ? nameOf(m.to) : (m.from || m.email), enabled:true, account:acctId(m.f), match_all:true,
+  return {id:0, name:out ? nameOf(m.to) : (m.from || m.email), enabled:true, account:isLocal(m.f) ? null : acctId(m.f), match_all:true,
     conditions:[out ? {field:'to', op:'is', value:to} : {field:'from', op:'is', value:m.email}],
     actions:[kindOf(m.f) === 'custom' ? {type:'move', folder:m.f} : {type:'flag'}], stop:false};
 }
 function showRuleForm(existing, start = null){
-  const firstAccount = ACCOUNTS.find(a => a.imap)?.id ?? ACCOUNTS[0]?.id ?? null;
+  const firstAccount = servers()[0]?.id ?? null;
   rule = existing ? structuredClone(existing) : start ?? {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
     conditions:[{field:'from', op:'contains', value:''}], actions:[{type:'flag'}], stop:false};
   $('r-list-view').hidden = true; $('r-form').hidden = false; $('r-form-err').textContent = '';
   $('r-form-title').textContent = existing ? t('Edit rule') : t('New rule');
   $('r-name').value = rule.name;
-  $('r-acct').innerHTML = `<option value="">${esc(t('All accounts'))}</option>` + ACCOUNTS.map(a => `<option value="${esc(a.id)}"${a.id === rule.account ? ' selected' : ''}>${esc(a.name)} · ${esc(a.email)}</option>`).join('');
+  $('r-acct').innerHTML = `<option value="">${esc(t('All accounts'))}</option>` + servers().map(a => `<option value="${esc(a.id)}"${a.id === rule.account ? ' selected' : ''}>${esc(a.name)} · ${esc(a.email)}</option>`).join('');
   $('r-match').value = rule.match_all ? 'all' : 'any';
   $('r-stop').checked = rule.stop;
   renderConditions(); renderActions();
@@ -2075,7 +2414,7 @@ function renderActions(){
   $('r-acts').innerHTML = rule.actions.map((a, i) => {
     let param = '<span class="none"></span>';
     if (a.type === 'move'){
-      const targets = rule.account ? moveTargets(rule.account) : [];
+      const targets = moveTargets(rule.account);
       param = targets.length ? `<select data-k="folder" aria-label="${esc(t('Folder'))}">${folderOptions(targets, a.folder)}</select>`
         : `<span class="none">${esc(t('Pick the rule’s account to choose a folder.'))}</span>`;
     } else if (a.type === 'auto_reply'){
@@ -2088,7 +2427,7 @@ function renderActions(){
 // A new or changed action gets sensible defaults: a folder to move to, empty reply text.
 function fixAction(a){
   if (a.type === 'move'){
-    const targets = rule.account ? moveTargets(rule.account) : [];
+    const targets = moveTargets(rule.account);
     if (!targets.some(([k]) => k === a.folder)) a.folder = (targets.find(([k]) => folderOf(k)?.kind === 'custom') ?? targets[0])?.[0] ?? '';
   } else delete a.folder;
   if (a.type === 'auto_reply') a.body = a.body ?? ''; else delete a.body;
@@ -2515,7 +2854,8 @@ function accountUsageHtml(u, since){
   const localKb = u.folders.reduce((n, f) => n + f.size_kb, 0), count = u.folders.reduce((n, f) => n + f.count, 0);
   const sync = u.sync_error ? `<span class="ustat warn" title="${esc(u.sync_error)}">${esc(t('Last check failed'))}</span>`
     : u.synced_at ? `<span class="ustat">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</span>` : '';
-  let html = `<article class="ucard"><header class="uhead">${adot(a.id)}<span class="uname" title="${esc(a.name)}">${esc(a.email)}</span>${sync}</header>`;
+  let html = `<article class="ucard"><header class="uhead">${adot(a.id)}<span class="uname" title="${esc(a.id === LOCAL ? t('On this PC') : a.name)}">${esc(acctLabel(a.id))}</span>${sync}</header>`;
+  if (a.id === LOCAL) html += `<p class="unote">${esc(t('This mail is kept only on this PC, on no server. Back it up now and then: Settings › Backups.'))}</p>`;
   if (u.sync_error) html += `<p class="unote warn">${esc(u.sync_error)}</p>`;
   // Storage on the server, when the server reports it.
   if (u.quota){
@@ -2697,6 +3037,9 @@ const HELP_KEYS = [
   [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['? F1', N_('this help')]]],
 ];
 const HELP_TIPS = [
+  N_('Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.'),
+  N_('Folders on this PC keep mail only here, off the server. Right-click one to name it, save it as mbox or bring mail in.'),
+  N_('Drop .eml or mbox files on a folder on this PC to bring that mail in.'),
   N_('Shift+click selects a range, Ctrl+click one more message.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),

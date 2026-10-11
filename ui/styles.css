@@ -72,6 +72,24 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .fold svg{width:14px;height:14px;color:var(--muted)}
 .fold:hover{background:var(--hover)}
 .fold.active{background:var(--sel);font-weight:500}
+/* Dragging messages onto folders: a folder under the pointer fills up while it waits, then
+   shows it is ready (dropok, also for mail files dropped on this PC); one that can't take them
+   goes quiet. The ghost by the pointer says what moves and what letting go would do. */
+.fold.dragover{background:linear-gradient(90deg,var(--sel) 50%,var(--hover) 50%) right/200% 100% no-repeat;animation:arm .35s linear forwards}
+@keyframes arm{to{background-position:left}}
+.fold.dropok{background:var(--accent);color:var(--accent-fg)}
+.fold.dropok svg,.fold.dropok .cnt,.fold.dropok .cnt.dim{color:inherit}
+.fold.dropno{background:none;color:var(--faint)}
+.fold.dropno svg{color:var(--faint)}
+.win.dragging,.win.dragging *{cursor:grabbing!important}
+.dragghost{position:fixed;left:0;top:0;z-index:40;display:flex;flex-direction:column;gap:1px;max-width:340px;padding:5px 9px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg);box-shadow:0 6px 18px var(--shadow);pointer-events:none;font-size:12px}
+.dragghost b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dragghost span{color:var(--muted);font-size:11.5px}
+.dragghost.ready{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px var(--shadow)}
+@media (forced-colors: active){
+  .fold.dropok{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .dragghost{border-color:CanvasText}
+}
 .fold .cnt{margin-left:auto;font:600 11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--accent)}
 .fold .cnt.dim{color:var(--faint);font-weight:400}
 .fold.active .cnt.dim{color:var(--muted)}
@@ -80,6 +98,18 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .fold.more svg{width:12px;height:12px;margin:0 1px;transition:transform .12s}
 .fold.more[aria-expanded="true"] svg{transform:rotate(-90deg)}
 .fold.more[aria-expanded="false"] svg{transform:rotate(90deg)}
+/* The folders on this PC: their own group, a small screen where accounts have a dot, and a +
+   for a new folder. A folder being named has a box in its place. */
+.adot.pc{display:inline-block;position:relative;width:10px;height:8px;margin:0 0 2px;border-radius:1.5px;background:none;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.adot.pc::after{content:"";position:absolute;left:2.5px;right:2.5px;bottom:-2.5px;height:1.5px;background:var(--muted)}
+.pcrow{display:flex;align-items:center;margin-top:6px;padding-top:4px;border-top:1px solid var(--line-soft)}
+.pcrow .acct{flex:1;min-width:0}
+.pcadd{flex:none;display:inline-grid;place-items:center;width:22px;height:20px;margin-right:6px;padding:0;border:1px solid transparent;border-radius:3px;background:none;color:var(--muted);cursor:pointer}
+.pcadd:hover{border-color:var(--line);background:var(--hover);color:var(--fg)}
+.pcadd svg{width:12px;height:12px}
+.fold.naming{cursor:default;background:var(--sel)}
+.nfname{flex:1;min-width:0;height:20px;padding:0 5px;border:1px solid var(--accent);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.nfname:focus{outline:0}
 .add-acct{display:flex;align-items:center;gap:7px;width:100%;height:var(--row-tree);margin-top:6px;padding:0 10px 0 24px;border:0;background:none;color:var(--muted);cursor:pointer;text-align:left;font-size:12px}
 .add-acct:hover{background:var(--hover);color:var(--fg)}
 .add-acct svg{width:14px;height:14px}
@@ -544,6 +574,19 @@ button.chip[hidden]{display:none}
 .qchip{flex:none;padding:1px 4px;border-radius:3px;font:600 10px var(--font-data);background:var(--warn-bg);color:var(--warn-fg)}
 .qchip[data-level="full"]{background:var(--note-bg);color:var(--note-fg)}
 kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg)}
+/* Right-click menus */
+.cmenu{position:fixed;z-index:30;min-width:190px;margin:0;padding:4px 0;list-style:none;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg);box-shadow:0 8px 24px var(--shadow);font-size:12.5px}
+.cmenu[hidden]{display:none}
+.cmenu li[role="menuitem"]{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:26px;padding:0 12px;cursor:pointer;outline:0}
+.cmenu li[role="menuitem"]:hover,.cmenu li[role="menuitem"]:focus{background:var(--sel)}
+.cmenu li[aria-disabled="true"]{color:var(--faint);cursor:default}
+.cmenu li[aria-disabled="true"]:hover{background:none}
+.cmenu .msep{height:1px;margin:4px 0;background:var(--line-soft)}
+@media (forced-colors: active){
+  .cmenu{border-color:CanvasText}
+  .cmenu li[role="menuitem"]:focus,.cmenu li[role="menuitem"]:hover{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .adot.pc{forced-color-adjust:none}
+}
 /* Keys and tips: the "?" in the status bar, and what it opens above it */
 .helpbtn{flex:none;display:inline-grid;place-items:center;width:17px;height:17px;padding:0;border:1px solid var(--field);border-radius:50%;background:var(--surface);color:var(--muted);font:600 10.5px/1 var(--font-ui);cursor:help}
 .helpbtn:hover,.helpbtn[aria-expanded="true"]{color:var(--fg);border-color:var(--accent)}

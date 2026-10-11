@@ -98,6 +98,8 @@ function installTelexDemo(options) {
       'To tylko demo: nie wczytuje plików ustawień. Pobierz Telex, aby zaimportować swoje.'],
     remove: ['This is a demo: its accounts can’t be removed. Download Telex to set up your own.',
       'To tylko demo: jego kont nie można usunąć. Pobierz Telex, aby dodać własne.'],
+    mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
+      'To tylko demo: nie zapisuje ani nie czyta plików z pocztą. Pobierz Telex, aby zapisywać foldery jako mbox i wczytywać pocztę z plików.'],
     update: ['This is a demo: it doesn’t update itself. Download the newest Telex instead.',
       'To tylko demo: nie aktualizuje się. Pobierz najnowszego Telexa.'],
   };
@@ -150,6 +152,7 @@ function installTelexDemo(options) {
 
   /* ---------- folders and accounts ---------- */
   const acctId = (key) => String(key).split('/')[0];
+  const LOCAL = 'local'; // the folders on this PC (store.rs's LOCAL_ID)
   const account = (id) => accounts.find((a) => a.id === id);
   const needAccount = (id) => account(id) ?? fail('account "{a}" does not exist', 'konto „{a}” nie istnieje', { a: id });
   const folderOf = (key) => { const [a, f] = String(key).split('/'); return account(a)?.folders.find((x) => x.id === f); };
@@ -296,8 +299,9 @@ function installTelexDemo(options) {
   function conversation(id) {
     const m = need(id);
     if (!m.thread) return [id];
-    const acct = acctId(m.folder);
-    return msgs.filter((x) => x.id === id || (x.thread === m.thread && acctId(x.folder) === acct
+    // Its account and the folders on this PC; from this PC, every account.
+    const acct = acctId(m.folder), near = (a) => acct === LOCAL || a === acct || a === LOCAL;
+    return msgs.filter((x) => x.id === id || (x.thread === m.thread && near(acctId(x.folder))
       && !['spam', 'trash'].includes(kindOf(x.folder)))).map((x) => x.id);
   }
   function listed(view = {}) {
@@ -358,12 +362,14 @@ function installTelexDemo(options) {
 
   /* ---------- changes to mail (store.rs) ---------- */
   const setMany = (ids, field, value) => ids.reduce((n, id) => { const m = byId(id); if (m && m[field] !== value) { m[field] = value; return n + 1; } return n; }, 0);
+  // Within an account, or to and from the folders on this PC (store.rs's move_many; the demo
+  // has no server to tell).
   function moveMany(ids, folder) {
     needFolder(folder);
     const to = acctId(folder);
     const places = ids.map((id) => {
-      const m = need(id);
-      if (acctId(m.folder) !== to) {
+      const m = need(id), from = acctId(m.folder);
+      if (from !== to && from !== LOCAL && to !== LOCAL) {
         fail("can't move a message from {from} to {to}: they belong to different accounts",
           'nie można przenieść wiadomości z {from} do {to}: należą do różnych kont', { from: m.folder, to: folder });
       }
@@ -386,6 +392,59 @@ function installTelexDemo(options) {
     }
     return report;
   }
+  /* ---------- folders on this PC (store.rs) ---------- */
+  const RANK = { inbox: 0, outbox: 1, drafts: 2, sent: 3, custom: 4, archive: 5, spam: 6, trash: 7 };
+  const sortLocal = (pc) => pc.folders.sort((a, b) => RANK[a.kind] - RANK[b.kind]
+    || (a.kind === 'custom' && b.kind === 'custom' ? a.name.toLowerCase().localeCompare(b.name.toLowerCase()) : 0));
+  const thisPc = () => account(LOCAL) ?? fail('Folders on this PC come with your first mail account.',
+    'Foldery na tym komputerze pojawiają się z pierwszym kontem pocztowym.');
+  function localName(name, except) {
+    const n = String(name).split(/\s+/).filter(Boolean).join(' ');
+    if (!n) fail('Type a name for the folder.', 'Wpisz nazwę folderu.');
+    if ([...n].length > 80) fail('That name is too long: 80 characters at most.', 'Ta nazwa jest za długa: najwyżej 80 znaków.');
+    const low = n.toLowerCase();
+    if (thisPc().folders.some((f) => f.id !== except && (f.name.toLowerCase() === low || (PL_KIND[f.kind] || '').toLowerCase() === low))) {
+      fail('There is a folder called "{name}" on this PC already.', 'Na tym komputerze jest już folder „{name}”.', { name: n });
+    }
+    return n;
+  }
+  function ownLocal(key) {
+    const f = acctId(key) === LOCAL ? folderOf(key) : null;
+    if (!f) fail('folder "{k}" does not exist', 'folder „{k}” nie istnieje', { k: key });
+    if (f.kind !== 'custom') fail('Archive and Trash on this PC stay as they are.', 'Archiwum i Kosz na tym komputerze zostają takie, jakie są.');
+    return f;
+  }
+  function createLocalFolder({ name }) {
+    const n = localName(name), pc = thisPc();
+    const base = n.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'folder';
+    let id = base;
+    for (let i = 2; id === 'outbox' || pc.folders.some((f) => f.id === id); i++) id = `${base}-${i}`;
+    pc.folders.push({ id, name: n, kind: 'custom' });
+    sortLocal(pc);
+    return `${LOCAL}/${id}`;
+  }
+  function renameLocalFolder({ folder, name }) {
+    const f = ownLocal(folder);
+    f.name = localName(name, f.id);
+    sortLocal(thisPc());
+  }
+  function deleteLocalFolder({ folder }) {
+    const f = ownLocal(folder);
+    if (msgs.some((m) => m.folder === folder)) {
+      fail('Move or delete the messages in "{name}" first.', 'Najpierw przenieś albo usuń wiadomości z folderu „{name}”.', { name: f.name });
+    }
+    let changed = 0;
+    rules = rules.filter((r) => {
+      const keep = r.actions.filter((a) => !(a.type === 'move' && a.folder === folder));
+      if (keep.length === r.actions.length) return true;
+      changed++;
+      r.actions = keep;
+      return keep.length > 0;
+    });
+    thisPc().folders.splice(thisPc().folders.indexOf(f), 1);
+    return changed;
+  }
+
   // A draft or an unsent message, replaced by the one saved or sent from it.
   const removeLocal = (id) => { const m = byId(id); if (m && ['drafts', 'outbox'].includes(kindOf(m.folder))) msgs.splice(msgs.indexOf(m), 1); return m; };
   const addNote = (m, text) => { if (!m.note) m.note = text; else if (!m.note.includes(text)) m.note += ' ' + text; };
@@ -402,9 +461,20 @@ function installTelexDemo(options) {
   }
   const layout = (sig, tail) => (sig ? (tail != null ? `\n\n${sig}\n\n${tail}` : `\n\n${sig}\n`) : tail != null ? `\n\n${tail}` : '\n');
   const textLines = (body) => body.replace(/\n+$/, '').split('\n').filter((l) => !l.startsWith('[img:'));
+  // drafts::sender: mail on this PC is answered from the account it was sent to.
+  function sender(m, asked) {
+    const servers = accounts.filter((a) => a.imap);
+    if (m && acctId(m.folder) !== LOCAL) return needAccount(acctId(m.folder));
+    if (m) {
+      const addressed = splitAddresses(`${m.to}, ${m.cc}, ${m.from_email}`).map(addressKey);
+      const mine = servers.find((a) => [a.email, ...a.identities.map((i) => i.email)].some((e) => addressed.includes(e.toLowerCase())));
+      if (mine) return mine;
+    }
+    return (asked !== LOCAL && account(asked)) || servers[0] || needAccount(asked);
+  }
   function startDraft({ kind, of, account: acct }) {
     const m = kind === 'new' ? null : of != null ? need(of) : fail('Select a message first.', 'Najpierw wybierz wiadomość.');
-    const a = needAccount(m ? acctId(m.folder) : acct);
+    const a = sender(m, acct);
     const me = m ? identityFor(a, m) : defaultIdentity(a);
     const sig = (me.signature || '').trimEnd();
     const draft = { account: a.id, identity: me.id, to: '', cc: '', subject: '', body: layout(sig, null), attachments: [], reply_to: null, forward_of: null };
@@ -875,7 +945,7 @@ function installTelexDemo(options) {
 
   /* ---------- people to suggest (recipients.rs) ---------- */
   function recipients() {
-    const own = accounts.flatMap((a) => [a.email, ...a.identities.map((i) => i.email)]).map((e) => e.toLowerCase());
+    const own = accounts.filter((a) => a.imap).flatMap((a) => [a.email, ...a.identities.map((i) => i.email)]).map((e) => e.toLowerCase());
     const robot = (email) => {
       const s = email.split('@')[0].replace(/[^\p{L}\p{N}]/gu, '');
       return ['noreply', 'donotreply', 'mailerdaemon', 'postmaster', 'bounce', 'notreply'].some((r) => s.startsWith(r) || s.endsWith(r));
@@ -1173,6 +1243,11 @@ function installTelexDemo(options) {
     // Screenshots show the login still running; the live demo says it can't.
     add_account: () => (live ? later(900).then(() => refuse('servers')) : new Promise(() => {})),
     remove_account: () => refuse('remove'),
+    create_local_folder: createLocalFolder,
+    rename_local_folder: renameLocalFolder,
+    delete_local_folder: deleteLocalFolder,
+    export_folder: () => refuse('mbox'),
+    import_mail: () => refuse('mbox'),
     pick_files: pickFiles,
     open_attachment: openAttachment,
     save_attachment: () => refuse('save'),

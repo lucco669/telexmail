@@ -17,7 +17,7 @@ use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Account, MessageId, MessageSummary};
-use crate::store::{fts_query, summary_from_row, MailStore, StoreError, SUMMARY_COLUMNS};
+use crate::store::{fts_query, summary_from_row, MailStore, StoreError, LOCAL_ID, SUMMARY_COLUMNS};
 
 /// The list's columns that it can be sorted by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -607,7 +607,7 @@ impl MailStore {
 
     /// Every message of the conversation `id` is in: the messages it answers and those
     /// that answer it, directly or not, found by Message-ID, In-Reply-To and References, in
-    /// its account and not in Spam or Trash (except `id` itself). In no order; the list
+    /// its account and on this PC, not in Spam or Trash (except `id` itself). In no order; the list
     /// sorts them.
     pub fn conversation(&self, id: MessageId) -> Result<Vec<MessageId>, StoreError> {
         let changes = self.db.total_changes();
@@ -630,18 +630,29 @@ impl MailStore {
         if start.is_empty() {
             return Ok(vec![id]);
         }
-        // One pass over the account's links (only messages that have some), then the
-        // thread is followed in memory, however deep it goes.
-        let account = folder.split('/').next().unwrap_or_default().to_owned();
+        // One pass over the account's links (only messages that have some), and those of the
+        // folders on this PC, where its older mail may be kept; then the thread is followed in
+        // memory, however deep it goes. A message on this PC came from any account.
+        let account = folder.split('/').next().unwrap_or_default();
+        let accounts: Vec<&str> = if account == LOCAL_ID {
+            self.accounts().iter().map(|a| a.id.as_str()).collect()
+        } else {
+            vec![account, LOCAL_ID]
+        };
         let mut stmt = self.db.prepare_cached(&format!(
             "SELECT id, COALESCE(message_id, ''), refs FROM messages
              WHERE folder >= ?1 || '/' AND folder < ?1 || '0' AND folder NOT IN {}
                AND (message_id IS NOT NULL OR refs <> '')",
             folders_of_kind("'spam', 'trash'")
         ))?;
-        let rows: Vec<(i64, String, String)> = stmt
-            .query_map(params![account], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
-            .collect::<Result<_, _>>()?;
+        let mut rows: Vec<(i64, String, String)> = Vec::new();
+        for account in accounts {
+            for row in
+                stmt.query_map(params![account], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            {
+                rows.push(row?);
+            }
+        }
         // Every Message-ID, and the messages that are it or point at it.
         let mut linked: HashMap<&str, Vec<usize>> = HashMap::new();
         for (i, (_, mid, refs)) in rows.iter().enumerate() {
@@ -1249,6 +1260,11 @@ mod tests {
         let after = store.conversation(inbox[0]).unwrap();
         assert_eq!(after.len(), 9);
         assert!(!after.contains(&gone));
+        // Older mail kept on this PC is still part of it, seen from either side.
+        let kept = inbox[5];
+        store.move_to(kept, "local/archive").unwrap();
+        assert!(store.conversation(inbox[0]).unwrap().contains(&kept));
+        assert_eq!(store.conversation(kept).unwrap().len(), 9);
         // A message without any links is a conversation of one.
         let lone = store.list("studio/trash").unwrap()[0].id;
         assert!(store.conversation(lone).unwrap().contains(&lone));
