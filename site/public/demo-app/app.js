@@ -11,6 +11,9 @@ const VIEWER = Number(new URLSearchParams(location.search).get('message')) || nu
 const tellMain = payload => window.__TAURI__?.event?.emitTo?.('main', 'viewer-did', payload ?? {});
 // Events about checks, sending and updates are the main window's business.
 const listenMain = (event, fn) => { if (!VIEWER) window.__TAURI__?.event?.listen(event, fn); };
+const ownLabel = () => window.__TAURI__?.window?.getCurrentWindow?.().label ?? 'main';
+// Events the core sends to one window (emit_to): without a target, every window would hear them.
+const listenHere = (event, fn) => window.__TAURI__?.event?.listen(event, fn, {target:ownLabel()});
 const I18n = window.TelexI18n;
 const {t, tn} = I18n;
 // Marks an English text for translation where it is defined; t() or tn() translates it where it is drawn.
@@ -64,7 +67,9 @@ const KIND_NAME = {inbox:N_('Inbox'), outbox:N_('Outbox'), drafts:N_('Drafts'), 
 // The folder tree and its counts; the message list asks the core for pages (see "list").
 let ACCOUNTS = [], ACCT = {}, COUNTS = {};
 let PROBLEMS = {}; // account id -> why its last check failed (kept by the core until one works)
-let USAGE = null; // the last answer of `usage`: quotas for the meter and the Usage tab
+let AWAY = []; // the away replies that are on: [{account, place, starts, ends}]
+let USAGE = null; // the last answer of `usage`, for the Usage tab
+let QUOTA = {}, SYNCED = {}; // account id -> its storage on the server; when its last check worked
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -85,7 +90,9 @@ async function loadTree(){
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   COUNTS = t.counts;
   PROBLEMS = t.problems ?? {};
-  INITIALS = initialsOf(ACCOUNTS.filter(a => a.imap));
+  AWAY = t.away ?? [];
+  QUOTA = t.quota ?? {}; SYNCED = t.synced ?? {};
+  INITIALS = initialsOf(servers());
 }
 // Two letters for each account, from its name ("Łukasz Szramuk" → ŁS, "Sales 750xl.com" → S7),
 // else its address; two accounts never share them while another pair is free.
@@ -106,7 +113,7 @@ function initialsOf(accounts){
 const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
-const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message', 'run_rules',
+const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'run_rules',
   'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read']);
 async function call(cmd, args){
   try {
@@ -134,8 +141,13 @@ async function pushNow(){
   refresh();
 }
 async function full(id){
-  if (!bodies.has(id)) bodies.set(id, await invoke('get_message', {id}));
-  return bodies.get(id);
+  return bodies.has(id) ? bodies.get(id) : keep(bodies, id, await invoke('get_message', {id}), 30);
+}
+// A cache that holds the last few: the oldest goes first.
+function keep(cache, key, value, most){
+  cache.set(key, value);
+  if (cache.size > most) cache.delete(cache.keys().next().value);
+  return value;
 }
 
 /* ---------- helpers ---------- */
@@ -324,7 +336,7 @@ async function changeSettings(changes){
   SETTINGS = next;
   applySettings();
   if (sdlg.open) SETTINGS.language === before ? syncSettings() : renderSettings(true);
-  window.__TAURI__?.event?.emit('settings-changed', null);
+  window.__TAURI__?.event?.emit('settings-changed', ownLabel());
   return true;
 }
 // After a language change: everything on screen again, in the new words.
@@ -445,6 +457,7 @@ function renderStatus(){
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderSync();
   renderUnsent();
+  renderAway();
   renderMeter();
   const title = VIEWER ? `${selRow?.subj || t('Message')} – Telex` : ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
   if (title !== lastTitle){
@@ -459,15 +472,15 @@ $('st-folder').addEventListener('click', e => {
   if (e.target.closest('#st-older')) downloadOlder();
   else if (e.target.closest('#st-unread, #st-all')){ toggleUnreadOnly(); listEl.focus({preventScroll:true}); }
 });
-async function downloadOlder(){
-  const folder = state.folder, b = $('st-older');
-  if (!folder || b?.disabled) return;
+async function downloadOlder(folder = state.folder, again = false){
+  const b = $('st-older');
+  if (!folder || (b?.disabled && !again)) return;
   if (b) b.disabled = true;
   say(t('Downloading older messages…'), 0);
   let r;
   try { r = await invoke('download_older', {folder, limit:OLDER_BATCH}); }
   catch (e){ say(tr(e), 10000); if (b) b.disabled = false; return; }
-  if (r.busy){ setTimeout(downloadOlder, 2000); return; } // a check is running
+  if (r.busy){ setTimeout(() => downloadOlder(folder, true), 2000); return; } // a check is running: the same folder, in a moment
   await refresh();
   say(tn(r.new, '{n} older message downloaded.', '{n} older messages downloaded.', {n:num(r.new)}));
 }
@@ -475,7 +488,7 @@ async function downloadOlder(){
 /* ---------- usage meter ---------- */
 // The server's storage for the open folder's account, as a small bar in the status bar,
 // when the server reports a quota. A nearly full account also says so in the folder tree.
-const quotaOf = acct => USAGE?.accounts.find(u => u.account === acct)?.quota ?? null;
+const quotaOf = acct => QUOTA[acct] ?? null;
 const pctOf = q => Math.min(100, Math.round(q.used_kb / q.limit_kb * 100));
 const levelOf = pct => pct >= 95 ? 'full' : pct >= 80 ? 'warn' : 'ok';
 const quotaText = q => t('Server storage: {used} of {limit} ({pct}%)', {used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct:pctOf(q)});
@@ -492,10 +505,6 @@ function renderMeter(){
   m.title = t('{email} on the server: {used} of {limit} used ({pct}%), {free} free.', {email:ACCT[acct]?.email ?? '', used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct, free})
     + ' ' + t('Click for usage.');
   m.setAttribute('aria-label', m.title);
-}
-async function loadUsage(){
-  try { USAGE = await invoke('usage'); } catch { return; }
-  renderMeter(); renderTree();
 }
 $('st-usage').addEventListener('click', () => openSettings('use'));
 
@@ -725,7 +734,7 @@ async function importInto(key, paths = null){
   if (r.already) lines.push(tn(r.already, '{n} was there already.', '{n} were there already.', {n:num(r.already)}));
   say([...lines, ...r.problems].join(' '), r.problems.length ? 15000 : 8000);
 }
-window.__TAURI__?.event?.listen('import-progress', ({payload: p}) => say(t('Reading mail from {file}: {n} so far…', {file:p.file, n:num(p.done)}), 0));
+listenHere('import-progress', ({payload: p}) => say(t('Reading mail from {file}: {n} so far…', {file:p.file, n:num(p.done)}), 0));
 // What a right-click (or the menu key) on a folder offers.
 function folderMenu(key){
   const f = folderOf(key);
@@ -1142,7 +1151,7 @@ function drawRows(scrolling = false){
       && (va >= drawn.a + 5 || drawn.a === 0) && (vb <= drawn.b - 5 || drawn.b === list.total)) return;
   const a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN), sel = state.sel[selKey()], hl = hlTerms(), mixed = across();
   let html = spacer(a * rowH, n);
-  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl, mixed) : `<tr class="ph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
+  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl, mixed) : `<tr class="rowph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
   rowsEl.innerHTML = html + spacer((list.total - b) * rowH, n);
   drawn = {a, b, start:s, length:list.rows.length};
   const r = rowsEl.querySelector('tr[data-id]'), h = r?.getBoundingClientRect().height;
@@ -1198,7 +1207,7 @@ async function rowAt(pos){
 // switch, a new order or filter. `top`: a different folder, so start at its top.
 async function loadView({top = false} = {}){
   if (VIEWER) return viewerShow();
-  const seq = ++list.seq, key = selKey();
+  const seq = ++list.seq, key = selKey(), before = selRow?.id;
   let id = state.sel[key], p;
   try { p = await fetchPage(id != null ? {around:id} : 'first'); }
   catch { try { p = await fetchPage('first'); } catch (e){ say(tr(e), 8000); return; } }
@@ -1213,7 +1222,8 @@ async function loadView({top = false} = {}){
   const pos = posOf(id);
   if (pos >= 0 && reveal(pos)) drawRows();
   renderStatus();
-  if (!state.compose) renderPreview();
+  // The message on screen stays as it is while typing a filter or sorting again.
+  if (!state.compose && (top || !selRow || selRow.id !== before || state.picked.size > 1)) renderPreview();
 }
 // After mail changed (a check, rules, sending, a push): new counts, and the open page again,
 // keeping the first row on screen where it was. `skip`: a message that just went away.
@@ -1243,7 +1253,12 @@ async function refresh({skip} = {}){
     if (!selRow && !state.q.trim()){ selRow = list.rows[0] ?? null; state.sel[selKey()] = selRow?.id; }
   }
   drawRows(); renderStatus();
-  if (selRow?.id !== before && !state.compose) renderPreview();
+  // A change may have written a note on any message (rules, a refused send): read them again.
+  const shown = selRow && bodies.get(selRow.id);
+  bodies.clear();
+  if (state.compose) return;
+  if (selRow?.id !== before) renderPreview();
+  else if (shown) full(shown.id).then(m => { if (m.note !== shown.note && selRow?.id === m.id) renderPreview(); }, () => {});
 }
 
 function renderHead(){
@@ -1650,11 +1665,26 @@ function bodyHtml(m){
   return m.body.split('\n').map(line => {
     const img = line.match(/^\[img:(.+)\]$/);
     if (img) return `<div class="imgph${loaded ? ' loaded' : ''}">${loaded ? esc(img[1]) : t('Blocked image: {name}', {name:esc(img[1])})}</div>`;
-    const q = line.startsWith('>');
-    let h = esc(q ? line.replace(/^> ?/, '') : line);
-    if (kindOf(m.folder) !== 'spam') h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
-    return `<div class="ln${q ? ' q' : ''}">${h}</div>`;
+    const q = line.startsWith('>'), text = q ? line.replace(/^> ?/, '') : line;
+    return `<div class="ln${q ? ' q' : ''}">${kindOf(m.folder) === 'spam' ? esc(text) : linked(text)}</div>`;
   }).join('');
+}
+// Plain text with its web addresses as links. An address ends before a space, <, > or a
+// quote, and without the full stop or bracket that ends the sentence around it.
+function linked(text){
+  let out = '', at = 0;
+  for (const found of text.matchAll(/https?:\/\/[^\s<>"']+/gi)){
+    let url = found[0];
+    for (;;){
+      const last = url.at(-1);
+      if (last === ')' && url.split('(').length >= url.split(')').length) break; // its own: wiki/Foo_(bar)
+      if (!'.,;:!?)]}'.includes(last)) break;
+      url = url.slice(0, -1);
+    }
+    out += esc(text.slice(at, found.index)) + `<a href="${esc(url)}">${esc(url)}</a>`;
+    at = found.index + url.length;
+  }
+  return out + esc(text.slice(at));
 }
 // The HTML view of a message, cached per images setting and paper. load: true loads remote
 // images, false never does (only asks whether there is HTML), null lets the core decide
@@ -1663,15 +1693,16 @@ function bodyHtml(m){
 const htmlViews = new Map();
 async function htmlView(id, load, dark = null){
   const key = id + ':' + load + ':' + (dark ? Object.values(dark).join() : 'white');
-  if (!htmlViews.has(key)) htmlViews.set(key, await invoke('get_html', {id, loadImages:load, dark}));
-  return htmlViews.get(key);
+  // A few only: with its images loaded a view can be megabytes.
+  return htmlViews.has(key) ? htmlViews.get(key) : keep(htmlViews, key, await invoke('get_html', {id, loadImages:load, dark}), 8);
 }
 // Links never navigate inside Telex: web links open in the browser, mailto opens compose.
 function followLink(href, spam){
   const h = String(href || '').trim();
   if (spam){ say(t('Links are off in Spam. Move the message out of Spam to use them.')); return; }
   if (/^mailto:/i.test(h)){
-    const to = decodeURIComponent(h.slice(7).split('?')[0]);
+    const raw = h.slice(7).split('?')[0];
+    let to = raw; try { to = decodeURIComponent(raw); } catch {} // a stray % is taken as it is
     openCompose('new', {to});
   } else if (/^https?:\/\//i.test(h)){
     call('open_link', {url:h}).then(() => say(t('Opened in your browser.'), 2500)).catch(() => {});
@@ -1722,7 +1753,7 @@ function attsHtml(atts, writing = false){
   const tail = writing
     ? (kb > BIG_KB ? `<small class="attwarn">${esc(t('{size} in all: some servers refuse mail over 25 MB.', {size:fmtSize(kb)}))}</small>` : '')
     : atts.length > 1 ? `<button type="button" class="linkbtn" data-saveall>${esc(t('Save all…'))}</button>` : '';
-  return `<div class="atts"${writing ? ' id="c-atts"' : ''}>${chips}${tail}</div>`;
+  return `<div class="atts">${chips}${tail}</div>`;
 }
 // Open an attachment in its app. Programs and anything from Spam open on a second click.
 let armedAtt = null; // {id, index, at}
@@ -1796,9 +1827,13 @@ let pvSeq = 0;
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
   if (!ACCOUNTS.length){
+    // Another mail program on this PC: everything can come from there in one go.
+    if (!moveIn.sources) findPrograms().then(() => { if (!ACCOUNTS.length) renderPreview(); });
+    const from = moveIn.sources?.find(s => s.accounts.length || s.folders.length);
     previewEl.innerHTML = `<div class="welcome">${I.mail}<h2>${esc(t('Welcome to Telex'))}</h2>
 <p>${esc(t('Add your mail account to start. Telex keeps your mail on this PC and talks only to your mail servers.'))}</p>
-<button type="button" class="btn primary" data-act="add-account">${esc(t('Add your mail account'))}</button></div>`;
+<div class="wbtns"><button type="button" class="btn primary" data-act="add-account">${esc(t('Add your mail account'))}</button>
+${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(from.path)}">${esc(t('Bring everything from {program}', {program:programName(from.program)}))}</button>` : ''}</div></div>`;
     return;
   }
   if (state.picked.size > 1){
@@ -1829,7 +1864,7 @@ async function renderPreview(){
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${readButton(s)}${popout}${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
+${headerHtml(m, `${readButton(s)}${popout}${paper}${views}<span class="pill pflag"${s.flagged ? '' : ' hidden'}>${I.flag}${esc(t('Flagged'))}</span>`)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -1886,6 +1921,7 @@ previewEl.addEventListener('click', async e => {
   if (act.dataset.act === 'discard') discardCompose();
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
+  if (act.dataset.act === 'move-in') openMoveIn(act.dataset.path);
 });
 
 /* ---------- compose ---------- */
@@ -1948,21 +1984,21 @@ async function changeIdentity(id){
   previewEl.querySelector('.cnote').textContent = composeNote(c);
   if (!before || before === after) return;
   if (c.html == null){
-    if (c.body.includes(before)){ c.body = c.body.replace(before, after); $('c-body').value = c.body; }
+    if (c.body.includes(before)){ c.body = c.body.replace(before, () => after); $('c-body').value = c.body; }
     return;
   }
   // The signature went into the HTML line by line, the same way: swap those lines.
   const [b, a] = await Promise.all([invoke('text_to_html', {text:before}), after ? invoke('text_to_html', {text:after}) : '']);
   const ed = $('c-html');
   if (state.compose !== c || !ed || !ed.innerHTML.includes(b)) return;
-  ed.innerHTML = ed.innerHTML.replace(b, a);
+  ed.innerHTML = ed.innerHTML.replace(b, () => a); // a function: a "$&" in a signature stays as it is
 }
 // The HTML editor's formatting bar: the browser's own editing commands.
 const FORMATS = [['bold', '<b>B</b>', N_('Bold (Ctrl+B)')], ['italic', '<i>I</i>', N_('Italic (Ctrl+I)')], ['underline', '<u>U</u>', N_('Underline (Ctrl+U)')],
   ['strikeThrough', '<s>S</s>', N_('Strikethrough')], ['insertUnorderedList', I.ul, N_('Bulleted list')], ['insertOrderedList', I.ol, N_('Numbered list')],
   ['quote', I.quote, N_('Quote')], ['link', I.link, N_('Link (Ctrl+K)')], ['removeFormat', I.clear, N_('Clear formatting')]];
 function renderCompose(){
-  const c = state.compose, html = c.html != null, spell = String(pref().spell_check);
+  const c = state.compose, html = c.html != null;
   const title = {new:t('New message'), reply:t('Reply|compose title'), replyall:t('Reply to all|compose title'), forward:t('Forward|compose title'), edit:t('Edit|compose title')}[c.kind];
   const note = composeNote(c);
   const bcc = !!c.bcc || c.showBcc;
@@ -1973,14 +2009,14 @@ function renderCompose(){
   <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">
   <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" title="${esc(t('Blind copy: they get it, the others don’t see them'))}">${esc(t('Bcc'))}</button>`}</div>
   ${bcc ? `<label for="c-bcc">${esc(t('Bcc'))}</label><input id="c-bcc" value="${esc(c.bcc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">` : ''}
-  <label for="c-subj">${esc(t('Subject'))}</label><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="${spell}">
+  <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
 </div>
 <div id="c-attbox">${attsHtml(c.attachments, true)}</div>
 ${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
     `<button type="button" class="fb" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">${label}</button>`).join('')}<span class="flink" hidden><input id="c-url" type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>
-<div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="${spell}"></div>`
-  : `<textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="${spell}">
-${esc(c.body)}</textarea>`}
+<div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
+  : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
+${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>`}
 <div class="cbar">
   <button class="btn primary" type="submit"><span>${esc(t('Send'))}</span> <kbd>Ctrl+Enter</kbd></button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
@@ -1999,6 +2035,7 @@ ${esc(c.body)}</textarea>`}
   if (html){ body.innerHTML = c.html; wireEditor(body); }
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else focusStart(body);
+  wireSpelling();
 }
 /* ---------- recipient suggestions ---------- */
 // People come from the mail base (recipients): those written to first, then those who write
@@ -2006,7 +2043,7 @@ ${esc(c.body)}</textarea>`}
 // what was typed since the last comma; ↓ ↑ choose, Enter or Tab takes one, Esc closes.
 let RECIPS = null, recipsAsked = null;
 function loadRecipients(){
-  if (!recipsAsked) recipsAsked = invoke('recipients').then(r => { RECIPS = r; }).catch(() => { recipsAsked = null; });
+  if (!recipsAsked) recipsAsked = invoke('recipients').then(r => { RECIPS = r.map(withWords); }).catch(() => { recipsAsked = null; });
   return recipsAsked;
 }
 const forgetRecipients = () => { RECIPS = null; recipsAsked = null; };
@@ -2021,10 +2058,9 @@ function tokenStart(text){
   }
   return start;
 }
-function matchesTyped(p, typed){
-  const words = fold(p.name + ' ' + p.email.replace(/[@.]/g, ' ')).split(/\s+/);
-  return words.some(w => w.startsWith(typed)) || fold(p.email).startsWith(typed);
-}
+// Each person's words, folded once when the list comes: typing only compares.
+const withWords = p => ({...p, words:fold(p.name + ' ' + p.email.replace(/[@.]/g, ' ')).split(/\s+/), folded:fold(p.email)});
+const matchesTyped = (p, typed) => p.words.some(w => w.startsWith(typed)) || p.folded.startsWith(typed);
 const sugg = {input:null, list:[], at:0, el:null};
 function closeSuggestions(){
   sugg.el?.remove();
@@ -2122,14 +2158,14 @@ function dropSpot(x, y){
   const f = el.closest('[data-folder]');
   return {folder:f && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) !== 'trash' ? f : null};
 }
-window.__TAURI__?.event?.listen('files-over', ({payload}) => {
+listenHere('files-over', ({payload}) => {
   const f = payload ? dropSpot(payload[0], payload[1])?.folder ?? null : null;
   if (f === fileTarget) return;
   fileTarget?.classList.remove('dropok');
   f?.classList.add('dropok');
   fileTarget = f;
 });
-window.__TAURI__?.event?.listen('files-dropped', ({payload}) => {
+listenHere('files-dropped', ({payload}) => {
   fileTarget?.classList.remove('dropok'); fileTarget = null;
   if (document.querySelector('dialog[open]')) return; // not while a dialog is open
   const p = Array.isArray(payload) ? {files:payload} : payload; // the demo sends just the files
@@ -2193,6 +2229,205 @@ function wireEditor(ed){
     catch { document.execCommand('insertText', false, plain); }
   });
 }
+/* ---------- spelling ---------- */
+// Telex's own checker (spell.rs), in the languages of Settings › Writing: the words none of them
+// knows get a wavy line. A text field can't style its words, so in the subject and in plain text a
+// layer over the field (the same face, wrapping and scroll, and no pointer) draws the lines; the
+// HTML editor uses the CSS Custom Highlight API. Right-click or the menu key on one: suggestions,
+// Add to dictionary, Ignore. F7: the next one.
+const spellOf = new WeakMap(); // field → {seq, timer, found: [{s, l, word, range?}]}
+const spellIgnored = new Set(); // "Ignore", for this session
+const spellMarks = window.Highlight && CSS.highlights ? new Highlight() : null;
+if (spellMarks) CSS.highlights.set('spell', spellMarks);
+const spellFields = () => ['c-subj', 'c-body', 'c-html'].map($).filter(Boolean);
+// One observer for the layers' fields: a new compose lets go of the old ones.
+const spellResize = new ResizeObserver(entries => entries.forEach(e => syncLayer(e.target)));
+function wireSpelling(){
+  spellResize.disconnect();
+  for (const el of spellFields()){
+    spellOf.set(el, {seq:0, timer:0, found:[]});
+    el.addEventListener('input', () => scheduleSpelling(el));
+    el.addEventListener('contextmenu', e => spellMenuAt(el, e));
+    el.addEventListener('keydown', e => spellKeys(el, e));
+    if (el.id !== 'c-html'){
+      // An input scrolls sideways with the caret, without a scroll event.
+      for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => scrollLayer(el));
+      spellResize.observe(el);
+    }
+    scheduleSpelling(el, 0);
+  }
+  spellNudge();
+}
+const respell = () => spellFields().forEach(el => scheduleSpelling(el, 0));
+// Compose closed: its suggestions go, and the editor's marks let go of its words.
+function leftCompose(){
+  closeSuggestions();
+  spellMarks?.clear();
+}
+function scheduleSpelling(el, ms = 400){
+  const st = spellOf.get(el);
+  if (!st) return;
+  clearTimeout(st.timer);
+  st.timer = setTimeout(() => checkSpelling(el), ms);
+}
+// The HTML editor's words as one text, each text node on a line of its own (quotes and links
+// left out), and where each node starts in it.
+function editorText(ed){
+  const nodes = [];
+  let text = '';
+  const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()){
+    if (n.parentElement.closest('blockquote, a')) continue;
+    if (text) text += '\n';
+    nodes.push({node:n, at:text.length});
+    text += n.data;
+  }
+  return {text, nodes};
+}
+async function checkSpelling(el){
+  const st = spellOf.get(el);
+  if (!st || !el.isConnected) return;
+  const seq = ++st.seq, html = el.id === 'c-html';
+  const {text, nodes} = html ? editorText(el) : {text:el.value, nodes:null};
+  let found = [];
+  if (pref().spell_check && text.trim()){
+    try { found = await invoke('spell_check', {text}); } catch { return; }
+  }
+  if (seq !== st.seq || !el.isConnected) return;
+  st.found = found.map(([s, l]) => ({s, l, word:text.slice(s, s + l)})).filter(m => !spellIgnored.has(m.word)).sort((a, b) => a.s - b.s);
+  if (html) paintHighlights(st.found, nodes); else paintLayer(el, st.found);
+}
+function paintHighlights(found, nodes){
+  if (!spellMarks) return;
+  spellMarks.clear();
+  for (const m of found){
+    const at = nodes.findLast(n => n.at <= m.s);
+    if (!at || m.s + m.l > at.at + at.node.data.length) continue;
+    m.range = new Range();
+    m.range.setStart(at.node, m.s - at.at); m.range.setEnd(at.node, m.s - at.at + m.l);
+    spellMarks.add(m.range);
+  }
+}
+function paintLayer(el, found){
+  const layer = el.parentElement.querySelector('.spellmarks');
+  if (!layer) return;
+  const text = el.value;
+  let html = '', at = 0;
+  for (const m of found){
+    html += esc(text.slice(at, m.s)) + '<mark>' + esc(text.slice(m.s, m.s + m.l)) + '</mark>';
+    at = m.s + m.l;
+  }
+  // A last empty line still takes room in a textarea.
+  layer.innerHTML = html + esc(text.slice(at)) + (el.tagName === 'TEXTAREA' ? '\n ' : '');
+  syncLayer(el);
+}
+// The layer covers the field's text box exactly: inside its border, beside its scroll bar.
+function syncLayer(el){
+  const layer = el.parentElement?.querySelector('.spellmarks');
+  if (!layer) return;
+  const cs = getComputedStyle(el);
+  Object.assign(layer.style, {left:el.offsetLeft + el.clientLeft + 'px', top:el.offsetTop + el.clientTop + 'px',
+    width:el.clientWidth + 'px', height:el.clientHeight + 'px', padding:cs.padding, font:cs.font, letterSpacing:cs.letterSpacing,
+    lineHeight:cs.lineHeight, tabSize:cs.tabSize, textIndent:cs.textIndent});
+  scrollLayer(el);
+}
+// While typing only the scroll follows, and only when there are lines to keep in place.
+function scrollLayer(el){
+  if (!spellOf.get(el)?.found.length) return;
+  const layer = el.parentElement?.querySelector('.spellmarks');
+  if (layer){ layer.scrollTop = el.scrollTop; layer.scrollLeft = el.scrollLeft; }
+}
+const within = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+// The misspelt word under the pointer, if there is one.
+function spellHit(el, x, y){
+  const found = spellOf.get(el)?.found ?? [];
+  if (el.id === 'c-html') return found.find(m => m.range && [...m.range.getClientRects()].some(r => within(r, x, y)));
+  const marks = [...(el.parentElement.querySelector('.spellmarks')?.querySelectorAll('mark') ?? [])];
+  const i = marks.findIndex(mk => [...mk.getClientRects()].some(r => within(r, x, y)));
+  return i < 0 ? null : found[i];
+}
+function spellMenuAt(el, e){
+  const m = spellHit(el, e.clientX, e.clientY);
+  if (!m) return; // the browser's own menu: cut, copy, paste
+  e.preventDefault();
+  openSpellMenu(el, m, e.clientX, e.clientY);
+}
+async function openSpellMenu(el, m, x, y){
+  let list = [];
+  try { list = await invoke('spell_suggest', {word:m.word}); } catch {}
+  const items = list.length ? list.map(s => ({label:s, run:() => fixMistake(el, m, s)}))
+    : [{label:t('No suggestions'), disabled:true, run(){}}];
+  items.push({sep:true},
+    {label:t('Add “{word}” to the dictionary', {word:m.word}), run:() => addWord(el, m.word)},
+    {label:t('Ignore|spelling'), run:() => { spellIgnored.add(m.word); el.focus(); respell(); }});
+  openMenu(x, y, items, el);
+}
+// The word as the menu found it, if the text still has it there.
+function selectWord(el, m){
+  el.focus();
+  if (el.id === 'c-html'){
+    if (!m.range || m.range.toString() !== m.word) return false;
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(m.range);
+    return true;
+  }
+  if (el.value.slice(m.s, m.s + m.l) !== m.word) return false;
+  el.setSelectionRange(m.s, m.s + m.l);
+  return true;
+}
+function fixMistake(el, m, word){
+  // insertText keeps Ctrl+Z working, and the input event checks again.
+  if (selectWord(el, m)) document.execCommand('insertText', false, word);
+}
+async function addWord(el, word){
+  el.focus();
+  try { await invoke('spell_add', {word}); } catch (e){ say(tr(e), 8000); return; }
+  respell();
+  say(t('“{word}” is in your dictionary now.', {word}));
+}
+// Where the selection starts (or ends), in the text the checker got.
+function caretAt(el, end){
+  if (el.id !== 'c-html') return (end ? el.selectionEnd : el.selectionStart) ?? 0;
+  const sel = getSelection();
+  if (!sel.rangeCount) return 0;
+  const r = sel.getRangeAt(0), node = end ? r.endContainer : r.startContainer;
+  const n = editorText(el).nodes.find(x => x.node === node);
+  return n ? n.at + (end ? r.endOffset : r.startOffset) : 0;
+}
+function menuForMistake(el, m){
+  if (!selectWord(el, m)) return;
+  const r = el.id === 'c-html' ? m.range.getBoundingClientRect()
+    : [...el.parentElement.querySelectorAll('.spellmarks mark')][spellOf.get(el).found.indexOf(m)]?.getBoundingClientRect();
+  if (r) openSpellMenu(el, m, r.left, r.bottom + 2);
+}
+function spellKeys(el, e){
+  const found = spellOf.get(el)?.found ?? [];
+  if (e.key === 'F7' && !e.ctrlKey && !e.altKey){
+    // The next mistake after the caret, then from the top.
+    e.preventDefault(); e.stopPropagation();
+    const at = caretAt(el, true), next = found.find(m => m.s >= at) ?? found[0];
+    if (next) menuForMistake(el, next); else say(t('No spelling mistakes here.'));
+  } else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)){
+    const at = caretAt(el), m = found.find(x => at >= x.s && at <= x.s + x.l);
+    if (!m) return; // the browser's own menu
+    e.preventDefault(); e.stopPropagation();
+    menuForMistake(el, m);
+  }
+}
+// Once a session, when the language Telex speaks has no dictionary yet but one can be fetched.
+let spellNudged = false;
+async function spellNudge(){
+  if (spellNudged || !pref().spell_check || VIEWER) return;
+  spellNudged = true;
+  let info;
+  try { info = await invoke('spell_languages'); } catch { return; }
+  const missing = info.missing?.[0];
+  if (missing) say(t('{language} spelling isn’t on this PC yet: Settings › Writing can fetch it.', {language:langName(missing)}), 9000);
+}
+// "pl-PL" → "polski (Polska)", in the interface's language.
+function langName(tag){
+  try { return new Intl.DisplayNames([I18n.lang()], {type:'language'}).of(tag) ?? tag; } catch { return tag; }
+}
+
 // Switch the message between plain text and HTML. Plain text drops the formatting.
 async function setFormat(fmt){
   const c = readCompose();
@@ -2250,7 +2485,7 @@ function saveCompose(){
 async function discardCompose(){
   const c = readCompose();
   state.compose = null;
-  closeSuggestions();
+  leftCompose();
   renderPreview();
   listEl.focus();
   const autosaved = c.autosaved;
@@ -2286,7 +2521,7 @@ function readCompose(){
 async function closeCompose(){
   if (!await saveCompose()) return false;
   state.compose = null;
-  closeSuggestions();
+  leftCompose();
   renderPreview();
   await refresh();
   listEl.focus();
@@ -2315,7 +2550,7 @@ async function send(){
   try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c)}); c.done = true; return r; }); }
   catch { btn.disabled = false; label.textContent = t('Send'); return; } // e.g. a bad address: fix it and try again
   state.compose = null;
-  closeSuggestions();
+  leftCompose();
   forgetRecipients(); // someone new may be in it
   if (VIEWER){
     const sent = sentText(r.sent);
@@ -2375,11 +2610,12 @@ function toggleFlag(){
 }
 // One message flagged or not: F, the flag in its row, the menu.
 function setFlagged(m, flagged){
-  const shown = () => { if (!state.compose && m.id === current()?.id) renderPreview(); };
-  changed(m, {flagged}); shown();
+  // The pill above the message, without drawing the message again.
+  const shown = on => { const pill = m.id === current()?.id && previewEl.querySelector('.pflag'); if (pill) pill.hidden = !on; };
+  changed(m, {flagged}); shown(flagged);
   call('set_flagged', {id:m.id, flagged})
     .then(() => { say(flagged ? t('Flagged.') : t('Flag removed.'), 2000); reorder(); })
-    .catch(() => { changed(m, {flagged:!flagged}); shown(); });
+    .catch(() => { changed(m, {flagged:!flagged}); shown(!flagged); });
 }
 // One message read or unread: U, the dot in its row, the envelope above it, the menu. Marked
 // unread by hand, it stays so while it is on screen.
@@ -2593,7 +2829,7 @@ function leaveThread(){
 // account: only that account's Inbox, because IDLE said something changed there.
 let checkAgain = null; // asked for while a check was running; runs when it ends
 async function getMail({quiet = false, first = false, account = null} = {}){
-  const n = ACCOUNTS.filter(a => a.imap).length;
+  const n = servers().length;
   if (!n){ if (!quiet) openAccountDialog(); return; } // nothing to check yet
   const b = $('b-get');
   if (b.classList.contains('busy')){
@@ -2608,8 +2844,7 @@ async function getMail({quiet = false, first = false, account = null} = {}){
     if (r.busy){ setTimeout(() => getMail({quiet, first, account}), 2000); return; } // changes are being sent
     forgetRecipients();
     lastCheck = new Date();
-    await refresh();
-    loadUsage(); // the quota and how the sync went came with the check
+    await refresh(); // the quota and how the check went come with the tree
     const ids = r.new;
     let text = '';
     if (first) text = tn(ids.length, '{n} message downloaded.', '{n} messages downloaded.');
@@ -2827,13 +3062,29 @@ let editing = null;     // id of the account being edited, or null when adding
 let wizardSeq = 0;      // each run gets a number; answers for an older run are dropped
 let wizardBusy = null;  // 'find' or 'login' while the wizard works
 let accountView = 'home';
-const ACCOUNT_VIEWS = {home:'a-home', start:'w-start', work:'w-work', form:'acct-form', ids:'i-list-view', idform:'i-form', folders:'f-view'};
+const ACCOUNT_VIEWS = {home:'a-home', start:'w-start', work:'w-work', form:'acct-form', ids:'i-list-view', idform:'i-form', folders:'f-view', away:'away-view'};
 function showAccountView(view){
   accountView = view;
   for (const [v, id] of Object.entries(ACCOUNT_VIEWS)) $(id).hidden = v !== view;
   if (view === 'home') renderAccountList();
+  if (view === 'start') offerMoveIn();
   sdlg.querySelector('.setpanes').scrollTop = 0;
 }
+
+// Adding an account while another mail program on this PC has some: all of them can come at once.
+function offerMoveIn(){
+  const el = $('w-move');
+  const show = () => {
+    const from = moveIn.sources?.find(src => src.accounts.some(canAdd));
+    el.hidden = !from || accountView !== 'start';
+    if (!from) return;
+    const n = from.accounts.filter(canAdd).length;
+    el.innerHTML = esc(tn(n, '{program} is on this PC with {n} account.', '{program} is on this PC with {n} accounts.', {program:programName(from.program)}))
+      + ` <button type="button" class="linkbtn" data-path="${esc(from.path)}">${esc(t('Bring them all, with their mail'))}</button>`;
+  };
+  if (moveIn.sources) show(); else findPrograms().then(show);
+}
+$('w-move').addEventListener('click', e => { const b = e.target.closest('[data-path]'); if (b) openMoveIn(b.dataset.path); });
 
 // The core sends tips and reasons as codes; the words are here, to translate with the rest.
 const NOTE_TEXT = {
@@ -2888,15 +3139,16 @@ $('w-lang').addEventListener('click', async e => {
 });
 // Each account: who it is, where its servers are, how the last check went.
 function renderAccountList(){
-  const real = ACCOUNTS.filter(a => a.imap), usage = Object.fromEntries((USAGE?.accounts ?? []).map(u => [u.account, u]));
+  const real = servers();
   $('a-list').innerHTML = real.length ? real.map((a, i) => {
-    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = usage[a.id];
+    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = {sync_error:PROBLEMS[a.id], synced_at:SYNCED[a.id]};
     // Their order in the folder tree, when there is more than one.
     const order = real.length < 2 ? '' : `<button type="button" class="btn icon" data-up="${esc(a.id)}" title="${esc(t('Move up'))}" aria-label="${esc(t('Move {email} up', {email:a.email}))}"${i ? '' : ' disabled'}>↑</button>`
       + `<button type="button" class="btn icon" data-down="${esc(a.id)}" title="${esc(t('Move down'))}" aria-label="${esc(t('Move {email} down', {email:a.email}))}"${i < real.length - 1 ? '' : ' disabled'}>↓</button>`;
     const sync = u?.sync_error ? `<div class="st warn" title="${esc(u.sync_error)}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</div>`
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
     return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="nm">${esc(a.name)}</div><div class="em" title="${esc(where)}">${esc(where)}</div>${sync}</div>${order}`
+      + `<button type="button" class="btn${awayOn(a.id) ? ' on' : ''}" data-away="${esc(a.id)}" title="${esc(awayOn(a.id) ? t('Auto-reply is on') : t('Auto-reply while you’re away'))}">${esc(t('Auto-reply'))}</button>`
       + `<button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
   $('a-list-err').textContent = '';
@@ -2958,6 +3210,12 @@ wForm.addEventListener('submit', async e => {
   if (d.unsupported){ showAccountView('start'); hint($('w-hint'), d); $('w-email').focus(); return; }
   finishStep('done', t('Found {servers}', {servers:serverNames(d.setup)}), SOURCE_TEXT[d.source]?.(d) ?? '');
   const setup = {...d.setup, name, email};
+  // Servers outside the address's domain that only DNS named: nothing is sent until the user
+  // has looked (a forged DNS answer could have named them).
+  if (d.confirm){
+    openForm({...setup, password}, '', d, t('Telex found {servers} through your domain’s DNS. They aren’t part of {domain}: check with your provider that they are its servers, then Connect.', {servers:serverNames(d.setup), domain}));
+    return;
+  }
   wizardBusy = 'login';
   $('w-stop').disabled = true; // the account is saved the moment the login works
   step(t('Logging in to {servers}', {servers:serverNames(d.setup)}));
@@ -3097,15 +3355,93 @@ $('a-list').addEventListener('click', async e => {
   if (ids){ openIdentities(ids.dataset.ids); return; }
   const fo = e.target.closest('[data-folders]');
   if (fo){ openFolderChoices(fo.dataset.folders); return; }
+  const aw = e.target.closest('[data-away]');
+  if (aw){ openAway(aw.dataset.away); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = t('Remove it and its local mail'); return; }
   try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ $('a-list-err').textContent = tr(err); return; }
   await refresh();
-  await loadUsage();
   renderAccountList();
   say(t('Account removed from Telex. The mail on the server is untouched.'));
 });
+
+/* ---------- away reply ---------- */
+// Per account, what people get while the user is away. Saved, it goes onto the server where the
+// server takes it (ManageSieve): it answers even while Telex is closed, and keeps to the days
+// itself. Elsewhere Telex answers new mail when it checks. The status bar says while one is on.
+const AWAY_DAYS = [1, 2, 3, 4, 7, 14, 30];
+let awayOf = null, awayData = null, awayBusy = false;
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+// On, and today within its days (or before them: it is set).
+const awayOn = id => AWAY.some(a => a.account === id && (!a.ends || a.ends >= ymd(new Date())));
+async function openAway(account){
+  if (!ACCT[account]){ showAccountView('home'); return; }
+  awayOf = account; awayData = null;
+  if (!sdlg.open || setTab !== 'accts') openSettings('accts');
+  showAccountView('away');
+  $('away-title').textContent = t('Auto-reply') + ' · ' + ACCT[account].email;
+  $('away-err').textContent = '';
+  try { awayData = await invoke('get_away', {account}); } catch (e){ $('away-err').textContent = tr(e); return; }
+  if (awayOf !== account) return;
+  fillAway(awayData, null);
+  $('away-on').focus();
+}
+function fillAway(a, why){
+  $('away-on').checked = a.enabled;
+  $('away-from').value = a.starts ?? ''; $('away-until').value = a.ends ?? '';
+  $('away-subj').value = a.subject;
+  $('away-body').value = a.body || [t('Hello,|away'), '', t('I’m away and will answer your message when I’m back.'), '', t('Best regards|away')].join('\n');
+  $('away-days').innerHTML = AWAY_DAYS.map(n => `<option value="${n}"${n === a.days ? ' selected' : ''}>${esc(tn(n, 'at most once a day', 'at most once in {n} days'))}</option>`).join('');
+  paintAwayWhere(a, why);
+}
+// Why the server didn't take it, in words.
+function awayWhy(why){
+  const words = {no_server:t('your server doesn’t take automatic replies from mail programs'), no_tls:t('your server’s filter service doesn’t encrypt the connection'),
+    no_vacation:t('your server’s filters can’t send automatic replies'), no_dates:t('your server’s filters can’t keep to dates')}[why.code];
+  return words ?? tr(why.detail);
+}
+function paintAwayWhere(a, why){
+  const el = $('away-where');
+  let text = '';
+  if (why && !a.enabled && a.place === 'server') text = t('Telex couldn’t take it off the server: {why}. Save again to try once more.', {why:awayWhy(why)});
+  else if (a.enabled && a.place === 'server') text = t('On the server: it answers even while Telex is closed, and keeps to the days by itself.');
+  else if (a.enabled) text = why ? t('Telex answers new mail when it checks, while it is open: {why}.', {why:awayWhy(why)}) : t('Telex answers new mail when it checks, while it is open.');
+  el.hidden = !text; el.textContent = text;
+  el.classList.toggle('warn', !!why && a.place === 'server' && !a.enabled);
+}
+$('away-view').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (awayBusy || !awayData) return;
+  const a = {...awayData, enabled:$('away-on').checked, starts:$('away-from').value || null, ends:$('away-until').value || null,
+    subject:$('away-subj').value.trim(), body:$('away-body').value, days:Number($('away-days').value)};
+  awayBusy = true; $('away-save').disabled = true; $('away-err').textContent = '';
+  const where = $('away-where');
+  where.hidden = false; where.classList.remove('warn');
+  where.textContent = a.enabled ? t('Asking your server whether it can answer for you…') : t('Saving…');
+  let r;
+  try { r = await invoke('save_away', {away:a}); }
+  catch (err){ $('away-err').textContent = tr(err); paintAwayWhere(awayData, null); return; }
+  finally { awayBusy = false; $('away-save').disabled = false; }
+  awayData = r.away;
+  paintAwayWhere(r.away, r.why);
+  await loadTree(); renderStatus();
+  say(!r.away.enabled ? t('Auto-reply is off.') : r.away.place === 'server' ? t('Auto-reply is on, on the server.') : t('Auto-reply is on: Telex answers while it is open.'));
+});
+$('away-back').addEventListener('click', () => showAccountView('home'));
+// While a reply is on: a chip on the right; a click opens it.
+function renderAway(){
+  const b = $('st-away'), on = VIEWER ? [] : AWAY.filter(a => awayOn(a.account) && ACCT[a.account]);
+  b.hidden = !on.length;
+  if (!on.length) return;
+  b.textContent = on.length === 1 ? t('Auto-reply on') : tn(on.length, 'Auto-reply on · {n} account', 'Auto-reply on · {n} accounts', {n:num(on.length)});
+  b.title = on.map(a => {
+    const days = a.starts && a.ends ? t('{from} to {to}', {from:fmtDay(a.starts), to:fmtDay(a.ends)}) : a.ends ? t('until {day}', {day:fmtDay(a.ends)}) : a.starts ? t('from {day}', {day:fmtDay(a.starts)}) : '';
+    return [ACCT[a.account].email, days, a.place === 'server' ? t('on the server') : t('Telex answers')].filter(Boolean).join(' · ');
+  }).join('\n');
+}
+const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString(I18n.lang() === 'pl' ? 'pl-PL' : 'en-GB');
+$('st-away').addEventListener('click', () => { const a = AWAY.find(x => awayOn(x.account)); if (a) openAway(a.account); });
 
 /* ---------- which folder is which ---------- */
 // Per account, the server folder Telex uses for sent mail, drafts, archive, spam and trash.
@@ -3454,7 +3790,6 @@ function renderSettings(keepFocus){
   $('s-updates').innerHTML = radios('updates', UPDATE_CHOICES.map(v => [v, esc(updatesText(v))]), s.updates === 'ask' ? '' : s.updates);
   $('s-updates').querySelectorAll('input').forEach(i => { i.disabled = !can; });
   $('s-upd-none').hidden = can; $('s-check').hidden = !can;
-  renderMove();
   paneOpened(setTab);
   if (again) sdlg.querySelector(again)?.focus();
 }
@@ -3464,9 +3799,11 @@ function paneOpened(tab){
     if (accountView === 'home') renderAccountList();
     else if (accountView === 'ids') showIdentityList();
     else if (accountView === 'folders') showFolderChoices();
+    else if (accountView === 'away') openAway(awayOf);
     else if (accountView === 'start') renderLangPick();
   }
   if (tab === 'read') renderTrusted();
+  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); }
   if (tab === 'use') renderUsage();
   if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
@@ -3494,6 +3831,7 @@ const undoText = n => n === 0 ? t('Off: send at once') : tn(n, '{n} second', '{n
 function openSettings(tab){
   if (tab) setTab = tab;
   move_ = {plan:null, choice:null, report:null, exported:move_.exported, error:'', counts:null};
+  if (!moveIn.running) moveIn = {...moveIn, source:null, report:null, error:'', passwords:{}};
   renderSettings();
   if (!sdlg.open) sdlg.showModal();
   sdlg.querySelector(`[role="tab"][data-tab="${setTab}"]`).focus();
@@ -3532,13 +3870,15 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
   else if (el.name === 'reply_format') changeSettings({reply_format:v});
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
-  else if (el.id === 's-spell') changeSettings({spell_check:el.checked});
+  else if (el.id === 's-spell') changeSettings({spell_check:el.checked}).then(respell);
+  else if (el.dataset.spell) toggleSpellLanguage(el);
   else if (el.id === 's-every') changeSettings({check_every:Number(v)});
   else if (el.id === 's-push') changeSettings({push_mail:el.checked});
   else if (el.id === 's-notify') changeSettings({notify:el.checked});
   else if (el.id === 's-undo') changeSettings({undo_send:Number(v)});
   else if (el.name === 'updates') changeSettings({updates:v}).then(ok => ok && autoCheck(true));
   else if (el.name === 'backup_every') changeSettings({backup_every:v}).then(ok => { if (ok){ renderTree(); autoBackup(); } });
+  else if (el.dataset.mv) moveInTick(el);
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
 forcedColors.addEventListener('change', () => { if (sdlg.open) $('s-forced').hidden = !forcedColors.matches; });
@@ -3557,7 +3897,7 @@ sdlg.addEventListener('close', () => {
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Account colors'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
-  spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
+  spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
 function settingValue(key, v){
@@ -3580,6 +3920,7 @@ function settingValue(key, v){
     case 'undo_send': return undoText(v);
     case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
     case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
+    case 'spell_languages': return v.length ? v.map(langName).join(', ') : t('Automatic|languages');
     default: return String(v);
   }
 }
@@ -3589,6 +3930,7 @@ function skipText(s){
   if (s.code === 'no_account') return t('{email} isn’t set up here yet', {email:s.email});
   if (s.code === 'no_folder') return t('no folder “{folder}” here', {folder:s.folder});
   if (s.code === 'unreadable') return t('from a newer Telex, or edited by hand');
+  if (s.code === 'unsupported') return t('Telex can’t do “{what}”', {what:s.what});
   return tr(s.detail ?? '');
 }
 function counted(items){
@@ -3609,16 +3951,18 @@ function planSection(part, title, items){
 }
 function renderMove(){
   const el = $('s-move'), p = move_.plan;
+  if (moveIn.source){ renderSource(el); return; }
   if (!p){
     const c = move_.counts;
-    const n = (k, text) => c ? ` <small class="sdim">${esc(tn(c[k], text, text))}</small>` : '';
-    el.innerHTML = `<h3 class="rh">${esc(t('Export'))}</h3>
+    const n = (k, one, other) => c ? ` <small class="sdim">${esc(tn(c[k], one, other))}</small>` : '';
+    if (!moveIn.sources) findPrograms().then(() => { if (sdlg.open && setTab === 'move' && !moveIn.source && !move_.plan) renderMove(); });
+    el.innerHTML = movingSection() + `<h3 class="rh">${esc(t('Export'))}</h3>
 <p class="dnote">${esc(t('Save your settings to a file, to set up Telex on another PC or keep a copy. The file holds no passwords.'))}</p>
 <div class="sopts">
   <label class="sopt"><input type="checkbox" data-ex="settings" checked><span>${esc(t('Settings: theme, language, rows, mail checks'))}</span></label>
-  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules'))}</span>${n('rules', N_('{n} rule'))}</label>
-  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities and signatures'))}</span>${n('identities', N_('{n} identity'))}</label>
-  <label class="sopt"><input type="checkbox" data-ex="servers" checked><span>${esc(t('Account servers and user names'))}</span>${n('accounts', N_('{n} account'))}</label>
+  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules'))}</span>${n('rules', N_('{n} rule'), '{n} rules')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities and signatures'))}</span>${n('identities', N_('{n} identity'), '{n} identities')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="servers" checked><span>${esc(t('Account servers and user names'))}</span>${n('accounts', N_('{n} account'), '{n} accounts')}</label>
 </div>
 <div class="sbtns"><button class="btn primary" type="button" id="s-export">${esc(t('Export…'))}</button>
 ${move_.exported ? `<span class="sdone">${esc(t('Saved to {path}.', {path:move_.exported}))} <button type="button" class="linkbtn" id="s-show">${esc(t('Show in folder'))}</button></span>` : ''}</div>
@@ -3663,19 +4007,39 @@ ${r ? accounts : settings + planSection('rules', t('Rules'), p.rules) + planSect
 async function countThings(){
   let rules = [];
   try { rules = await invoke('list_rules'); } catch {}
-  const real = ACCOUNTS.filter(a => a.imap);
+  const real = servers();
   move_.counts = {rules:rules.length, identities:real.reduce((n, a) => n + (a.identities?.length ?? 0), 0), accounts:real.length};
-  if (sdlg.open && !move_.plan) renderMove();
+  if (sdlg.open && setTab === 'move' && !move_.plan) renderMove();
 }
-const dateStamp = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 function importError(e){
   if (e?.code === 'not_json' || e?.code === 'not_telex') return t('This isn’t a Telex settings file. Choose a file that Telex exported.');
   if (e?.code === 'unreadable') return t('Telex couldn’t read the file: {detail}', {detail:e.detail});
   return tr(e?.detail ?? e);
 }
+$('s-move').addEventListener('input', e => {
+  const key = e.target.dataset?.pw;
+  if (key) moveIn.passwords[key] = e.target.value;
+});
 $('s-move').addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.source){ const src = moveIn.sources?.find(x => x.path === b.dataset.source); if (src) chooseSource(src); return; }
+  if (b.id === 'mv-pst' || b.id === 'mv-dir'){
+    let src;
+    try {
+      src = await invoke('open_source', {folder:b.id === 'mv-dir', words:b.id === 'mv-dir'
+        ? {title:t('Choose a folder of mail: Maildir, MH, or a Thunderbird profile'), filter:''}
+        : {title:t('Choose an Outlook data file'), filter:t('Outlook data files')}});
+    } catch (err){ move_.error = tr(err); renderMove(); return; }
+    if (src) chooseSource(src);
+    return;
+  }
+  if (b.id === 'mv-go'){ bringIn(); return; }
+  if (b.id === 'mv-back' || b.id === 'mv-done'){
+    moveIn = {...moveIn, source:null, report:null, error:'', passwords:{}};
+    renderMove();
+    return;
+  }
   move_.error = '';
   if (b.id === 's-export'){
     const choice = {};
@@ -3684,7 +4048,7 @@ $('s-move').addEventListener('click', async e => {
     let path;
     try {
       path = await invoke('export_settings', {choice, words:{title:t('Export Telex settings'), filter:t('Telex settings'),
-        file_name:t('Telex settings {date}', {date:dateStamp(new Date())}) + '.json'}});
+        file_name:t('Telex settings {date}', {date:ymd(new Date())}) + '.json'}});
     } catch (err){ move_.error = tr(err); renderMove(); return; }
     if (!path) return; // cancelled
     move_.exported = path; renderMove();
@@ -3722,6 +4086,193 @@ $('s-move').addEventListener('click', async e => {
     editing = null;
     openForm(a.setup, '', null, t('The servers come from the settings file: {servers}. Check them before you enter your password.', {servers}));
   }
+});
+
+// Moving in from another mail program (Thunderbird, Outlook, Maildir folders): what it has is
+// found on this PC only; the user ticks accounts (typing their passwords), mail kept on the PC
+// and filters; the core adds them and reads the mail into folders on this PC.
+let moveIn = {sources:null, finding:null, source:null, choice:null, passwords:{}, running:null, report:null, error:''};
+const PROGRAMS = {thunderbird:'Thunderbird', betterbird:'Betterbird', seamonkey:'SeaMonkey', postbox:'Postbox', outlook:'Outlook', evolution:'Evolution', kmail:'KMail', folder:N_('Mail folder')};
+const programName = p => p === 'folder' ? t(PROGRAMS.folder) : PROGRAMS[p] ?? p;
+const BLOCKED = {oauth:N_('signs in with Google or Microsoft, which Telex can’t do yet'), pop3:N_('POP3: Telex reads mail over IMAP; its mail on this PC can come along below'),
+  exchange:N_('Exchange or Microsoft 365: Telex can’t sign in there yet')};
+const canAdd = a => !a.present && !a.blocked;
+function findPrograms(){
+  moveIn.finding ??= invoke('find_programs').then(list => { moveIn.sources = list; }, () => { moveIn.sources = []; }).finally(() => { moveIn.finding = null; });
+  return moveIn.finding;
+}
+// What a source holds, in a line: "40 accounts · 2.1 GB of mail · 5 filters".
+function sourceSummary(s){
+  const mail = s.folders.reduce((n, f) => n + f.bytes, 0);
+  return [s.accounts.length ? tn(s.accounts.length, '{n} account', '{n} accounts') : '',
+    s.folders.length ? t('{size} of mail', {size:fmtSize(Math.ceil(mail / 1024))}) : '',
+    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : ''].filter(Boolean).join(' · ');
+}
+function openMoveIn(path){
+  openSettings('move');
+  const s = moveIn.sources?.find(x => x.path === path);
+  if (s) chooseSource(s);
+}
+function chooseSource(s){
+  moveIn = {...moveIn, source:s, report:null, running:null, error:'', passwords:{}, choice:{
+    accounts:new Set(s.accounts.filter(canAdd).map(a => a.key)),
+    folders:new Set(s.folders.filter(f => f.tick).map(f => f.key)),
+    filters:s.filters > 0}};
+  renderMove();
+  sdlg.querySelector('#s-move input:not([disabled])')?.focus();
+}
+function movingSection(){
+  const list = moveIn.sources;
+  const found = list === null ? `<p class="dnote">${esc(t('Looking for mail programs on this PC…'))}</p>`
+    : list.length ? `<ul class="ilist mvlist">${list.map(s => `<li><span class="iname">${esc(programName(s.program))}</span><span class="iwhy" title="${esc(s.path)}">${esc(s.name)} · ${esc(sourceSummary(s))}</span>`
+      + `<button type="button" class="btn" data-source="${esc(s.path)}">${esc(t('Bring in…'))}</button></li>`).join('')}</ul>`
+    : `<p class="dnote">${esc(t('No other mail program found on this PC.'))}</p>`;
+  return `<h3 class="rh">${esc(t('From another mail program'))}</h3>
+<p class="dnote">${esc(t('Thunderbird, Outlook and others: their accounts with identities and signatures, the mail they keep on this PC, and their filters. Telex looks only on this PC.'))}</p>
+${found}
+<div class="sbtns"><button class="btn" type="button" id="mv-pst">${esc(t('Outlook data file (.pst)…'))}</button><button class="btn" type="button" id="mv-dir">${esc(t('A folder of mail…'))}</button></div>`;
+}
+// Ticked or not, as the user left it.
+const ticked = (on, attrs) => `<input type="checkbox" ${attrs}${on ? ' checked' : ''}>`;
+function renderSource(el){
+  const s = moveIn.source, c = moveIn.choice, r = moveIn.report, run = moveIn.running;
+  const title = `<h3 class="rh">${esc(programName(s.program))} · ${esc(s.name)}</h3>`;
+  if (run){
+    const order = ['accounts', 'mail', 'rules'], at = order.indexOf(run.step);
+    const step = (id, label, small) => `<li class="${run.step === id ? 'work' : order.indexOf(id) < at ? 'done' : ''}">${esc(label)}${small ? `<small>${esc(small)}</small>` : ''}</li>`;
+    const size = n => fmtSize(Math.ceil(n / 1024));
+    const accounts = c.accounts.size ? step('accounts', run.step === 'accounts' ? t('Adding accounts: {done} of {total}', {done:run.done, total:run.total}) : t('Adding accounts'),
+      run.step === 'accounts' ? run.name : '') : '';
+    const mail = c.folders.size ? step('mail', run.step === 'mail' ? t('Reading mail: {done} of {total}', {done:size(run.done), total:size(run.total)}) : t('Reading mail'),
+      run.step === 'mail' ? run.name : '') : '';
+    const rules = c.filters ? step('rules', t('Making rules of the filters'), '') : '';
+    const bar = run.step === 'mail' && run.total ? `<div class="ubar mvbar"><i style="width:${Math.min(100, run.done / run.total * 100).toFixed(1)}%"></i></div>` : '';
+    el.innerHTML = `${title}<ul class="wsteps" aria-live="polite">${accounts}${mail}${rules}</ul>${bar}
+<p class="dnote">${esc(t('Telex keeps working meanwhile. Mail already here isn’t brought twice.'))}</p>`;
+    return;
+  }
+  if (r){
+    const ok = r.accounts.filter(a => !a.error), bad = r.accounts.filter(a => a.error);
+    const made = r.rules.filter(i => i.status === 'add' || i.status === 'update').length;
+    const lines = [ok.length ? tn(ok.length, '{n} account added', '{n} accounts added') : '',
+      r.mail.added ? tn(r.mail.added, '{n} message in folders on this PC', '{n} messages in folders on this PC', {n:num(r.mail.added)}) : '',
+      r.mail.already ? tn(r.mail.already, '{n} was here already', '{n} were here already', {n:num(r.mail.already)}) : '',
+      made ? tn(made, '{n} rule', '{n} rules') : ''].filter(Boolean);
+    const accounts = r.accounts.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Accounts'))}</b><span>${esc(bad.length ? tn(bad.length, '{n} needs attention', '{n} need attention') : t('all logged in'))}</span></div>`
+      + `<ul class="ilist">${r.accounts.map(a => `<li><span class="ist ${a.error ? 'skip' : 'add'}">${esc(a.error ? t('Check|account') : t('Added|account'))}</span><span class="iname">${esc(a.email)}</span>`
+      + `<span class="iwhy" title="${esc(a.error ? tr(a.error) : '')}">${esc(a.error ? tr(a.error) : '')}</span></li>`).join('')}</ul>`
+      + (bad.length ? `<p class="dnote">${esc(t('Fix these in Settings › Accounts › Edit: the account is there and needs its password or servers.'))}</p>` : '') + '</section>' : '';
+    const rules = r.rules.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Filters'))}</b><span>${esc(counted(r.rules))}</span></div>${planItems(r.rules)}</section>` : '';
+    el.innerHTML = `${title}<p class="whint">${esc(lines.length ? lines.join(', ') + '.' : t('Nothing needed bringing.'))}</p>
+${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${rules}
+<div class="sbtns"><button class="btn primary" type="button" id="mv-done">${esc(t('Done'))}</button></div>`;
+    return;
+  }
+  const addable = s.accounts.filter(canAdd);
+  const accounts = s.accounts.length ? `<section class="ipart"><label class="ihead">${ticked(addable.length && addable.every(a => c.accounts.has(a.key)), `data-mv="all-accounts"${addable.length ? '' : ' disabled'}`)}`
+    + `<b>${esc(t('Accounts'))}</b><span>${esc(tn(c.accounts.size, '{n} to add', '{n} to add'))}</span></label><ul class="ilist mvaccts">${s.accounts.map(a => {
+      const why = a.present ? t('already in Telex') : a.blocked ? t(BLOCKED[a.blocked] ?? a.blocked) : `${a.setup.email} · ${a.setup.host}`;
+      const pw = canAdd(a) ? `<input type="password" class="mvpw" data-pw="${esc(a.key)}" value="${esc(moveIn.passwords[a.key] ?? '')}" placeholder="${esc(t('Password'))}" aria-label="${esc(t('Password for {email}', {email:a.setup.email}))}" autocomplete="off"${c.accounts.has(a.key) ? '' : ' disabled'}>` : '';
+      return `<li><label class="mvpick">${ticked(c.accounts.has(a.key), `data-mv="account" data-key="${esc(a.key)}"${canAdd(a) ? '' : ' disabled'}`)}<span class="iname">${esc(a.setup.name || a.setup.email)}</span></label>`
+        + `<span class="iwhy" title="${esc(why)}">${esc(why)}</span>${pw}</li>`;
+    }).join('')}</ul><p class="dnote">${esc(t('Type each password once; Telex keeps it in the system’s password store. An account left without one is added anyway and asks for it in Settings › Accounts. Mail on the servers isn’t copied from here: Telex downloads it from them.'))}</p></section>` : '';
+  const total = s.folders.filter(f => c.folders.has(f.key)).reduce((n, f) => n + f.bytes, 0);
+  const folders = s.folders.length ? `<section class="ipart"><label class="ihead">${ticked(s.folders.every(f => c.folders.has(f.key)), 'data-mv="all-folders"')}`
+    + `<b>${esc(t('Mail on this PC'))}</b><span>${esc(c.folders.size ? fmtSize(Math.ceil(total / 1024)) : t('none ticked'))}</span></label><ul class="ilist">${s.folders.map(f =>
+      `<li><label class="mvpick">${ticked(c.folders.has(f.key), `data-mv="folder" data-key="${esc(f.key)}"`)}<span class="iname">${esc(f.name)}</span></label>`
+      + `<span class="iwhy">${esc([f.messages != null ? tn(f.messages, '{n} message', '{n} messages', {n:num(f.messages)}) : '', fmtSize(Math.ceil(f.bytes / 1024))].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`
+    + `<p class="dnote">${esc(t('Each folder comes into a folder on this PC of the same name.'))}</p></section>` : '';
+  const filters = s.filters ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(t('Filters'))}</b><span>${esc(tn(s.filters, '{n} filter', '{n} filters'))}</span></label>`
+    + `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p></section>` : '';
+  const nothing = !c.accounts.size && !c.folders.size && !c.filters;
+  el.innerHTML = `${title}${accounts}${folders}${filters}<p class="derr" role="alert">${esc(moveIn.error)}</p>
+<div class="sbtns"><button class="btn primary" type="button" id="mv-go"${nothing ? ' disabled' : ''}>${esc(t('Bring in'))}</button><button class="btn" type="button" id="mv-back">${esc(t('Back'))}</button></div>`;
+}
+// A tick in the source's lists: the counts and the buttons follow; typed passwords stay.
+function moveInTick(el){
+  const c = moveIn.choice, s = moveIn.source, on = el.checked, key = el.dataset.key;
+  if (el.dataset.mv === 'account'){ on ? c.accounts.add(key) : c.accounts.delete(key); }
+  else if (el.dataset.mv === 'folder'){ on ? c.folders.add(key) : c.folders.delete(key); }
+  else if (el.dataset.mv === 'filters') c.filters = on;
+  else if (el.dataset.mv === 'all-accounts') c.accounts = new Set(on ? s.accounts.filter(canAdd).map(a => a.key) : []);
+  else if (el.dataset.mv === 'all-folders') c.folders = new Set(on ? s.folders.map(f => f.key) : []);
+  const again = el.dataset.mv + (key ? `"][data-key="${key}` : '');
+  renderMove();
+  sdlg.querySelector(`#s-move [data-mv="${again}"]`)?.focus();
+}
+async function bringIn(){
+  const s = moveIn.source, c = moveIn.choice;
+  const passwords = {};
+  c.accounts.forEach(k => { if (moveIn.passwords[k]) passwords[k] = moveIn.passwords[k]; });
+  const choice = {accounts:[...c.accounts], passwords, folders:[...c.folders], filters:c.filters};
+  moveIn.passwords = {}; // typed once, sent once
+  moveIn.running = {step:c.accounts.size ? 'accounts' : c.folders.size ? 'mail' : 'rules', done:0, total:c.accounts.size, name:''};
+  moveIn.error = '';
+  renderMove();
+  let r;
+  try { r = await invoke('move_in', {path:s.path, choice}); }
+  catch (e){ moveIn.running = null; moveIn.error = tr(e); renderMove(); return; }
+  moveIn.running = null; moveIn.report = r;
+  moveIn.sources = null; // what is in Telex now has changed
+  if (sdlg.open && setTab === 'move') renderMove();
+  await refresh();
+  if (r.accounts.some(a => !a.error)) getMail({quiet:true});
+  say(t('Moved in from {program}.', {program:programName(s.program)}));
+}
+listenHere('move-progress', ({payload: p}) => {
+  if (!moveIn.running) return;
+  moveIn.running = p;
+  if (sdlg.open && setTab === 'move') renderMove();
+});
+
+// Settings › Writing: the languages spelling is checked in, and dictionaries to fetch.
+let spellInfo = null, spellFetching = '', spellError = '';
+async function renderSpellLanguages(){
+  const el = $('s-spell-langs');
+  if (!spellInfo){
+    el.innerHTML = `<p class="dnote">${esc(t('Looking for dictionaries…'))}</p>`;
+    try { spellInfo = await invoke('spell_languages'); } catch (e){ el.innerHTML = `<p class="derr">${esc(tr(e))}</p>`; return; }
+  }
+  const info = spellInfo, chosen = new Set(info.chosen), ui = I18n.lang();
+  const langs = info.languages.length ? `<div class="sopts">${info.languages.map(l =>
+      `<label class="sopt"><input type="checkbox" data-spell="${esc(l.tag)}"${chosen.has(l.tag) ? ' checked' : ''}><span>${esc(langName(l.tag))}</span>`
+      + (l.own ? `<small class="sdim">${esc(t('fetched by Telex'))} · <button type="button" class="linkbtn" data-unspell="${esc(l.tag)}">${esc(t('Remove'))}</button></small>` : '')
+      + '</label>').join('')}</div>`
+    : `<p class="dnote">${esc(t('This PC has no spelling dictionaries yet.'))}</p>`;
+  const auto = info.auto && info.chosen.length ? `<p class="dnote snote">${esc(t('Chosen by themselves from the languages of Windows and of Telex. Tick the ones you write in.'))}</p>` : '';
+  // The languages the user writes in first: the ones most likely wanted.
+  const first = d => (info.missing ?? []).includes(d.tag) || d.tag.split('-')[0] === ui;
+  const offers = [...info.downloads].sort((a, b) => first(b) - first(a));
+  const get = offers.length ? `<div class="sbtns"><select id="s-dict" class="sselect" aria-label="${esc(t('Dictionary to download'))}">${offers.map(d =>
+      `<option value="${esc(d.tag)}">${esc(langName(d.tag))} · ${esc(fmtSize(Math.ceil(d.bytes / 1024)))}</option>`).join('')}</select>`
+    + `<button type="button" class="btn" id="s-dict-get"${spellFetching ? ' disabled' : ''}>${esc(spellFetching ? t('Downloading…') : t('Download'))}</button></div>`
+    + `<p class="dnote snote">${esc(t('For a language Windows has no dictionary for: LibreOffice’s, fetched from GitHub only when you click, and checked before use. Nothing about you is sent.'))}</p>` : '';
+  el.innerHTML = langs + auto + get + `<p class="derr" role="alert">${esc(spellError)}</p>`;
+}
+async function toggleSpellLanguage(box){
+  const list = new Set(spellInfo?.chosen ?? []);
+  if (box.checked) list.add(box.dataset.spell); else list.delete(box.dataset.spell);
+  await changeSettings({spell_languages:[...list]});
+  spellInfo = null; await renderSpellLanguages(); respell();
+  sdlg.querySelector(`[data-spell="${CSS.escape(box.dataset.spell)}"]`)?.focus();
+}
+$('s-spell-langs').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  spellError = '';
+  try {
+    if (b.id === 's-dict-get'){
+      const tag = $('s-dict').value;
+      spellFetching = tag; renderSpellLanguages();
+      try { spellInfo = await invoke('spell_download', {tag}); } finally { spellFetching = ''; }
+      // What was fetched is checked from now on, besides what was checked before.
+      if (!spellInfo.chosen.includes(tag)){ await changeSettings({spell_languages:[...spellInfo.chosen, tag]}); spellInfo = null; }
+      say(t('{language} spelling is on this PC now.', {language:langName(tag)}));
+    } else if (b.dataset.unspell){
+      spellInfo = await invoke('spell_remove', {tag:b.dataset.unspell});
+    } else return;
+  } catch (err){ spellError = tr(err); }
+  await renderSpellLanguages(); respell();
 });
 
 // Settings › Reading: senders whose images load without asking. Removing one asks again.
@@ -4068,7 +4619,7 @@ const HELP_KEYS = [
     ['H', N_('HTML or plain text')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
-    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
+    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or right-click it')]]],
   [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
     ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],
@@ -4077,7 +4628,7 @@ const HELP_KEYS = [
   [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
     ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
   [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
-    ['Alt+↑ ↓', N_('in the folder tree: an account up or down')], ['? F1', N_('this help')]]],
+    ['Alt+↑ ↓', N_('in the folder tree: an account up or down')], ['F2', N_('in the folder tree: rename a folder on this PC')], ['? F1', N_('this help')]]],
 ];
 const HELP_TIPS = [
   N_('Right-click a message for everything you can do with it, each with its key.'),
@@ -4169,7 +4720,8 @@ function onKey(e){
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   // Space presses a focused button or link, as always.
   if (e.key === ' ' && tg.closest?.('button, a[href], summary, label, [role="tab"], [role="option"], [data-i]')) return;
-  const k = e.key, shift = e.shiftKey;
+  // A letter is the same key with Caps Lock on: only Shift changes what it does.
+  const shift = e.shiftKey, k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === 'ArrowDown') shift ? pickMove(1) : move(1);
   else if (k === 'ArrowUp') shift ? pickMove(-1) : move(-1);
   else if (k === 'Home') shift ? pickEnd(false) : move(-Infinity);
@@ -4178,19 +4730,17 @@ function onKey(e){
   else if (k === 'Delete'){ if (!e.repeat) del(); } // holding Del deletes one, not a run of them
   else if (k === 'Enter' && allMail()) openInFolder();
   else if (k === 'Enter' && listEl.contains(tg) && current()) openWindow(current().id);
-  else if (k === 'r' || k === 'R') openCompose(shift ? 'replyall' : 'reply');
-  else if (k === 'F' && shift) openCompose('forward');
-  else if (k === 'f') toggleFlag();
-  else if ((k === 'u' || k === 'U') && shift) markAllRead();
-  else if (k === 'u' || k === 'U') toggleUnread();
-  else if (k === 'n' || k === 'N') openCompose('new');
-  else if (k === 'e' || k === 'E') openCompose('edit');
-  else if (k === 'h' || k === 'H') setView(!pref().prefer_text);
-  else if (k === 'm' || k === 'M') openPicker('move');
-  else if (k === 'g' || k === 'G') openPicker('go');
-  else if (k === 't' || k === 'T') toggleThread();
-  else if (k === 'o' || k === 'O') toggleUnreadOnly();
-  else if (k === 'z' || k === 'Z') undo();
+  else if (k === 'r') openCompose(shift ? 'replyall' : 'reply');
+  else if (k === 'f') shift ? openCompose('forward') : toggleFlag();
+  else if (k === 'u') shift ? markAllRead() : toggleUnread();
+  else if (k === 'n') openCompose('new');
+  else if (k === 'e') openCompose('edit');
+  else if (k === 'h') setView(!pref().prefer_text);
+  else if (k === 'm') openPicker('move');
+  else if (k === 'g') openPicker('go');
+  else if (k === 't') toggleThread();
+  else if (k === 'o') toggleUnreadOnly();
+  else if (k === 'z') undo();
   else if (k === '/') qEl.focus();
   else if (k === '?') toggleHelp();
   else return;
@@ -4250,7 +4800,8 @@ async function bootViewer(){
   }
 }
 // Another window changed a setting (the look, H): this one follows.
-window.__TAURI__?.event?.listen('settings-changed', async () => {
+window.__TAURI__?.event?.listen('settings-changed', async ({payload: from}) => {
+  if (from === ownLabel()) return; // this window's own change
   try { const got = await invoke('get_settings'); if (got?.settings){ SETTINGS = got; applySettings(); } } catch {}
 });
 // Closing a window with a message being written keeps it as a draft.
@@ -4270,7 +4821,6 @@ async function boot(){
   paintScope();
   await setFolder(homeOf(ACCOUNTS[0]?.id));
   listEl.focus({preventScroll:true});
-  loadUsage(); // the status-bar meter, from what the last check saved
   sayRestored();
   loadBackups(); // whether the folders on this PC are backed up
   setTimeout(autoBackup, 60e3); setInterval(autoBackup, 60 * 60e3);

@@ -72,6 +72,7 @@
       <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
       <button class="chip bad" id="st-sync" type="button" hidden></button>
       <button class="chip bad" id="st-unsent" type="button" hidden></button>
+      <button class="chip" id="st-away" type="button" hidden></button>
       <span id="st-check"></span>
       <button class="helpbtn" id="st-help" type="button" aria-expanded="false" aria-controls="help-pop" aria-label="Keys and tips" data-i18n><span aria-hidden="true">?</span></button>
       <button class="ver" id="st-ver" type="button" hidden></button>
@@ -143,7 +144,7 @@
         </div>
         <form id="w-start" novalidate hidden>
           <div class="dhead">
-            <h3 class="rh" id="acct-title" data-i18n>Add a mail account</h3>
+            <h3 class="rh" data-i18n>Add a mail account</h3>
             <!-- On the first start only: the language, each named in itself. -->
             <div class="langpick" id="w-lang" role="group" aria-label="Language · Język" hidden>
               <button type="button" data-lang="en" lang="en">English</button><button type="button" data-lang="pl" lang="pl">Polski</button>
@@ -151,6 +152,7 @@
           </div>
           <p class="whint" id="w-langhint" lang="pl" hidden>Telex jest też po polsku: wybierz „Polski” u góry.</p>
           <p class="dnote" data-i18n>Telex finds the server settings itself and logs in to check them before it saves anything.</p>
+          <p class="whint" id="w-move" hidden></p>
           <div class="cf df">
             <label for="w-name" data-i18n>Your name</label><input id="w-name" autocomplete="off" placeholder="As people will see it" data-i18n>
             <label for="w-email" data-i18n>Email</label><input id="w-email" type="email" autocomplete="off" spellcheck="false">
@@ -212,6 +214,24 @@
             <button class="btn" type="button" id="f-close" data-i18n>Back to accounts</button>
           </div>
         </div>
+        <form id="away-view" novalidate hidden>
+          <h3 class="rh" id="away-title">Auto-reply</h3>
+          <label class="rcheck"><input type="checkbox" id="away-on"> <span data-i18n>Reply automatically while I’m away</span></label>
+          <div class="cf df">
+            <label for="away-from" data-i18n>First day</label><input id="away-from" type="date">
+            <label for="away-until" data-i18n>Last day</label><input id="away-until" type="date">
+            <label for="away-subj" data-i18n>Subject</label><input id="away-subj" autocomplete="off" placeholder="Re: and the subject of their message" data-i18n>
+            <label for="away-body" data-i18n>Message</label><textarea id="away-body" rows="7"></textarea>
+            <label for="away-days" data-i18n>Each person</label><select id="away-days"></select>
+          </div>
+          <p class="dnote" data-i18n>Without days it starts now and goes on until you turn it off. Mailing lists, newsletters, robots and Spam never get it.</p>
+          <p class="whint" id="away-where" hidden></p>
+          <p class="derr" id="away-err" role="alert"></p>
+          <div class="sbtns">
+            <button class="btn primary" type="submit" id="away-save" data-i18n>Save</button>
+            <button class="btn" type="button" id="away-back" data-i18n>Back to accounts</button>
+          </div>
+        </form>
         <form id="i-form" novalidate hidden>
           <h3 class="rh" id="i-form-title">New identity</h3>
           <div class="cf df">
@@ -287,6 +307,11 @@
             <label class="sopt"><input type="checkbox" id="s-subject"><span data-i18n>Ask before sending a message without a subject</span></label>
             <label class="sopt"><input type="checkbox" id="s-spell"><span data-i18n>Underline spelling mistakes</span></label>
           </div>
+          <p class="dnote snote" data-i18n>Right-click an underlined word, or press F7 for the next one: suggestions, Add to dictionary, Ignore.</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Spelling languages</legend>
+          <div id="s-spell-langs"></div>
         </fieldset>
         <p class="dnote" data-i18n>Signatures and the reply and forward headers belong to each identity: Accounts › Identities.</p>
       </section>

@@ -382,9 +382,9 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
-## Current state (v0.8.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts)
+## Current state (v0.9.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts, moving in, spelling, away replies)
 
-- Not released yet (schema version 12: `away`, `away_replies`):
+- New in 0.9.0 (schema version 12: `away`, `away_replies`):
   - The away reply (`away.rs`, `sieve.rs`; Settings › Accounts › Auto-reply, a status-bar chip
     while one is on): per account a text, an optional subject, first and last day, and how
     often one person may get it. Saving tries the server first: ManageSieve on the IMAP host's
@@ -830,7 +830,7 @@ then daily like `daily`),
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
-   AppImage (self-updating) and a .deb. The repository is public and v0.8.1 is released;
+   AppImage (self-updating) and a .deb. The repository is public and v0.9.0 is released;
    docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~ and ~~downloading older
    messages~~: done, see Current state and the numbers in docs/storage.md. ~~Backup and

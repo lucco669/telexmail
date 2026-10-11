@@ -724,6 +724,7 @@ export const versions: Version[] = [
       'Spelling in the languages you write: Windows’ own dictionaries, and for a language Windows lacks, LibreOffice’s, fetched only when you click Download and checked before use. Wavy lines in plain text and HTML; right-click a word or press F7 for suggestions, Add to dictionary or Ignore. Quotes, links and addresses are left alone.',
       'An away reply for each account (Settings › Accounts › Auto-reply): on your server where it can hold one (ManageSieve), so it answers while Telex is closed and your own server filters stay; elsewhere Telex answers when it checks. Mailing lists, robots and Spam never get it, and each person gets it once in the days you choose.',
       'Mail files: Outlook’s .msg and Apple Mail’s .emlx come in too, and Maildir and MH folders; messages Thunderbird deleted but hadn’t compacted stay out.',
+      'Safer and quicker underneath: images you load come only from public addresses, checked where Telex connects, four at a time; one Telex runs at a time, so mail can’t go out twice; the window never waits on mail work; and if the mail base can’t be opened, Telex says so instead of starting empty.',
     ],
     upgrade: 'The mail base gets two new tables (the away replies); older versions can’t open it afterwards.',
     highlights: [

@@ -105,6 +105,12 @@ function installTelexDemo(options) {
       'To tylko demo: nie zapisuje ani nie czyta plików. Pobierz Telex, aby robić kopie zapasowe własnej poczty.'],
     mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
       'To tylko demo: nie zapisuje ani nie czyta plików z pocztą. Pobierz Telex, aby zapisywać foldery jako mbox i wczytywać pocztę z plików.'],
+    away: ['This is a demo: it doesn’t send automatic replies. Download Telex to set one up for your own mail.',
+      'To tylko demo: nie wysyła automatycznych odpowiedzi. Pobierz Telex, aby ustawić ją dla własnej poczty.'],
+    spell: ['This is a demo: it doesn’t download dictionaries. Download Telex to check your spelling.',
+      'To tylko demo: nie pobiera słowników. Pobierz Telex, aby sprawdzać pisownię.'],
+    move: ['This is a demo: it doesn’t look for other mail programs or read their files. Download Telex to bring your mail from Thunderbird or Outlook.',
+      'To tylko demo: nie szuka innych programów pocztowych ani nie czyta ich plików. Pobierz Telex, aby przenieść pocztę z Thunderbirda albo Outlooka.'],
     update: ['This is a demo: it doesn’t update itself. Download the newest Telex instead.',
       'To tylko demo: nie aktualizuje się. Pobierz najnowszego Telexa.'],
   };
@@ -377,7 +383,10 @@ function installTelexDemo(options) {
       if (m.out?.held) c.stuck = (c.stuck ?? 0) + 1; // taken back: it didn't go
     }
     for (const [key, n] of Object.entries(older)) if (n > 0 && folderOf(key)) (counts[key] ??= { total: 0, unread: 0 }).older = n;
-    return { accounts, counts, problems: {} };
+    // Each account's storage and last check, as usage.rs keeps them (the status-bar meter).
+    const quota = Object.fromEntries(Object.entries(data.quota || {}).filter(([, q]) => q));
+    const synced = Object.fromEntries(Object.entries(lastSync).filter(([, at]) => at));
+    return { accounts, counts, problems: {}, away: [], quota, synced };
   }
 
   /* ---------- changes to mail (store.rs) ---------- */
@@ -1242,9 +1251,7 @@ function installTelexDemo(options) {
       return null;
     },
     mark_folder_read: ({ folder }) => { needFolder(folder); return setMany(msgs.filter((m) => m.folder === folder).map((m) => m.id), 'unread', false); },
-    move_message: ({ id, folder }) => { moveMany([id], folder); },
     move_messages: ({ ids, folder }) => moveMany(ids, folder),
-    delete_message: ({ id }) => (deleteMany([id]).trashed.length ? 'moved_to_trash' : 'removed'),
     delete_messages: ({ ids }) => deleteMany(ids),
     get_html: getHtml,
     trusted_senders: () => [...trusted].sort((a, b) => a.localeCompare(b)),
@@ -1265,7 +1272,6 @@ function installTelexDemo(options) {
     clean_html: ({ html }) => cleanHtml(html),
     send_message: sendMessage,
     hold_message: holdMessage,
-    search: ({ query }) => listed({ filter: query, bodies: true }).map((m) => m.id).slice(0, 5000),
     check_mail: checkMail,
     push_changes: () => ({ new: [], new_in: null, sent: [], sorted: 0, errors: [], busy }),
     download_older: downloadOlder,
@@ -1312,11 +1318,24 @@ function installTelexDemo(options) {
     open_attachment: openAttachment,
     save_attachment: () => refuse('save'),
     save_attachments: () => refuse('save'),
-    show_saved: () => refuse('save'),
     export_settings: () => refuse('export'),
     show_export: () => refuse('export'),
     open_import: () => refuse('import'),
     apply_import: () => refuse('import'),
+    // Moving in from another program: the demo finds none.
+    find_programs: () => [],
+    open_source: () => refuse('move'),
+    move_in: () => refuse('move'),
+    // Spelling: the demo has no dictionaries, so nothing is underlined.
+    spell_languages: () => ({ languages: [], chosen: [], auto: true, downloads: [], missing: [] }),
+    spell_check: () => [],
+    spell_suggest: () => [],
+    spell_add: () => null,
+    spell_download: () => refuse('spell'),
+    spell_remove: () => refuse('spell'),
+    // The away reply: off, and the demo can't turn it on.
+    get_away: ({ account }) => ({ account, enabled: false, starts: null, ends: null, subject: '', body: '', days: 4, place: 'telex', script: null, created: false }),
+    save_away: () => refuse('away'),
   };
   const asText = (e) => (typeof e === 'string' ? e : String(e?.message ?? e));
   // Like Tauri's invoke: arguments and answers cross as JSON; a failure is the core's sentence.
