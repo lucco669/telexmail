@@ -22,10 +22,13 @@ Then wait for the **Release** workflow, check the draft release on GitHub and pu
   "This build can't update itself." On Linux only the AppImage updates itself; Telex installed
   from the `.deb` says the same, since that copy belongs to the package manager. Its users
   install the new `.deb` by hand, or switch to the AppImage.
-- **Telex asks before it checks.** Until answered, the status bar asks "Check for updates once
-  a day?". Yes: a check at most every 24 hours. No: never on its own. Either way, clicking the
-  version number in the status bar checks right away and opens the update dialog, which also
-  has the daily checkbox. The answer is kept in the window's local storage.
+- **Telex asks before it checks.** Until answered, the status bar asks "Check for updates when
+  Telex starts?". Yes: a check a few seconds after each start (unless one answered in the last
+  ten minutes), then at most every 24 hours while it stays open. No: never on its own.
+  Settings › Updates also offers once a day only. Either way, clicking the version number in the
+  status bar checks right away and opens the update dialog, which also has the checkbox. The
+  answer is a setting (`updates`: start, daily, off); when the last check was is kept in the
+  window's local storage.
 - **A check** is one GET of
   `https://github.com/lucco669/telexmail/releases/latest/download/latest.json` with
   `User-Agent: Telex` and `Accept: application/json`, nothing else. GitHub redirects it to its

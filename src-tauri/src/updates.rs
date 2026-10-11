@@ -5,7 +5,8 @@
 //! sign. Every other build (`npm run dev`, the CI installers) leaves the plugin out and says
 //! it can't update itself. On Linux only the AppImage replaces itself; a .deb belongs to the
 //! package manager and says the same. Telex never checks on its own initiative: the UI asks
-//! the user first, then checks once a day or when the user clicks the version number.
+//! the user first, then checks as they chose (at each start and once a day, or once a day) or
+//! when the user clicks the version number.
 
 use std::sync::Mutex;
 use std::time::Duration;

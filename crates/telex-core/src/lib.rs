@@ -27,7 +27,7 @@ pub mod smtp;
 pub mod store;
 pub mod usage;
 
-pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey};
+pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey, UnreadAt};
 pub use model::*;
 pub use store::{
     DeleteOutcome, DeleteReport, FolderSyncState, MailStore, StoreError, SyncedMessage, LOCAL_ID,

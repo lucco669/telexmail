@@ -127,6 +127,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?}}}` (empty folders left out; `older`: on the server, not downloaded) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
+| `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
 | `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote) |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -159,6 +160,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `save_rule`      | `rule` (id 0 = new)          | the saved rule, or a sentence saying what's missing |
 | `delete_rule`    | `id`                         | –                           |
 | `move_rule`      | `id`, `delta` (-1 up, 1 down) | –                          |
+| `move_account`   | `id`, `delta` (-1 up, 1 down) | – (server accounts; the folders on this PC stay last) |
 | `run_rules`      | `folder`                     | `{matched, moved, replied, problems}` (no auto-replies on demand) |
 | `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account` | `{account, identity, to, cc, subject, body, attachments, reply_to, forward_of}` |
 | `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
@@ -225,16 +227,19 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this 
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
 ("auto", "en", "pl"), `density`, `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
-(moment, at_once, manual), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
+(moment, at_once, window, manual), `read_delay` (ms a message is on screen before it counts as
+read with moment: 600, 1000, 2000, 3000, 5000, 10000), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
 IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
 `mail_paper` (theme, white: HTML mail in a dark theme), `compose_format` (plain, html),
 `reply_format` (same, plain, html), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
-can take it back), `ask_subject`, `spell_check`, `updates` (ask, daily, off), `backup_every` (off, daily,
+can take it back), `ask_subject`, `spell_check`, `updates` (ask, start: at each start and once a day, daily, off), `backup_every` (off, daily,
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
 leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
 all, even before the first account. The window keeps only its own state in localStorage
-(`telex-ui`: pane sizes, filter scope, "more" folders, the last update check; `telex-look`: a
+(`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
+dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
+update check; `telex-look`: a
 copy of theme, language and zoom for boot.js).
 
 ## Commands
@@ -291,6 +296,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 |--------------|--------------------------------|
 | ↑ / ↓        | previous / next message        |
 | Home / End   | first / last message           |
+| Space / Shift+Space | page down the message; at its end, the next unread one (after the last, the next folder with unread mail: Space again goes there); Shift pages up, then the previous unread |
 | Shift+↑ / ↓  | select more (or fewer) messages; Shift+Home / End to the top / bottom |
 | Ctrl+click, Shift+click | add one / a range to the selection |
 | Ctrl+A       | in the list: select every message |
@@ -301,6 +307,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | E            | edit a draft or an unsent message in the Outbox |
 | F            | flag / unflag (the selection: flag all, or unflag all when all are flagged) |
 | U            | toggle unread (the selection: all read, or all unread when all are read) |
+| click the dot / flag | at the start of a row: that message read or unread, flagged or not |
 | Shift+U      | mark everything in the folder read |
 | Del          | move to Trash (in Trash: press twice to delete for good) |
 | M            | move to a folder: type part of its name (also one on this PC) |
@@ -308,7 +315,8 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | G            | go to a folder: type part of its name |
 | T            | the selected message's conversation (T or Esc goes back) |
 | Z            | undo the last delete or move; within the moment after Send, take the message back |
-| /            | quick filter (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
+| /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
+| ↓ ↑ Enter    | in the search box: choose a suggestion (a recent search, a person, an operator); Enter or ↓ with none chosen goes to the results |
 | Tab          | in the quick filter: this folder / all mail |
 | Enter, double-click | open the message in a window of its own (Esc closes it); in all-mail results and conversations Enter opens the message's folder |
 | H            | switch HTML / plain text view (remembered) |
@@ -319,11 +327,50 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 | ? / F1       | keys and tips (also on hover over the ? in the status bar) |
-| F2, Shift+F10 | in the folder tree: rename a folder on this PC; a folder's menu (also right-click) |
+| F2, Shift+F10 | in the folder tree: rename a folder on this PC; a folder's or account's menu (also right-click) |
+| Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
+| Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
-## Current state (v0.5.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS)
+## Current state (v0.7.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions)
 
-- Built for 0.6.0, not released yet (schema version 10: the folders on this PC, created with
+- New in 0.7.1 (no schema change):
+  - The list's columns fit its width (`fitColumns` in app.js): the status icons, the date and
+    the size are as wide as the widest text they can show in this language and font (measured
+    once the faces have loaded), so a date is never cut; From takes a share of the rest (30%,
+    120–280 px) and Subject what is left (at least 140 px). Dragging the edge before Subject (or
+    before Folder in all mail) sets a width, kept in `telex-ui` and given way when the window
+    is narrow; a double-click fits the names on screen. Size goes when the list is under 640 px.
+    Right-click the headings: short or full dates, the Size column, fit columns again.
+  - Read and unread by hand: the dot at the start of a row and the flag next to it are switches
+    (a ring and a quiet flag under the pointer); the envelope above a message; the right-click
+    menu. Settings › Reading (moved from Mail) says when mail counts as read: at once, after
+    `read_delay` on screen, only in its own window (`window`), or only by hand.
+  - A message's menu on right-click or Shift+F10 / the menu key: open in its window, reply,
+    forward, read, flag, move, Trash, conversation, all mail from the sender, a rule from it; for
+    several messages, what works on all of them. A right-click selects without reading.
+  - Search: the box is called Search and widens with the focus; under it, recent searches (an
+    empty box, kept in `telex-ui`), people from the mail base for the word being typed (from:,
+    to: in Sent), and the operators that word could start. ↓ ↑ Enter choose; Enter or ↓ with
+    nothing chosen goes to the results (and keeps the search). What matched is marked in From
+    and Subject (diacritics and case ignored).
+  - Account order: right-click an account › Move up / Move down, Alt+↑ ↓ on it, or ↑ ↓ in
+    Settings › Accounts (`move_account`, `accounts.position`); account colors follow the
+    order. Right-click a folder › Keep in view: it shows outside "more".
+  - Updates: "when Telex starts, and once a day while it is open" (`updates: start`) is the Yes
+    to the status bar's question; Settings › Updates has it, once a day, or only by hand.
+  - Space reads on: it pages down the message, and at its end selects the next unread one in
+    the list's order, wherever its page is (`MailStore::next_unread`: one query for it and one
+    count for its row). After the last one it names the next folder with unread mail (not Sent,
+    Drafts, the Outbox, Spam or Trash), and Space again opens it on its first unread.
+    Shift+Space pages up, then goes to the previous unread. Space on a button presses it.
+  - The status bar: the folder and messages on the left, the main keys in the middle, updates,
+    storage, the last check and the version on the right; the two sides share what the keys
+    leave. A message too long for the left takes the keys' place until it goes. U, Del, M and
+    T show from 1360 px.
+  - Scrolling keeps the rows drawn last while they still cover the screen with five to spare, so
+    the table is rewritten far less often.
+
+- New in 0.6.0 (schema version 10: the folders on this PC, created with
   the first server account, and `pending_ops.origin`):
   - Folders on this PC (`store.rs`, `LOCAL_ID`): a group of their own under the accounts, kept
     as an account without servers with the id "local" (never removed with an account), with
@@ -568,7 +615,9 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   can't update itself". The endpoint is set in code: `releases/latest/download/latest.json`
   of lucco669/telexmail (User-Agent "Telex", nothing else sent). The status bar shows the
   version; clicking it opens the update dialog and checks. Until answered, an updatable build
-  asks in the status bar "Check for updates once a day?"; the answer is a setting (`updates`),
+  asks in the status bar "Check for updates when Telex starts?"; the answer is a setting (`updates`:
+start checks a few seconds after each start, unless a check answered in the last ten minutes, and
+then daily like `daily`),
   the last check is in the window's localStorage (`updateChecked`). A found update shows as
   a status-bar chip; installing saves an open compose to Drafts, waits until no check or send
   is running (it holds both busy flags), downloads with "update-progress" events, verifies,
@@ -602,11 +651,11 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
-   AppImage (self-updating) and a .deb. The repository is public and v0.5.0 is released;
+   AppImage (self-updating) and a .deb. The repository is public and v0.7.1 is released;
    docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~ and ~~downloading older
    messages~~: done, see Current state and the numbers in docs/storage.md. ~~Backup and
-   restore~~ and ~~local folders with mbox export and .eml/mbox import~~: built for 0.6. Not
+   restore~~ and ~~local folders with mbox export and .eml/mbox import~~: done in 0.6. Not
    yet: moving the mail base to another folder, and POP3.
 
 ## Open decisions

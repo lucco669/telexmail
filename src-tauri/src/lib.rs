@@ -30,7 +30,7 @@ use telex_core::tr;
 use telex_core::usage::Usage;
 use telex_core::{
     Account, AccountSetup, DeleteOutcome, DeleteReport, FolderKind, FolderTree, Identity, ListView,
-    MailStore, Message, MessageId, OutgoingDraft, Page, PageAt, StoreError,
+    MailStore, Message, MessageId, OutgoingDraft, Page, PageAt, StoreError, UnreadAt,
 };
 
 use crate::files::FilesState;
@@ -181,6 +181,17 @@ fn list_ids(
     to: Option<MessageId>,
 ) -> CmdResult<Vec<MessageId>> {
     with_store(&state, |s| s.ids_between(&view, from, to))
+}
+
+/// The next unread message of a list after one (before it with `back`): Space.
+#[tauri::command]
+fn next_unread(
+    state: State<'_, AppState>,
+    view: ListView,
+    after: Option<MessageId>,
+    back: bool,
+) -> CmdResult<Option<UnreadAt>> {
+    with_store(&state, |s| s.next_unread(&view, after, back))
 }
 
 /// The people the user mails with, most likely first, for suggestions in To, Cc and Bcc.
@@ -374,6 +385,12 @@ fn delete_rule(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
 #[tauri::command]
 fn move_rule(state: State<'_, AppState>, id: i64, delta: i64) -> CmdResult<()> {
     with_store(&state, |s| s.move_rule(id, delta))
+}
+
+/// Move an account up (-1) or down (1) in the folder tree.
+#[tauri::command]
+fn move_account(state: State<'_, AppState>, id: String, delta: i64) -> CmdResult<()> {
+    with_store(&state, |s| s.move_account(&id, delta))
 }
 
 /// Run the rules now on every message in a folder. Auto-replies don't run here: they
@@ -907,6 +924,7 @@ pub fn run() {
             delete_messages,
             mark_folder_read,
             list_ids,
+            next_unread,
             recipients,
             hold_message,
             download_older,
@@ -951,6 +969,7 @@ pub fn run() {
             save_rule,
             delete_rule,
             move_rule,
+            move_account,
             run_rules,
             start_draft,
             save_identity,

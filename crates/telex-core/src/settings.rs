@@ -44,6 +44,8 @@ pub const TEXT_SIZES: &[u16] = &[90, 100, 110, 125, 150, 175, 200];
 pub const CHECK_INTERVALS: &[u16] = &[0, 5, 10, 15, 30, 60];
 /// Seconds sent mail waits in the Outbox, so Send can be undone. 0: it goes at once.
 pub const UNDO_SEND: &[u16] = &[0, 5, 10, 20, 30];
+/// Milliseconds a message stays on screen before it counts as read ("a moment" first).
+pub const READ_DELAYS: &[u16] = &[600, 1000, 2000, 3000, 5000, 10000];
 /// How many backups the backup folder keeps; older ones are removed.
 pub const BACKUP_KEEP: &[u16] = &[3, 5, 10, 20];
 
@@ -55,6 +57,7 @@ const KEYS: &[&str] = &[
     "text_size",
     "prefer_text",
     "mark_read",
+    "read_delay",
     "check_every",
     "push_mail",
     "notify",
@@ -81,6 +84,8 @@ pub struct Settings {
     /// Show HTML mail as plain text (H switches).
     pub prefer_text: bool,
     pub mark_read: MarkRead,
+    /// Milliseconds, one of [`READ_DELAYS`]: how long "a moment" on screen is (`MarkRead::Moment`).
+    pub read_delay: u16,
     /// Minutes, one of [`CHECK_INTERVALS`].
     pub check_every: u16,
     /// New mail in an Inbox shows at once: Telex keeps a connection open (IMAP IDLE) to
@@ -170,11 +175,13 @@ pub enum Density {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MarkRead {
-    /// After 0.6 s, so arrowing past a message doesn't.
+    /// After it has been on screen for `read_delay`, so arrowing past a message doesn't.
     Moment,
     /// As soon as it is selected.
     AtOnce,
-    /// Only with U.
+    /// When it is opened in a window of its own; selecting it in the list doesn't.
+    Window,
+    /// Only when the user marks it (U, the dot in the list).
     Manual,
 }
 
@@ -184,6 +191,9 @@ pub enum MarkRead {
 pub enum Updates {
     /// Not answered yet: a build that can update itself asks in the status bar.
     Ask,
+    /// Each time Telex starts, and once a day while it stays open.
+    Start,
+    /// Once a day.
     Daily,
     Off,
 }
@@ -197,6 +207,7 @@ impl Default for Settings {
             text_size: 100,
             prefer_text: false,
             mark_read: MarkRead::Moment,
+            read_delay: 600,
             check_every: 10,
             push_mail: true,
             notify: true,
@@ -235,6 +246,7 @@ impl Settings {
         THEMES.contains(&self.theme.as_str())
             && (self.language == "auto" || LANGUAGES.contains(&self.language.as_str()))
             && TEXT_SIZES.contains(&self.text_size)
+            && READ_DELAYS.contains(&self.read_delay)
             && CHECK_INTERVALS.contains(&self.check_every)
             && UNDO_SEND.contains(&self.undo_send)
             && BACKUP_KEEP.contains(&self.backup_keep)
@@ -1206,6 +1218,20 @@ mod tests {
         assert_eq!(ignored, ["undo_send"], "only the listed delays");
         assert_eq!(s.undo_send, 5);
         assert!(!s.push_mail && !s.notify);
+
+        // 0.7 added how long "a moment" is, and marking read only in a window of its own.
+        assert_eq!(s.read_delay, 600);
+        let (s, ignored) = s.merged(&serde_json::json!({
+            "mark_read": "window", "read_delay": 2000,
+        }));
+        assert!(ignored.is_empty(), "{ignored:?}");
+        assert_eq!((s.mark_read, s.read_delay), (MarkRead::Window, 2000));
+        let (s, ignored) = s.merged(&serde_json::json!({"read_delay": 1500, "mark_read": "never"}));
+        assert_eq!(ignored.len(), 2, "only the listed delays and choices");
+        assert_eq!((s.mark_read, s.read_delay), (MarkRead::Window, 2000));
+        let (s, ignored) = s.merged(&serde_json::json!({"updates": "start"}));
+        assert!(ignored.is_empty(), "{ignored:?}");
+        assert_eq!(s.updates, Updates::Start);
     }
 
     #[test]

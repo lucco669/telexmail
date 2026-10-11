@@ -275,6 +275,14 @@ pub struct FolderTree {
     pub counts: HashMap<String, FolderCount>,
 }
 
+/// An unread message and where it is in its list: what Space goes to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct UnreadAt {
+    pub id: MessageId,
+    /// Its row in the list, counted from 0.
+    pub row: usize,
+}
+
 /// The largest page the UI can ask for.
 pub const MAX_PAGE: usize = 500;
 
@@ -295,6 +303,7 @@ fn folders_of_kind(kinds: &str) -> String {
 }
 
 /// A list view turned into SQL: its WHERE clause with arguments, and its order.
+#[derive(Clone)]
 struct Query {
     filter: String,
     args: Vec<Value>,
@@ -603,6 +612,31 @@ impl MailStore {
             (Some(a), Some(b)) => ids[a.min(b)..=a.max(b)].to_vec(),
             _ => ids,
         })
+    }
+
+    /// The first unread message of a list after `after` in the list's order (before it, with
+    /// `back`), and its row; from the list's start (end) when `after` is `None` or no longer
+    /// exists. `None` when there is no unread message that way. Space in the window goes there.
+    pub fn next_unread(
+        &self,
+        view: &ListView,
+        after: Option<MessageId>,
+        back: bool,
+    ) -> Result<Option<UnreadAt>, StoreError> {
+        let q = Query::new(self, view)?;
+        let mut unread = q.clone();
+        unread.filter.push_str(" AND unread = 1");
+        let order = if back { q.reversed() } else { q.order.clone() };
+        let from = match after {
+            Some(id) => q.keys(&self.db, id)?,
+            None => None,
+        };
+        let Some(found) = unread.rows(&self.db, &order, from, 1, 0)?.pop() else {
+            return Ok(None);
+        };
+        let keys = q.keys(&self.db, found.id)?;
+        let row = q.count(&self.db, keys)?;
+        Ok(Some(UnreadAt { id: found.id, row }))
     }
 
     /// Every message of the conversation `id` is in: the messages it answers and those
@@ -1228,6 +1262,59 @@ mod tests {
                 .ids_between(&view, Some(99_999), Some(all[0]))
                 .unwrap(),
             all
+        );
+    }
+
+    #[test]
+    fn space_finds_the_next_unread_in_the_list_s_order() {
+        let store = store(12);
+        for sort in [SortKey::Date, SortKey::Subject, SortKey::Flag] {
+            for filter in ["", "wycena"] {
+                let view = ListView {
+                    folder: Some("studio/inbox".into()),
+                    sort,
+                    filter: filter.into(),
+                    ..Default::default()
+                };
+                let rows = store.page(&view, PageAt::First, 100).unwrap().rows;
+                let unread: Vec<usize> = (0..rows.len()).filter(|&i| rows[i].unread).collect();
+                let at = |i: usize| UnreadAt {
+                    id: rows[i].id,
+                    row: i,
+                };
+                let next =
+                    |after: Option<MessageId>, back| store.next_unread(&view, after, back).unwrap();
+                // From the top, then from each message on, both ways.
+                assert_eq!(
+                    next(None, false),
+                    unread.first().map(|&i| at(i)),
+                    "{sort:?} {filter:?}"
+                );
+                assert_eq!(next(None, true), unread.last().map(|&i| at(i)));
+                for (i, row) in rows.iter().enumerate() {
+                    let ahead = unread.iter().find(|&&u| u > i).map(|&u| at(u));
+                    let behind = unread.iter().rev().find(|&&u| u < i).map(|&u| at(u));
+                    assert_eq!(
+                        next(Some(row.id), false),
+                        ahead,
+                        "{sort:?} {filter:?} after row {i}"
+                    );
+                    assert_eq!(
+                        next(Some(row.id), true),
+                        behind,
+                        "{sort:?} {filter:?} before row {i}"
+                    );
+                }
+            }
+        }
+        // A message that is gone counts as none: from the top.
+        let view = ListView {
+            folder: Some("studio/inbox".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            store.next_unread(&view, Some(99_999), false).unwrap(),
+            store.next_unread(&view, None, false).unwrap()
         );
     }
 

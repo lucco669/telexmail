@@ -61,7 +61,6 @@ const PL = {
   'Move to Trash (Del)': 'Przenieś do Kosza (Del)',
   'Rules that sort, flag and answer mail': 'Reguły, które sortują, oznaczają i odpowiadają na pocztę',
   'Switch row density': 'Zmień wysokość wierszy',
-  'Quick filter': 'Szybki filtr',
   'move': 'wybór',
   'reply': 'odpowiedz',
   'flag': 'flaga',
@@ -293,7 +292,6 @@ const PL = {
   'Mark messages as read': 'Oznaczanie jako przeczytane',
   'After a moment on screen': 'Po chwili na ekranie',
   'As soon as I select them': 'Od razu po wybraniu',
-  'Only when I press U': 'Tylko gdy nacisnę U',
   'HTML mail': 'Poczta HTML',
   'Show the HTML': 'Pokazuj HTML',
   'Show the plain text': 'Pokazuj sam tekst',
@@ -345,11 +343,14 @@ const PL = {
   'The servers come from the settings file: {servers}. Check them before you enter your password.': 'Serwery pochodzą z pliku ustawień: {servers}. Sprawdź je, zanim wpiszesz hasło.',
 
   // Updates
-  'Check for updates once a day?': 'Sprawdzać aktualizacje raz dziennie?',
+  'Check for updates when Telex starts?': 'Sprawdzać aktualizacje przy starcie Telexa?',
   'A check downloads one small file from GitHub. It sends nothing about you or your mail.': 'Sprawdzenie pobiera jeden mały plik z GitHuba. Nie wysyła nic o Tobie ani o Twojej poczcie.',
   'Yes': 'Tak',
   'No': 'Nie',
-  'Check for updates once a day': 'Sprawdzaj aktualizacje raz dziennie',
+  'Check for updates': 'Sprawdzanie aktualizacji',
+  'Check for updates when Telex starts and once a day': 'Sprawdzaj aktualizacje przy starcie Telexa i raz dziennie',
+  'When Telex starts, and once a day while it is open': 'Przy starcie Telexa i raz dziennie, gdy jest otwarty',
+  'Only when I click Check now or the version number': 'Tylko gdy kliknę Sprawdź teraz albo numer wersji',
   'A check downloads one small file from GitHub that names the newest version. It sends nothing about you, your mail or this copy of Telex. An update installs only when you choose, and only if it carries Telex’s signature.': 'Sprawdzenie pobiera z GitHuba jeden mały plik z numerem najnowszej wersji. Nie wysyła nic o Tobie, Twojej poczcie ani tej kopii Telexa. Aktualizacja instaluje się tylko wtedy, gdy zdecydujesz, i tylko z podpisem Telexa.',
   'Check now': 'Sprawdź teraz',
   'Telex {version}.': 'Telex {version}.',
@@ -368,7 +369,7 @@ const PL = {
   'Checking the signature. Telex will close, update and open again.': 'Sprawdzam podpis. Telex zamknie się, zaktualizuje i otworzy ponownie.',
   'Downloading Telex {version}: {done} of {total} MB': 'Pobieram Telexa {version}: {done} z {total} MB',
   'Downloading Telex {version}: {done} MB': 'Pobieram Telexa {version}: {done} MB',
-  'Telex will check for updates once a day.': 'Telex będzie sprawdzał aktualizacje raz dziennie.',
+  'Telex will check for updates when it starts and once a day.': 'Telex będzie sprawdzał aktualizacje przy starcie i raz dziennie.',
   'Telex won’t check for updates. Click the version number to check yourself.': 'Telex nie będzie sprawdzał aktualizacji. Kliknij numer wersji, żeby sprawdzić samemu.',
 
   // Starting
@@ -542,7 +543,6 @@ const PL = {
   'everything to the top or bottom': 'wszystko do początku lub do końca',
   'the whole list': 'cała lista',
   'just the one message again': 'znowu tylko jedna wiadomość',
-  'quick filter': 'szybki filtr',
   'this folder or all mail': 'ten folder albo cała poczta',
   'clear the filter': 'wyczyść filtr',
   'settings': 'ustawienia',
@@ -648,6 +648,95 @@ const PL = {
   'Open in its own window (Enter)': 'Otwórz w osobnym oknie (Enter)',
   'the message in its own window; or double-click it': 'wiadomość w osobnym oknie; albo kliknij ją dwukrotnie',
   'in its own window: close it': 'w osobnym oknie: zamknij je',
+
+  // The folder tree: the accounts' order, folders kept in view
+  '{folder} stays in view.': '{folder} zostaje na widoku.',
+  '{folder} goes back under “more”.': '{folder} znowu chowa się wśród pozostałych folderów.',
+  'Move up': 'Przesuń w górę',
+  'Move down': 'Przesuń w dół',
+  'Move {email} up': 'Przesuń {email} w górę',
+  'Move {email} down': 'Przesuń {email} w dół',
+  'Show fewer folders': 'Pokaż mniej folderów',
+  'Show all folders': 'Pokaż wszystkie foldery',
+  'Account settings…': 'Ustawienia konta…',
+  'Keep in view': 'Zawsze na widoku',
+
+  // The list's columns
+  'Columns fit the list again.': 'Kolumny znów pasują do listy.',
+  'Short dates: {examples}': 'Krótkie daty: {examples}',
+  'Full dates: {example}': 'Pełne daty: {example}',
+  'Size column': 'Kolumna Rozmiar',
+  'Fit columns to the list': 'Dopasuj kolumny do listy',
+  'Drag to change the width; double-click to fit the names': 'Przeciągnij, żeby zmienić szerokość; dwuklik dopasowuje do nazw',
+  'Width of the From column': 'Szerokość kolumny Od',
+  'Width of the Folder column': 'Szerokość kolumny Folder',
+
+  // Read, unread and flags in the list; the menu of a message
+  'Mark as read (U)': 'Oznacz jako przeczytaną (U)',
+  'Mark as unread (U)': 'Oznacz jako nieprzeczytaną (U)',
+  'Flag (F)': 'Oznacz flagą (F)',
+  'Remove the flag (F)': 'Usuń flagę (F)',
+  'Mark as unread': 'Oznacz jako nieprzeczytaną',
+  'Mark as read|several': 'Oznacz jako przeczytane',
+  'Mark as unread|several': 'Oznacz jako nieprzeczytane',
+  'Remove the flag': 'Usuń flagę',
+  'Move to…': 'Przenieś do…',
+  'Delete for good': 'Usuń na zawsze',
+  'Open in its own window': 'Otwórz w osobnym oknie',
+  'Show the conversation': 'Pokaż wątek',
+  'All mail to {name}': 'Cała poczta do: {name}',
+  'All mail from {name}': 'Cała poczta od: {name}',
+
+  // Search
+  'Search': 'Szukaj',
+  'Recent searches': 'Ostatnio szukane',
+  'Clear': 'Wyczyść',
+  'Suggestions': 'Podpowiedzi',
+  'Narrow it down:': 'Zawęź:',
+  'the results': 'wyniki',
+  'clear': 'wyczyść',
+  'to {email}': 'do {email}',
+  'from {email}': 'od {email}',
+  'sender': 'nadawca',
+  'recipient': 'odbiorca',
+  'words in the subject': 'słowa w temacie',
+  'unread only': 'tylko nieprzeczytane',
+  'read only': 'tylko przeczytane',
+  'flagged only': 'tylko z flagą',
+  'without a flag': 'bez flagi',
+  'with attachments': 'z załącznikami',
+  '2026, 2026-09 or 15.09.2026': '2026, 2026-09 albo 15.09.2026',
+  'size, e.g. 5m': 'rozmiar, np. 5m',
+  'size, e.g. 100k': 'rozmiar, np. 100k',
+
+  // Settings › Reading: when a message counts as read
+  'After they have been on screen for': 'Gdy są na ekranie przez',
+  'How long on screen': 'Jak długo na ekranie',
+  'a moment|on screen': 'chwilę',
+  'A moment on screen': 'Chwila na ekranie',
+  'When I open them in their own window': 'Gdy otworzę je w osobnym oknie',
+  'Only when I mark them myself': 'Tylko gdy oznaczę je ręcznie',
+  'By hand: U, a click on the dot at the start of a row, the envelope above a message, or the menu on a right-click. Each marks read or unread.': 'Ręcznie: U, kliknięcie kropki na początku wiersza, koperta nad wiadomością albo menu pod prawym przyciskiem myszy. Każde z nich oznacza jako przeczytaną lub nie.',
+
+  // Space
+  'read on; at the end, the next unread message': 'czytaj dalej; na końcu następna nieprzeczytana wiadomość',
+  'back up; at the top, the previous unread': 'cofnij; na początku poprzednia nieprzeczytana',
+  'next unread': 'następna nieprzeczytana',
+  'No unread message above this one.': 'Nad tą wiadomością nie ma nieprzeczytanych.',
+  'No more unread messages here.': 'Tu nie ma już nieprzeczytanych wiadomości.',
+  'No unread mail in any folder.': 'W żadnym folderze nie ma nieprzeczytanej poczty.',
+  'No more unread in {folder}. Space goes to {next} ({n} unread).': 'W folderze {folder} nie ma już nieprzeczytanych. Spacja przechodzi do {next} (nieprzeczytane: {n}).',
+
+  // Keys and tips
+  'read or unread; or click the dot at the start of a row': 'przeczytana lub nie; albo kliknij kropkę na początku wiersza',
+  'search: the list shows what matches as you type': 'szukaj: lista pokazuje to, co pasuje, już w trakcie pisania',
+  'from the search box to the results': 'z pola wyszukiwania do wyników',
+  'the menu of the selected message or folder; or right-click': 'menu zaznaczonej wiadomości lub folderu; albo prawy przycisk myszy',
+  'in the folder tree: an account up or down': 'w drzewie folderów: konto w górę lub w dół',
+  'Right-click a message for everything you can do with it, each with its key.': 'Prawy przycisk myszy na wiadomości pokazuje wszystko, co można z nią zrobić, razem z klawiszami.',
+  'Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.': 'Kliknięcie kropki na początku wiersza oznacza wiadomość jako przeczytaną lub nie; flaga obok dodaje albo zdejmuje flagę.',
+  'Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Right-click the column headings for dates and the Size column.': 'Przeciągnij krawędź przed Tematem, żeby poszerzyć albo zwęzić kolumnę Od; dwuklik dopasowuje ją do nazw. Prawy przycisk na nagłówkach kolumn: daty i kolumna Rozmiar.',
+  'Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.': 'Prawy przycisk na koncie przesuwa je w górę albo w dół. Prawy przycisk na folderze › Zawsze na widoku: folder nie chowa się wśród pozostałych.',
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest
@@ -707,6 +796,7 @@ const PL_N = {
   'Restored {n} message.': ['Przywrócono {n} wiadomość.', 'Przywrócono {n} wiadomości.', 'Przywrócono {n} wiadomości.'],
   'Move {n} message to': ['Przenieś {n} wiadomość do', 'Przenieś {n} wiadomości do', 'Przenieś {n} wiadomości do'],
   '{n} second': ['{n} sekunda', '{n} sekundy', '{n} sekund'],
+  '{n} second|on screen': ['{n} sekundę', '{n} sekundy', '{n} sekund'],
 
   // Folders on this PC
   '{n} rule no longer moves mail there.': ['{n} reguła już tam nie przenosi poczty.', '{n} reguły już tam nie przenoszą poczty.', '{n} reguł już tam nie przenosi poczty.'],

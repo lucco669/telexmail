@@ -17,7 +17,9 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > only check after you say yes (or click the version number). Adding an account takes a name,
 > an address and a password: Telex finds the server settings itself. The message list loads a
 > page at a time, so a mail base of 100,000 messages opens and scrolls as quickly as a small
-> one, and the quick filter looks in one folder or in all your mail. The interface speaks English
+> one, and search looks in one folder or in all your mail, suggesting people, operators and
+> recent searches. Space reads on to the next unread message, and Settings › Reading decides
+> when mail counts as read (or leaves it to you). The interface speaks English
 > and Polish, down to its error messages, comes in eight themes that all meet WCAG 2.2 AA contrast (two at AAA), and its
 > settings, rules and identities export to one file for another PC.
 
@@ -75,10 +77,11 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 | Key | Action | Key | Action |
 |---|---|---|---|
 | ↑ ↓ | move | R / Shift+R | reply / reply all |
+| Space | read on, then the next unread | Shift+F10 | the message's menu (or right-click) |
 | Home / End | first / last | Shift+F | forward |
 | F | flag | N | new message |
 | U | toggle unread | Del / Z | delete / undo |
-| / | quick filter | Ctrl+Enter | send |
+| / | search | Ctrl+Enter | send |
 | Tab (in the filter) | this folder / all mail | Enter | open an all-mail result in its folder |
 | Ctrl+, | settings | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text |
 | H | HTML / plain text view | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |

@@ -1197,6 +1197,36 @@ impl MailStore {
         self.account(&id).cloned()
     }
 
+    /// Move a server account up (`-1`) or down (`1`) in the folder tree. The folders on this
+    /// PC stay last.
+    pub fn move_account(&mut self, id: &str, delta: i64) -> Result<(), StoreError> {
+        self.account(id)?;
+        let mut order: Vec<String> = self
+            .accounts
+            .iter()
+            .filter(|a| a.id != LOCAL_ID)
+            .map(|a| a.id.clone())
+            .collect();
+        let Some(from) = order.iter().position(|a| a == id) else {
+            return Ok(()); // the folders on this PC
+        };
+        let to = (from as i64 + delta).clamp(0, order.len() as i64 - 1) as usize;
+        if to == from {
+            return Ok(());
+        }
+        let moved = order.remove(from);
+        order.insert(to, moved);
+        let tx = self.db.transaction()?;
+        for (pos, account) in order.iter().enumerate() {
+            tx.execute(
+                "UPDATE accounts SET position = ?2 WHERE id = ?1",
+                params![account, pos as i64],
+            )?;
+        }
+        tx.commit()?;
+        self.reload_accounts()
+    }
+
     /// An id for folder keys, from the email's domain: "biuro@twojastudio.pl" → "twojastudio".
     fn unique_account_id(&self, email: &str) -> String {
         let domain = email.rsplit_once('@').map_or(email, |(_, d)| d);
@@ -2871,6 +2901,51 @@ mod tests {
         assert!(store.search("zolwia").unwrap().is_empty());
         assert!(!store.has_pending_changes(&account.id).unwrap());
         assert!(store.remove_account(LOCAL_ID).is_err());
+    }
+
+    #[test]
+    fn accounts_move_up_and_down_and_this_pc_stays_last() {
+        let (mut store, first) = store_with_server_account();
+        let setup = |name: &str, email: &str| AccountSetup {
+            name: name.into(),
+            email: email.into(),
+            host: "mail.example.pl".into(),
+            port: 993,
+            ..Default::default()
+        };
+        let second = store.upsert_account(&setup("Dom", "jan@dom.pl")).unwrap();
+        let third = store.upsert_account(&setup("Klub", "jan@klub.pl")).unwrap();
+        let order =
+            |s: &MailStore| -> Vec<String> { s.accounts().iter().map(|a| a.id.clone()).collect() };
+        let ids = |list: &[&str]| -> Vec<String> { list.iter().map(|s| s.to_string()).collect() };
+
+        store.move_account(&third.id, -1).unwrap();
+        assert_eq!(
+            order(&store),
+            ids(&[&first.id, &third.id, &second.id, LOCAL_ID])
+        );
+        store.move_account(&third.id, -1).unwrap();
+        store.move_account(&third.id, -1).unwrap(); // already first: nothing changes
+        assert_eq!(
+            order(&store),
+            ids(&[&third.id, &first.id, &second.id, LOCAL_ID])
+        );
+        store.move_account(&second.id, 1).unwrap(); // last of the server accounts already
+        store.move_account(LOCAL_ID, -1).unwrap(); // the folders on this PC don't move
+        assert_eq!(
+            order(&store),
+            ids(&[&third.id, &first.id, &second.id, LOCAL_ID])
+        );
+        assert!(store.move_account("nobody", 1).is_err());
+
+        // The order is kept, and a new account comes after the others.
+        let fourth = store
+            .upsert_account(&setup("Praca", "jan@praca.pl"))
+            .unwrap();
+        assert_eq!(
+            order(&store),
+            ids(&[&third.id, &first.id, &second.id, &fourth.id, LOCAL_ID])
+        );
     }
 
     // ---- Folders on this PC ----

@@ -76,7 +76,7 @@ function installTelexDemo(options) {
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
-    density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', check_every: 10, push_mail: true, notify: true,
+    density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
     updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
@@ -335,6 +335,14 @@ function installTelexDemo(options) {
     // Ties: newest first, as the list always did; for dates the id breaks them.
     return msgs.filter(match).sort((a, b) => cmp(key(a), key(b)) * (desc ? -1 : 1)
       || (sort === 'date' ? (a.id - b.id) * (desc ? -1 : 1) : cmp(b.date, a.date) || b.id - a.id));
+  }
+  // Space: the first unread message after one in the list's order (before it with back).
+  function nextUnread({ view, after, back }) {
+    const all = listed(view), i = after == null ? -1 : all.findIndex((m) => m.id === after);
+    const rows = all.map((m, row) => ({ m, row }));
+    const way = back ? rows.slice(0, i < 0 ? all.length : i).reverse() : rows.slice(i + 1);
+    const hit = way.find(({ m }) => m.unread);
+    return hit ? { id: hit.m.id, row: hit.row } : null;
   }
   function listPage({ view, at, limit }) {
     const n = Math.min(500, Math.max(1, Number(limit) || 100));
@@ -915,6 +923,15 @@ function installTelexDemo(options) {
     const to = Math.min(rules.length - 1, Math.max(0, from + Math.sign(delta)));
     rules.splice(to, 0, rules.splice(from, 1)[0]);
   }
+  // The accounts' order in the tree (store.rs's move_account); the folders on this PC stay last.
+  function moveAccount({ id, delta }) {
+    const from = accounts.findIndex((a) => a.id === id);
+    if (from < 0) fail('account "{id}" does not exist', 'konto „{id}” nie istnieje', { id });
+    const last = accounts.filter((a) => a.imap).length - 1;
+    if (!accounts[from].imap) return;
+    const to = Math.min(last, Math.max(0, from + Math.sign(delta)));
+    accounts.splice(to, 0, accounts.splice(from, 1)[0]);
+  }
 
   /* ---------- identities ---------- */
   function saveIdentity({ identity: i }) {
@@ -1108,8 +1125,8 @@ function installTelexDemo(options) {
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
     theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], text_size: [90, 100, 110, 125, 150, 175, 200],
-    mark_read: ['moment', 'at_once', 'manual'], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
-    reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'daily', 'off'],
+    mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
+    reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20],
   };
   const SWITCHES = ['prefer_text', 'push_mail', 'notify', 'ask_subject', 'spell_check'];
@@ -1194,6 +1211,7 @@ function installTelexDemo(options) {
     folder_tree: folderTree,
     list_page: listPage,
     list_ids: listIds,
+    next_unread: nextUnread,
     get_message: ({ id }) => {
       const m = need(id);
       return { id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, cc: m.cc,
@@ -1235,6 +1253,7 @@ function installTelexDemo(options) {
     save_rule: saveRule,
     delete_rule: ({ id }) => { rules = rules.filter((r) => r.id !== id); },
     move_rule: moveRule,
+    move_account: moveAccount,
     run_rules: ({ folder }) => { needFolder(folder); return runRules(msgs.filter((m) => m.folder === folder).map((m) => m.id), false); },
     save_identity: saveIdentity,
     delete_identity: deleteIdentity,
