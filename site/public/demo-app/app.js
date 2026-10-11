@@ -931,6 +931,8 @@ rowsEl.addEventListener('pointerdown', e => {
 listEl.addEventListener('pointermove', e => {
   const d = drag;
   if (!d || e.pointerId !== d.pointer) return;
+  // The button went up somewhere this list didn't hear about: no drag.
+  if (!(e.buttons & 1)){ endDrag(); drag = null; return; }
   d.x = e.clientX; d.y = e.clientY;
   if (!d.started){
     if (Math.hypot(d.x - d.x0, d.y - d.y0) < DRAG_START) return;
