@@ -24,7 +24,7 @@ mkdirSync(join(out, 'fonts'), { recursive: true });
 
 for (const file of ['app.js', 'i18n.js', 'boot.js', 'styles.css', 'themes.css', 'fonts.css']) copyFileSync(join(uiDir, file), join(out, file));
 for (const file of readdirSync(join(uiDir, 'fonts'))) {
-  if (file.endsWith('.woff2') || file === 'OFL.txt') copyFileSync(join(uiDir, 'fonts', file), join(out, 'fonts', file));
+  if (file.endsWith('.woff2') || /^OFL.*\.txt$/.test(file)) copyFileSync(join(uiDir, 'fonts', file), join(out, 'fonts', file));
 }
 copyFileSync(join(site, 'demo', 'backend.js'), join(out, 'backend.js'));
 writeFileSync(join(out, 'demo-data.js'),

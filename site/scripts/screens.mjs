@@ -47,6 +47,8 @@ const scenes = {
     run: `ui.key('ArrowDown', {shiftKey:true}); await ui.wait(120); ui.key('ArrowDown', {shiftKey:true}); await ui.wait(120);
     ui.key('m'); await ui.wait(80); ui.fill('pk-q', 'cl'); await ui.wait(80);`,
   },
+  // Unread at the top of the folders: both accounts' new mail, each row with its account's line.
+  unread: { run: `ui.folder('*/unread'); await ui.wait(150); ui.list.focus();` },
   // T on the shop reply: the enquiry in Clients, the estimate in Sent, the answer in the Outbox.
   thread: { run: `ui.row('Re: Online shop estimate'); await ui.wait(50); ui.list.focus(); ui.key('t'); await ui.wait(200);` },
   // A new message with two files, Bcc open, and the suggestions for a second recipient.

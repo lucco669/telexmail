@@ -77,7 +77,7 @@ function installTelexDemo(options) {
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
-    density: 'compact', account_mark: 'rail', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
+    density: 'compact', account_mark: 'rail', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
     updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
@@ -320,7 +320,9 @@ function installTelexDemo(options) {
     else if (view.folder) { needFolder(view.folder); base = (m) => m.folder === view.folder; }
     else base = (m) => !['spam', 'trash'].includes(kindOf(m.folder));
     const needle = t.text.trim().toLowerCase(), words = view.bodies ? ftsWords(t.text) : [];
-    const match = (m) => base(m)
+    // An unread list keeps what was read while it was open (`keep`).
+    const keep = new Set(view.unread ? view.keep ?? [] : []);
+    const match = (m) => base(m) && (!view.unread || m.unread || keep.has(m.id))
       && (!needle || has(needle, [m.from_name, m.from_email, m.subject, m.to]) || (words.length > 0 && ftsMatch(m, words)))
       && t.from.every((v) => has(v, [m.from_name, m.from_email]))
       && t.to.every((v) => has(v, [m.to, m.cc, m.bcc]))
@@ -1133,7 +1135,7 @@ function installTelexDemo(options) {
 
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
-    theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], text_size: [90, 100, 110, 125, 150, 175, 200],
+    theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], font: ['plex', 'system', 'classic', 'inter', 'atkinson'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20],

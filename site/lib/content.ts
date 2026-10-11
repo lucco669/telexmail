@@ -7,10 +7,10 @@
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.8.0';
+export const NEXT = '0.8.1';
 
 /** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
-export const nextTeaser = 'Sent where your sent mail is, unsent mail at the end, accounts in color.';
+export const nextTeaser = 'Unread at hand, accounts on every row, five fonts.';
 
 /** The six points on the home page: short, the features page has the detail. */
 export const features = [
@@ -99,6 +99,9 @@ export const featureRows: FeatureRow[] = [
       { text: 'Double-click or Enter opens a message in a window of its own, to read side by side', since: '0.6.0' },
       { text: 'Columns fit the window, so a date is never cut; drag From wider, double-click to fit the names, right-click the headings for full dates', since: '0.7.1' },
       { text: 'Click the dot to mark a message read or unread, the flag to flag it; right-click a message for everything else', since: '0.7.1' },
+      { text: 'Unread at the top of the folders: the unread mail of every folder and account in one list; what you read stays until you leave', since: NEXT },
+      { text: 'O, or the dot above the list, shows only the unread mail of a folder', since: NEXT },
+      { text: 'In lists that mix accounts, every row carries its account’s color', since: NEXT },
     ],
   },
   {
@@ -223,7 +226,7 @@ export const featureRows: FeatureRow[] = [
       'An Outbox that retries at every check when the connection fails',
       'A copy of every sent message lands in your server’s Sent folder',
       'Forwarded attachments travel with the forward',
-      { text: 'Drafts and the Outbox of every account wait at the end of the folder list, only while they hold something; what didn’t go shows in red', since: NEXT },
+      { text: 'Drafts and the Outbox of every account wait at the end of the folder list, only while they hold something; what didn’t go shows in red', since: '0.8.0' },
     ],
   },
   {
@@ -249,7 +252,7 @@ export const featureRows: FeatureRow[] = [
       'IMAP over SSL/TLS, folders straight from the server',
       { text: 'IMAP over STARTTLS on port 143 too, never unencrypted', since: '0.5.0' },
       'Inbox, Sent, Trash and others found by their flags or by English and Polish names',
-      { text: 'Sent is the folder that holds your sent mail, even next to a server’s own empty one; or choose it, and Drafts, Archive, Spam and Trash, in Settings', since: NEXT },
+      { text: 'Sent is the folder that holds your sent mail, even next to a server’s own empty one; or choose it, and Drafts, Archive, Spam and Trash, in Settings', since: '0.8.0' },
       'The first sync takes the newest 300 messages of each folder',
       { text: 'Older mail on request, newest first, a thousand at a time', since: '0.5.0' },
       { text: 'Every account checked at the same time, so several take about as long as one', since: '0.7.2' },
@@ -322,7 +325,8 @@ export const featureRows: FeatureRow[] = [
       { text: 'Updates checked when Telex starts, once a day, or only when you ask; never before you say yes', since: '0.7.1' },
       'English or Polish, as in Windows or as you pick, down to the error messages',
       'Accounts, identities and servers in the same window',
-      { text: 'Each account’s color as a line down its folders, a dot, its initials or a tint', since: NEXT },
+      { text: 'Each account’s color as a line down its folders, a dot, its initials or a tint', since: '0.8.0' },
+      { text: 'Five fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, and Atkinson Hyperlegible for low vision', since: NEXT },
       { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
       { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
@@ -379,6 +383,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: '0.5.0', home: true },
   { id: 'undo', group: 'Organize', keys: [['Z']], action: 'Undo the last delete, move or discard · take back what you just sent', match: [{ key: 'z' }], home: true },
   { id: 'filter', group: 'Find', keys: [['/']], action: 'Search, with from: is:unread has:file …', match: [{ key: '/' }], home: true },
+  { id: 'onlyunread', group: 'Find', keys: [['O']], action: 'Only the unread mail of the list (O again: all of it)', match: [{ key: 'o' }], since: NEXT },
   { id: 'scope', group: 'Find', keys: [['Tab']], action: 'In the filter: this folder / all mail', match: [{ key: 'Tab', shift: false }] },
   { id: 'view', group: 'Find', keys: [['H']], action: 'HTML / plain text view', match: [{ key: 'h' }] },
   { id: 'esc', group: 'Find', keys: [['Esc']], action: 'Clear the filter, the selection or the conversation · save draft and close', match: [{ key: 'Escape' }] },
@@ -400,6 +405,11 @@ export const keyboardTips: Tip[] = [
     title: 'Read without the mouse',
     text: 'Space pages down the message and, at its end, opens the next unread one. After the last, it names the next folder with new mail; Space again goes there.',
     since: '0.7.1',
+  },
+  {
+    title: 'Only what’s new',
+    text: 'Unread at the top of the folders gathers the unread mail of every account, wherever rules filed it; O shows a folder’s alone. What you read stays in the list until you leave it.',
+    since: NEXT,
   },
   {
     title: 'Unread until you say so',
@@ -458,6 +468,13 @@ export const screens: Screen[] = [
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Right-click a message for everything you can do with it, each with its key. The dot and the flag at the start of a row switch read and flag with a click.',
     since: '0.7.1',
+  },
+  {
+    id: 'unread',
+    label: 'Unread',
+    title: 'Unread · All accounts – Telex',
+    caption: 'Unread at the top of the folders: new mail from every folder and account in one list, each row with its account’s line.',
+    since: NEXT,
   },
   {
     id: 'thread',
@@ -624,6 +641,11 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
     text: 'Right-click a message for reply, move, flag, read or unread and more. Right-click the column headings for full dates; drag the edge before Subject.',
   },
   {
+    keys: ['O'],
+    title: 'Only what’s new',
+    text: 'O shows only the Inbox’s unread mail; Unread at the top of the folders has both accounts’. Read one: it stays until you leave.',
+  },
+  {
     keys: ['T'],
     title: 'Follow a conversation',
     text: 'On Daniel Price’s “Re: Online shop estimate”: his enquiry filed in Clients, your estimate in Sent, his reply. Esc goes back.',
@@ -666,12 +688,12 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
   {
     keys: ['Ctrl+,'],
     title: 'Make it yours',
-    text: 'Eight themes from Paper to Phosphor, Polish, bigger text, comfortable rows. Rules and identities can be edited too.',
+    text: 'Eight themes from Paper to Phosphor, five fonts, Polish, bigger text, comfortable rows. Rules and identities can be edited too.',
   },
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['menu', 'reply', 'thread', 'select', 'suggest', 'local', 'attach', 'images', 'rules', 'reading', 'settings', 'polish'].map(
+export const homeScreens = ['unread', 'menu', 'reply', 'thread', 'select', 'suggest', 'local', 'attach', 'images', 'rules', 'settings', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -690,6 +712,23 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Unread at hand, accounts on every row, five fonts',
+    date: '2026-10-11',
+    summary: 'One list of everything unread, one key for only the unread mail of a folder, each account’s color on its rows, and fonts to choose from.',
+    points: [
+      'Unread, at the top of the folder list: the unread mail of every folder and account in one list, wherever rules filed it. Mail you read there stays until you leave, so nothing jumps away under you.',
+      'O, the dot above the list’s dots, or “3 unread” in the status bar: only the unread mail of the open folder. O again, or Esc, shows everything. G offers Unread too.',
+      'Lists that mix accounts (Unread, all mail, every account’s drafts) mark each row with its account the way the folder list does: a line at its start, a tint, a dot or its initials.',
+      'Settings › Appearance › Font: IBM Plex, your system’s own (Segoe UI and Cascadia Mono), Classic (Tahoma and Consolas), Inter with JetBrains Mono, or Atkinson Hyperlegible, made for low vision. Each sets the window, the list, and the mono face for dates and writing.',
+    ],
+    highlights: [
+      { title: 'Unread at hand', keys: 'O', text: 'Everything unread from every folder in one list, or just a folder’s with one key.' },
+      { title: 'Accounts on every row', text: 'Unread and all mail show each message’s account as a line, a tint, a dot or initials.' },
+      { title: 'Five fonts', text: 'IBM Plex, your system’s, Classic Tahoma, Inter, or Atkinson Hyperlegible.' },
+    ],
+  },
+  {
+    version: '0.8.0',
     title: 'Sent where your sent mail is, a calmer folder list',
     date: '2026-10-11',
     summary: 'Telex finds the folder that really holds your sent mail, keeps Drafts and the Outbox out of the way until they matter, and lets you choose how accounts are told apart.',

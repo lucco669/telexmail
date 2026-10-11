@@ -41,6 +41,7 @@ const I = {
   spam: sv('<circle cx="8" cy="8" r="5.5"/><path d="M4.2 11.8l7.6-7.6"/>'),
   outbox: sv('<path d="M2 9h3.5l1 1.5h3l1-1.5H14"/><path d="M2 9v4.5h12V9"/><path d="M8 7.5V1.8M5.6 4.2L8 1.8l2.4 2.4"/>'),
   mail: sv('<rect x="1.5" y="3" width="13" height="10" rx="1.2"/><path d="M2 4l6 5 6-5"/>'),
+  unread: sv('<path d="M10.5 4H2.7a1.2 1.2 0 00-1.2 1.2v7.6A1.2 1.2 0 002.7 14h10.6a1.2 1.2 0 001.2-1.2V8.5"/><path d="M2 5l6 4.8 3-2.4"/><circle cx="13.2" cy="3.8" r="2.1" fill="currentColor" stroke="none"/>'),
   mailOpen: sv('<path d="M1.5 6.8L8 2.3l6.5 4.5v6.7h-13z"/><path d="M2 7.2l6 4.3 6-4.3"/>'),
   clock: sv('<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.6"/>'),
   person: sv('<circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 14c.6-2.8 2.7-4.3 5.2-4.3s4.6 1.5 5.2 4.3"/>'),
@@ -55,9 +56,9 @@ const I = {
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
   popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
 };
-const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
+const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder', unread:'unread'};
 // Special folders have a name in the interface's language, whatever the server calls them.
-const KIND_NAME = {inbox:N_('Inbox'), outbox:N_('Outbox'), drafts:N_('Drafts'), sent:N_('Sent'), archive:N_('Archive'), spam:N_('Spam'), trash:N_('Trash')};
+const KIND_NAME = {inbox:N_('Inbox'), outbox:N_('Outbox'), drafts:N_('Drafts'), sent:N_('Sent'), archive:N_('Archive'), spam:N_('Spam'), trash:N_('Trash'), unread:N_('Unread')};
 
 /* ---------- data (filled from Rust) ---------- */
 // The folder tree and its counts; the message list asks the core for pages (see "list").
@@ -171,6 +172,11 @@ const acctId = key => key.split('/')[0];
 // Every account's Drafts, or every Outbox, as one list: "*/drafts", "*/outbox" (EVERY).
 const EVERY = '*';
 const isEvery = key => acctId(String(key)) === EVERY;
+// Unread mail of every folder but Spam and Trash, at the top of the tree. The core gets it as
+// all mail with `unread`.
+const UNREAD = EVERY + '/unread';
+// Lists that name each row's account (Drafts and the Outbox of every account) instead of its folder.
+const byAccount = () => isEvery(state.folder) && state.folder !== UNREAD && !allMail();
 const folderOf = key => {
   const [a, f] = key.split('/');
   return a === EVERY ? (KIND_NAME[f] ? {id:f, kind:f, name:f} : undefined) : ACCT[a]?.folders.find(x => x.id === f);
@@ -180,8 +186,11 @@ const kindOf = key => folderOf(key)?.kind;
 const isOut = key => ['sent', 'drafts', 'outbox'].includes(kindOf(key));
 const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.kind === kind); return f ? acct + '/' + f.id : null; };
 const homeOf = acct => keyOfKind(acct, 'inbox') || (ACCT[acct]?.folders[0] ? acct + '/' + ACCT[acct].folders[0].id : '');
-// An EVERY list counts what its folders hold together.
+// An EVERY list counts what its folders hold together; Unread, the unread mail outside Spam and Trash.
+const unreadAll = () => ACCOUNTS.reduce((n, a) => n + a.folders.filter(f => f.kind !== 'spam' && f.kind !== 'trash')
+  .reduce((m, f) => m + (COUNTS[a.id + '/' + f.id]?.unread ?? 0), 0), 0);
 const countOf = key => !isEvery(key) ? COUNTS[key] ?? {total:0, unread:0}
+  : key === UNREAD ? (n => ({total:n, unread:n}))(unreadAll())
   : servers().reduce((n, a) => { const c = COUNTS[keyOfKind(a.id, kindOf(key))]; return c ? {total:n.total + c.total, unread:n.unread + c.unread, stuck:n.stuck + (c.stuck ?? 0)} : n; }, {total:0, unread:0, stuck:0});
 const num = n => n.toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en');
 // The folders on this PC ("On this PC"): mail kept only here. The core keeps them as an
@@ -218,6 +227,8 @@ const state = {
   undo:null, // what Z takes back (set with setUndo): {kind:'move', items:[{id, from}]} after a delete or move; {kind:'send', id, until}; {kind:'discard', compose}
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
   thread:null, // {id, subject}: the list shows this message's conversation
+  unread:false, // the list shows only unread mail (O); Unread in the tree always does
+  kept:new Set(), // read while an unread list was open: it keeps them until it is left
   recent: Array.isArray(saved.recent) ? saved.recent.slice(0, 8) : [], // folders last moved to or opened with M and G
   pinned: new Set(Array.isArray(saved.pinned) ? saved.pinned : []), // folders shown outside "more"
   searches: Array.isArray(saved.searches) ? saved.searches.slice(0, 8) : [], // what was looked for last
@@ -266,7 +277,7 @@ const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light')
 // Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
-  settings:{theme:'system', language:'auto', density:'compact', account_mark:'rail', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
+  settings:{theme:'system', language:'auto', density:'compact', account_mark:'rail', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
     spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
@@ -284,6 +295,10 @@ function applySettings(){
   const s = pref(), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = shownTheme(s.theme);
   document.documentElement.dataset.mark = s.account_mark;
+  if (document.documentElement.dataset.font !== s.font){
+    document.documentElement.dataset.font = s.font;
+    measured = null; colsDone = ''; fitColumns(); // the dates' width is the new face's
+  }
   // HTML mail on dark paper takes the theme's colors: show it again in the new ones.
   if (theme !== shownTheme(s.theme) && !state.compose && ACCOUNTS.length) renderPreview();
   if (s.text_size !== zoomed){
@@ -296,7 +311,7 @@ function applySettings(){
   scheduleChecks();
   if (SETTINGS.language !== I18n.lang()){ I18n.setLang(SETTINGS.language); relabel(); }
   renderUpdates();
-  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark})); } catch {}
+  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, font:s.font})); } catch {}
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
 // Saved at once; the window follows. Resolves to true when it worked.
@@ -315,7 +330,7 @@ async function changeSettings(changes){
 // After a language change: everything on screen again, in the new words.
 function relabel(){
   I18n.translatePage();
-  paintToolbar(); paintDensity(); paintScope();
+  paintToolbar(); paintDensity(); paintScope(); paintUnreadOnly();
   renderTree(); renderHead(); drawRows(); renderStatus();
   if (!helpPop.hidden) renderHelp();
   if (!state.compose) renderPreview(); else { readCompose(); renderCompose(); }
@@ -419,10 +434,14 @@ function renderStatus(){
   const picked = state.picked.size > 1 ? ' · ' + esc(tn(state.picked.size, '{n} selected', '{n} selected', {n:num(state.picked.size)})) : '';
   const more = older && !allMail() && !state.q.trim()
     ? ` · ${esc(tn(older, '{n} older on the server', '{n} older on the server', {n:num(older)}))} <button type="button" class="linkbtn" id="st-older" title="${esc(t('The first check downloads the newest 300 messages of each folder.'))}">${esc(older > OLDER_BATCH ? t('Download {n}', {n:num(OLDER_BATCH)}) : t('Download'))}</button>` : '';
+  // "n unread" is a switch: only those (O). With it on, "Show all" switches back.
+  const unreadBtn = unread ? `<button type="button" class="linkbtn quiet" id="st-unread" title="${esc(t('Show only unread mail (O)'))}">${esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)}))}</button>` : '';
   $('st-folder').innerHTML = !ACCOUNTS.length ? esc(t('No account yet'))
     : state.thread ? esc(t('Conversation · {n}', {n:tn(found, '{n} message', '{n} messages', {n:num(found)})})) + picked
     : allMail() ? esc(t('All mail') + ' · ' + tn(found, '{n} match', '{n} matches', {n:num(found)})) + picked
-    : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}${more}`;
+    : state.folder === UNREAD ? esc(t('Unread') + ' · ' + (unread ? tn(unread, '{n} message', '{n} messages', {n:num(unread)}) : t('all read'))) + picked
+    : state.unread ? `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(t('only unread: {n} of {total}', {n:num(unread), total:num(total)}))} · <button type="button" class="linkbtn" id="st-all" title="${esc(t('Show every message (O)'))}">${esc(t('Show all'))}</button>${picked}`
+    : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + unreadBtn : ''}${picked}${more}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderSync();
   renderUnsent();
@@ -436,7 +455,10 @@ function renderStatus(){
 }
 
 // Older mail the first download left on the server, a batch at a time.
-$('st-folder').addEventListener('click', e => { if (e.target.closest('#st-older')) downloadOlder(); });
+$('st-folder').addEventListener('click', e => {
+  if (e.target.closest('#st-older')) downloadOlder();
+  else if (e.target.closest('#st-unread, #st-all')){ toggleUnreadOnly(); listEl.focus({preventScroll:true}); }
+});
 async function downloadOlder(){
   const folder = state.folder, b = $('st-older');
   if (!folder || b?.disabled) return;
@@ -501,7 +523,8 @@ function foldButton(key, kind, own = '', twin = false){
   // The Outbox says what didn't go, in the warning colors, before what waits its turn.
   const cnt = c.stuck ? `<span class="qchip" data-level="full" title="${esc(tn(c.stuck, '{n} not sent', '{n} not sent', {n:num(c.stuck)}) + ' · ' + t('Not sent: open the message to see why.'))}">${num(c.stuck)}</span>`
     : n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
-  const tip = isEvery(key) ? t('{folder} of every account', {folder:folderName(key)}) : own ? t('“{name}” on the server', {name:own}) : '';
+  const tip = key === UNREAD ? t('Unread mail from every folder except Spam and Trash. O shows only the unread mail of a folder.')
+    : isEvery(key) ? t('{folder} of every account', {folder:folderName(key)}) : own ? t('“{name}” on the server', {name:own}) : '';
   const name = esc(folderName(key)) + (twin ? `<i class="srv"> · ${esc(own)}</i>` : '');
   return `<li><button type="button" class="fold${kind === 'sent' ? ' out' : ''}${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}${tip ? ` title="${esc(tip)}"` : ''}>${I[KIND_ICON[kind] || 'folder']}<span>${name}</span>${cnt}</button></li>`;
 }
@@ -542,7 +565,8 @@ function renderTree(){
   const typing = state.naming && $('nf-name'), had = typing && document.activeElement === typing;
   if (typing) state.naming.value = typing.value;
   const caret = typing ? [typing.selectionStart, typing.selectionEnd] : null;
-  treeEl.innerHTML = ACCOUNTS.map(a => {
+  // Unread mail of every folder first, under a hairline: what to read, wherever rules put it.
+  treeEl.innerHTML = (ACCOUNTS.length ? `<ul class="unreadg">${foldButton(UNREAD, 'unread')}</ul>` : '') + ACCOUNTS.map(a => {
     if (a.id === LOCAL) return localGroup(a);
     const open = !state.collapsed[a.id], key = f => a.id + '/' + f.id;
     let items = '';
@@ -573,7 +597,7 @@ function renderTree(){
   if (drag?.started) paintDrag(); // the folders under a drag show it again
   const option = key => { const n = countOf(key).unread; return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(folderName(key))}${n ? ` (${n})` : ''}</option>`; };
   const unsent = unsentKeys();
-  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(acctLabel(a.id))}">`
+  $('folder-select').innerHTML = (ACCOUNTS.length ? option(UNREAD) : '') + ACCOUNTS.map(a => `<optgroup label="${esc(acctLabel(a.id))}">`
     + a.folders.filter(f => !COUNT_ALL.has(f.kind) || a.id + '/' + f.id === state.folder).map(f => option(a.id + '/' + f.id)).join('') + '</optgroup>').join('')
     + (unsent.length ? `<optgroup label="${esc(t('Not sent yet'))}">${unsent.map(option).join('')}</optgroup>` : '');
 }
@@ -795,11 +819,42 @@ document.addEventListener('pointerdown', e => { if (!menuEl.hidden && !menuEl.co
 addEventListener('blur', () => closeMenu(false));
 
 function setFolder(key){
+  if (key === UNREAD && state.folder !== UNREAD) state.unreadFrom = state.folder; // where O goes back to
   state.folder = key; state.q = ''; qEl.value = ''; state.inText = false; state.thread = null;
+  state.unread = false; state.kept.clear();
   unpick();
+  paintUnreadOnly();
   paintScope(); renderTree(); renderStatus();
   return loadView({top:true});
 }
+
+/* ---------- only unread ---------- */
+// O, the dot above the list's dots, or "n unread" in the status bar: the list shows only unread
+// mail, until O again, Esc or another folder. What is read meanwhile stays in it (`keep`), so
+// rows don't jump away under the reader. Unread in the tree is the same for every folder at once;
+// there O goes back to the folder that was open before.
+function toggleUnreadOnly(){
+  if (!ACCOUNTS.length || VIEWER) return;
+  if (state.folder === UNREAD){
+    const back = state.unreadFrom && folderOf(state.unreadFrom) ? state.unreadFrom : homeOf(ACCOUNTS[0]?.id);
+    setFolder(back).then(() => listEl.focus({preventScroll:true}));
+    return;
+  }
+  if (state.thread) leaveThread();
+  state.unread = !state.unread; state.kept.clear();
+  unpick();
+  paintUnreadOnly(); renderStatus();
+  loadView().then(() => {
+    if (state.unread) say(list.total ? t('Only unread mail. O shows everything again.') : t('Nothing unread here. O shows everything again.'), 3500);
+  });
+}
+function paintUnreadOnly(){
+  const b = $('b-unread'), on = state.folder === UNREAD || state.unread;
+  b.setAttribute('aria-pressed', String(on));
+  b.title = state.folder === UNREAD ? t('Unread mail of every folder. O goes back to the folder before.') : on ? t('Show every message (O)') : t('Show only unread mail (O)');
+  b.setAttribute('aria-label', b.title);
+}
+$('b-unread').addEventListener('click', () => { toggleUnreadOnly(); listEl.focus({preventScroll:true}); });
 
 /* ---------- list ---------- */
 // The list holds one stretch of the current view (a folder, or all mail while filtering; an
@@ -815,9 +870,13 @@ const allMail = () => !!state.thread || (state.scope === 'all' && !!state.q.trim
 // Lists whose rows come from more than one folder: all mail, and every account's Drafts or Outbox.
 const across = () => allMail() || isEvery(state.folder);
 const selKey = () => state.thread ? '#' : allMail() ? '*' : state.folder;
-const viewArgs = () => ({folder:allMail() ? null : state.folder, sort:state.sort.key, ascending:state.sort.dir > 0,
-  filter:state.q, bodies:state.inText, thread:state.thread?.id ?? null});
-const current = () => selRow && selRow.id === state.sel[selKey()] && (allMail() || selRow.f === state.folder || (isEvery(state.folder) && kindOf(selRow.f) === kindOf(state.folder))) ? selRow : null;
+// An unread list: Unread in the tree, or a folder with O. A conversation shows all of itself.
+const unreadOnly = () => !state.thread && (state.folder === UNREAD || state.unread);
+const viewArgs = () => ({folder:allMail() || state.folder === UNREAD ? null : state.folder, sort:state.sort.key, ascending:state.sort.dir > 0,
+  filter:state.q, bodies:state.inText, thread:state.thread?.id ?? null, unread:unreadOnly(), keep:unreadOnly() ? [...state.kept] : []});
+// Whether a message belongs in the list on screen.
+const inView = f => allMail() || f === state.folder || state.folder === UNREAD || (isEvery(state.folder) && kindOf(f) === kindOf(state.folder));
+const current = () => selRow && selRow.id === state.sel[selKey()] && inView(selRow.f) ? selRow : null;
 // The messages an action is for: those picked with Shift or Ctrl, else the selected one.
 const chosen = () => state.picked.size ? [...state.picked] : current() ? [current().id] : [];
 function unpick(){
@@ -880,7 +939,7 @@ function textWidth(text, font){
 // The widest date and size this language can show, measured once per language and date style.
 let measured = null;
 function measure(){
-  const key = I18n.lang() + colPref.dates;
+  const key = I18n.lang() + colPref.dates + document.documentElement.dataset.font;
   if (measured?.key === key) return measured;
   const data = `11.5px ${cssVar('--font-data')}`, head = `500 11.5px ${cssVar('--font-ui')}`, arrow = 14;
   const late = new Date(2026, 11, 28, 23, 59);
@@ -928,7 +987,7 @@ function fitColumns(){
 function fitToNames(which){
   const font = `600 12.5px ${cssVar('--font-list')}`;
   const texts = list.rows.slice(Math.max(0, visibleRange()[0] - list.start - MARGIN)).slice(0, 200)
-    .map(m => which === 'where' ? (isEvery(state.folder) && !allMail() ? acctLabel(acctId(m.f)) : folderName(m.f)) : whoOf(m));
+    .map(m => which === 'where' ? (byAccount() ? acctLabel(acctId(m.f)) : folderName(m.f)) : whoOf(m));
   const px = Math.ceil(Math.max(0, ...texts.map(s => textWidth(s, font)))) + COL.pad + (which === 'where' ? 14 : 4);
   colPref[which] = Math.max(which === 'where' ? COL.minWhere : COL.minFrom, px);
   colsDone = ''; fitColumns(); persist();
@@ -994,10 +1053,11 @@ function whoOf(m){
   if (!isOut(m.f)) return m.from;
   return allMail() ? t('To: {who}', {who:nameOf(m.to)}) : nameOf(m.to);
 }
-function rowHtml(m, sel, hl){
+function rowHtml(m, sel, hl, mixed){
   const out = isOut(m.f), tip = out ? m.to : `${m.from} <${m.email}>`;
-  const on = m.id === sel || state.picked.has(m.id);
-  const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel ' : '') + (state.picked.has(m.id) ? 'picked' : '');
+  const on = m.id === sel || state.picked.has(m.id), acct = acctId(m.f);
+  const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel ' : '') + (state.picked.has(m.id) ? 'picked ' : '')
+    + (mixed && acct !== LOCAL ? 'acc ' + acolor(acct) : '');
   // The dot and the flag are switches: a click marks read or unread, flags or unflags.
   const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
   const flag = `<b class="mk fl" title="${esc(m.flagged ? t('Remove the flag (F)') : t('Flag (F)'))}">${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : I.flagOff}</b>`;
@@ -1005,7 +1065,7 @@ function rowHtml(m, sel, hl){
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${marked(whoOf(m), hl?.[out ? 'to' : 'from'])}</td>
 <td class="c-subj" title="${esc(m.subj)}">${marked(m.subj, hl?.subject)}</td>
-<td class="c-where" title="${esc(acctLabel(acctId(m.f)))} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(isEvery(state.folder) && !allMail() ? acctLabel(acctId(m.f)) : folderName(m.f))}</td>
+<td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(byAccount() ? acctLabel(acct) : folderName(m.f))}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
 }
@@ -1071,15 +1131,18 @@ function drawRows(scrolling = false){
   const n = colCount;
   if (!list.total){
     drawn = null;
-    rowsEl.innerHTML = !ACCOUNTS.length || list.seq === 0 ? '' : `<tr class="empty"><td colspan="${n}">${state.q ? (allMail() ? t('No messages match “{q}” in any account. Press Esc to clear the filter.', {q:esc(state.q)}) : t('No messages match “{q}”. Press Esc to clear the filter.', {q:esc(state.q)})) : esc(t('This folder is empty.'))}</td></tr>`;
+    const empty = state.q ? (allMail() ? t('No messages match “{q}” in any account. Press Esc to clear the filter.', {q:esc(state.q)}) : t('No messages match “{q}”. Press Esc to clear the filter.', {q:esc(state.q)}))
+      : state.folder === UNREAD && !state.thread ? esc(t('Nothing unread. Everything in every folder is read.'))
+      : unreadOnly() ? esc(t('Nothing unread here. Press O to see every message.')) : esc(t('This folder is empty.'));
+    rowsEl.innerHTML = !ACCOUNTS.length || list.seq === 0 ? '' : `<tr class="empty"><td colspan="${n}">${empty}</td></tr>`;
     return;
   }
   const [va, vb] = visibleRange(), s = list.start, e = s + list.rows.length;
   if (scrolling && drawn && drawn.start === s && drawn.length === list.rows.length
       && (va >= drawn.a + 5 || drawn.a === 0) && (vb <= drawn.b - 5 || drawn.b === list.total)) return;
-  const a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN), sel = state.sel[selKey()], hl = hlTerms();
+  const a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN), sel = state.sel[selKey()], hl = hlTerms(), mixed = across();
   let html = spacer(a * rowH, n);
-  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl) : `<tr class="ph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
+  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl, mixed) : `<tr class="ph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
   rowsEl.innerHTML = html + spacer((list.total - b) * rowH, n);
   drawn = {a, b, start:s, length:list.rows.length};
   const r = rowsEl.querySelector('tr[data-id]'), h = r?.getBoundingClientRect().height;
@@ -1186,7 +1249,7 @@ async function refresh({skip} = {}){
 function renderHead(){
   const out = !allMail() && isOut(state.folder);
   $('from-label').textContent = out ? t('To') : t('From');
-  $('where-label').textContent = isEvery(state.folder) && !allMail() ? t('Account') : t('Folder');
+  $('where-label').textContent = byAccount() ? t('Account') : t('Folder');
   document.querySelectorAll('th button[data-sort]').forEach(b => {
     const on = b.dataset.sort === state.sort.key, th = b.parentElement;
     if (on) th.setAttribute('aria-sort', state.sort.dir > 0 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
@@ -1294,7 +1357,7 @@ function dragTarget(x, y){
   const el = document.elementFromPoint(x, y);
   if (!el?.closest?.('#tree')) return null;
   const f = el.closest('[data-folder]'), more = el.closest('[data-more]'), acct = el.closest('[data-acct]');
-  if (f){
+  if (f && !isEvery(f.dataset.folder)){
     const key = f.dataset.folder, kind = kindOf(key);
     const ok = !drag.folders.includes(key) && kind !== 'outbox' && targetsFor(drag.folders).includes(acctId(key));
     return {key, ok, el:f};
@@ -1430,6 +1493,7 @@ function select(id, silent){
 }
 // A message's read or flag state changed here: its row, the counts, the envelope above it.
 function changed(m, fields){
+  if (fields.unread === false && unreadOnly()) state.kept.add(m.id);
   if ('unread' in fields && fields.unread !== m.unread){
     const c = COUNTS[m.f] ??= {total:0, unread:0};
     c.unread = Math.max(0, c.unread + (fields.unread ? 1 : -1));
@@ -1492,7 +1556,7 @@ async function space(back){
   try { u = await invoke('next_unread', {view:viewArgs(), after:current()?.id ?? null, back}); } catch (e){ say(tr(e), 8000); return; }
   if (u){ spaceOffer = null; await goToUnread(u); return; }
   if (back){ say(t('No unread message above this one.'), 3000); return; }
-  if (allMail()){ say(t('No more unread messages here.'), 3000); return; }
+  if (allMail() || state.folder === UNREAD){ say(t('No more unread messages here.'), 3000); return; }
   const next = nextUnreadFolder(state.folder);
   if (!next){ say(t('No unread mail in any folder.'), 3000); return; }
   if (spaceOffer?.key !== next || Date.now() - spaceOffer.at > 10e3){
@@ -2331,6 +2395,7 @@ function toggleUnread(){
   if (state.picked.size > 1){
     // Any unread among them: all read. All read: all unread.
     const rows = pickedRows(), unread = rows.length > 0 && !rows.some(r => r.unread), n = state.picked.size;
+    if (!unread && unreadOnly()) chosen().forEach(id => state.kept.add(id));
     call('set_unread_many', {ids:chosen(), unread}).then(() => {
       say(unread ? tn(n, 'Marked {n} message as unread.', 'Marked {n} messages as unread.', {n:num(n)}) : tn(n, 'Marked {n} message as read.', 'Marked {n} messages as read.', {n:num(n)}), 3000);
       refresh();
@@ -2342,6 +2407,7 @@ function toggleUnread(){
 // Shift+U: every message in the folder (or in the list, in all mail) read.
 async function markAllRead(){
   if (!list.total) return;
+  state.kept.clear(); // all read: an unread list empties
   let n;
   try {
     if (across()) n = await call('set_unread_many', {ids:await invoke('list_ids', {view:viewArgs(), from:null, to:null}), unread:false});
@@ -2411,7 +2477,7 @@ async function undo(){
   try { for (const [folder, ids] of groups) await call('move_messages', {ids, folder}); } catch { return; }
   setUndo(null);
   const first = u.items[0];
-  if (first && (allMail() || state.folder === first.from || (isEvery(state.folder) && kindOf(first.from) === kindOf(state.folder)))){ state.sel[selKey()] = first.id; selRow = null; }
+  if (first && inView(first.from)){ state.sel[selKey()] = first.id; selRow = null; }
   await loadTree().catch(() => {});
   renderTree();
   await loadView();
@@ -2441,7 +2507,7 @@ function openPicker(mode){
     if (folders.length === 1) skip = folders[0];
   }
   // G goes to every account's drafts and to the Outbox as one list each, as the tree shows them.
-  const items = (mode === 'move' ? [] : UNSENT.map(kind => ({key:EVERY + '/' + kind, name:t(KIND_NAME[kind]), acct:EVERY})))
+  const items = (mode === 'move' ? [] : ['unread', ...UNSENT].map(kind => ({key:EVERY + '/' + kind, name:t(KIND_NAME[kind]), acct:EVERY})))
     .concat(accts.flatMap(a => (ACCT[a]?.folders ?? [])
       .filter(f => mode === 'move' ? f.kind !== 'outbox' : !COUNT_ALL.has(f.kind))
       .map(f => ({key:a + '/' + f.id, name:folderName(a + '/' + f.id), acct:a}))
@@ -3320,13 +3386,25 @@ function themeCards(){
       + `<span class="tname">${esc(t(THEME_NAMES[id]))}</span><span class="tlvl"></span></label>`;
   }).join('');
 }
-// How accounts are told apart in the tree: each card draws two accounts that way, in their colors.
+// How accounts are told apart: each card draws two accounts that way in the tree, and rows of a
+// list that mixes them (Unread, all mail), in their colors.
 const MARKS = [['rail', N_('Line')], ['dot', N_('Dot')], ['initials', N_('Initials')], ['tint', N_('Tint')], ['none', N_('None|mark')]];
 function markCards(){
   const group = (c, who) => `<span class="mgrp ${c}"><span class="mhead"><i class="adot ${c}" data-i="${who}"></i><b></b></span><b class="mf"></b><b class="mf on"></b></span>`;
+  const row = (c, who) => `<span class="mrow ${c}"><b class="ml"></b><i class="adot ${c}" data-i="${who}"></i><b class="mw"></b></span>`;
   return MARKS.map(([id, name]) => `<label class="tcard mcard"><input type="radio" name="account_mark" value="${id}"${pref().account_mark === id ? ' checked' : ''}>`
-    + `<span class="mprev" data-mark="${id}" aria-hidden="true"><span class="multi">${group('a0', 'AK')}${group('a1', 'JN')}</span></span>`
+    + `<span class="mprev" data-mark="${id}" aria-hidden="true"><span class="multi">${group('a0', 'AK')}${group('a1', 'JN')}`
+    + `<span class="mlist">${row('a1', 'JN')}${row('a0', 'AK')}${row('a0', 'AK')}</span></span></span>`
     + `<span class="tname">${esc(t(name))}</span></label>`).join('');
+}
+// The faces Telex can be written in: each card shows its three (styles.css: [data-font]).
+// Plex, Inter and Atkinson are bundled (ui/fonts); System and Classic are Windows' own.
+const FONTS = [['plex', 'IBM Plex'], ['system', N_('System|font')], ['classic', N_('Classic|font')], ['inter', 'Inter'], ['atkinson', 'Atkinson Hyperlegible']];
+const fontName = id => { const f = FONTS.find(([x]) => x === id); return !f ? id : id === 'system' || id === 'classic' ? t(f[1]) : f[1]; };
+function fontCards(){
+  return FONTS.map(([id]) => `<label class="tcard fcard"><input type="radio" name="font" value="${id}"${pref().font === id ? ' checked' : ''}>`
+    + `<span class="fprev" data-font="${id}" aria-hidden="true"><b>Ag Żółć</b><span class="fl">Anna Kowalska · Faktura 10/2026</span><span class="fd">09:30 · 14 KB</span></span>`
+    + `<span class="tname">${esc(fontName(id))}</span></label>`).join('');
 }
 function renderSettings(keepFocus){
   const focused = keepFocus && document.activeElement?.closest?.('#set-dlg') ? document.activeElement : null;
@@ -3348,6 +3426,7 @@ function renderSettings(keepFocus){
   $('s-forced').hidden = !forcedColors.matches;
   $('s-density').innerHTML = segs('density', [['compact', esc(t('Compact'))], ['comfortable', esc(t('Comfortable'))]], s.density);
   $('s-marks').innerHTML = markCards();
+  $('s-fonts').innerHTML = fontCards();
   $('s-size').innerHTML = segs('text_size', TEXT_SIZES.map(n => [n, n + '%']), s.text_size);
   const auto = LANG_NAMES[SETTINGS.settings.language === 'auto' ? SETTINGS.language : ''] ?? '';
   $('s-langs').innerHTML = radios('language', [
@@ -3395,7 +3474,7 @@ function paneOpened(tab){
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
-  const want = {theme:s.theme, density:s.density, account_mark:s.account_mark, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
+  const want = {theme:s.theme, density:s.density, account_mark:s.account_mark, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
     mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
@@ -3443,6 +3522,7 @@ sdlg.addEventListener('change', e => {
   if (el.name === 'theme') changeSettings({theme:v});
   else if (el.name === 'density') changeSettings({density:v});
   else if (el.name === 'account_mark') changeSettings({account_mark:v});
+  else if (el.name === 'font') changeSettings({font:v});
   else if (el.name === 'text_size') changeSettings({text_size:Number(v)});
   else if (el.name === 'language') changeSettings({language:v});
   else if (el.name === 'mark_read') changeSettings({mark_read:v});
@@ -3474,7 +3554,7 @@ sdlg.addEventListener('close', () => {
 
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
-const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Accounts in the folder list'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
+const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Account colors'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
@@ -3486,6 +3566,7 @@ function settingValue(key, v){
     case 'language': return v === 'auto' ? t('Automatic, as in Windows') : LANG_NAMES[v] ?? v;
     case 'density': return v === 'comfortable' ? t('Comfortable') : t('Compact');
     case 'account_mark': return MARKS.find(([id]) => id === v) ? t(MARKS.find(([id]) => id === v)[1]) : v;
+    case 'font': return fontName(v);
     case 'text_size': return v + '%';
     case 'prefer_text': return v ? t('Show the plain text') : t('Show the HTML');
     case 'mark_read': return {moment:t('After a moment on screen'), at_once:t('As soon as I select them'), window:t('When I open them in their own window'), manual:t('Only when I mark them myself')}[v] ?? v;
@@ -3984,7 +4065,7 @@ const helpBtn = $('st-help'), helpPop = $('help-pop');
 const HELP_KEYS = [
   [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Space', N_('read on; at the end, the next unread message')],
     ['Shift+Space', N_('back up; at the top, the previous unread')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
-    ['H', N_('HTML or plain text')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
+    ['H', N_('HTML or plain text')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
@@ -4001,6 +4082,7 @@ const HELP_KEYS = [
 const HELP_TIPS = [
   N_('Right-click a message for everything you can do with it, each with its key.'),
   N_('Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.'),
+  N_('Unread, at the top of the folders, gathers the unread mail of every folder and account. Mail you read there stays until you leave.'),
   N_('Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Right-click the column headings for dates and the Size column.'),
   N_('Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.'),
   N_('Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.'),
@@ -4062,13 +4144,14 @@ function onKey(e){
   const tg = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
   if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
-  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
+  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
     if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
     if (unpick()){ e.preventDefault(); afterPick(); return; }
     if (state.thread){ e.preventDefault(); leaveThread(); return; }
+    if (state.unread){ e.preventDefault(); toggleUnreadOnly(); return; }
     if (VIEWER && menuEl.hidden){ e.preventDefault(); closeViewer(); return; }
   }
   // Tab in the filter box: this folder or all mail, while there is something to look for.
@@ -4106,6 +4189,7 @@ function onKey(e){
   else if (k === 'm' || k === 'M') openPicker('move');
   else if (k === 'g' || k === 'G') openPicker('go');
   else if (k === 't' || k === 'T') toggleThread();
+  else if (k === 'o' || k === 'O') toggleUnreadOnly();
   else if (k === 'z' || k === 'Z') undo();
   else if (k === '/') qEl.focus();
   else if (k === '?') toggleHelp();
