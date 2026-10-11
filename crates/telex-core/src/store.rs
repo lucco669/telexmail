@@ -19,7 +19,7 @@ use crate::tr;
 
 /// Schema steps, oldest first: step n brings a database to version n. A released step is
 /// never edited; a change is a new file in migrations/ added here.
-const MIGRATIONS: &[&str] = &[
+pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_base.sql"),
     include_str!("migrations/002_write_back.sql"),
     include_str!("migrations/003_sending.sql"),
@@ -329,7 +329,7 @@ impl MailStore {
             .ok_or_else(|| StoreError::UnknownAccount(id.to_owned()))
     }
 
-    fn reload_accounts(&mut self) -> Result<(), StoreError> {
+    pub(crate) fn reload_accounts(&mut self) -> Result<(), StoreError> {
         self.accounts = load_accounts(&self.db)?;
         Ok(())
     }

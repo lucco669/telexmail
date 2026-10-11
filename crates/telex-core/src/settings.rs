@@ -44,6 +44,8 @@ pub const TEXT_SIZES: &[u16] = &[90, 100, 110, 125, 150, 175, 200];
 pub const CHECK_INTERVALS: &[u16] = &[0, 5, 10, 15, 30, 60];
 /// Seconds sent mail waits in the Outbox, so Send can be undone. 0: it goes at once.
 pub const UNDO_SEND: &[u16] = &[0, 5, 10, 20, 30];
+/// How many backups the backup folder keeps; older ones are removed.
+pub const BACKUP_KEEP: &[u16] = &[3, 5, 10, 20];
 
 /// The keys of [`Settings`] in the order the settings window shows them.
 const KEYS: &[&str] = &[
@@ -63,6 +65,8 @@ const KEYS: &[&str] = &[
     "ask_subject",
     "spell_check",
     "updates",
+    "backup_every",
+    "backup_keep",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +101,33 @@ pub struct Settings {
     /// Underline misspelt words while writing.
     pub spell_check: bool,
     pub updates: Updates,
+    /// Back up the mail base by itself: never, every day or every week.
+    pub backup_every: BackupEvery,
+    /// The folder backups go to, empty until the user picks one. It belongs to this PC: an
+    /// exported settings file leaves it out, and importing one keeps this PC's.
+    pub backup_dir: String,
+    /// How many backups to keep there, one of [`BACKUP_KEEP`].
+    pub backup_keep: u16,
+}
+
+/// How often the mail base backs itself up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackupEvery {
+    Off,
+    Daily,
+    Weekly,
+}
+
+impl BackupEvery {
+    /// How old the newest backup may be before the next one is due.
+    pub fn period(self) -> Option<chrono::TimeDelta> {
+        match self {
+            Self::Off => None,
+            Self::Daily => Some(chrono::TimeDelta::days(1)),
+            Self::Weekly => Some(chrono::TimeDelta::days(7)),
+        }
+    }
 }
 
 /// The paper HTML mail is shown on in a dark theme.
@@ -176,6 +207,9 @@ impl Default for Settings {
             ask_subject: true,
             spell_check: true,
             updates: Updates::Ask,
+            backup_every: BackupEvery::Off,
+            backup_dir: String::new(),
+            backup_keep: 5,
         }
     }
 }
@@ -203,6 +237,7 @@ impl Settings {
             && TEXT_SIZES.contains(&self.text_size)
             && CHECK_INTERVALS.contains(&self.check_every)
             && UNDO_SEND.contains(&self.undo_send)
+            && BACKUP_KEEP.contains(&self.backup_keep)
     }
 
     fn to_map(&self) -> Map<String, Value> {
@@ -576,12 +611,17 @@ pub fn export(
     } else {
         Vec::new()
     };
+    // Where backups go is this PC's own business.
+    let portable = Settings {
+        backup_dir: String::new(),
+        ..settings.clone()
+    };
     let bundle = Bundle {
         format: FORMAT,
         version: FORMAT_VERSION,
         exported: now.format("%Y-%m-%dT%H:%M:%S").to_string(),
         app: app_version,
-        settings: choice.settings.then_some(settings),
+        settings: choice.settings.then_some(&portable),
         accounts: entries,
         rules,
     };
@@ -760,10 +800,12 @@ impl Import {
         if raw.format != FORMAT {
             return Err(ImportError::NotTelex);
         }
-        let (settings, settings_ignored) = match &raw.settings {
+        let (mut settings, settings_ignored) = match &raw.settings {
             Some(s) => current.merged(s),
             None => (current.clone(), Vec::new()),
         };
+        // Where backups go belongs to this PC.
+        settings.backup_dir.clone_from(&current.backup_dir);
         let accounts = store.accounts();
         let entries: Vec<AccountEntry> = raw
             .accounts

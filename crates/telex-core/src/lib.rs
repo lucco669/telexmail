@@ -9,6 +9,7 @@
 
 pub mod attachments;
 pub mod autoconfig;
+pub mod backup;
 mod colors;
 pub mod drafts;
 pub mod filters;

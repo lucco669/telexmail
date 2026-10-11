@@ -511,6 +511,19 @@ button.ph-who:hover .pn{text-decoration:underline}
 .ulink .n{flex:none;min-width:52px;text-align:right;font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
 .spark{flex:0 0 72px;height:5px;border-radius:3px;background:var(--line-soft);overflow:hidden}
 .spark i{display:block;height:100%;background:var(--accent)}
+/* Settings › Backups: the mail base and the backup folder, the backups there, and the
+   question before one is put back */
+.bkpath,.bkdir{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 6px;min-width:0}
+.bkpath code,.bkdir code{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--line-soft);border-radius:3px;background:var(--surface);font:11.5px var(--font-data)}
+.bklist{list-style:none;margin:0 0 10px;padding:0;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface)}
+.bklist li{display:flex;align-items:center;gap:12px;min-height:32px;padding:0 4px 0 10px;border-bottom:1px solid var(--line-soft);font-size:12.5px}
+.bklist li:last-child{border-bottom:0}
+.bkwhen{flex:1;min-width:0;font-variant-numeric:tabular-nums}
+.bksize{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.bkconfirm{margin:0 0 12px;padding:10px 12px 2px;border:1px solid var(--accent);border-radius:5px;background:var(--surface);font-size:12.5px}
+.bkconfirm p{margin:6px 0}
+.bkconfirm ul{margin:6px 0 10px;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5}
+.bkchip{flex:none;margin-right:4px;border:0;cursor:pointer}
 @media (max-width: 620px){
   .setbody{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
   .settabs{flex-direction:row;padding:6px;border-right:0;border-bottom:1px solid var(--line-soft)}

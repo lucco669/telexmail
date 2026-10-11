@@ -78,7 +78,7 @@ function installTelexDemo(options) {
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
     density: 'compact', text_size: 100, prefer_text: false, mark_read: 'moment', check_every: 10, push_mail: true, notify: true,
     mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
-    updates: 'off', ...startSettings,
+    updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
   const lang = () => (settings.language === 'auto' ? autoLang : settings.language === 'pl' ? 'pl' : 'en');
   const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);
@@ -98,6 +98,8 @@ function installTelexDemo(options) {
       'To tylko demo: nie wczytuje plików ustawień. Pobierz Telex, aby zaimportować swoje.'],
     remove: ['This is a demo: its accounts can’t be removed. Download Telex to set up your own.',
       'To tylko demo: jego kont nie można usunąć. Pobierz Telex, aby dodać własne.'],
+    backup: ['This is a demo: it doesn’t write or read files. Download Telex to back up your own mail.',
+      'To tylko demo: nie zapisuje ani nie czyta plików. Pobierz Telex, aby robić kopie zapasowe własnej poczty.'],
     mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
       'To tylko demo: nie zapisuje ani nie czyta plików z pocztą. Pobierz Telex, aby zapisywać foldery jako mbox i wczytywać pocztę z plików.'],
     update: ['This is a demo: it doesn’t update itself. Download the newest Telex instead.',
@@ -1106,6 +1108,7 @@ function installTelexDemo(options) {
     theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'manual'], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'daily', 'off'],
+    backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20],
   };
   const SWITCHES = ['prefer_text', 'push_mail', 'notify', 'ask_subject', 'spell_check'];
   const settingsView = () => ({ settings: { ...settings }, language: lang(), offer: null, fresh: false });
@@ -1247,6 +1250,16 @@ function installTelexDemo(options) {
     rename_local_folder: renameLocalFolder,
     delete_local_folder: deleteLocalFolder,
     export_folder: () => refuse('mbox'),
+    // Backups: the tab shows a mail base and an empty backup folder; nothing is written.
+    backup_state: () => ({ base: 'C:\\Users\\Sam\\AppData\\Roaming\\app.telexmail.desktop\\telex.db', base_bytes: 48 * 1048576,
+      free_bytes: 0, dir: 'C:\\Users\\Sam\\Documents\\Telex backups', suggested: true, backups: [], running: false }),
+    backup_now: () => refuse('backup'),
+    auto_backup: () => null,
+    pick_backup_dir: () => refuse('backup'),
+    inspect_backup: () => refuse('backup'),
+    restore_backup: () => refuse('backup'),
+    compact_base: () => refuse('backup'),
+    show_backup_place: () => refuse('backup'),
     import_mail: () => refuse('mbox'),
     pick_files: pickFiles,
     open_attachment: openAttachment,

@@ -213,7 +213,7 @@ const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', check_every:10,
     push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
-    spell_check:true, updates:'ask'},
+    spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -392,6 +392,14 @@ function folderButton(a, f){
 const nameInput = () => `<input id="nf-name" class="nfname" value="${esc(state.naming.value)}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Folder name'))}" placeholder="${esc(t('Folder name'))}">`;
 // The folders on this PC: their own group under the accounts, with a + for a new one. Trash
 // shows only when it holds something.
+// Mail on this PC exists nowhere else: the group says so while there is no backup, or (with
+// backups off) none for a month.
+function backupNudge(){
+  const held = (ACCT[LOCAL]?.folders ?? []).reduce((n, f) => n + countOf(LOCAL + '/' + f.id).total, 0);
+  if (!held || !bk.state?.base) return false;
+  const newest = bk.state.backups[0];
+  return !newest || (pref().backup_every === 'off' && Date.now() - parseDate(newest.made) > 30 * 864e5);
+}
 function localGroup(a){
   const open = !state.collapsed[LOCAL];
   let items = '';
@@ -401,6 +409,7 @@ function localGroup(a){
       + shown.map(f => folderButton(a, f)).join('') + '</ul>';
   }
   return `<div class="pcrow"><button type="button" class="acct" data-acct="${LOCAL}" aria-expanded="${open}" title="${esc(t('Mail kept only on this PC, on no server. Right-click a folder for more.'))}">${I.caret}${adot(LOCAL)}<span class="acct-mail">${esc(t('On this PC'))}</span></button>`
+    + (backupNudge() ? `<button type="button" class="qchip bkchip" data-act="backups" title="${esc(t('This mail is only on this PC and has no recent backup. Click to back it up.'))}">${esc(t('No backup'))}</button>` : '')
     + `<button type="button" class="pcadd" data-act="new-folder" title="${esc(t('New folder on this PC'))}" aria-label="${esc(t('New folder on this PC'))}">${I.plus}</button></div>${items}`;
 }
 function renderTree(){
@@ -444,6 +453,7 @@ treeEl.addEventListener('click', e => {
   const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]'), m = e.target.closest('[data-more]');
   if (e.target.closest('[data-act="add-account"]')) openAccountDialog();
   else if (e.target.closest('[data-act="new-folder"]')) startNaming('new');
+  else if (e.target.closest('[data-act="backups"]')) openSettings('backup');
   else if (f) setFolder(f.dataset.folder);
   else if (m){ state.more[m.dataset.more] = !state.more[m.dataset.more]; if (!state.more[m.dataset.more]) delete state.more[m.dataset.more]; persist(); renderTree(); }
   else if (a){ state.collapsed[a.dataset.acct] = !state.collapsed[a.dataset.acct]; renderTree(); }
@@ -2569,19 +2579,21 @@ function paneOpened(tab){
   }
   if (tab === 'read') renderTrusted();
   if (tab === 'use') renderUsage();
+  if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
 }
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
   const want = {theme:s.theme, density:s.density, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format};
+    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-updates').checked = s.updates === 'daily';
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   $('s-undo').value = String(s.undo_send);
+  if ($('s-keep')) $('s-keep').value = String(s.backup_keep);
 }
 // How long sent mail waits so it can be taken back.
 const undoText = n => n === 0 ? t('Off: send at once') : tn(n, '{n} second', '{n} seconds');
@@ -2629,6 +2641,7 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-notify') changeSettings({notify:el.checked});
   else if (el.id === 's-undo') changeSettings({undo_send:Number(v)});
   else if (el.id === 's-updates') changeSettings({updates:el.checked ? 'daily' : 'off'});
+  else if (el.name === 'backup_every') changeSettings({backup_every:v}).then(ok => { if (ok){ renderTree(); autoBackup(); } });
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
 forcedColors.addEventListener('change', () => { if (sdlg.open) $('s-forced').hidden = !forcedColors.matches; });
@@ -2648,7 +2661,8 @@ const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('
   mark_read:N_('Mark messages as read'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
-  notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending')};
+  notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
+  backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
 function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
@@ -2664,6 +2678,8 @@ function settingValue(key, v){
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
     case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
     case 'undo_send': return undoText(v);
+    case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
+    case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
     default: return String(v);
   }
 }
@@ -2912,6 +2928,124 @@ $('u-usage').addEventListener('click', e => {
   if (s){ sdlg.close(); filterAllMail(s.dataset.sender); }
   if (o){ sdlg.close(); openMessage(Number(o.dataset.open), o.dataset.folder); }
 });
+
+/* ---------- backups ---------- */
+// Settings › Backups: the mail base (where, how large, compacting it), backing it up now or by
+// itself into a folder that keeps the newest few, and putting a backup back. Restoring keeps
+// the mail base as it was next to it, then the window starts again on the restored mail.
+const BACKUP_KEEP = [3, 5, 10, 20];
+const bk = {state:null, work:'', restore:null, error:''}; // work: 'backup', 'restore' or 'compact' while it runs
+const fmtWhenFull = d => d.toDateString() === new Date().toDateString() ? t('today {time}', {time:hm(d)}) : dmy(d) + ' ' + hm(d);
+async function loadBackups(){
+  try { bk.state = await invoke('backup_state'); bk.error = bk.work ? bk.error : ''; } catch (e){ bk.error = tr(e); }
+  if (sdlg.open && setTab === 'backup') renderBackups();
+  renderTree(); // the folders on this PC say when they aren't backed up
+}
+function renderBackups(){
+  const el = $('s-backup'), s = bk.state, p = pref();
+  if (!s){
+    el.innerHTML = bk.error ? `<p class="derr">${esc(bk.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
+    if (!bk.error && !bk.loading){ bk.loading = true; loadBackups().finally(() => { bk.loading = false; }); }
+    return;
+  }
+  const newest = s.backups[0], when = b => fmtWhenFull(parseDate(b.made));
+  const work = bk.work, off = work ? ' disabled' : '';
+  let html = `<h3 class="rh">${esc(t('Mail base'))}</h3>`;
+  html += s.base ? `<p class="bkpath"><code title="${esc(s.base)}">${esc(s.base)}</code><button type="button" class="linkbtn" id="bk-show-base">${esc(t('Show in folder'))}</button></p>`
+    + `<p class="dnote">${esc(fmtBytes(s.base_bytes))}${s.free_bytes > 1048576 ? ' · ' + esc(t('{size} of it is free space left by removed mail', {size:fmtBytes(s.free_bytes)})) : ''}</p>`
+    + (s.free_bytes > 1048576 ? `<div class="sbtns"><button type="button" class="btn" id="bk-compact"${off}>${esc(work === 'compact' ? t('Compacting…') : t('Compact|base'))}</button><span class="sdim">${esc(t('Gives that space back to the disk. Telex pauses while it works.'))}</span></div>` : '')
+    : `<p class="dnote">${esc(t('There is no mail base yet: it is made when you add your first account.'))}</p>`;
+  html += `<h3 class="rh">${esc(t('Back up'))}</h3>
+<p class="dnote">${esc(t('A backup is one file with all your mail, the folders on this PC, rules and identities. Passwords stay in the system’s password store; settings go in Import and export.'))}</p>
+<div class="sbtns"><button type="button" class="btn primary" id="bk-now"${off || !s.base ? ' disabled' : ''}>${esc(work === 'backup' || s.running ? t('Backing up…') : t('Back up now'))}</button>
+<span class="sdone">${newest ? esc(t('Last backup {when}, {size}.', {when:when(newest), size:fmtBytes(newest.bytes)})) : esc(t('No backups yet.'))}</span></div>
+<div class="sgroup"><span class="slabel">${esc(t('Folder for backups'))}</span><div class="bkdir"><code title="${esc(s.dir)}">${esc(s.dir)}</code>${s.suggested ? `<small class="sdim">${esc(t('suggested'))}</small>` : ''}
+<button type="button" class="btn" id="bk-pick">${esc(t('Choose…'))}</button>${newest ? `<button type="button" class="linkbtn" id="bk-show">${esc(t('Show'))}</button>` : ''}</div>
+<p class="dnote snote">${esc(t('Another disk, a USB stick or a OneDrive folder keeps the mail safe if this disk fails.'))}</p></div>
+<fieldset class="sgroup"><legend>${esc(t('Back up by itself'))}</legend><div class="sopts">${radios('backup_every', [['off', esc(t('Never'))], ['daily', esc(t('Every day'))], ['weekly', esc(t('Every week'))]], p.backup_every)}</div></fieldset>
+<div class="sgroup"><label class="slabel" for="s-keep">${esc(t('Keep'))}</label><select id="s-keep" class="sselect">${BACKUP_KEEP.map(n => `<option value="${n}"${n === p.backup_keep ? ' selected' : ''}>${esc(tn(n, 'the newest {n} backup', 'the newest {n} backups'))}</option>`).join('')}</select>
+<p class="dnote snote">${esc(t('Older ones in that folder are removed. Only Telex’s own backup files are ever touched.'))}</p></div>`;
+  html += `<h3 class="rh">${esc(t('Restore'))}</h3>
+<p class="dnote">${esc(t('Restoring puts a backup in place of the mail base. The mail base as it is now is kept next to it, so nothing is lost.'))}</p>`;
+  if (s.backups.length) html += `<ul class="bklist">${s.backups.map(b => `<li><span class="bkwhen">${esc(when(b))}</span><span class="bksize">${esc(fmtBytes(b.bytes))}</span><button type="button" class="btn" data-restore="${esc(b.path)}"${off}>${esc(t('Restore…'))}</button></li>`).join('')}</ul>`;
+  html += `<div class="sbtns"><button type="button" class="btn" id="bk-file"${off}>${esc(t('Restore from a file…'))}</button></div>`;
+  const r = bk.restore;
+  if (r){
+    const what = tn(r.messages, '{n} message', '{n} messages', {n:num(r.messages)}) + (r.on_this_pc ? ` (${tn(r.on_this_pc, '{n} on this PC', '{n} on this PC', {n:num(r.on_this_pc)})})` : '');
+    html += `<div class="bkconfirm" role="group" aria-labelledby="bk-q"><b id="bk-q">${esc(r.made ? t('Restore the backup from {when}?', {when:fmtWhenFull(parseDate(r.made))}) : t('Restore this backup?'))}</b>
+<p>${esc(t('It holds {what}.', {what}))}${r.accounts.length ? ' ' + esc(t('Accounts: {accounts}.', {accounts:r.accounts.join(', ')})) : ''}</p>
+<ul><li>${esc(t('The mail base as it is now is kept next to it, as telex-before-restore-….db.'))}</li>
+<li>${esc(t('Changes not yet sent to the servers are dropped: at the next check, what the servers have wins, and newer mail comes down again.'))}</li>
+<li>${esc(t('Mail waiting in an Outbox moves to Drafts, since it may have gone out after the backup.'))}</li>
+<li>${esc(t('Mail kept only on this PC after the backup was made isn’t in it.'))}</li></ul>
+<div class="sbtns"><button type="button" class="btn primary" id="bk-go"${off}>${esc(work === 'restore' ? t('Restoring…') : t('Restore and start again'))}</button><button type="button" class="btn" id="bk-cancel"${off}>${esc(t('Cancel'))}</button></div></div>`;
+  }
+  html += `<p class="derr" role="alert">${esc(bk.error)}</p>`;
+  el.innerHTML = html;
+}
+async function backupWork(kind, run){
+  bk.work = kind; bk.error = ''; renderBackups();
+  try { await run(); } catch (e){ bk.error = tr(e); }
+  bk.work = '';
+  await loadBackups();
+}
+$('s-backup').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  if (b.id === 'bk-now') backupWork('backup', async () => {
+    const made = await invoke('backup_now');
+    say(t('Backed up the mail base to {path}.', {path:made.path}), 8000);
+  });
+  else if (b.id === 'bk-pick'){
+    let dir;
+    try { dir = await invoke('pick_backup_dir', {words:{title:t('Folder for backups')}}); } catch (err){ bk.error = tr(err); renderBackups(); return; }
+    if (dir && await changeSettings({backup_dir:dir})) loadBackups();
+  }
+  else if (b.id === 'bk-show' || b.id === 'bk-show-base') invoke('show_backup_place', {base:b.id === 'bk-show-base'}).catch(err => say(tr(err), 8000));
+  else if (b.id === 'bk-compact') backupWork('compact', async () => {
+    const [before, after] = await invoke('compact_base');
+    say(t('Compacted the mail base: {before} to {after}.', {before:fmtBytes(before), after:fmtBytes(after)}), 8000);
+  });
+  else if (b.dataset.restore || b.id === 'bk-file'){
+    bk.error = '';
+    try { bk.restore = await invoke('inspect_backup', {path:b.dataset.restore ?? null, words:{title:t('Restore from a backup'), filter:t('Telex backups')}}) ?? bk.restore; }
+    catch (err){ bk.error = tr(err); bk.restore = null; }
+    renderBackups();
+    $('bk-go')?.focus();
+  }
+  else if (b.id === 'bk-cancel'){ bk.restore = null; renderBackups(); }
+  else if (b.id === 'bk-go'){
+    const r = bk.restore;
+    backupWork('restore', async () => {
+      const aside = await invoke('restore_backup', {path:r.path});
+      // The window starts again on the restored mail, and says so then.
+      try { sessionStorage.setItem('telex-restored', JSON.stringify({made:r.made, aside})); } catch {}
+      location.reload();
+    });
+  }
+});
+$('s-backup').addEventListener('change', e => { if (e.target.id === 's-keep') changeSettings({backup_keep:Number(e.target.value)}); });
+// Backups by themselves: a minute after start, then every hour, when the settings say one is due.
+let backupWarned = false;
+async function autoBackup(){
+  if (pref().backup_every === 'off' || !ACCOUNTS.length) return;
+  let made;
+  try { made = await invoke('auto_backup'); }
+  catch (e){ if (!backupWarned){ backupWarned = true; say(t('The automatic backup didn’t work: {why}', {why:tr(e)}), 15000); } return; }
+  if (!made) return;
+  backupWarned = false;
+  say(t('Backed up the mail base ({size}).', {size:fmtBytes(made.bytes)}), 5000);
+  bk.state = null;
+  if (sdlg.open && setTab === 'backup') loadBackups();
+}
+// After a restore the window starts again: say what happened.
+function sayRestored(){
+  let r = null;
+  try { r = JSON.parse(sessionStorage.getItem('telex-restored') || 'null'); sessionStorage.removeItem('telex-restored'); } catch {}
+  if (!r) return;
+  const file = String(r.aside).split(/[\\/]/).pop();
+  say(t('Restored the backup{when}. The mail base as it was is kept as {file}.', {when:r.made ? ' ' + t('from {when}', {when:fmtWhenFull(parseDate(r.made))}) : '', file}), 15000);
+}
 
 /* ---------- updates ---------- */
 // Only release builds can update themselves. Telex checks once a day if the user said yes
@@ -3175,6 +3309,9 @@ async function boot(){
   await setFolder(homeOf(ACCOUNTS[0]?.id));
   listEl.focus({preventScroll:true});
   loadUsage(); // the status-bar meter, from what the last check saved
+  sayRestored();
+  loadBackups(); // whether the folders on this PC are backed up
+  setTimeout(autoBackup, 60e3); setInterval(autoBackup, 60 * 60e3);
   // Real accounts: check now, then as often as the settings say, quietly.
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account

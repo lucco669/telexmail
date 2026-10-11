@@ -1,6 +1,7 @@
 //! Tauri shell: exposes `telex_core::MailStore` to the UI as commands.
 //! Keep logic out of here; put it in `crates/telex-core` where it can be tested.
 
+mod backup;
 mod files;
 mod folders;
 mod secrets;
@@ -44,6 +45,10 @@ struct AppState {
     busy: AtomicBool,
     /// An Outbox is being sent. A second sender would send the same mail twice.
     sending: AtomicBool,
+    /// A backup is being written, or the mail base restored or compacted.
+    backing_up: AtomicBool,
+    /// The backup last looked at in Settings › Backups: the only one Restore takes.
+    restorable: Mutex<Option<PathBuf>>,
 }
 
 /// Errors cross the IPC bridge as plain, user-readable strings.
@@ -840,6 +845,8 @@ pub fn run() {
                 db_path,
                 busy: AtomicBool::new(false),
                 sending: AtomicBool::new(false),
+                backing_up: AtomicBool::new(false),
+                restorable: Mutex::new(None),
             });
             // Attachments opened last time; files still open elsewhere stay.
             telex_core::attachments::clear_opened(&std::env::temp_dir());
@@ -873,6 +880,14 @@ pub fn run() {
             files::save_attachments,
             files::show_saved,
             files::pick_files,
+            backup::backup_state,
+            backup::backup_now,
+            backup::auto_backup,
+            backup::pick_backup_dir,
+            backup::inspect_backup,
+            backup::restore_backup,
+            backup::compact_base,
+            backup::show_backup_place,
             folders::create_local_folder,
             folders::rename_local_folder,
             folders::delete_local_folder,
