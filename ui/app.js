@@ -246,6 +246,7 @@ function relabel(){
   I18n.translatePage();
   paintToolbar(); paintDensity(); paintScope();
   renderTree(); renderHead(); drawRows(); renderStatus();
+  if (!helpPop.hidden) renderHelp();
   if (!state.compose) renderPreview(); else { readCompose(); renderCompose(); }
   if (rdlg.open){ if (!$('r-list-view').hidden) showRuleList(); else { renderConditions(); renderActions(); } }
 }
@@ -340,15 +341,18 @@ const quotaOf = acct => USAGE?.accounts.find(u => u.account === acct)?.quota ?? 
 const pctOf = q => Math.min(100, Math.round(q.used_kb / q.limit_kb * 100));
 const levelOf = pct => pct >= 95 ? 'full' : pct >= 80 ? 'warn' : 'ok';
 const quotaText = q => t('Server storage: {used} of {limit} ({pct}%)', {used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct:pctOf(q)});
+// The bar is the account's own color, like its dot; next to it, how much room is left.
 function renderMeter(){
-  const q = ACCOUNTS.length && state.folder ? quotaOf(acctId(state.folder)) : null, m = $('st-usage');
+  const acct = ACCOUNTS.length && state.folder ? acctId(state.folder) : null, q = acct ? quotaOf(acct) : null, m = $('st-usage');
   m.hidden = !q;
   if (!q) return;
-  const pct = pctOf(q);
+  const pct = pctOf(q), free = fmtSize(Math.max(0, q.limit_kb - q.used_kb));
   m.dataset.level = levelOf(pct);
-  m.querySelector('i').style.width = Math.max(pct, 3) + '%';
-  m.querySelector('.mtxt').textContent = pct + '%';
-  m.title = quotaText(q) + '. ' + t('Click for usage.');
+  m.style.setProperty('--fill', `var(--acct-${Math.max(0, ACCOUNTS.findIndex(a => a.id === acct)) % 6})`);
+  m.querySelector('i').style.width = pct + '%';
+  m.querySelector('.mtxt').textContent = t('{size} free', {size:free});
+  m.title = t('{email} on the server: {used} of {limit} used ({pct}%), {free} free.', {email:ACCT[acct]?.email ?? '', used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct, free})
+    + ' ' + t('Click for usage.');
   m.setAttribute('aria-label', m.title);
 }
 async function loadUsage(){
@@ -870,6 +874,40 @@ async function saveAttachments(id){
   try { dir = await invoke('save_attachments', {id, words:{title:t('Save attachments to')}}); } catch (e){ say(tr(e), 8000); return; }
   if (dir) say(tn(n, 'Saved {n} file to {dir}.', 'Saved {n} files to {dir}.', {dir}), 6000);
 }
+// An address line ("Anna Kowalska <anna@x.pl>, "Nowak, Jan" <jan@y.pl>") as people: commas inside quotes don't split.
+function addresses(line){
+  const parts = [];
+  let cur = '', quoted = false;
+  for (const ch of String(line || '')){
+    if (ch === '"') quoted = !quoted;
+    if (!quoted && (ch === ',' || ch === ';')){ parts.push(cur); cur = ''; } else cur += ch;
+  }
+  parts.push(cur);
+  return parts.map(s => s.trim()).filter(Boolean).map(s => {
+    const m = s.match(/^(.*?)\s*<([^<>]+)>$/);
+    return m ? {name:m[1].replace(/^"(.*)"$/, '$1').trim(), email:m[2].trim()} : {name:'', email:s};
+  });
+}
+// A person: the name, then the address in a quieter color; the address alone when there is no name.
+const person = (name, email) => name && name !== email ? `<span class="pn">${esc(name)}</span> <span class="pa">${esc(email)}</span>` : `<span class="pn">${esc(email || name)}</span>`;
+const people = line => addresses(line).map(p => `<span class="pp">${person(p.name, p.email)}</span>`).join(', ');
+// The message's header: the subject with its buttons (`controls`), who it is from (a click shows all
+// their mail), when and how large, who it went to, and its attachments. One face throughout.
+function headerHtml(m, controls){
+  const sender = m.from_email
+    ? `<button type="button" class="ph-who" data-act="sender" title="${esc(t('Show all mail from {email}', {email:m.from_email}))}">${person(m.from_name, m.from_email)}</button>`
+    : `<span class="ph-who">${person(m.from_name, '')}</span>`;
+  return `<header class="ph">
+  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${controls}</div>
+  <dl class="ph-grid">
+    <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
+    <dt>${esc(t('To'))}</dt><dd>${m.to ? people(m.to) : esc(t('(no recipient)'))}</dd>
+    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${people(m.cc)}</dd>` : ''}
+    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${people(m.bcc)}</dd>` : ''}
+  </dl>
+  ${attsHtml(m.attachments)}
+</header>`;
+}
 let pvSeq = 0;
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
@@ -906,17 +944,7 @@ async function renderPreview(){
   const images = asHtml ? imagesBar(m, hv, spam)
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   previewEl.innerHTML = `<article>
-<header class="ph">
-  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}</div>
-  <dl class="ph-grid">
-    <dt>${esc(t('From'))}</dt><dd>${esc(m.from_name)} &lt;${esc(m.from_email)}&gt;</dd>
-    <dt>${esc(t('To'))}</dt><dd>${esc(m.to || t('(no recipient)'))}</dd>
-    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${esc(m.cc)}</dd>` : ''}
-    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${esc(m.bcc)}</dd>` : ''}
-    <dt>${esc(t('Date'))}</dt><dd class="mono">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</dd>
-  </dl>
-  ${attsHtml(m.attachments)}
-</header>
+${headerHtml(m, `${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -959,6 +987,7 @@ previewEl.addEventListener('click', async e => {
     await renderPreview();
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
+  if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
     renderPreview();
@@ -2648,6 +2677,71 @@ $('u-install').addEventListener('click', installUpdate);
 $('u-close').addEventListener('click', () => udlg.close());
 udlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 
+/* ---------- keys and tips ---------- */
+// The "?" in the status bar shows every key and the features that aren't obvious while the
+// pointer is over it; a click, ? or F1 keeps it open until Esc, a click elsewhere or another
+// press. Keys are written "Shift+R"; a space separates keys that do the same or go together.
+const helpBtn = $('st-help'), helpPop = $('help-pop');
+const HELP_KEYS = [
+  [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Home End', N_('first or last message')],
+    ['H', N_('HTML or plain text')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')]]],
+  [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
+    ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
+    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
+  [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread')], ['Shift+U', N_('everything in the folder read')],
+    ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
+    ['G', N_('go to a folder')], ['Z', N_('undo a delete or a move; take back mail just sent')]]],
+  [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
+    ['Ctrl+A', N_('the whole list')], ['Esc', N_('just the one message again')]]],
+  [N_('Find|help'), [['/', N_('quick filter')], ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
+  [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['? F1', N_('this help')]]],
+];
+const HELP_TIPS = [
+  N_('Shift+click selects a range, Ctrl+click one more message.'),
+  N_('Click the sender above a message to see all their mail.'),
+  N_('Drop files on the window to attach them, even with no message open.'),
+  N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
+  N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),
+  N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),
+  N_('Errors and notes from rules show above the message they are about.'),
+];
+const OPERATORS = 'from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
+const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/).map(k => `<kbd>${esc(k)}</kbd>`).join('+')).join(' ');
+function renderHelp(){
+  helpPop.innerHTML = `<div class="hgrid">${HELP_KEYS.map(([title, rows]) => `<section class="hsec"><h3>${esc(t(title))}</h3>`
+    + rows.map(([keys, what]) => `<div class="hrow"><span class="k">${keysHtml(keys)}</span><span>${esc(t(what))}</span></div>`).join('')
+    + (title === 'Find|help' ? `<p class="hops">${OPERATORS.split(' ').map(o => `<code>${esc(o)}</code>`).join(' ')}</p>` : '') + '</section>').join('')}</div>`
+    + `<h3 class="htitle">${esc(t('Good to know'))}</h3><ul class="htips">${HELP_TIPS.map(tip => `<li>${esc(t(tip))}</li>`).join('')}</ul>`;
+}
+let helpPinned = false, helpTimer;
+function showHelp(pin){
+  clearTimeout(helpTimer);
+  if (pin !== undefined) helpPinned = pin;
+  if (helpPop.hidden){ renderHelp(); helpPop.hidden = false; }
+  helpBtn.setAttribute('aria-expanded', 'true');
+}
+function hideHelp(){
+  clearTimeout(helpTimer);
+  helpPinned = false;
+  helpPop.hidden = true;
+  helpBtn.setAttribute('aria-expanded', 'false');
+}
+const toggleHelp = () => helpPop.hidden || !helpPinned ? showHelp(true) : hideHelp();
+// Hovering opens it after a moment and leaving closes it, unless it was opened on purpose.
+const helpHover = on => {
+  clearTimeout(helpTimer);
+  if (helpPinned) return;
+  helpTimer = setTimeout(() => on ? showHelp() : hideHelp(), on ? 150 : 250);
+};
+helpBtn.addEventListener('pointerenter', () => helpHover(true));
+helpBtn.addEventListener('pointerleave', () => helpHover(false));
+helpPop.addEventListener('pointerenter', () => clearTimeout(helpTimer));
+helpPop.addEventListener('pointerleave', () => helpHover(false));
+helpBtn.addEventListener('click', toggleHelp);
+document.addEventListener('pointerdown', e => {
+  if (!helpPop.hidden && !helpPop.contains(e.target) && !helpBtn.contains(e.target)) hideHelp();
+});
+
 /* ---------- keyboard ---------- */
 // Also attached to the HTML message frame, so keys work after clicking into it.
 function onKey(e){
@@ -2658,7 +2752,9 @@ function onKey(e){
   if (mod && e.key === ','){ e.preventDefault(); openSettings(); return; }
   const tg = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
+  if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
   if (e.key === 'Escape'){
+    if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
     if (unpick()){ e.preventDefault(); afterPick(); return; }
@@ -2690,6 +2786,7 @@ function onKey(e){
   else if (k === 't' || k === 'T') toggleThread();
   else if (k === 'z' || k === 'Z') undo();
   else if (k === '/') qEl.focus();
+  else if (k === '?') toggleHelp();
   else return;
   e.preventDefault();
 }

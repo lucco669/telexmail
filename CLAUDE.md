@@ -291,6 +291,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+,       | settings                       |
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
+| ? / F1       | keys and tips (also on hover over the ? in the status bar) |
 
 ## Current state (v0.5.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS)
 
