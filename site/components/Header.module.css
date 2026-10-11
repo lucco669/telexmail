@@ -68,12 +68,12 @@
 @media (min-width: 560px) {
   .theme { display: inline-flex; }
 }
-@media (min-width: 900px) {
+@media (min-width: 1100px) {
   .nav { display: flex; }
   .menuBtn { display: none; }
 }
-/* Seven links and the buttons fit from 900 px when the links are a little tighter. */
-@media (min-width: 900px) and (max-width: 1099px) {
+/* Keep the eight page links readable; narrower screens use the existing menu. */
+@media (min-width: 1100px) and (max-width: 1199px) {
   .nav { margin-right: 4px; }
   .link { padding: 7px 8px; font-size: 14px; }
 }

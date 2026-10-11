@@ -1,0 +1,9 @@
+{
+  "asset": "teleprinter.webp",
+  "purpose": "Editorial illustration for /history; explicitly labelled as generated, not an archival photograph.",
+  "created": "2026-10-11",
+  "tool": "Built-in image_gen",
+  "original": "exec-c3037a9d-d1a3-4f39-a86b-6692a04a0430.png",
+  "processing": "WebP format conversion at quality 86. The page responsively crops with CSS; the Open Graph card uses the same illustration.",
+  "prompt": "Create a wide landscape editorial photograph for a thoughtful museum-quality web essay about telex and the history of written communication. A single plausible mid-century unbranded mechanical teleprinter in a warm pale grey metal case, keyboard, platen and simple roll of paper, on a muted ivory work surface, with a loosely curling five-channel punched paper tape extending to the lower left. Three-quarter view, machine placed on the right two thirds, generous quiet ivory negative space on the left. Dark charcoal keys, modest worn metal detail, no readable text or branding, no fake dates or labels, no diagrams. Soft north-window side light, very fine analog grain, understated archival still-life art direction, precise physical materials, sober and beautiful like a design museum catalogue photographed on medium-format film. Warm ivory, graphite, faded neutral greys, absolutely no neon, no glowing circuitry, no gradients or futuristic imagery, no scattered decorative objects, no people, no rendered UI. It is a contemporary illustrative reconstruction, not a claim to be an authentic historical photograph. Compose as a 3:2 landscape image, with enough space around the machine and tape for a wide website crop."
+}

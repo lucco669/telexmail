@@ -77,6 +77,10 @@ export default function AboutPage() {
             email. The dot-matrix T in the logo is printed the way a teleprinter prints, and the paper tape above the
             footer is punched in ITA2, the code real telex machines used. It spells out what you read under it.
           </p>
+          <p>
+            <Link href={pages.history.path}>Explore the history of telex and email</Link>: the machines, the networks,
+            and the ideas that still shape written communication.
+          </p>
         </div>
       </section>
 

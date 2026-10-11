@@ -12,6 +12,8 @@ export type PageInfo = {
   ogTitle: string;
   /** Screenshot on the link preview image (public/screens/<id>-light.webp). */
   ogScreen: string;
+  /** Optional editorial image in public/, in place of an app screenshot. */
+  ogImage?: string;
 };
 
 export const pages = {
@@ -114,6 +116,16 @@ export const pages = {
     ogTitle: 'A mail client built like a tool.',
     ogScreen: 'reply',
   },
+  history: {
+    path: '/history',
+    label: 'Telex & email history',
+    title: 'Telex, email and the history of written messages',
+    description:
+      'From optical telegraphs to telex, email and modern messaging. Explore the timeline, try real paper-tape encoding, and see how the systems connect.',
+    ogTitle: 'Before the inbox, there was telex.',
+    ogScreen: 'inbox',
+    ogImage: '/history/teleprinter.webp',
+  },
   privacy: {
     path: '/privacy',
     label: 'Privacy',
@@ -125,12 +137,12 @@ export const pages = {
   },
 } satisfies Record<string, PageInfo>;
 
-export const nav: PageInfo[] = [pages.features, pages.demo, pages.keyboard, pages.accessibility, pages.changelog, pages.roadmap, pages.faq];
+export const nav: PageInfo[] = [pages.features, pages.demo, pages.keyboard, pages.accessibility, pages.changelog, pages.roadmap, pages.faq, { ...pages.history, label: 'History' }];
 
 export type FooterLink = { path: string; label: string };
 
 export const footerGroups: { title: string; items: FooterLink[] }[] = [
   { title: 'Product', items: [pages.features, pages.demo, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
-  { title: 'Project', items: [pages.changelog, pages.roadmap, pages.faq, pages.about] },
+  { title: 'Project', items: [pages.changelog, pages.roadmap, pages.faq, pages.about, pages.history] },
   { title: 'Legal', items: [pages.privacy, { path: '/privacy#cookies', label: 'Cookies' }] },
 ];

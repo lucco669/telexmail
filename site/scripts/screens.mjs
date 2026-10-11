@@ -248,13 +248,36 @@ if (!only.length || only.includes('themes')) {
     console.log(`screens/theme-${theme}.webp`);
   }
 }
-if (!only.length || only.includes('og')) {
+const ogTargets = only.filter(arg => arg.startsWith('og:')).map(arg => `/${arg.slice(3)}`);
+if (!only.length || only.includes('og') || ogTargets.length) {
   // Node loads these TypeScript files directly (they have no imports of their own).
   const { pages } = await import('../lib/pages.ts');
   const { hero, screens } = await import('../lib/content.ts');
   const windowTitles = Object.fromEntries([hero, ...screens].map((s) => [s.id, s.title]));
   for (const p of Object.values(pages)) {
+    if (ogTargets.length && !only.includes('og') && !ogTargets.includes(p.path)) continue;
     const dir = join(here, '../app', p.path === '/' ? '' : p.path.slice(1));
+    if (p.ogImage) {
+      // Editorial pages use their own imagery, rather than a product screenshot.
+      const art = await sharp(join(here, '../public', p.ogImage.slice(1)))
+        .resize(660, 630, { fit: 'cover', position: 'right' }).png().toBuffer();
+      const title = p.ogTitle.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+      const panel = Buffer.from(`<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+        <rect width="560" height="630" fill="#f3f5f8"/>
+        <text x="52" y="77" font-family="Arial, sans-serif" font-size="29" font-weight="bold" fill="#2453a6">Telex</text>
+        <text x="52" y="185" font-family="Arial, sans-serif" font-size="14" letter-spacing="2" fill="#59636e">THE HISTORY OF WRITTEN MESSAGES</text>
+        <text x="52" y="270" font-family="Arial, sans-serif" font-size="54" font-weight="bold" fill="#1a1e23"><tspan x="52">Before the inbox,</tspan><tspan x="52" dy="64">there was telex.</tspan></text>
+        <text x="52" y="500" font-family="Arial, sans-serif" font-size="20" fill="#59636e">Telegraphs · Paper tape · Email</text>
+        <text x="52" y="562" font-family="Arial, sans-serif" font-size="13" letter-spacing="1" fill="#59636e">1790s → TODAY</text>
+        <title>${title}</title>
+      </svg>`);
+      await sharp({ create: { width: 1200, height: 630, channels: 3, background: '#f3f5f8' } })
+        .composite([{ input: art, left: 540, top: 0 }, { input: panel, left: 0, top: 0 }])
+        .png().toFile(join(dir, 'opengraph-image.png'));
+      writeFileSync(join(dir, 'opengraph-image.alt.txt'), `Telex – ${p.ogTitle} An illustrative teleprinter beside the headline.`);
+      console.log(`app${p.path}/opengraph-image.png`);
+      continue;
+    }
     const file = join(work, `og-${p.label}.html`);
     const eyebrow = p.path === '/' ? 'Email client for Windows' : p.label;
     writeFileSync(file, ogPage({ eyebrow, title: p.ogTitle, screen: p.ogScreen, windowTitle: windowTitles[p.ogScreen] }));

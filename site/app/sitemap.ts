@@ -14,5 +14,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
     changeFrequency: p.path === '/privacy' ? 'yearly' : 'weekly',
     priority: priority[p.path] ?? 0.6,
     ...(['/', '/features', '/screenshots'].includes(p.path) && { images: shots }),
+    ...(p.path === pages.history.path && { images: [`${site.url}/history/teleprinter.webp`] }),
   }));
 }

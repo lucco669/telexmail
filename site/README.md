@@ -1,8 +1,8 @@
 # Telex website
 
 The website for Telex: Next.js 16 (App Router), plain CSS with the app's color tokens, no other
-dependencies. Twelve prerendered pages (home, features, live demo, keyboard, accessibility,
-screenshots, download, changelog, roadmap, FAQ, about, privacy), light and dark, with a download button
+dependencies. Thirteen prerendered pages (home, features, live demo, keyboard, accessibility,
+screenshots, download, changelog, roadmap, FAQ, about, history, privacy), light and dark, with a download button
 that finds the newest installer on its own, and a live demo that runs the app's own interface.
 
 ```
@@ -31,8 +31,13 @@ npm run themes     # measure the app's themes again into lib/themes.json (the ac
 - `lib/theme.ts`: the light/dark choice. It is `data-theme` on `<html>`, saved in localStorage
   and set before the first paint by the script in `app/layout.tsx`; tokens are in `app/globals.css`.
 - `app/<page>/page.tsx`: the subpages. Shared pieces are in `components/`, each with a CSS module.
+- `/history`: an illustrated history of telex, email and related messaging. `lib/history.ts` holds
+  its references, milestones and glossary; `components/HistoryLab.tsx` provides timeline filters,
+  an ITA2 workbench (using the shared encoder) and message journeys. The generated hero image in
+  `public/history/` is explicitly illustrative; `asset-notes.json` records its prompt and provenance.
 - `public/screens/`: screenshots, `<scene>-light.webp` and `<scene>-dark.webp` (lossless), 1280×800 at 2×.
 - `app/**/opengraph-image.png`: one link preview per page, made by `npm run screens`.
+  Pages can set `ogImage` in `lib/pages.ts` to use editorial artwork instead of a screenshot.
 
 ## Versions: what is out and what is coming
 
@@ -135,6 +140,7 @@ core does for lists and filters (`list.rs`), replies (`drafts::start`), HTML mai
 `sample.json` is Polish and only for its tests.)
 `npm run screens reply og` retakes only those; `og` makes the preview image of every page in
 `lib/pages.ts` (its `ogTitle` next to its `ogScreen`).
+Use `npm run screens -- og:history` to regenerate only the history page's editorial preview.
 
 ## Deploying on Vercel
 
