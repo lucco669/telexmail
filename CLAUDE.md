@@ -119,8 +119,9 @@ ui/                  The interface. index.html + styles.css + app.js, no build s
   themes.css         Every color, one block per theme (data-theme on <html> and on theme cards).
   i18n.js            English and Polish: t(), tn() (Polish plurals), data-i18n in index.html.
   boot.js            Puts the saved theme, language and text size on <html> before first paint.
-  fonts/             IBM Plex, Inter, JetBrains Mono, Atkinson Hyperlegible Next and Mono (OFL, from
-                     @fontsource; latin and latin-ext) bundled so the app works offline; fonts.css.
+  fonts/             IBM Plex, Inter, JetBrains Mono, Atkinson Hyperlegible Next and Mono, Source Sans 3
+                     and Source Code Pro (OFL, from @fontsource; latin and latin-ext) bundled so the
+                     app works offline; fonts.css (the Source files stand in for heavier weights).
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
                      an English demo mailbox (site/scripts/demo-mailbox.json) via `npm run screens`;
@@ -268,9 +269,12 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this 
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
 ("auto", "en", "pl"), `density`, `account_mark` (rail, dot, initials, tint, none: how accounts'
-colors show in the tree, the rows of lists that mix accounts, and the status bar; `data-mark` on
-`<html>`), `font` (plex, system, classic, inter, atkinson: the window's, the list's and the mono
-face; `data-font` on `<html>`, sets of `--font-ui`, `--font-list`, `--font-data` in styles.css),
+colors show in the tree, on the rows of every list (with two or more accounts; a dot or the
+initials stand once above one account's folder), and the status bar; `data-mark` on `<html>`),
+`unread_style` (quiet: read mail in `--muted`, bold: weight only, color: unread mail in
+`--accent`; `data-unread` on `<html>`), `font` (plex, system, classic, inter, atkinson, source:
+the window's, the list's and the mono face; `data-font` on `<html>`, sets of `--font-ui`,
+`--font-list`, `--font-data` in styles.css),
 `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
 (moment, at_once, window, manual), `read_delay` (ms a message is on screen before it counts as
 read with moment: 600, 1000, 2000, 3000, 5000, 10000), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
@@ -285,7 +289,7 @@ all, even before the first account. The window keeps only its own state in local
 (`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
 dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
 update check; `telex-look`: a
-copy of theme, language, zoom, account mark and font for boot.js).
+copy of theme, language, zoom, account mark, unread style and font for boot.js).
 
 ## Commands
 
@@ -382,7 +386,26 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
-## Current state (v0.9.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts, moving in, spelling, away replies)
+## Current state (v0.9.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts, moving in, spelling, away replies, unread styles)
+
+- New in 0.9.1 (no schema change):
+  - Unread mail stands out (`unread_style`, Settings › Appearance › Unread mail, cards drawn as
+    list rows): always bold with the dot; by default read mail goes `--muted` (quiet), or unread
+    mail takes `--accent` (color), or weight only (bold). check-contrast.mjs checks accent text on
+    hover and on each account's tinted row.
+  - Account colors on every list: with two or more accounts, every row carries its account
+    (`acc aN`), so rail and tint show in one account's folder too (tint washes the whole list
+    pane, `.list.acc`); dot and initials stand once in the From heading (`#from-mark`). In lists
+    that mix folders the Folder column names the account after the folder ("Inbox ·
+    anna@studio.pl"; folders on this PC say "on this PC"), and takes 30% of the room by default.
+  - Settings › Appearance › Message list columns: short or full dates, the Size column and Fit
+    columns, the same `cols` as the headings' right-click menu.
+  - A sixth font, `source`: Source Sans 3 and Source Code Pro, light. fonts.css registers the
+    Light file as 400, Regular as 500 and keeps Semibold for 600 (mono: 300/400/500 as 400/500/600),
+    so the window's weights draw it light without rules of their own (about 245 KB).
+  - Spelling's languages on a button at the end of the compose bar ("EN · PL"); its menu ticks
+    languages (`spell_languages`), goes back to automatic, turns spelling off, or opens Settings ›
+    Writing. Every ticked language is checked at once, as before; Settings › Writing says so.
 
 - New in 0.9.0 (schema version 12: `away`, `away_replies`):
   - The away reply (`away.rs`, `sieve.rs`; Settings › Accounts › Auto-reply, a status-bar chip

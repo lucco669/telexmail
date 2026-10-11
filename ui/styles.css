@@ -13,7 +13,7 @@
 [hidden]{display:none!important}
 /* Fonts (Settings › Appearance; data-font on <html>, and on each card there): a face for the
    window, one for the message list and a mono one for dates, sizes and plain-text writing.
-   Plex, Inter and Atkinson are bundled (fonts.css); System and Classic are Windows' own, with
+   Plex, Inter, Atkinson and Source are bundled (fonts.css); System and Classic are Windows' own, with
    the system's faces standing in elsewhere. Elements that set a face of their own read these
    variables, so a card shows its set whatever the window uses. */
 [data-font="plex"]{--font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"IBM Plex Sans Condensed","Segoe UI",system-ui,sans-serif;--font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace}
@@ -21,6 +21,7 @@
 [data-font="classic"]{--font-ui:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-list:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-data:Consolas,"Lucida Console","DejaVu Sans Mono",monospace}
 [data-font="inter"]{--font-ui:Inter,"Segoe UI",system-ui,sans-serif;--font-list:Inter,"Segoe UI",system-ui,sans-serif;--font-data:"JetBrains Mono",Consolas,ui-monospace,monospace}
 [data-font="atkinson"]{--font-ui:"Atkinson Hyperlegible Next","Segoe UI",system-ui,sans-serif;--font-list:"Atkinson Hyperlegible Next","Segoe UI",system-ui,sans-serif;--font-data:"Atkinson Hyperlegible Mono",Consolas,ui-monospace,monospace}
+[data-font="source"]{--font-ui:"Source Sans Light","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"Source Sans Light","Segoe UI",system-ui,sans-serif;--font-data:"Source Code Light",Consolas,ui-monospace,monospace}
 
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%}
@@ -204,23 +205,31 @@ th.c-where,td.c-where{display:none}
 td.c-where{color:var(--muted)}
 td.c-where .adot{display:inline-block;margin-right:5px;vertical-align:1px}
 tbody td{height:var(--row);padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line-soft);cursor:default}
-/* Lists that mix accounts (Unread, all mail, every account's drafts) mark each row with its
-   account the way the tree does (data-mark): a line at its start, or a tint behind it; a dot or
-   the initials stand by the folder's name. The selection and the pointer still show over a tint. */
-:where([data-mark="tint"] .multi.allmail) tbody tr.acc td{background:color-mix(in oklab,var(--ac) 9%,var(--surface))}
+/* With more than one account, every row carries its account's mark the way the tree does
+   (data-mark): a line at its start, or a tint behind it. A dot or the initials stand by the
+   folder's name where accounts mix (Unread, all mail, every account's drafts), and once in the
+   headings above one account's folder. The selection and the pointer still show over a tint. */
+:where([data-mark="tint"] .multi) tbody tr.acc td{background:color-mix(in oklab,var(--ac) 9%,var(--surface))}
+:where([data-mark="tint"] .multi) .list.acc{background:color-mix(in oklab,var(--ac) 9%,var(--surface))}
 :is([data-mark="rail"],[data-mark="tint"]) .multi td.c-where .adot:not(.pc){display:none}
+th .hmark{margin-right:2px}
+.multi.allmail th .hmark,:is([data-mark="rail"],[data-mark="tint"]) .multi th .hmark{display:none}
 tbody tr:hover td{background:var(--hover)}
+/* Unread mail stands out (Settings › Appearance, data-unread on <html>): always bold, with the
+   dot; "quiet" draws read mail in the muted color, "color" unread mail in the accent. */
 tbody tr.unread td.c-from,tbody tr.unread td.c-subj{font-weight:600}
+[data-unread="quiet"] tbody tr:not(.unread) :is(td.c-from,td.c-subj){color:var(--muted)}
+[data-unread="color"] tbody tr.unread :is(td.c-from,td.c-subj){color:var(--accent)}
 tbody tr.sel td,tbody tr.picked td{background:var(--sel)}
 .list:focus tbody tr.sel td{background:var(--accent);color:var(--accent-fg)}
 /* Several picked: each has the selection color, and a bar at its start marks it even in focus. */
 tbody tr.picked td.c-ic{box-shadow:inset 3px 0 var(--accent)}
 td.c-ic{padding:0 0 0 4px}
 .list:focus tbody tr.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg)}
-:where([data-mark="rail"] .multi.allmail) tbody tr.acc td.c-ic{box-shadow:inset 3px 0 var(--ac)}
-:where([data-mark="rail"] .multi.allmail) tbody tr.acc.picked td.c-ic{box-shadow:inset 3px 0 var(--accent),inset 6px 0 var(--ac)}
-:where([data-mark="rail"] .multi.allmail) .list:focus tbody tr.acc.sel td.c-ic{box-shadow:inset 3px 0 var(--ac),inset 4px 0 var(--surface)}
-:where([data-mark="rail"] .multi.allmail) .list:focus tbody tr.acc.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg),inset 6px 0 var(--ac)}
+:where([data-mark="rail"] .multi) tbody tr.acc td.c-ic{box-shadow:inset 3px 0 var(--ac)}
+:where([data-mark="rail"] .multi) tbody tr.acc.picked td.c-ic{box-shadow:inset 3px 0 var(--accent),inset 6px 0 var(--ac)}
+:where([data-mark="rail"] .multi) .list:focus tbody tr.acc.sel td.c-ic{box-shadow:inset 3px 0 var(--ac),inset 4px 0 var(--surface)}
+:where([data-mark="rail"] .multi) .list:focus tbody tr.acc.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg),inset 6px 0 var(--ac)}
 .list:focus tbody tr.sel td.c-date,.list:focus tbody tr.sel td.c-size,.list:focus tbody tr.sel .flag{color:inherit}
 td.c-date,td.c-size{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
 td.c-size{text-align:right}
@@ -350,6 +359,10 @@ button.ph-who:hover .pn{text-decoration:underline}
 .btn.primary:focus-visible{outline-offset:2px}
 .cnote{margin-left:auto;font-size:11.5px;color:var(--faint)}
 .csaved{font-size:11.5px;color:var(--faint);white-space:nowrap}
+/* The languages spelling is checked in, at the end of the bar; its menu ticks them. */
+.spellchip{height:24px;padding:0 8px;gap:5px;font:500 11px var(--font-data);letter-spacing:.03em;color:var(--muted)}
+.spellchip:hover{color:var(--fg)}
+.spellchip svg{width:14px;height:14px}
 .btn[disabled]{opacity:.65;cursor:default}
 .btn.danger{color:var(--note-fg)}
 .btn.danger:hover{border-color:var(--note-fg)}
@@ -527,6 +540,18 @@ button.ph-who:hover .pn{text-decoration:underline}
 .fprev b{font:600 19px/1.1 var(--font-ui)}
 .fprev .fl{font:12.5px/1.3 var(--font-list);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fprev .fd{font:11.5px/1.3 var(--font-data);color:var(--muted)}
+/* Unread mail: each card draws a few rows in its own style (data-unread on the card), in the list face. */
+.unreads{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.uprev{grid-column:1/-1;display:flex;flex-direction:column;justify-content:center;height:72px;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface);color:var(--fg);overflow:hidden;font:11.5px/1 var(--font-list)}
+.urow{display:flex;align-items:center;gap:6px;flex:1;padding:0 8px 0 6px;border-bottom:1px solid var(--line-soft);white-space:nowrap;overflow:hidden}
+.urow:last-child{border-bottom:0}
+.urow .dot{flex:none;width:6px;height:6px;border-radius:50%}
+.urow.u .dot{background:var(--accent)}
+.urow b{flex:none;width:46%;overflow:hidden;text-overflow:ellipsis;font-weight:400}
+.urow span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.urow.u b,.urow.u span{font-weight:600}
+.uprev[data-unread="quiet"] .urow:not(.u){color:var(--muted)}
+.uprev[data-unread="color"] .urow.u{color:var(--accent)}
 /* How accounts are told apart: two small account groups each, and rows of a list that mixes
    them, drawn with the real marks. */
 .marks{grid-template-columns:repeat(auto-fill,minmax(92px,1fr))}

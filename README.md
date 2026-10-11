@@ -20,7 +20,8 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > one, and search looks in one folder or in all your mail, suggesting people, operators and
 > recent searches. Space reads on to the next unread message, and Settings › Reading decides
 > when mail counts as read (or leaves it to you). The interface speaks English
-> and Polish, down to its error messages, comes in eight themes that all meet WCAG 2.2 AA contrast (two at AAA), and its
+> and Polish, down to its error messages, comes in eight themes that all meet WCAG 2.2 AA contrast (two at AAA)
+> and six fonts, lets unread mail stand out the way you like, and its
 > settings, rules and identities export to one file for another PC. Folders on this PC keep mail
 > off the server (mbox and .eml in and out), and the mail base backs itself up. Moving in from
 > Thunderbird or Outlook brings accounts, local mail (.pst too) and filters in one go; the spell

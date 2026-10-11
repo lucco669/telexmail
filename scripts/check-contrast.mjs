@@ -30,10 +30,11 @@ const TEXT = [
   ['muted', 'sel', 'Dates in the selected row'],
   ['faint', 'surface', 'Placeholders, image stand-ins'],
   ['faint', 'panel', 'Account addresses, small notes'],
-  ['accent', 'surface', 'Links in messages'],
+  ['accent', 'surface', 'Links in messages, unread mail in color'],
   ['accent', 'panel', 'Unread counts, links in dialogs'],
   ['accent', 'chrome', 'Sort arrows'],
-  ['accent', 'sel', 'Unread count of the open folder'],
+  ['accent', 'sel', 'Unread count of the open folder, unread mail in color when picked'],
+  ['accent', 'hover', 'Unread mail in color under the pointer'],
   ['accent-fg', 'accent', 'Selected row in the focused list, main buttons'],
   ['flag', 'panel', 'The Flagged label'],
   ['warn-fg', 'warn-bg', 'Blocked images bar'],
@@ -73,7 +74,7 @@ const MIXED = [0, 1, 2, 3, 4, 5].flatMap((i) => {
     ['fg', [`acct-${i}`, 0.24, 'panel', 'over'], `Account ${i + 1}'s tinted line under the pointer`],
     ['fg', row, `A tinted row of account ${i + 1}`],
     ['muted', row, `Dates and folders in a tinted row of account ${i + 1}`],
-    ['accent', row, `The unread dot in a tinted row of account ${i + 1}`, 'ui'],
+    ['accent', row, `Unread mail in color, and its dot, in a tinted row of account ${i + 1}`],
     ['flag', row, `The flag in a tinted row of account ${i + 1}`, 'ui'],
   ];
 });

@@ -674,8 +674,14 @@ const PL = {
     'Których folderów na serwerze Telex używa do każdego rodzaju poczty. Telex znajduje je sam i wybiera ten, w którym jest poczta; jeśli się pomylił, wybierz inny. Twój wybór zostaje.',
   // How accounts are told apart (Settings › Appearance)
   'Account colors': 'Kolory kont',
-  'Each account has a color of its own, shown this way once there is more than one: in the folders, in lists that mix accounts (Unread, all mail, drafts) and in the status bar.':
-    'Każde konto ma swój kolor, pokazany w ten sposób, gdy kont jest więcej niż jedno: w folderach, na listach, które łączą konta (Nieprzeczytane, cała poczta, szkice), i w pasku stanu.',
+  'Each account has a color of its own, shown this way once there is more than one: in the folders, on every row of the message list and in the status bar.':
+    'Każde konto ma swój kolor, pokazany w ten sposób, gdy kont jest więcej niż jedno: w folderach, w każdym wierszu listy wiadomości i w pasku stanu.',
+  // How unread mail stands out (Settings › Appearance)
+  'Unread mail': 'Nieprzeczytana poczta',
+  'Read mail quieter': 'Przeczytane przygaszone',
+  'Bold only': 'Tylko pogrubienie',
+  'Unread in color': 'Nieprzeczytane w kolorze',
+  'Unread mail is always bold, with a dot at the start of its row.': 'Nieprzeczytana poczta jest zawsze pogrubiona, z kropką na początku wiersza.',
   // Fonts (Settings › Appearance)
   'Font': 'Czcionka',
   'System|font': 'Systemowa',
@@ -694,6 +700,9 @@ const PL = {
   'Full dates: {example}': 'Pełne daty: {example}',
   'Size column': 'Kolumna Rozmiar',
   'Fit columns to the list': 'Dopasuj kolumny do listy',
+  'Message list columns': 'Kolumny listy wiadomości',
+  'Drag the edge between two headings to set a width; double-click it to fit the names. Right-click the headings for these choices too.':
+    'Przeciągnij krawędź między dwoma nagłówkami, żeby ustawić szerokość; dwuklik dopasowuje ją do nazw. Te same opcje są pod prawym przyciskiem na nagłówkach.',
   'Drag to change the width; double-click to fit the names': 'Przeciągnij, żeby zmienić szerokość; dwuklik dopasowuje do nazw',
   'Width of the From column': 'Szerokość kolumny Od',
   'Width of the Folder column': 'Szerokość kolumny Folder',
@@ -782,7 +791,10 @@ const PL = {
   'in the folder tree: rename a folder on this PC': 'w drzewie folderów: zmień nazwę folderu na tym komputerze',
   'Right-click a message for everything you can do with it, each with its key.': 'Prawy przycisk myszy na wiadomości pokazuje wszystko, co można z nią zrobić, razem z klawiszami.',
   'Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.': 'Kliknięcie kropki na początku wiersza oznacza wiadomość jako przeczytaną lub nie; flaga obok dodaje albo zdejmuje flagę.',
-  'Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Right-click the column headings for dates and the Size column.': 'Przeciągnij krawędź przed Tematem, żeby poszerzyć albo zwęzić kolumnę Od; dwuklik dopasowuje ją do nazw. Prawy przycisk na nagłówkach kolumn: daty i kolumna Rozmiar.',
+  'Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Dates and the Size column: right-click the headings, or Settings › Appearance.':
+    'Przeciągnij krawędź przed Tematem, żeby poszerzyć lub zwęzić kolumnę Od; dwuklik dopasowuje ją do nazw. Daty i kolumna Rozmiar: prawy przycisk na nagłówkach albo Ustawienia › Wygląd.',
+  'Spelling checks every ticked language at once. They show at the end of the compose bar; a click there changes them.':
+    'Pisownia jest sprawdzana naraz we wszystkich zaznaczonych językach. Widać je na końcu paska pisania; kliknięcie tam je zmienia.',
   'Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.': 'Prawy przycisk na koncie przesuwa je w górę albo w dół. Prawy przycisk na folderze › Zawsze na widoku: folder nie chowa się wśród pozostałych.',
 
   // Drafts kept safe, failed checks, the Undo button
@@ -878,6 +890,16 @@ const PL = {
   // Spelling
   'No suggestions': 'Brak podpowiedzi',
   'the next spelling mistake, with suggestions; or right-click it': 'następny błąd pisowni z podpowiedziami; albo kliknij go prawym przyciskiem',
+  'Spelling off': 'Pisownia wyłączona',
+  'No dictionary': 'Brak słownika',
+  'Spelling isn’t checked. Click to turn it on.': 'Pisownia nie jest sprawdzana. Kliknij, żeby ją włączyć.',
+  'Spelling is checked in {languages} at once: a word any of them knows is right. Click to choose.':
+    'Pisownia jest sprawdzana naraz w językach: {languages}. Słowo znane któremukolwiek z nich jest poprawne. Kliknij, żeby wybrać.',
+  'There is no spelling dictionary for your languages yet. Click to fetch one.': 'Nie ma jeszcze słownika dla Twoich języków. Kliknij, żeby go pobrać.',
+  'Automatic: the languages of Windows and of Telex': 'Automatycznie: języki Windows i Telexa',
+  'Dictionaries…': 'Słowniki…',
+  'Every ticked language is checked at once, so one message can mix them: a word any of them knows is right. Compose shows them at the end of its bar, where a click changes them.':
+    'Każdy zaznaczony język jest sprawdzany naraz, więc jedna wiadomość może je łączyć: słowo znane któremukolwiek z nich jest poprawne. Okno pisania pokazuje je na końcu swojego paska, gdzie kliknięcie je zmienia.',
   'Add “{word}” to the dictionary': 'Dodaj „{word}” do słownika',
   'Ignore|spelling': 'Pomiń',
   '“{word}” is in your dictionary now.': '„{word}” jest teraz w Twoim słowniku.',

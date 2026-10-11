@@ -58,6 +58,7 @@ const I = {
   link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
   popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
+  spell: sv('<path d="M1.8 11.5L4.3 4l2.5 7.5M2.6 9h3.4"/><path d="M8.8 9.6l2 2 3.6-4.6"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder', unread:'unread'};
 // Special folders have a name in the interface's language, whatever the server calls them.
@@ -289,7 +290,7 @@ const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light')
 // Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
-  settings:{theme:'system', language:'auto', density:'compact', account_mark:'rail', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
+  settings:{theme:'system', language:'auto', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
     spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
@@ -307,6 +308,7 @@ function applySettings(){
   const s = pref(), theme = document.documentElement.dataset.theme;
   document.documentElement.dataset.theme = shownTheme(s.theme);
   document.documentElement.dataset.mark = s.account_mark;
+  document.documentElement.dataset.unread = s.unread_style;
   if (document.documentElement.dataset.font !== s.font){
     document.documentElement.dataset.font = s.font;
     measured = null; colsDone = ''; fitColumns(); // the dates' width is the new face's
@@ -323,7 +325,7 @@ function applySettings(){
   scheduleChecks();
   if (SETTINGS.language !== I18n.lang()){ I18n.setLang(SETTINGS.language); relabel(); }
   renderUpdates();
-  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, font:s.font})); } catch {}
+  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font})); } catch {}
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
 // Saved at once; the window follows. Resolves to true when it worked.
@@ -975,7 +977,8 @@ function fitColumns(){
   let flex = Math.max(0, w - fixed);
   let whereW = 0;
   if (where){
-    whereW = clamp(colPref.where ?? Math.round(flex * 0.2), COL.minWhere, Math.max(COL.minWhere, Math.round(flex * 0.4)));
+    const share = servers().length > 1 && !byAccount() ? 0.3 : 0.2; // the folder and whose it is
+    whereW = clamp(colPref.where ?? Math.round(flex * share), COL.minWhere, Math.max(COL.minWhere, Math.round(flex * 0.45)));
     flex -= whereW;
   }
   const fromAuto = clamp(Math.round(flex * 0.3), 120, 280);
@@ -996,14 +999,14 @@ function fitColumns(){
 function fitToNames(which){
   const font = `600 12.5px ${cssVar('--font-list')}`;
   const texts = list.rows.slice(Math.max(0, visibleRange()[0] - list.start - MARGIN)).slice(0, 200)
-    .map(m => which === 'where' ? (byAccount() ? acctLabel(acctId(m.f)) : folderName(m.f)) : whoOf(m));
+    .map(m => which === 'where' ? whereOf(m, servers().length > 1).join(' · ') : whoOf(m));
   const px = Math.ceil(Math.max(0, ...texts.map(s => textWidth(s, font)))) + COL.pad + (which === 'where' ? 14 : 4);
   colPref[which] = Math.max(which === 'where' ? COL.minWhere : COL.minFrom, px);
   colsDone = ''; fitColumns(); persist();
 }
 function resetColumns(){
   colPref.from = colPref.where = null;
-  colsDone = ''; fitColumns(); persist();
+  colsDone = ''; fitColumns(); persist(); renderColumnChoices();
   say(t('Columns fit the list again.'), 2500);
 }
 // Dragging an edge: the column before it (From) or after it (Folder) follows the pointer.
@@ -1038,19 +1041,31 @@ theadEl.addEventListener('keydown', e => {
   else return;
   e.preventDefault(); e.stopPropagation();
 });
-// Right-click on the column headings: Size, the dates, and fitting the columns again.
+// The list's columns: short or full dates, the Size column, widths fitted again. Right-click on
+// the headings, or Settings › Appearance.
+function setDates(v){ colPref.dates = v; measured = null; colsDone = ''; persist(); fitColumns(); drawRows(); renderColumnChoices(); }
+function setSizeColumn(on){ colPref.size = on; persist(); colsDone = ''; fitColumns(); renderColumnChoices(); }
+const DATE_DAY = new Date(2026, 9, 7, 6, 12), DATE_OLD = new Date(2026, 8, 30, 6, 12);
+const shortDates = () => t('Short dates: {examples}', {examples:`${hm(DATE_DAY)}, ${t(DOW[DATE_DAY.getDay()])} ${hm(DATE_DAY)}, ${dmy(DATE_OLD)}`});
+const fullDates = () => t('Full dates: {example}', {example:`${dmy(DATE_OLD)} ${hm(DATE_OLD)}`});
 function columnMenu(){
-  const day = new Date(2026, 9, 7, 6, 12), old = new Date(2026, 8, 30, 6, 12);
-  const setDates = v => { colPref.dates = v; measured = null; colsDone = ''; persist(); fitColumns(); drawRows(); };
   return [
-    {label:t('Short dates: {examples}', {examples:`${hm(day)}, ${t(DOW[day.getDay()])} ${hm(day)}, ${dmy(old)}`}), checked:colPref.dates === 'short', run:() => setDates('short')},
-    {label:t('Full dates: {example}', {example:`${dmy(old)} ${hm(old)}`}), checked:colPref.dates === 'full', run:() => setDates('full')},
+    {label:shortDates(), checked:colPref.dates === 'short', run:() => setDates('short')},
+    {label:fullDates(), checked:colPref.dates === 'full', run:() => setDates('full')},
     {sep:true},
-    {label:t('Size column'), checked:colPref.size, disabled:across(), run:() => { colPref.size = !colPref.size; persist(); colsDone = ''; fitColumns(); }},
+    {label:t('Size column'), checked:colPref.size, disabled:across(), run:() => setSizeColumn(!colPref.size)},
     {sep:true},
     {label:t('Fit columns to the list'), disabled:!colPref.from && !colPref.where, run:resetColumns},
   ];
 }
+// Settings › Appearance › Message list columns, kept in step with the menu.
+function renderColumnChoices(){
+  if (!sdlg.open && $('s-dates').childElementCount) return;
+  $('s-dates').innerHTML = radios('list_dates', [['short', esc(shortDates())], ['full', esc(fullDates())]], colPref.dates);
+  $('s-sizecol').checked = colPref.size;
+  $('s-fitcols').disabled = !colPref.from && !colPref.where;
+}
+$('s-fitcols').addEventListener('click', resetColumns);
 theadEl.addEventListener('contextmenu', e => {
   e.preventDefault();
   openMenu(e.clientX, e.clientY, columnMenu(), e.target.closest('button, [data-grip]') ?? listEl);
@@ -1062,11 +1077,20 @@ function whoOf(m){
   if (!isOut(m.f)) return m.from;
   return allMail() ? t('To: {who}', {who:nameOf(m.to)}) : nameOf(m.to);
 }
-function rowHtml(m, sel, hl, mixed){
+// Where a row of a list that mixes folders is: its folder and, with more than one account, whose
+// (the folders on this PC say so in their name), or its account in every account's Drafts.
+function whereOf(m, accounts){
+  const acct = acctId(m.f);
+  if (byAccount()) return [acctLabel(acct)];
+  if (acct === LOCAL) return [placeName(m.f)];
+  return accounts ? [folderName(m.f), acctLabel(acct)] : [folderName(m.f)];
+}
+function rowHtml(m, sel, hl, accounts){
   const out = isOut(m.f), tip = out ? m.to : `${m.from} <${m.email}>`;
   const on = m.id === sel || state.picked.has(m.id), acct = acctId(m.f);
   const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel ' : '') + (state.picked.has(m.id) ? 'picked ' : '')
-    + (mixed && acct !== LOCAL ? 'acc ' + acolor(acct) : '');
+    + (acct !== LOCAL ? 'acc ' + acolor(acct) : '');
+  const [where, whose] = whereOf(m, accounts);
   // The dot and the flag are switches: a click marks read or unread, flags or unflags.
   const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
   const flag = `<b class="mk fl" title="${esc(m.flagged ? t('Remove the flag (F)') : t('Flag (F)'))}">${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : I.flagOff}</b>`;
@@ -1074,7 +1098,7 @@ function rowHtml(m, sel, hl, mixed){
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${marked(whoOf(m), hl?.[out ? 'to' : 'from'])}</td>
 <td class="c-subj" title="${esc(m.subj)}">${marked(m.subj, hl?.subject)}</td>
-<td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(byAccount() ? acctLabel(acct) : folderName(m.f))}</td>
+<td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(whose ? where + ' · ' + whose : where)}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
 }
@@ -1149,9 +1173,9 @@ function drawRows(scrolling = false){
   const [va, vb] = visibleRange(), s = list.start, e = s + list.rows.length;
   if (scrolling && drawn && drawn.start === s && drawn.length === list.rows.length
       && (va >= drawn.a + 5 || drawn.a === 0) && (vb <= drawn.b - 5 || drawn.b === list.total)) return;
-  const a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN), sel = state.sel[selKey()], hl = hlTerms(), mixed = across();
+  const a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN), sel = state.sel[selKey()], hl = hlTerms(), accounts = servers().length > 1;
   let html = spacer(a * rowH, n);
-  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl, mixed) : `<tr class="rowph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
+  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl, accounts) : `<tr class="rowph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
   rowsEl.innerHTML = html + spacer((list.total - b) * rowH, n);
   drawn = {a, b, start:s, length:list.rows.length};
   const r = rowsEl.querySelector('tr[data-id]'), h = r?.getBoundingClientRect().height;
@@ -1265,6 +1289,13 @@ function renderHead(){
   const out = !allMail() && isOut(state.folder);
   $('from-label').textContent = out ? t('To') : t('From');
   $('where-label').textContent = byAccount() ? t('Account') : t('Folder');
+  // Above one account's folder, its dot or initials once (with those marks; rows carry the others).
+  const a = acctId(state.folder), mk = $('from-mark');
+  mk.className = 'adot hmark ' + acolor(a);
+  mk.dataset.i = INITIALS[a] ?? '';
+  mk.hidden = across() || a === LOCAL || !acolor(a);
+  mk.parentElement.title = mk.hidden ? '' : acctLabel(a);
+  listEl.className = 'list' + (mk.hidden ? '' : ' acc ' + acolor(a)); // a tint goes under the rows too
   document.querySelectorAll('th button[data-sort]').forEach(b => {
     const on = b.dataset.sort === state.sort.key, th = b.parentElement;
     if (on) th.setAttribute('aria-sort', state.sort.dir > 0 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort');
@@ -1918,6 +1949,7 @@ previewEl.addEventListener('click', async e => {
     readCompose(); state.compose.showBcc = true; renderCompose(); $('c-bcc')?.focus();
   }
   if (act.dataset.act === 'attach' && state.compose) pickFiles();
+  if (act.dataset.act === 'spell' && state.compose) spellLanguageMenu(act);
   if (act.dataset.act === 'discard') discardCompose();
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
@@ -2024,6 +2056,7 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   <button class="btn" type="button" data-act="discard">${esc(t('Discard'))}</button>
   <span class="cnote">${esc(note)}</span>
   <span class="csaved" aria-live="polite"></span>
+  <button class="btn spellchip" type="button" data-act="spell" aria-haspopup="menu">${I.spell}<span></span></button>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
   // Enter in a header field doesn't send: Ctrl+Enter does.
@@ -2036,6 +2069,7 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else focusStart(body);
   wireSpelling();
+  paintSpellChip();
 }
 /* ---------- recipient suggestions ---------- */
 // People come from the mail base (recipients): those written to first, then those who write
@@ -2422,6 +2456,36 @@ async function spellNudge(){
   try { info = await invoke('spell_languages'); } catch { return; }
   const missing = info.missing?.[0];
   if (missing) say(t('{language} spelling isn’t on this PC yet: Settings › Writing can fetch it.', {language:langName(missing)}), 9000);
+}
+// Compose's bar says which languages spelling is checked in: all of them at once, a word any of
+// them knows being right. Its menu ticks them as Settings › Writing does.
+async function spellLanguagesNow(){
+  if (!spellInfo){ try { spellInfo = await invoke('spell_languages'); } catch { return null; } }
+  return spellInfo;
+}
+async function paintSpellChip(){
+  if (!previewEl.querySelector('.spellchip')) return;
+  const on = pref().spell_check, info = on ? await spellLanguagesNow() : null;
+  const b = previewEl.querySelector('.spellchip');
+  if (!b) return;
+  const codes = [...new Set((info?.chosen ?? []).map(tag => tag.split('-')[0].toUpperCase()))];
+  b.querySelector('span').textContent = !on ? t('Spelling off') : codes.length ? codes.join(' · ') : t('No dictionary');
+  b.title = !on ? t('Spelling isn’t checked. Click to turn it on.')
+    : codes.length ? t('Spelling is checked in {languages} at once: a word any of them knows is right. Click to choose.', {languages:info.chosen.map(langName).join(', ')})
+    : t('There is no spelling dictionary for your languages yet. Click to fetch one.');
+}
+async function spellLanguageMenu(btn){
+  const info = await spellLanguagesNow(), on = pref().spell_check;
+  const chosen = new Set(info?.chosen ?? []);
+  const set = list => changeSettings({spell_languages:list}).then(() => { spellInfo = null; respell(); paintSpellChip(); });
+  const items = (info?.languages ?? []).map(l => ({label:langName(l.tag), checked:on && chosen.has(l.tag), disabled:!on,
+    run:() => { const next = new Set(chosen); if (next.has(l.tag)) next.delete(l.tag); else next.add(l.tag); set([...next]); }}));
+  if (items.length) items.push({label:t('Automatic: the languages of Windows and of Telex'), checked:on && !!info?.auto, disabled:!on || !!info?.auto, run:() => set([])}, {sep:true});
+  items.push({label:t('Underline spelling mistakes'), checked:on, run:() => changeSettings({spell_check:!on}).then(() => { respell(); paintSpellChip(); })},
+    {label:t('Dictionaries…'), run:() => openSettings('write')});
+  const r = btn.getBoundingClientRect();
+  openMenu(r.left, r.top, items, btn);
+  menuEl.style.top = Math.max(4, r.top - menuEl.offsetHeight - 4) + 'px'; // above the button
 }
 // "pl-PL" → "polski (Polska)", in the interface's language.
 function langName(tag){
@@ -3733,9 +3797,18 @@ function markCards(){
     + `<span class="mlist">${row('a1', 'JN')}${row('a0', 'AK')}${row('a0', 'AK')}</span></span></span>`
     + `<span class="tname">${esc(t(name))}</span></label>`).join('');
 }
+// How unread mail stands out: each card draws a few rows that way, in the list's face.
+const UNREAD_STYLES = [['quiet', N_('Read mail quieter')], ['bold', N_('Bold only')], ['color', N_('Unread in color')]];
+function unreadCards(){
+  const row = (u, who, what) => `<span class="urow${u ? ' u' : ''}"><i class="dot"></i><b>${esc(who)}</b><span>${esc(what)}</span></span>`;
+  return UNREAD_STYLES.map(([id, name]) => `<label class="tcard ucard"><input type="radio" name="unread_style" value="${id}"${pref().unread_style === id ? ' checked' : ''}>`
+    + `<span class="uprev" data-unread="${id}" aria-hidden="true">${row(true, 'Anna Kowalska', 'Faktura 10/2026')}${row(false, 'Jan Nowak', 'Re: Spotkanie')}`
+    + `${row(true, 'GitHub', 'Release 0.9.1')}${row(false, 'Ewa Wiśniewska', 'Zdjęcia z wyjazdu')}</span>`
+    + `<span class="tname">${esc(t(name))}</span></label>`).join('');
+}
 // The faces Telex can be written in: each card shows its three (styles.css: [data-font]).
-// Plex, Inter and Atkinson are bundled (ui/fonts); System and Classic are Windows' own.
-const FONTS = [['plex', 'IBM Plex'], ['system', N_('System|font')], ['classic', N_('Classic|font')], ['inter', 'Inter'], ['atkinson', 'Atkinson Hyperlegible']];
+// Plex, Inter, Atkinson and Source are bundled (ui/fonts); System and Classic are Windows' own.
+const FONTS = [['plex', 'IBM Plex'], ['system', N_('System|font')], ['classic', N_('Classic|font')], ['inter', 'Inter'], ['atkinson', 'Atkinson Hyperlegible'], ['source', 'Source Sans Light']];
 const fontName = id => { const f = FONTS.find(([x]) => x === id); return !f ? id : id === 'system' || id === 'classic' ? t(f[1]) : f[1]; };
 function fontCards(){
   return FONTS.map(([id]) => `<label class="tcard fcard"><input type="radio" name="font" value="${id}"${pref().font === id ? ' checked' : ''}>`
@@ -3762,6 +3835,8 @@ function renderSettings(keepFocus){
   $('s-forced').hidden = !forcedColors.matches;
   $('s-density').innerHTML = segs('density', [['compact', esc(t('Compact'))], ['comfortable', esc(t('Comfortable'))]], s.density);
   $('s-marks').innerHTML = markCards();
+  $('s-unread').innerHTML = unreadCards();
+  renderColumnChoices();
   $('s-fonts').innerHTML = fontCards();
   $('s-size').innerHTML = segs('text_size', TEXT_SIZES.map(n => [n, n + '%']), s.text_size);
   const auto = LANG_NAMES[SETTINGS.settings.language === 'auto' ? SETTINGS.language : ''] ?? '';
@@ -3811,7 +3886,7 @@ function paneOpened(tab){
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
-  const want = {theme:s.theme, density:s.density, account_mark:s.account_mark, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
+  const want = {theme:s.theme, density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
     mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
@@ -3860,6 +3935,9 @@ sdlg.addEventListener('change', e => {
   if (el.name === 'theme') changeSettings({theme:v});
   else if (el.name === 'density') changeSettings({density:v});
   else if (el.name === 'account_mark') changeSettings({account_mark:v});
+  else if (el.name === 'unread_style') changeSettings({unread_style:v});
+  else if (el.name === 'list_dates') setDates(v);
+  else if (el.id === 's-sizecol') setSizeColumn(el.checked);
   else if (el.name === 'font') changeSettings({font:v});
   else if (el.name === 'text_size') changeSettings({text_size:Number(v)});
   else if (el.name === 'language') changeSettings({language:v});
@@ -3888,13 +3966,14 @@ $('s-close').addEventListener('click', () => { if (wizardBusy !== 'login') sdlg.
 sdlg.addEventListener('cancel', e => { if (wizardBusy === 'login') e.preventDefault(); });
 sdlg.addEventListener('close', () => {
   ++wizardSeq; wizardBusy = null;
+  paintSpellChip(); // its languages may have changed there
   if (accountView === 'work') accountView = 'start';
   listEl.focus({preventScroll:true});
 });
 
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
-const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Account colors'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
+const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
@@ -3906,6 +3985,7 @@ function settingValue(key, v){
     case 'language': return v === 'auto' ? t('Automatic, as in Windows') : LANG_NAMES[v] ?? v;
     case 'density': return v === 'comfortable' ? t('Comfortable') : t('Compact');
     case 'account_mark': return MARKS.find(([id]) => id === v) ? t(MARKS.find(([id]) => id === v)[1]) : v;
+    case 'unread_style': return UNREAD_STYLES.find(([id]) => id === v) ? t(UNREAD_STYLES.find(([id]) => id === v)[1]) : v;
     case 'font': return fontName(v);
     case 'text_size': return v + '%';
     case 'prefer_text': return v ? t('Show the plain text') : t('Show the HTML');
@@ -4634,7 +4714,7 @@ const HELP_TIPS = [
   N_('Right-click a message for everything you can do with it, each with its key.'),
   N_('Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.'),
   N_('Unread, at the top of the folders, gathers the unread mail of every folder and account. Mail you read there stays until you leave.'),
-  N_('Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Right-click the column headings for dates and the Size column.'),
+  N_('Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Dates and the Size column: right-click the headings, or Settings › Appearance.'),
   N_('Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.'),
   N_('Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.'),
   N_('Folders on this PC keep mail only here, off the server. Right-click one to name it, save it as mbox or bring mail in.'),
@@ -4642,6 +4722,7 @@ const HELP_TIPS = [
   N_('Shift+click selects a range, Ctrl+click one more message.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),
+  N_('Spelling checks every ticked language at once. They show at the end of the compose bar; a click there changes them.'),
   N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
   N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),
   N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),
