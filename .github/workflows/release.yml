@@ -1,8 +1,8 @@
 name: Release
 
-# Pushing a tag like v0.2.0 builds the signed Windows installers, the Linux AppImage and .deb,
-# and the updater's latest.json, and puts them in a draft GitHub release. Publishing the draft
-# is what makes the update reach Telex. The whole process is in docs/releasing.md.
+# Pushing a tag like v0.2.0 makes a draft GitHub release, then builds the signed Windows
+# installers, the Linux AppImage and .deb, and the updater's latest.json into it. Publishing
+# the draft is what makes the update reach Telex. The whole process is in docs/releasing.md.
 #
 # Needs, under Settings > Secrets and variables > Actions:
 #   secret   TAURI_SIGNING_PRIVATE_KEY           the private key (contents of the .key file)
@@ -21,12 +21,68 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The draft release comes first, and both builds upload to it by its id. Left to find it by
+  # the tag, tauri-action looks only for a draft: a build that finished after the draft had been
+  # published made a second draft of its own (0.8.0's and 0.8.1's Linux files; repair-release.yml
+  # moves such files over). By its id, the files land on the release, published or not.
+  draft:
+    name: Draft release
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.release.outputs.id }}
+      notes: ${{ steps.notes.outputs.body }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Check the tag matches the version
+        run: node scripts/set-version.mjs --check "$GITHUB_REF_NAME"
+
+      # An annotated tag's message becomes the release notes, on GitHub and in Telex's update
+      # dialog. Checkout leaves the tag as a plain ref, so fetch the tag object itself.
+      - name: Release notes from the tag
+        id: notes
+        run: |
+          git fetch --force --depth=1 origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          notes=""
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            notes="$(git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME")"
+          fi
+          {
+            echo 'body<<TELEX_NOTES_END'
+            printf '%s\n' "$notes"
+            echo 'TELEX_NOTES_END'
+          } >> "$GITHUB_OUTPUT"
+
+      # On "Re-run all jobs" the release this tag already has is used again, the published one
+      # before a draft.
+      - name: The draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NOTES: ${{ steps.notes.outputs.body }}
+        run: |
+          id="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq "[.[] | select(.tag_name == \"$GITHUB_REF_NAME\")] | sort_by(.draft) | .[0].id // empty")"
+          if [ -z "$id" ]; then
+            id="$(gh api "repos/$GITHUB_REPOSITORY/releases" -f tag_name="$GITHUB_REF_NAME" \
+              -f name="Telex ${GITHUB_REF_NAME#v}" -f body="$NOTES" -F draft=true -F prerelease=false --jq .id)"
+            echo "Made the draft release $id."
+          else
+            echo "Using release $id, which this tag already has."
+          fi
+          test -n "$id"
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
   release:
     name: ${{ matrix.name }}
-    # One system at a time. The first creates the draft release; each adds its files and its
-    # platforms to the draft's latest.json (tauri-action reads the file, adds to it and uploads
-    # it again), so two at once could each drop the other's platforms. A failed Linux build
-    # doesn't stop the Windows one.
+    needs: draft
+    # One system at a time: each adds its files and its platforms to the release's latest.json
+    # (tauri-action reads the file, adds to it and uploads it again), so two at once could each
+    # drop the other's platforms. A failed Linux build doesn't stop the Windows one.
     strategy:
       max-parallel: 1
       fail-fast: false
@@ -50,27 +106,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
-      - name: Check the tag matches the version
-        shell: bash
-        run: node scripts/set-version.mjs --check "$GITHUB_REF_NAME"
-
-      # An annotated tag's message becomes the release notes, on GitHub and in Telex's update
-      # dialog. Checkout leaves the tag as a plain ref, so fetch the tag object itself.
-      - name: Release notes from the tag
-        id: notes
-        shell: bash
-        run: |
-          git fetch --force --depth=1 origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
-          notes=""
-          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
-            notes="$(git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME")"
-          fi
-          {
-            echo 'body<<TELEX_NOTES_END'
-            printf '%s\n' "$notes"
-            echo 'TELEX_NOTES_END'
-          } >> "$GITHUB_OUTPUT"
 
       # What Tauri 2 builds against on Linux, and D-Bus for the password store (keyring).
       - name: Linux libraries
@@ -114,17 +149,14 @@ jobs:
 
       # TAURI_SIGNING_PRIVATE_KEY and its password come from the job environment (see above).
       # Windows builds nsis and msi (tauri.conf.json), Linux appimage and deb
-      # (tauri.linux.conf.json, which Tauri adds on Linux by itself). The first job to get here
-      # creates the draft release, the second finds it by the tag.
+      # (tauri.linux.conf.json, which Tauri adds on Linux by itself). Both upload to the release
+      # the draft job made.
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Telex __VERSION__
-          releaseBody: ${{ steps.notes.outputs.body }}
-          releaseDraft: true
-          prerelease: false
+          releaseId: ${{ needs.draft.outputs.id }}
+          releaseBody: ${{ needs.draft.outputs.notes }}
           # latest.json, which every Telex checks: version, notes, installers and signatures.
           # (tauri-action v1 calls this uploadUpdaterJson; v0 called it includeUpdaterJson.)
           # Its notes come from releaseBody, so every job passes the same.

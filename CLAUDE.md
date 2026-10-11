@@ -109,12 +109,17 @@ scripts/             set-version.mjs: sets the version in every file that has it
                      check-signing-key.mjs: the release key pair belongs together (release.yml).
                      check-contrast.mjs: every theme meets its WCAG level (CI; --json for the site).
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
+                     repair-release.mjs: a published release's files from a second draft with
+                     its tag, and their platforms into its latest.json (repair-release.yml).
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
 .github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Linux app clippy
                      (ubuntu-22.04), Windows installer build (can't update itself).
-                     release.yml: on a v* tag, signed Windows installers, then AppImage + .deb;
-                     latest.json for both in a draft release.
+                     release.yml: on a v* tag, a draft release, then signed Windows installers,
+                     then AppImage + .deb, and latest.json for both, uploaded by the draft's id
+                     (so a build that ends after the draft is published still lands on it).
+                     repair-release.yml: by hand, for 0.8.0 and 0.8.1, whose Linux files a
+                     build put in a second draft (published early, found by the tag).
 ```
 
 The mail base is `%APPDATA%\app.telexmail.desktop\telex.db` (on Linux

@@ -109,16 +109,17 @@ Then wait for the **Release** workflow, check the draft release on GitHub and pu
    file). The message is shown in Telex's update dialog and as the release text on GitHub.
    Editing the release text on GitHub later doesn't change what Telex shows: that is fixed in
    latest.json when it is built.
-4. The **Release** workflow (Actions tab) checks that the tag matches the version in every file
-   and that the private key, its password and the public key belong together, then builds,
-   signs, and makes a **draft** release "Telex 0.2.0" with:
+4. The **Release** workflow (Actions tab) checks that the tag matches the version in every file,
+   makes a **draft** release "Telex 0.2.0", checks that the private key, its password and the
+   public key belong together, then builds, signs, and uploads into that draft:
    `Telex_0.2.0_x64-setup.exe` and `.exe.sig`, `Telex_0.2.0_x64_en-US.msi` and `.msi.sig`,
    `Telex_0.2.0_amd64.AppImage` and `.AppImage.sig`, `Telex_0.2.0_amd64.deb` and `.deb.sig`,
    and `latest.json`. Windows builds first, then Linux on Ubuntu 22.04 (one at a time, so
    both get into latest.json). It takes about 20–30 minutes.
-5. Check the draft: the files are there, latest.json lists both `windows-x86_64` and
-   `linux-x86_64`, and the installers work on a clean PC if you like (download them from the
-   draft; for the AppImage see "Testing the AppImage" below).
+5. Wait until the whole run is green, Linux too: the draft shows the Windows files about ten
+   minutes before the Linux ones. Then check it: the files are there, latest.json lists both
+   `windows-x86_64` and `linux-x86_64`, and the installers work on a clean PC if you like
+   (download them from the draft; for the AppImage see "Testing the AppImage" below).
 6. **Publish** the draft. From then on, `releases/latest/download/latest.json` is this
    release's: every Telex that checks sees the update, and the site's download page lists it
    within an hour.
@@ -135,9 +136,17 @@ small 0.2.1) and watch 0.2.0 update itself.
 - **The build failed**: fix it on `main`, delete the draft release and the tag, and tag the
   fixed commit. A failure that wasn't the code's fault: Re-run jobs on the run's page.
 - **Only the Linux build failed**: the draft already has the Windows files and a latest.json
-  with only Windows in it. "Re-run failed jobs" adds Linux to the same draft. Publishing
-  without it works too: the AppImages out there then say the newest release has no installer
-  for them, and update with the next one.
+  with only Windows in it. "Re-run failed jobs" adds Linux to the same draft, or to the
+  release if it was published meanwhile (both builds upload to the release by its id, made
+  by the run's first job). Published without Linux, the AppImages out there say the newest
+  release has no installer for them until Linux is added.
+- **A published release has no Linux files** but a second draft with the same tag has them:
+  0.8.0 and 0.8.1, published while their Linux build was still running, from before the
+  workflow made the draft first (tauri-action then looked for the release by its tag, found
+  no draft and made one). Actions › **Repair release** › Run workflow, with the tag or empty
+  for every such release: it copies the draft's files onto the published release, adds their
+  platforms to its latest.json and removes the draft (`scripts/repair-release.mjs`;
+  "Only say what would change" for a dry run).
 - **"Check the signing key pair" failed**: the secret, its password and the variable must
   come from the same `tauri signer generate`. The step (`scripts/check-signing-key.mjs`) signs a
   scratch file and verifies it the way Telex does, because the bundler itself only warns about a
