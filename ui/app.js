@@ -2213,7 +2213,10 @@ const spellIgnored = new Set(); // "Ignore", for this session
 const spellMarks = window.Highlight && CSS.highlights ? new Highlight() : null;
 if (spellMarks) CSS.highlights.set('spell', spellMarks);
 const spellFields = () => ['c-subj', 'c-body', 'c-html'].map($).filter(Boolean);
+// One observer for the layers' fields: a new compose lets go of the old ones.
+const spellResize = new ResizeObserver(entries => entries.forEach(e => syncLayer(e.target)));
 function wireSpelling(){
+  spellResize.disconnect();
   for (const el of spellFields()){
     spellOf.set(el, {seq:0, timer:0, found:[]});
     el.addEventListener('input', () => scheduleSpelling(el));
@@ -2222,7 +2225,7 @@ function wireSpelling(){
     if (el.id !== 'c-html'){
       // An input scrolls sideways with the caret, without a scroll event.
       for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => syncLayer(el));
-      new ResizeObserver(() => syncLayer(el)).observe(el);
+      spellResize.observe(el);
     }
     scheduleSpelling(el, 0);
   }

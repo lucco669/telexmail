@@ -201,7 +201,8 @@ fn mail_dir_roots() -> Vec<(PathBuf, Program)> {
 /// and KMail's ".inbox.directory"), MH, and mbox files.
 fn read_mail_folder(root: &Path, program: Program) -> Option<Source> {
     let mut folders = Vec::new();
-    collect_mail_dirs(root, &[], 0, &mut folders);
+    let mut budget = SCAN_BUDGET;
+    collect_mail_dirs(root, &[], 0, &mut budget, &mut folders);
     if folders.is_empty() {
         return None;
     }
@@ -220,8 +221,18 @@ fn read_mail_folder(root: &Path, program: Program) -> Option<Source> {
     })
 }
 
-fn collect_mail_dirs(dir: &Path, parents: &[String], depth: usize, out: &mut Vec<FoundFolder>) {
-    if depth > 8 {
+/// How many files and folders a scan looks at, at most: a folder picked by mistake (a whole
+/// disk) is given up on instead of read through.
+const SCAN_BUDGET: usize = 20_000;
+
+fn collect_mail_dirs(
+    dir: &Path,
+    parents: &[String],
+    depth: usize,
+    budget: &mut usize,
+    out: &mut Vec<FoundFolder>,
+) {
+    if depth > 8 || *budget == 0 {
         return;
     }
     if mailbox::is_mail_dir(dir) {
@@ -248,6 +259,10 @@ fn collect_mail_dirs(dir: &Path, parents: &[String], depth: usize, out: &mut Vec
         .collect();
     entries.sort();
     for (name, path, is_dir) in entries {
+        if *budget == 0 {
+            return;
+        }
+        *budget -= 1;
         if matches!(name.as_str(), "cur" | "new" | "tmp") || name.parse::<u32>().is_ok() {
             continue;
         }
@@ -259,7 +274,7 @@ fn collect_mail_dirs(dir: &Path, parents: &[String], depth: usize, out: &mut Vec
             {
                 let mut path_names = parents.to_vec();
                 path_names.push(owner.to_owned());
-                collect_children(&path, &path_names, depth, out);
+                collect_children(&path, &path_names, depth, budget, out);
             } else if let Some(dotted) = name.strip_prefix('.') {
                 // Maildir++: ".Archive.2019" is Archive / 2019.
                 if mailbox::is_mail_dir(&path) {
@@ -275,7 +290,7 @@ fn collect_mail_dirs(dir: &Path, parents: &[String], depth: usize, out: &mut Vec
             } else {
                 let mut path_names = parents.to_vec();
                 path_names.push(name.clone());
-                collect_mail_dirs(&path, &path_names, depth + 1, out);
+                collect_mail_dirs(&path, &path_names, depth + 1, budget, out);
             }
         } else if looks_like_mbox(&path) {
             let mut path_names = parents.to_vec();
@@ -290,7 +305,13 @@ fn collect_mail_dirs(dir: &Path, parents: &[String], depth: usize, out: &mut Vec
     }
 }
 
-fn collect_children(dir: &Path, parents: &[String], depth: usize, out: &mut Vec<FoundFolder>) {
+fn collect_children(
+    dir: &Path,
+    parents: &[String],
+    depth: usize,
+    budget: &mut usize,
+    out: &mut Vec<FoundFolder>,
+) {
     for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
         let (Some(name), true) = (
             entry.file_name().to_str().map(str::to_owned),
@@ -303,7 +324,7 @@ fn collect_children(dir: &Path, parents: &[String], depth: usize, out: &mut Vec<
         }
         let mut path_names = parents.to_vec();
         path_names.push(name);
-        collect_mail_dirs(&entry.path(), &path_names, depth + 1, out);
+        collect_mail_dirs(&entry.path(), &path_names, depth + 1, budget, out);
     }
 }
 
