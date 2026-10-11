@@ -111,7 +111,7 @@ export default function AccessibilityPage() {
           {themes.map((t) => (
             <li key={t.id} className={s.card}>
               <Image
-                src={`/screens/theme-${t.id}.png`}
+                src={`/screens/theme-${t.id}.webp`}
                 alt={`Telex in the ${about[t.id]?.name ?? t.id} theme: the folder list, the message list and a message.`}
                 width={1280}
                 height={800}

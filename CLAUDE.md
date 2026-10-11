@@ -37,7 +37,7 @@ Anti-goals: Electron, AI features by default, a web-app look, anything that phon
 crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
                      for the server (pending_ops); the folders on this PC (LOCAL_ID "local") and
-                     moves to and from them.
+                     moves to and from them. Its tests are in src/store/tests.rs.
   src/list.rs        The message list a page at a time: folder counts, keyset pages in every
                      sort, the quick filter (one folder or all mail, with operators such as
                      from: is:unread after:) and its SQL functions, conversations, ranges.
@@ -110,6 +110,9 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
                      new-mail notification (tauri-plugin-notification).
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
   src/settings.rs    Settings commands; Save and Open dialogs (tauri-plugin-dialog, from Rust only).
+  src/lib.rs         The commands above and the app: one Telex at a time on a mail base
+                     (tauri-plugin-single-instance, registered first: a second start shows the
+                     window), and a mail base that won't open said in a dialog at start.
   tauri.release.conf.json  Merged in by the release workflow: turns on the updater's files.
   tauri.linux.conf.json    Merged on Linux by Tauri: AppImage and .deb instead of nsis/msi.
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
@@ -131,17 +134,15 @@ scripts/             set-version.mjs: sets the version in every file that has it
                      check-signing-key.mjs: the release key pair belongs together (release.yml).
                      check-contrast.mjs: every theme meets its WCAG level (CI; --json for the site).
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
-                     repair-release.mjs: a published release's files from a second draft with
-                     its tag, and their platforms into its latest.json (repair-release.yml).
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
 .github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Linux app clippy
-                     (ubuntu-22.04), Windows installer build (can't update itself).
+                     (ubuntu-22.04), Windows clippy, core tests and installer build (can't update
+                     itself). Actions are pinned to commits, the tag in a comment.
                      release.yml: on a v* tag, a draft release, then signed Windows installers,
                      then AppImage + .deb, and latest.json for both, uploaded by the draft's id
                      (so a build that ends after the draft is published still lands on it).
-                     repair-release.yml: by hand, for 0.8.0 and 0.8.1, whose Linux files a
-                     build put in a second draft (published early, found by the tag).
+                     The signing key reaches only the steps that sign, as a file.
 ```
 
 The mail base is `%APPDATA%\app.telexmail.desktop\telex.db` (on Linux
@@ -316,7 +317,11 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   The one loosening is `style-src 'unsafe-inline'` (with Tauri told not to add hashes to
   style-src, which would cancel it): the HTML mail frame inherits the app's CSP, and mail
   layout lives in inline styles. Remote mail images are fetched by the core
-  (`html::fetch_images`) and passed in as data: URIs; the webview never loads them.
+  (`html::fetch_images`) and passed in as data: URIs; the webview never loads them. No
+  objects, `<base>` or form submissions (`object-src`, `base-uri`, `form-action 'none'`).
+- The windows' script may ask Tauri itself only for what `capabilities/default.json` lists:
+  events, the title, closing (and destroy) and zoom. A new `window.__TAURI__` call needs its
+  permission there; Telex's own commands and anything Rust does need none.
 - Colors are tokens in `ui/themes.css`, set by every theme; `styles.css` only uses them. Do not
   hard-code colors. A new token or a new place where text sits on a background goes into the
   pairs of `scripts/check-contrast.mjs`. Text needs 4.5:1 (AAA themes 7:1), and the borders of
@@ -435,7 +440,12 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
     search connectors and .mht; a mail base that won't open says so in a dialog instead of
     starting empty silently. The window keeps the last 30 messages and 8 HTML views, draws the
     open message again only when it changed, and folds suggestions once. The test-only sample
-    mailbox is compiled only into the tests.
+    mailbox is compiled only into the tests. One Telex runs at a time (a second start brings
+    the window forward): two on one mail base would send an Outbox twice. The window's script
+    may ask Tauri only for events, its title, closing and zoom; the CSP also forbids objects,
+    `<base>` and form submissions. CI checks and tests the Windows-only code on Windows; the
+    workflows' actions are pinned to commits, and the release key reaches only the steps that
+    sign, as a file.
 
 - New in 0.8.1 (no schema change):
   - Unread at the top of the tree (`UNREAD = "*/unread"` in app.js; the core gets `folder: null`

@@ -31,7 +31,7 @@ npm run themes     # measure the app's themes again into lib/themes.json (the ac
 - `lib/theme.ts`: the light/dark choice. It is `data-theme` on `<html>`, saved in localStorage
   and set before the first paint by the script in `app/layout.tsx`; tokens are in `app/globals.css`.
 - `app/<page>/page.tsx`: the subpages. Shared pieces are in `components/`, each with a CSS module.
-- `public/screens/`: screenshots, `<scene>-light.png` and `<scene>-dark.png`, 1280×800 at 2×.
+- `public/screens/`: screenshots, `<scene>-light.webp` and `<scene>-dark.webp` (lossless), 1280×800 at 2×.
 - `app/**/opengraph-image.png`: one link preview per page, made by `npm run screens`.
 
 ## Versions: what is out and what is coming
@@ -119,7 +119,7 @@ only your domain gets indexed.
   don't make it lighter.
 - The accessibility page shows the app's themes as measured by `../scripts/check-contrast.mjs`
   (`lib/themes.json`, from `npm run themes`) and one screenshot per theme
-  (`public/screens/theme-<id>.png`, from `npm run screens themes`). Redo both after a color in
+  (`public/screens/theme-<id>.webp`, from `npm run screens themes`). Redo both after a color in
   `../ui/themes.css` changes.
 
 ## Screenshots

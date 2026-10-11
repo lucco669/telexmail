@@ -23,8 +23,11 @@ concurrency:
 jobs:
   # The draft release comes first, and both builds upload to it by its id. Left to find it by
   # the tag, tauri-action looks only for a draft: a build that finished after the draft had been
-  # published made a second draft of its own (0.8.0's and 0.8.1's Linux files; repair-release.yml
-  # moves such files over). By its id, the files land on the release, published or not.
+  # published made a second draft of its own (0.8.0's and 0.8.1's Linux files). By its id, the
+  # files land on the release, published or not.
+  #
+  # Actions are pinned to commits (the tag in a comment): a tag moved later can't change what
+  # runs next to the signing key.
   draft:
     name: Draft release
     runs-on: ubuntu-latest
@@ -32,9 +35,9 @@ jobs:
       id: ${{ steps.release.outputs.id }}
       notes: ${{ steps.notes.outputs.body }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
 
@@ -100,9 +103,9 @@ jobs:
       # can't update itself. A repository variable, or a secret if it was added as one.
       TELEX_UPDATER_PUBKEY: ${{ vars.TELEX_UPDATER_PUBKEY || secrets.TELEX_UPDATER_PUBKEY }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -114,13 +117,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev patchelf
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable # read from the ref when not pinned
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: npm ci
 
       # Pasting into the secrets form easily adds a line break, and Tauri can't read a key with
       # one. The key is base64, so whitespace in it is never meant; a password can't contain a
-      # line break. Later steps get both from here, cleaned (and still masked in the log).
+      # line break. The key, cleaned, goes into a file that only the two steps that sign are told
+      # about (the bundler takes a path as well as the key), not into every later step's
+      # environment; the password, useless without it, into the job's. Both stay masked.
       - name: Signing key without stray line breaks
         shell: bash
         env:
@@ -131,12 +138,15 @@ jobs:
           password="$(printf '%s' "$PASSWORD" | tr -d '\r\n')"
           if [ -n "$key" ]; then echo "::add-mask::$key"; fi
           if [ -n "$password" ]; then echo "::add-mask::$password"; fi
-          echo "TAURI_SIGNING_PRIVATE_KEY=$key" >> "$GITHUB_ENV"
+          umask 077
+          printf '%s' "$key" > "$RUNNER_TEMP/telex-signing.key"
           echo "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$password" >> "$GITHUB_ENV"
 
       # The bundler only warns when the private key doesn't match the public one, and every
       # installed Telex would refuse such a release. Fail here instead, before the build.
       - name: Check the signing key pair
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/telex-signing.key
         run: node scripts/check-signing-key.mjs
 
       # The bundler makes the updater files only with plugins.updater.pubkey in the config. The
@@ -147,13 +157,14 @@ jobs:
           node -e "require('fs').writeFileSync('src-tauri/tauri.updater.conf.json',
           JSON.stringify({plugins: {updater: {pubkey: process.env.TELEX_UPDATER_PUBKEY.trim()}}}))"
 
-      # TAURI_SIGNING_PRIVATE_KEY and its password come from the job environment (see above).
+      # The key's file from above; its password from the job environment.
       # Windows builds nsis and msi (tauri.conf.json), Linux appimage and deb
       # (tauri.linux.conf.json, which Tauri adds on Linux by itself). Both upload to the release
       # the draft job made.
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ runner.temp }}/telex-signing.key
         with:
           releaseId: ${{ needs.draft.outputs.id }}
           releaseBody: ${{ needs.draft.outputs.notes }}
@@ -163,3 +174,8 @@ jobs:
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
           args: --config src-tauri/tauri.release.conf.json --config src-tauri/tauri.updater.conf.json
+
+      - name: Remove the signing key's file
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/telex-signing.key"

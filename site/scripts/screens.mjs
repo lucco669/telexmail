@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import sharp from 'sharp';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
@@ -183,7 +184,7 @@ function shoot(browser, file, out, size = [W, H], scale = SCALE) {
 // Link previews (Open Graph images, 1200×630), one per page in lib/pages.ts: the page's line next
 // to a screenshot. Saved as app/<page>/opengraph-image.png, which Next.js picks up by itself.
 function ogPage({ eyebrow, title, screen, windowTitle }) {
-  const shot = pathToFileURL(join(outDir, `${screen}-light.png`)).href;
+  const shot = pathToFileURL(join(outDir, `${screen}-light.webp`)).href;
   const mark = (size) => readFileSync(join(repo, size < 40 ? 'brand/telex-mark-small.svg' : 'brand/telex-mark.svg'), 'utf8')
     .replace('<title>Telex</title>', '').replace('<svg ', `<svg width="${size}" height="${size}" `);
   return `<!doctype html><html><head><meta charset="utf-8"><base href="${pathToFileURL(uiDir + '/').href}">
@@ -209,6 +210,14 @@ p{margin-top:22px;font-size:24px;line-height:1.4;color:#59636e}
 </body></html>`;
 }
 
+// Edge saves PNG; screenshots are kept as lossless WebP, the same pixels in about a third of
+// the bytes. (Link previews stay PNG, which every site that shows them reads.)
+async function shootWebp(browser, file, out, size, scale) {
+  const png = join(work, 'shot.png');
+  shoot(browser, file, png, size, scale);
+  writeFileSync(out, await sharp(readFileSync(png)).webp({ lossless: true, effort: 6 }).toBuffer());
+}
+
 const browser = findBrowser();
 const work = mkdtempSync(join(tmpdir(), 'telex-screens-'));
 mkdirSync(outDir, {recursive: true});
@@ -218,19 +227,19 @@ for (const scene of Object.keys(scenes)) {
   for (const theme of ['light', 'dark']) {
     const file = join(work, `${scene}-${theme}.html`);
     writeFileSync(file, page(scene, theme));
-    shoot(browser, file, join(outDir, `${scene}-${theme}.png`));
-    console.log(`screens/${scene}-${theme}.png`);
+    await shootWebp(browser, file, join(outDir, `${scene}-${theme}.webp`));
+    console.log(`screens/${scene}-${theme}.webp`);
   }
 }
-// The inbox in every theme, for the accessibility page: public/screens/theme-<id>.png, at 1×
+// The inbox in every theme, for the accessibility page: public/screens/theme-<id>.webp, at 1×
 // (they are shown small). The list is ui/themes.css's.
 if (!only.length || only.includes('themes')) {
   const ids = [...readFileSync(join(uiDir, 'themes.css'), 'utf8').matchAll(/\[data-theme="([\w-]+)"\]\s*\{/g)].map((m) => m[1]);
   for (const theme of ids) {
     const file = join(work, `theme-${theme}.html`);
     writeFileSync(file, page('inbox', theme));
-    shoot(browser, file, join(outDir, `theme-${theme}.png`), [W, H], 1);
-    console.log(`screens/theme-${theme}.png`);
+    await shootWebp(browser, file, join(outDir, `theme-${theme}.webp`), [W, H], 1);
+    console.log(`screens/theme-${theme}.webp`);
   }
 }
 if (!only.length || only.includes('og')) {

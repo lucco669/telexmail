@@ -10,7 +10,7 @@ export type PageInfo = {
   description: string;
   /** Big line on the page's link preview image. */
   ogTitle: string;
-  /** Screenshot on the link preview image (public/screens/<id>-light.png). */
+  /** Screenshot on the link preview image (public/screens/<id>-light.webp). */
   ogScreen: string;
 };
 

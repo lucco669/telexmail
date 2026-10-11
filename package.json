@@ -2,7 +2,7 @@
   "name": "telexmail",
   "private": true,
   "version": "0.8.1",
-  "description": "Telex: a compact, keyboard-driven email client for Windows, built with Rust and Tauri",
+  "description": "Telex: a compact, keyboard-driven email client for Windows and Linux, built with Rust and Tauri",
   "scripts": {
     "dev": "tauri dev",
     "build": "tauri build",

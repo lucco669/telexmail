@@ -779,6 +779,7 @@ const PL = {
   'from the search box to the results': 'z pola wyszukiwania do wyników',
   'the menu of the selected message or folder; or right-click': 'menu zaznaczonej wiadomości lub folderu; albo prawy przycisk myszy',
   'in the folder tree: an account up or down': 'w drzewie folderów: konto w górę lub w dół',
+  'in the folder tree: rename a folder on this PC': 'w drzewie folderów: zmień nazwę folderu na tym komputerze',
   'Right-click a message for everything you can do with it, each with its key.': 'Prawy przycisk myszy na wiadomości pokazuje wszystko, co można z nią zrobić, razem z klawiszami.',
   'Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.': 'Kliknięcie kropki na początku wiersza oznacza wiadomość jako przeczytaną lub nie; flaga obok dodaje albo zdejmuje flagę.',
   'Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Right-click the column headings for dates and the Size column.': 'Przeciągnij krawędź przed Tematem, żeby poszerzyć albo zwęzić kolumnę Od; dwuklik dopasowuje ją do nazw. Prawy przycisk na nagłówkach kolumn: daty i kolumna Rozmiar.',

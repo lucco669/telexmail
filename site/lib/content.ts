@@ -449,7 +449,7 @@ export const keyboardTips: Tip[] = [
   },
 ];
 
-// Images come from `npm run screens` (public/screens/<id>-light.png and <id>-dark.png).
+// Images come from `npm run screens` (public/screens/<id>-light.webp and <id>-dark.webp).
 export type Screen = { id: string; label: string; title: string; caption: string; since?: string };
 
 export const hero: Screen = {

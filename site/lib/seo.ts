@@ -57,7 +57,7 @@ export function appLd(release: Release | null) {
     applicationCategory: 'CommunicationApplication',
     operatingSystem: release?.appimage || release?.deb ? 'Windows 10, Windows 11, Linux' : 'Windows 10, Windows 11',
     image: abs('/icon-512.png'),
-    screenshot: [hero, ...screens].map((s) => abs(`/screens/${s.id}-light.png`)),
+    screenshot: [hero, ...screens].map((s) => abs(`/screens/${s.id}-light.webp`)),
     featureList: features.map((f) => f.title),
     publisher: { '@id': `${site.url}/#organization` },
     ...(release && file

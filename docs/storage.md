@@ -27,7 +27,7 @@ the mail base and a zip of .eml files; phase 4 (POP3) is the plan.
   server is deleted locally; removing an account deletes its mail, but not what was moved to
   the folders on this PC. No size cap, no expiry; the file shrinks only when the user compacts
   it (Settings › Backups; SQLite otherwise reuses freed pages).
-- **Schema** (version 10): `messages` has only the summary columns, with indexes on
+- **Schema** (version 12): `messages` has only the summary columns, with indexes on
   `(folder, date)` for the list and `(folder, unread)` for the counts. The body and the raw
   message are in `message_content` (same id, removed with the message). `messages_fts` is a
   contentless FTS5 index over subject, people and body (`contentless_delete=1`), kept in step
@@ -40,7 +40,9 @@ the mail base and a zip of .eml files; phase 4 (POP3) is the plan.
   `outbox.send_after` (undo send) and `accounts.imap_security` (STARTTLS). Version 10
   (`src/migrations/010_local_folders.sql`) adds the folders on this PC (an account row
   `local` without servers, with Archive and Trash) to mail bases that have a server account,
-  and `pending_ops.origin` (see phase 3).
+  and `pending_ops.origin` (see phase 3). Version 11 (`011_folder_choices.sql`) keeps the
+  folder the user chose for each special kind (`folders.chosen`); version 12 (`012_away.sql`)
+  the away reply per account and whom it answered (`away`, `away_replies`).
 - **SQLite settings**: WAL with `synchronous=NORMAL` (a power cut can lose the last commits,
   never damage the file), a 32 MiB page cache, a 256 MiB memory map, temporary tables in memory,
   and `PRAGMA optimize` when the store closes and when the window closes.
@@ -216,8 +218,9 @@ The rest of the table above stayed the same.
   mail from any account there; conversations reach into it.
 - **Export** (`src/mailbox.rs`): a folder as an mbox file (mboxrd, LF line ends, "Status:" and
   "X-Status:" for read and flagged), read on a connection of its own and renamed into place
-  when complete. **Import**: `.eml` and mbox files (Thunderbird's, mutt's, The Bat!'s exports)
-  into a folder on this PC, streamed and stored 200 at a time with CRLF line ends as IMAP wants
+  when complete. **Import**: `.eml`, `.emlx`, `.msg` and mbox files (Thunderbird's, mutt's, The
+  Bat!'s exports), Maildir and MH folders, and Outlook's `.pst` files (`migrate/`) into a folder
+  on this PC, streamed and stored 200 at a time with CRLF line ends as IMAP wants
   them, flags from Status, X-Status and X-Mozilla-Status (read when none say), the mbox "From "
   line's date for messages without a Date header, and Message-IDs already in the folder
   skipped. A zip of `.eml` files is not built.

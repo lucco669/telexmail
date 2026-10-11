@@ -411,7 +411,7 @@ fn msg_props(
 ) -> std::io::Result<Props> {
     let table = stream(file, &format!("{dir}__properties_version1.0"))?;
     let mut props = Props::default();
-    for entry in table.get(header..).unwrap_or_default().chunks_exact(16) {
+    for entry in table.get(header..).unwrap_or_default().as_chunks::<16>().0 {
         let tag = u32::from_le_bytes([entry[0], entry[1], entry[2], entry[3]]);
         let (id, kind) = ((tag >> 16) as u16, (tag & 0xFFFF) as u16);
         let fixed = &entry[8..16];
@@ -431,8 +431,10 @@ fn msg_props(
                 match kind {
                     0x001F => {
                         let units: Vec<u16> = data
-                            .chunks_exact(2)
-                            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                            .as_chunks::<2>()
+                            .0
+                            .iter()
+                            .map(|&c| u16::from_le_bytes(c))
                             .collect();
                         Value::Text(String::from_utf16_lossy(&units))
                     }
@@ -601,8 +603,10 @@ mod registry {
                 ]))),
                 REG_SZ | REG_BINARY => {
                     let units: Vec<u16> = data
-                        .chunks_exact(2)
-                        .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|&c| u16::from_le_bytes(c))
                         .collect();
                     let text = String::from_utf16_lossy(&units);
                     Some(RegValue::Text(

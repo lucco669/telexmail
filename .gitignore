@@ -17,3 +17,6 @@ Thumbs.db
 
 # Written by the release workflow from TELEX_UPDATER_PUBKEY
 /src-tauri/tauri.updater.conf.json
+
+# Claude Code: local worktrees and settings
+/.claude/

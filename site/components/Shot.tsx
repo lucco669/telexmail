@@ -36,10 +36,10 @@ export function Shot({
   const media = want === 'dark' ? 'all' : want === 'light' ? 'not all' : '(prefers-color-scheme: dark)';
 
   const common = { alt, width: W, height: H, quality: 90, sizes };
-  const dark = getImageProps({ ...common, src: `/screens/${id}-dark.png` }).props;
+  const dark = getImageProps({ ...common, src: `/screens/${id}-dark.webp` }).props;
   const { srcSet, ...img } = getImageProps({
     ...common,
-    src: `/screens/${id}-light.png`,
+    src: `/screens/${id}-light.webp`,
     loading: eager ? 'eager' : 'lazy',
     fetchPriority: eager ? 'high' : 'auto',
   }).props;

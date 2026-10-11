@@ -3,7 +3,7 @@ import { hero, screens } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { site } from '@/lib/site';
 
-const shots = [hero, ...screens].map((s) => `${site.url}/screens/${s.id}-light.png`);
+const shots = [hero, ...screens].map((s) => `${site.url}/screens/${s.id}-light.webp`);
 const priority: Record<string, number> = { '/': 1, '/download': 0.9, '/features': 0.8 };
 
 // Every page. Pages that show screenshots list them, so image search can find them.

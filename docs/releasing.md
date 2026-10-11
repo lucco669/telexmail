@@ -140,13 +140,6 @@ small 0.2.1) and watch 0.2.0 update itself.
   release if it was published meanwhile (both builds upload to the release by its id, made
   by the run's first job). Published without Linux, the AppImages out there say the newest
   release has no installer for them until Linux is added.
-- **A published release has no Linux files** but a second draft with the same tag has them:
-  0.8.0 and 0.8.1, published while their Linux build was still running, from before the
-  workflow made the draft first (tauri-action then looked for the release by its tag, found
-  no draft and made one). Actions › **Repair release** › Run workflow, with the tag or empty
-  for every such release: it copies the draft's files onto the published release, adds their
-  platforms to its latest.json and removes the draft (`scripts/repair-release.mjs`;
-  "Only say what would change" for a dry run).
 - **"Check the signing key pair" failed**: the secret, its password and the variable must
   come from the same `tauri signer generate`. The step (`scripts/check-signing-key.mjs`) signs a
   scratch file and verifies it the way Telex does, because the bundler itself only warns about a

@@ -5,8 +5,8 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 
 ![Telex main window](docs/screenshot.png)
 
-> **Status: early prototype.** Telex syncs real mail over IMAP (SSL/TLS, password login) both
-> ways: a local, searchable mail base, with reading, flagging, moving and deleting mirrored to
+> **Status: in daily use, before 1.0.** Telex syncs real mail over IMAP (SSL/TLS or STARTTLS,
+> password login) both ways: a local, searchable mail base, with reading, flagging, moving and deleting mirrored to
 > the server. It sends over SMTP (SSL/TLS or STARTTLS) through an Outbox that retries, and
 > keeps a copy in Sent on the server. HTML mail shows in a sandbox where no script can run,
 > with remote images blocked until you allow them. Rules sort, flag and answer new mail and
@@ -21,7 +21,11 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > recent searches. Space reads on to the next unread message, and Settings › Reading decides
 > when mail counts as read (or leaves it to you). The interface speaks English
 > and Polish, down to its error messages, comes in eight themes that all meet WCAG 2.2 AA contrast (two at AAA), and its
-> settings, rules and identities export to one file for another PC.
+> settings, rules and identities export to one file for another PC. Folders on this PC keep mail
+> off the server (mbox and .eml in and out), and the mail base backs itself up. Moving in from
+> Thunderbird or Outlook brings accounts, local mail (.pst too) and filters in one go; the spell
+> checker uses Windows' dictionaries or Hunspell's; an away reply goes on the server where it
+> speaks ManageSieve, and Telex sends it itself where it doesn't.
 
 ## Run it on Windows
 
@@ -85,6 +89,10 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 | Tab (in the filter) | this folder / all mail | Enter | open an all-mail result in its folder |
 | Ctrl+, | settings | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text |
 | H | HTML / plain text view | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
+| M / G | move to / go to a folder | E | edit a draft or unsent message |
+| T | the conversation | O | only unread |
+| Shift+U | mark the folder read | F7 | the next spelling mistake (compose) |
+| F2 | rename a folder on this PC | ? / F1 | every key |
 
 ## Project layout
 

@@ -1984,14 +1984,14 @@ async function changeIdentity(id){
   previewEl.querySelector('.cnote').textContent = composeNote(c);
   if (!before || before === after) return;
   if (c.html == null){
-    if (c.body.includes(before)){ c.body = c.body.replace(before, after); $('c-body').value = c.body; }
+    if (c.body.includes(before)){ c.body = c.body.replace(before, () => after); $('c-body').value = c.body; }
     return;
   }
   // The signature went into the HTML line by line, the same way: swap those lines.
   const [b, a] = await Promise.all([invoke('text_to_html', {text:before}), after ? invoke('text_to_html', {text:after}) : '']);
   const ed = $('c-html');
   if (state.compose !== c || !ed || !ed.innerHTML.includes(b)) return;
-  ed.innerHTML = ed.innerHTML.replace(b, a);
+  ed.innerHTML = ed.innerHTML.replace(b, () => a); // a function: a "$&" in a signature stays as it is
 }
 // The HTML editor's formatting bar: the browser's own editing commands.
 const FORMATS = [['bold', '<b>B</b>', N_('Bold (Ctrl+B)')], ['italic', '<i>I</i>', N_('Italic (Ctrl+I)')], ['underline', '<u>U</u>', N_('Underline (Ctrl+U)')],
@@ -4628,7 +4628,7 @@ const HELP_KEYS = [
   [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
     ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
   [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
-    ['Alt+↑ ↓', N_('in the folder tree: an account up or down')], ['? F1', N_('this help')]]],
+    ['Alt+↑ ↓', N_('in the folder tree: an account up or down')], ['F2', N_('in the folder tree: rename a folder on this PC')], ['? F1', N_('this help')]]],
 ];
 const HELP_TIPS = [
   N_('Right-click a message for everything you can do with it, each with its key.'),

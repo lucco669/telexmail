@@ -19,6 +19,8 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 tauri-plugin-opener = "2.5.5"
+# One Telex at a time on a mail base; a second start brings the first one forward.
+tauri-plugin-single-instance = "2.5.3"
 # Save and Open dialogs (settings files, attachments), called from Rust only.
 tauri-plugin-dialog = "2.7.3"
 # A system notification for new mail while the window isn't active, sent from Rust only.

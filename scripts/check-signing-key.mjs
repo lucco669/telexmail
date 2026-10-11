@@ -4,13 +4,14 @@
 //
 //   node scripts/check-signing-key.mjs
 //
-// Reads TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD and TELEX_UPDATER_PUBKEY,
+// Reads TAURI_SIGNING_PRIVATE_KEY (the key, or a file holding it, as the bundler takes it),
+// TAURI_SIGNING_PRIVATE_KEY_PASSWORD and TELEX_UPDATER_PUBKEY,
 // signs a scratch file with `tauri signer sign` and verifies the signature with the public key
 // the way the updater does (minisign: Ed25519 over a BLAKE2b-512 hash of the file).
 
 import { execFileSync } from 'node:child_process';
 import { createHash, createPublicKey, verify } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,7 +38,9 @@ const pub = process.env.TELEX_UPDATER_PUBKEY?.trim();
 if (!pub) {
   fail(`TELEX_UPDATER_PUBKEY is empty. Add it ${where} (Variables tab, or as a secret), with the whole contents of the .key.pub file.`);
 }
-const secret = process.env.TAURI_SIGNING_PRIVATE_KEY ?? '';
+const given = process.env.TAURI_SIGNING_PRIVATE_KEY ?? '';
+// The release workflow passes a file, so the key isn't in every step's environment.
+const secret = existsSync(given) ? readFileSync(given, 'utf8') : given;
 if (!secret.trim()) fail(`TAURI_SIGNING_PRIVATE_KEY is empty. Add it as a secret ${where}, with the whole contents of the .key file.`);
 // Tauri's signer can't read the key with a line break around it, which copying often adds.
 if (secret !== secret.trim()) {
@@ -51,7 +54,11 @@ try {
   const file = join(dir, 'check.txt');
   writeFileSync(file, `Telex signing key check, ${new Date().toISOString()}\n`);
   try {
-    execFileSync(process.execPath, [cli, 'signer', 'sign', file], { stdio: ['ignore', 'ignore', 'pipe'] });
+    // `signer sign` takes only the key itself.
+    execFileSync(process.execPath, [cli, 'signer', 'sign', file], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      env: { ...process.env, TAURI_SIGNING_PRIVATE_KEY: secret },
+    });
   } catch (e) {
     fail(`Couldn't sign with TAURI_SIGNING_PRIVATE_KEY: the key or its password (TAURI_SIGNING_PRIVATE_KEY_PASSWORD) is wrong.\n${e.stderr ?? e.message}`);
   }

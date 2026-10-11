@@ -956,7 +956,21 @@ fn is_public(ip: IpAddr) -> bool {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_public(IpAddr::V4(v4));
             }
-            let first = v6.segments()[0];
+            let s = v6.segments();
+            // Addresses that carry an IPv4 one inside: NAT64 (64:ff9b::/96) at the end, 6to4
+            // (2002::/16) after the prefix. The IPv4 one decides.
+            let v4 = |hi: u16, lo: u16| {
+                let [a, b] = hi.to_be_bytes();
+                let [c, d] = lo.to_be_bytes();
+                IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d))
+            };
+            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                return is_public(v4(s[6], s[7]));
+            }
+            if s[0] == 0x2002 {
+                return is_public(v4(s[1], s[2]));
+            }
+            let first = s[0];
             !(v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -1164,11 +1178,22 @@ iVBORw0KGgo=\r\n";
         ] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");
         }
-        for ip in ["::1", "fe80::1", "fd00::1", "::ffff:192.168.1.1"] {
+        for ip in [
+            "::1",
+            "fe80::1",
+            "fd00::1",
+            "::ffff:192.168.1.1",
+            "64:ff9b::c0a8:101", // NAT64 of 192.168.1.1
+            "2002:7f00:1::",     // 6to4 of 127.0.0.1
+        ] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");
         }
         assert!(is_public("93.184.216.34".parse().unwrap()));
         assert!(is_public("2606:2800:220:1::".parse().unwrap()));
+        assert!(
+            is_public("2002:5db8:d822::".parse().unwrap()),
+            "6to4 of a public one"
+        );
         assert!(!allowed_url("ftp://example.com/x.png"));
         assert!(!allowed_url("http:///x.png"));
         assert!(!allowed_url("http://:80/x.png"));

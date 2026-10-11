@@ -390,13 +390,13 @@ fn letters<'a>(run: &'a str, offset: u32, out: &mut Vec<Word<'a>>) {
 
 /// One letter, ACRONYMS and mixed case (iPhone, McKinsey) aren't checked.
 fn worth_checking(word: &str) -> bool {
-    let mut chars = word.chars().filter(|c| c.is_alphabetic());
-    let Some(first) = chars.next() else {
-        return false;
-    };
-    let _ = first;
-    let rest: Vec<char> = chars.collect();
-    !rest.is_empty() && !rest.iter().any(|c| c.is_uppercase())
+    // The first letter may be a capital; the others decide.
+    let mut rest = word
+        .chars()
+        .filter(|c| c.is_alphabetic())
+        .skip(1)
+        .peekable();
+    rest.peek().is_some() && !rest.any(char::is_uppercase)
 }
 
 /// The languages to check in when the user hasn't chosen: Windows' display languages and its
