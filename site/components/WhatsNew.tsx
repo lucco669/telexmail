@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import type { Release } from '@/lib/release';
-import { isReleased, shortVersion, versionAnchor } from '@/lib/versions';
+import { isReleased, versionAnchor, versionName } from '@/lib/versions';
 import s from './WhatsNew.module.css';
 
 /** How many highlights the home page shows; the changelog has the rest. */
@@ -23,7 +23,7 @@ export function WhatsNew({ release }: { release: Release | null }) {
             <b>05</b> · What’s new
           </p>
           <h2 className="h2">
-            {out ? 'New' : 'Coming'} in {shortVersion(v.version)}.
+            {out ? 'New' : 'Coming'} in {versionName(v.version)}.
           </h2>
           <p className="lead">
             {v.summary}{' '}
@@ -62,7 +62,7 @@ export function WhatsNew({ release }: { release: Release | null }) {
         </ul>
         <p className={s.links}>
           <Link className="more" href={anchor}>
-            {all.length > SHOWN ? `All ${all.length} highlights of ${shortVersion(v.version)}` : `Everything in ${shortVersion(v.version)}`}
+            {all.length > SHOWN ? `All ${all.length} highlights of ${versionName(v.version)}` : `Everything in ${versionName(v.version)}`}
           </Link>
           <Link className="more" href={pages.changelog.path}>
             What each version brought

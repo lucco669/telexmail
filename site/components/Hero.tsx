@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { facts, hero, NEXT, nextTeaser, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
-import { isReleased, shortVersion, versionAnchor } from '@/lib/versions';
+import { isReleased, versionAnchor, versionName } from '@/lib/versions';
 import { Compat } from './DownloadChoice';
 import { DownloadButton } from './DownloadButton';
 import { ArrowIcon } from './Icons';
@@ -13,11 +13,11 @@ import s from './Hero.module.css';
 /** The line in the pill above the title: what the next version brings, or what the newest one did. */
 function news(release: Release | null) {
   if (!release || !isReleased(NEXT, release)) {
-    return { lead: `Coming in ${shortVersion(NEXT)}:`, text: nextTeaser, anchor: NEXT };
+    return { lead: `Coming in ${versionName(NEXT)}:`, text: nextTeaser, anchor: NEXT };
   }
   const notes = versions.find((v) => v.version === release.version);
   if (!notes) return { lead: `Version ${release.version} is out:`, text: 'see what’s new.', anchor: release.version };
-  return { lead: `New in ${shortVersion(release.version)}:`, text: `${notes.title}.`, anchor: release.version };
+  return { lead: `New in ${versionName(release.version)}:`, text: `${notes.title}.`, anchor: release.version };
 }
 
 /** Price, status and size under the buttons. */

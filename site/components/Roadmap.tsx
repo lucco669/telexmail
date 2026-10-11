@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { roadmap, type Step } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import type { Release } from '@/lib/release';
-import { isReleased, shortVersion } from '@/lib/versions';
+import { isReleased, versionName } from '@/lib/versions';
 import { CheckIcon } from './Icons';
 import s from './Roadmap.module.css';
 
@@ -41,7 +41,7 @@ export function RoadmapList({ release, details = false, recent }: { release: Rel
         </li>
       )}
       {shown.map(({ step, i, status }) => {
-        const label = status === 'now' && step.since ? `Coming in ${shortVersion(step.since)}` : LABEL[status];
+        const label = status === 'now' && step.since ? `Coming in ${versionName(step.since)}` : LABEL[status];
         return (
           <li key={step.title} className={s.step} data-status={status}>
             <span className={s.marker} aria-hidden="true">

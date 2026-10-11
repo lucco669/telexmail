@@ -18,6 +18,9 @@ export function compareVersions(a: string, b: string): number {
 /** "0.5.0" → "0.5". */
 export const shortVersion = (v: string) => parts(v).slice(0, 2).join('.');
 
+/** A version as the site says it: "0.9.0" → "0.9", but a patch keeps its number ("0.9.1"). */
+export const versionName = (v: string) => (parts(v)[2] ? v : shortVersion(v));
+
 /** Whether the newest release already has what `since` brings. */
 export const isReleased = (since: string, release: Release | null) => !!release && compareVersions(release.version, since) >= 0;
 
@@ -26,8 +29,8 @@ export type SinceLabel = { text: string; released: boolean };
 /** The badge for something built for `since`, or null when there is nothing to say. */
 export function sinceLabel(since: string | undefined, release: Release | null): SinceLabel | null {
   if (!since) return null;
-  if (!isReleased(since, release)) return { text: `Coming in ${shortVersion(since)}`, released: false };
-  if (shortVersion(release!.version) === shortVersion(since)) return { text: `New in ${shortVersion(since)}`, released: true };
+  if (!isReleased(since, release)) return { text: `Coming in ${versionName(since)}`, released: false };
+  if (shortVersion(release!.version) === shortVersion(since)) return { text: `New in ${versionName(since)}`, released: true };
   return null;
 }
 

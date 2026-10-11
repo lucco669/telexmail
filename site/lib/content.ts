@@ -7,10 +7,10 @@
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.9.0';
+export const NEXT = '0.9.1';
 
 /** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
-export const nextTeaser = 'Move in from Thunderbird and Outlook, spelling, away replies.';
+export const nextTeaser = 'Unread at a glance, account colors on every list, a sixth font.';
 
 /** The six points on the home page: short, the features page has the detail. */
 export const features = [
@@ -102,6 +102,9 @@ export const featureRows: FeatureRow[] = [
       { text: 'Unread at the top of the folders: the unread mail of every folder and account in one list; what you read stays until you leave', since: '0.8.1' },
       { text: 'O, or the dot above the list, shows only the unread mail of a folder', since: '0.8.1' },
       { text: 'In lists that mix accounts, every row carries its account’s color', since: '0.8.1' },
+      { text: 'Unread mail stands out: read mail goes quieter, or unread takes the accent color', since: NEXT },
+      { text: 'With several accounts every list wears its account’s color, and all-mail search names the account next to the folder', since: NEXT },
+      { text: 'Dates, the Size column and fitting the columns in Settings › Appearance too', since: NEXT },
     ],
   },
   {
@@ -155,7 +158,7 @@ export const featureRows: FeatureRow[] = [
       'Searchable offline like everything else, and part of conversations (T)',
       'Rules can file mail from any account there',
       'Drop .eml and mbox files on a folder to bring the mail in; Thunderbird’s read and starred marks come along',
-      { text: 'Move in from Thunderbird or Outlook: their local folders and .pst files come over folder by folder, with their accounts and filters', since: NEXT },
+      { text: 'Move in from Thunderbird or Outlook: their local folders and .pst files come over folder by folder, with their accounts and filters', since: '0.9.0' },
     ],
   },
   {
@@ -186,7 +189,8 @@ export const featureRows: FeatureRow[] = [
       'E reopens a draft or a message still in the Outbox',
       { text: 'Drafts save themselves while you write; New or Reply in the middle of a message puts it in Drafts first', since: '0.7.2' },
       { text: 'Discard can be undone: Z or the Undo button brings the message back', since: '0.7.2' },
-      { text: 'Spelling in your languages, Polish and English together: right-click a word or press F7 for suggestions', since: NEXT },
+      { text: 'Spelling in your languages, Polish and English together: right-click a word or press F7 for suggestions', since: '0.9.0' },
+      { text: 'The languages spelling checks show at the end of the compose bar, and a click there changes them', since: NEXT },
     ],
   },
   {
@@ -315,7 +319,7 @@ export const featureRows: FeatureRow[] = [
       'Run on arrival, or on any folder when you ask',
       { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
-      { text: 'An away reply per account, kept on your server where it can be, so it answers while Telex is closed', since: NEXT },
+      { text: 'An away reply per account, kept on your server where it can be, so it answers while Telex is closed', since: '0.9.0' },
     ],
   },
   {
@@ -329,7 +333,8 @@ export const featureRows: FeatureRow[] = [
       'English or Polish, as in Windows or as you pick, down to the error messages',
       'Accounts, identities and servers in the same window',
       { text: 'Each account’s color as a line down its folders, a dot, its initials or a tint', since: '0.8.0' },
-      { text: 'Five fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, and Atkinson Hyperlegible for low vision', since: '0.8.1' },
+      { text: 'Six fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, Atkinson Hyperlegible for low vision, and the light Source Sans', since: NEXT },
+      { text: 'Unread mail your way: read mail quieter, unread in color, or bold only', since: NEXT },
       { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
       { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
@@ -378,7 +383,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'forward', group: 'Write', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }] },
   { id: 'edit', group: 'Write', keys: [['E']], action: 'Edit a draft or an unsent message', match: [{ key: 'e' }] },
   { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }] },
-  { id: 'spell', group: 'Write', keys: [['F7']], action: 'The next spelling mistake, with suggestions (compose)', match: [{ key: 'F7' }], since: NEXT },
+  { id: 'spell', group: 'Write', keys: [['F7']], action: 'The next spelling mistake, with suggestions (compose)', match: [{ key: 'F7' }], since: '0.9.0' },
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
   { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }] },
   { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread (or click the dot in the row)', match: [{ key: 'u' }] },
@@ -538,7 +543,7 @@ export const screens: Screen[] = [
     id: 'operators',
     label: 'Operators',
     title: 'All mail · sam@lindenstudio.com – Telex',
-    caption: 'Operators in search, across all mail: every message with a file since September, with the folder it is in.',
+    caption: 'Operators in search, across all mail: every message with a file since September, with the folder and account it is in.',
     since: '0.5.0',
   },
   {
@@ -589,6 +594,13 @@ export const screens: Screen[] = [
     label: 'Themes',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Settings: eight themes, each card drawn in its own colors. Every one meets WCAG 2.2 AA contrast.',
+  },
+  {
+    id: 'appearance',
+    label: 'Appearance',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Settings › Appearance: how unread mail stands out, and six fonts, each card drawn in its own face.',
+    since: NEXT,
   },
   {
     id: 'accounts',
@@ -692,12 +704,12 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
   {
     keys: ['Ctrl+,'],
     title: 'Make it yours',
-    text: 'Eight themes from Paper to Phosphor, five fonts, Polish, bigger text, comfortable rows. Rules and identities can be edited too.',
+    text: 'Eight themes from Paper to Phosphor, six fonts, how unread mail stands out, Polish, bigger text. Rules and identities can be edited too.',
   },
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['unread', 'menu', 'reply', 'thread', 'select', 'suggest', 'local', 'attach', 'images', 'rules', 'settings', 'polish'].map(
+export const homeScreens = ['unread', 'appearance', 'menu', 'reply', 'thread', 'select', 'suggest', 'local', 'attach', 'images', 'rules', 'settings', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -716,6 +728,25 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Unread at a glance, account colors on every list, a sixth font',
+    date: '2026-10-11',
+    summary: 'New mail stands out from what you’ve read, every list wears its account’s color, search says whose mail it found, and the list’s options sit in Settings.',
+    points: [
+      'Unread mail stands out at a glance: read mail goes a quieter color, so the bold rows are the new ones. Settings › Appearance › Unread mail also offers unread in the accent color, or bold only as before.',
+      'Account colors on every list: with more than one account, an account’s folder wears its color the way you chose for the folder list, a line down its rows or a tint, and a dot or its initials above it. Lists that mix accounts keep marking each row.',
+      'Search in all mail names the account next to the folder (“Inbox · anna@studio.pl”), so you know which mailbox a message is in.',
+      'Settings › Appearance › Message list columns: short or full dates, the Size column and fitting the columns again, besides the right-click on the headings.',
+      'A sixth font: Source Sans Light with Source Code Pro, light and airy. The fonts now fill two rows of three.',
+      'Spelling shows its languages at the end of the compose bar (“EN · PL”): every ticked one is checked at once, and a click there ticks others, turns spelling off, or opens the dictionaries.',
+    ],
+    highlights: [
+      { title: 'Unread at a glance', text: 'Read mail quieter, unread bold; or unread in color. Your pick in Settings.' },
+      { title: 'Colors on every list', text: 'Each account’s line or tint on its folders’ lists too, and its name in search results.' },
+      { title: 'A sixth font', text: 'Source Sans Light, an airy set next to Plex, Inter, Atkinson and Windows’ own.' },
+    ],
+  },
+  {
+    version: '0.9.0',
     title: 'Move in from Thunderbird and Outlook, spelling, away replies',
     date: '2026-10-11',
     summary: 'Everything from your old mail program in one go, spelling in the languages you write, and an automatic reply while you’re away.',
@@ -1073,6 +1104,10 @@ export const faqGroups: { title: string; items: Question[] }[] = [
         a: 'Yes. HTML mail is shown in a sandbox where no script can run. Remote images stay blocked until you load them for that message, or for everything from a sender you trust (never automatically in Spam). H switches to plain text. In a dark theme the message takes the theme’s colors, or stays white if you prefer.',
       },
       {
+        q: 'Does spelling check Polish and English together?',
+        a: 'Yes, from version 0.9: every language you tick is checked at once, so one message can mix them; a word any of them knows is right. Telex picks them from your Windows languages and its own, uses Windows’ dictionaries, and fetches LibreOffice’s for a language Windows lacks when you click Download in Settings › Writing. From 0.9.1 the languages show at the end of the compose bar, and a click there changes them.',
+      },
+      {
         q: 'Can I write in HTML?',
         a: 'Yes. Plain text is the default, and Settings › Writing or the Text | HTML switch in a message turns on bold, italics, lists, quotes and links. Every HTML message goes out with a plain-text copy, and pasted web pages lose their styles and scripts.',
       },
@@ -1156,7 +1191,7 @@ export const ticker = [
   'TRY IT IN YOUR BROWSER: SEE THE LIVE DEMO',
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
   'GMAIL: WORKS WITH AN APP PASSWORD. NEXT: MICROSOFT SIGN-IN',
-  'EIGHT THEMES, ALL WCAG 2.2. ENGLISH AND POLISH.',
+  'EIGHT THEMES, ALL WCAG 2.2. SIX FONTS. ENGLISH AND POLISH.',
   'TRY: SPACE = NEXT UNREAD, R = REPLY, T = CONVERSATION, / = SEARCH',
   'NNNN',
 ];

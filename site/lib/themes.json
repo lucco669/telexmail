@@ -1,5 +1,5 @@
 {
-  "checked": 85,
+  "checked": 87,
   "themes": [
     {
       "id": "light",
@@ -140,7 +140,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 4.5,
           "ratio": 7.34
@@ -164,10 +164,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 4.5,
           "ratio": 5.67
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.52
         },
         {
           "fg": "accent-fg",
@@ -338,6 +346,14 @@
           "ratio": 7.67
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.17
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -473,9 +489,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#eaeff8",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.36
         },
         {
@@ -527,9 +543,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#ebf3f0",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.5
         },
         {
@@ -581,9 +597,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#faefeb",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.5
         },
         {
@@ -635,9 +651,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#f2eef9",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.42
         },
         {
@@ -689,9 +705,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#fbedef",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.45
         },
         {
@@ -743,9 +759,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#eff1f2",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.47
         },
         {
@@ -898,7 +914,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 4.5,
           "ratio": 6.54
@@ -922,10 +938,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 4.5,
           "ratio": 4.68
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 5.76
         },
         {
           "fg": "accent-fg",
@@ -1096,6 +1120,14 @@
           "ratio": 9.21
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 10.37
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -1231,9 +1263,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#1b212a",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 5.89
         },
         {
@@ -1285,9 +1317,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#1a2425",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 5.78
         },
         {
@@ -1339,9 +1371,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#252121",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 5.8
         },
         {
@@ -1393,9 +1425,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#20202a",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 5.87
         },
         {
@@ -1447,9 +1479,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#251f25",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 5.87
         },
         {
@@ -1501,9 +1533,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#1e2227",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 5.82
         },
         {
@@ -1656,7 +1688,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 4.5,
           "ratio": 7.16
@@ -1680,10 +1712,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 4.5,
           "ratio": 5.8
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 6.34
         },
         {
           "fg": "accent-fg",
@@ -1854,6 +1894,14 @@
           "ratio": 7.1
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.64
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -1989,9 +2037,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#e7e9e4",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.21
         },
         {
@@ -2043,9 +2091,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#e9ece0",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.34
         },
         {
@@ -2097,9 +2145,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#f4e9de",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.35
         },
         {
@@ -2151,9 +2199,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#ede7ea",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.23
         },
         {
@@ -2205,9 +2253,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#f6e6e1",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.27
         },
         {
@@ -2259,9 +2307,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#ece9e1",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.26
         },
         {
@@ -2414,7 +2462,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 4.5,
           "ratio": 8.02
@@ -2438,10 +2486,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 4.5,
           "ratio": 6.11
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7
         },
         {
           "fg": "accent-fg",
@@ -2612,6 +2668,14 @@
           "ratio": 7.09
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 8.76
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -2747,9 +2811,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#ece9f7",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.92
         },
         {
@@ -2801,9 +2865,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#e9efef",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.11
         },
         {
@@ -2855,9 +2919,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#f5ecea",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.12
         },
         {
@@ -2909,9 +2973,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#e8ecf7",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7
         },
         {
@@ -2963,9 +3027,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#f8e8ee",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7
         },
         {
@@ -3017,9 +3081,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#ecebf1",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 6.98
         },
         {
@@ -3172,7 +3236,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 4.5,
           "ratio": 8.47
@@ -3196,10 +3260,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 4.5,
           "ratio": 5.65
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 7.34
         },
         {
           "fg": "accent-fg",
@@ -3370,6 +3442,14 @@
           "ratio": 8.56
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 9.91
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -3505,9 +3585,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#1c2b36",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.3
         },
         {
@@ -3559,9 +3639,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#1d2c33",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.24
         },
         {
@@ -3613,9 +3693,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#26292e",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.34
         },
         {
@@ -3667,9 +3747,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#222837",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.41
         },
         {
@@ -3721,9 +3801,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#272733",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.42
         },
         {
@@ -3775,9 +3855,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#202a34",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 7.33
         },
         {
@@ -3930,7 +4010,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 4.5,
           "ratio": 11.35
@@ -3954,10 +4034,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 4.5,
           "ratio": 7.35
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 4.5,
+          "ratio": 9.59
         },
         {
           "fg": "accent-fg",
@@ -4128,6 +4216,14 @@
           "ratio": 10.2
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 11.03
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -4263,9 +4359,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#0e1f15",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 10.09
         },
         {
@@ -4317,9 +4413,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#101e1c",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 10.1
         },
         {
@@ -4371,9 +4467,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#1a1d12",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 10.06
         },
         {
@@ -4425,9 +4521,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#161c1c",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 10.16
         },
         {
@@ -4479,9 +4575,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#1a1b17",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 10.19
         },
         {
@@ -4533,9 +4629,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#131d17",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 4.5,
           "ratio": 10.17
         },
         {
@@ -4688,7 +4784,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 7,
           "ratio": 10.6
@@ -4712,10 +4808,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 7,
           "ratio": 7.95
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 9.18
         },
         {
           "fg": "accent-fg",
@@ -4886,6 +4990,14 @@
           "ratio": 10.97
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 12.61
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -5021,9 +5133,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#e7edf8",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 7,
           "ratio": 9.02
         },
         {
@@ -5075,9 +5187,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#eaf1ec",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 7,
           "ratio": 9.23
         },
         {
@@ -5129,9 +5241,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#f5ede8",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 7,
           "ratio": 9.17
         },
         {
@@ -5183,9 +5295,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#efecf7",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 7,
           "ratio": 9.09
         },
         {
@@ -5237,9 +5349,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#f9ebec",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 7,
           "ratio": 9.15
         },
         {
@@ -5291,9 +5403,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#ececec",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 7,
           "ratio": 8.97
         },
         {
@@ -5446,7 +5558,7 @@
         {
           "fg": "accent",
           "bg": "surface",
-          "what": "Links in messages",
+          "what": "Links in messages, unread mail in color",
           "kind": "text",
           "need": 7,
           "ratio": 11.1
@@ -5470,10 +5582,18 @@
         {
           "fg": "accent",
           "bg": "sel",
-          "what": "Unread count of the open folder",
+          "what": "Unread count of the open folder, unread mail in color when picked",
           "kind": "text",
           "need": 7,
           "ratio": 7.45
+        },
+        {
+          "fg": "accent",
+          "bg": "hover",
+          "what": "Unread mail in color under the pointer",
+          "kind": "text",
+          "need": 7,
+          "ratio": 9.2
         },
         {
           "fg": "accent-fg",
@@ -5644,6 +5764,14 @@
           "ratio": 12.86
         },
         {
+          "fg": "note-fg",
+          "bg": "surface",
+          "what": "The wavy line under a spelling mistake",
+          "kind": "ui",
+          "need": 3,
+          "ratio": 13.9
+        },
+        {
           "fg": "acct-0",
           "bg": "panel",
           "what": "Account 1's dot in the folder tree",
@@ -5779,9 +5907,9 @@
           "fg": "accent",
           "bg": "acct-0 9% with surface",
           "color": "#010102",
-          "what": "The unread dot in a tinted row of account 1",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 1",
+          "kind": "text",
+          "need": 7,
           "ratio": 11.03
         },
         {
@@ -5833,9 +5961,9 @@
           "fg": "accent",
           "bg": "acct-1 9% with surface",
           "color": "#000201",
-          "what": "The unread dot in a tinted row of account 2",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 2",
+          "kind": "text",
+          "need": 7,
           "ratio": 11
         },
         {
@@ -5887,9 +6015,9 @@
           "fg": "accent",
           "bg": "acct-2 9% with surface",
           "color": "#020100",
-          "what": "The unread dot in a tinted row of account 3",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 3",
+          "kind": "text",
+          "need": 7,
           "ratio": 11.02
         },
         {
@@ -5941,9 +6069,9 @@
           "fg": "accent",
           "bg": "acct-3 9% with surface",
           "color": "#010102",
-          "what": "The unread dot in a tinted row of account 4",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 4",
+          "kind": "text",
+          "need": 7,
           "ratio": 11.03
         },
         {
@@ -5995,9 +6123,9 @@
           "fg": "accent",
           "bg": "acct-4 9% with surface",
           "color": "#020101",
-          "what": "The unread dot in a tinted row of account 5",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 5",
+          "kind": "text",
+          "need": 7,
           "ratio": 11.02
         },
         {
@@ -6049,9 +6177,9 @@
           "fg": "accent",
           "bg": "acct-5 9% with surface",
           "color": "#020202",
-          "what": "The unread dot in a tinted row of account 6",
-          "kind": "ui",
-          "need": 3,
+          "what": "Unread mail in color, and its dot, in a tinted row of account 6",
+          "kind": "text",
+          "need": 7,
           "ratio": 10.97
         },
         {

@@ -3,7 +3,7 @@ import { NEXT, nextTeaser, ticker } from '@/lib/content';
 import { footerGroups } from '@/lib/pages';
 import { getLatestRelease } from '@/lib/release';
 import { site } from '@/lib/site';
-import { isReleased, shortVersion } from '@/lib/versions';
+import { isReleased, versionName } from '@/lib/versions';
 import { DotMatrix } from './DotMatrix';
 import { Logo } from './Logo';
 import { TelexTicker } from './TelexTicker';
@@ -18,7 +18,7 @@ export async function Footer() {
     ? [`VERSION ${release.version} IS OUT${release.date ? ` ${release.date.slice(0, 10).split('-').reverse().join('.')}` : ''}`]
     : [];
   // The tape punches letters, figures and a few signs only.
-  const next = `${isReleased(NEXT, release) ? 'NEW' : 'COMING'} IN ${shortVersion(NEXT)}: ${nextTeaser.toUpperCase().replace(/[^A-Z0-9.,:?'/+=() -]/g, '')}`;
+  const next = `${isReleased(NEXT, release) ? 'NEW' : 'COMING'} IN ${versionName(NEXT)}: ${nextTeaser.toUpperCase().replace(/[^A-Z0-9.,:?'/+=() -]/g, '')}`;
   const messages = [ticker[0], ...out, next, ...ticker.slice(1)];
   return (
     <footer className={`${s.footer} no-print`}>

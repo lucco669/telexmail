@@ -77,10 +77,16 @@ function installTelexDemo(options) {
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
-    density: 'compact', account_mark: 'rail', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
+    density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
     updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
+  const SLIPS = {
+    teh: ['the'], recieve: ['receive'], adress: ['address'], wich: ['which'], seperate: ['separate'], definately: ['definitely'],
+    untill: ['until'], tommorow: ['tomorrow'], occured: ['occurred'], becuase: ['because'], thier: ['their'], wiht: ['with'],
+    dziekuje: ['dziękuję'], napewno: ['na pewno'], wogóle: ['w ogóle'], pozatym: ['poza tym'], spotkanei: ['spotkanie'],
+  };
+  const ownWords = new Set(); // Add to dictionary, for this visit
   const lang = () => (settings.language === 'auto' ? autoLang : settings.language === 'pl' ? 'pl' : 'en');
   const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);
   // The core's tr!: every sentence in English and Polish, in the interface's language.
@@ -1144,7 +1150,7 @@ function installTelexDemo(options) {
 
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
-    theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], font: ['plex', 'system', 'classic', 'inter', 'atkinson'], text_size: [90, 100, 110, 125, 150, 175, 200],
+    theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20],
@@ -1326,11 +1332,13 @@ function installTelexDemo(options) {
     find_programs: () => [],
     open_source: () => refuse('move'),
     move_in: () => refuse('move'),
-    // Spelling: the demo has no dictionaries, so nothing is underlined.
-    spell_languages: () => ({ languages: [], chosen: [], auto: true, downloads: [], missing: [] }),
-    spell_check: () => [],
-    spell_suggest: () => [],
-    spell_add: () => null,
+    // Spelling: English and Polish, with a short list of common slips standing in for the
+    // dictionaries, so a typo gets its wavy line and its suggestions as in Telex.
+    spell_languages: () => ({ languages: [{ tag: 'en-US', own: false }, { tag: 'pl-PL', own: true }], chosen: ['en-US', 'pl-PL'], auto: true, downloads: [], missing: [] }),
+    spell_check: ({ text }) => [...String(text).matchAll(/\p{L}+/gu)]
+      .filter((m) => SLIPS[m[0].toLowerCase()] && !ownWords.has(m[0].toLowerCase())).map((m) => [m.index, m[0].length]),
+    spell_suggest: ({ word }) => SLIPS[String(word).toLowerCase()] ?? [],
+    spell_add: ({ word }) => { ownWords.add(String(word).toLowerCase()); return null; },
     spell_download: () => refuse('spell'),
     spell_remove: () => refuse('spell'),
     // The away reply: off, and the demo can't turn it on.

@@ -82,6 +82,12 @@ const scenes = {
     run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
     ui.click('#i-list [data-id="2"] [data-i="edit"]'); await ui.wait(50);`,
   },
+  // Settings › Appearance from the unread cards down: the fonts and the account colors.
+  appearance: {
+    run: `ui.click('#b-settings'); await ui.wait(50); const p = document.querySelector('.setpanes');
+    const g = document.getElementById('s-unread').closest('fieldset');
+    p.scrollTop += g.getBoundingClientRect().top - p.getBoundingClientRect().top - 10; await ui.wait(250);`,
+  },
   // Settings › Accounts: every account, its servers and how its last check went.
   accounts: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(150);` },
   // Settings › Usage: the server's storage, this PC, 30 days of mail in and out.

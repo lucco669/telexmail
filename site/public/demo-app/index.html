@@ -47,7 +47,7 @@
           <thead><tr>
             <th class="c-ic" scope="col"><span class="ich"><button type="button" class="unf" id="b-unread" aria-pressed="false"><i class="dot"></i></button><button type="button" data-sort="flag" aria-label="Sort by status" data-i18n>
               <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg><span class="arr"></span></button></span></th>
-            <th class="c-from" scope="col"><button type="button" data-sort="from"><span id="from-label">From</span><span class="arr"></span></button></th>
+            <th class="c-from" scope="col"><button type="button" data-sort="from"><i class="adot hmark" id="from-mark" aria-hidden="true" hidden></i><span id="from-label">From</span><span class="arr"></span></button></th>
             <th class="c-subj" scope="col"><span class="grip" data-grip="from" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the From column" data-i18n></span><button type="button" data-sort="subject" data-i18n>Subject<span class="arr"></span></button></th>
             <th class="c-where" scope="col"><span class="grip" data-grip="where" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the Folder column" data-i18n></span><span class="th-lbl" id="where-label">Folder</span></th>
             <th class="c-date" scope="col"><button type="button" data-sort="date" data-i18n>Received<span class="arr"></span></button></th>
@@ -114,6 +114,11 @@
           <div class="segs" id="s-density"></div>
         </fieldset>
         <fieldset class="sgroup">
+          <legend data-i18n>Unread mail</legend>
+          <div class="themes unreads" id="s-unread"></div>
+          <p class="dnote snote" data-i18n>Unread mail is always bold, with a dot at the start of its row.</p>
+        </fieldset>
+        <fieldset class="sgroup">
           <legend data-i18n>Font</legend>
           <div class="themes fonts" id="s-fonts"></div>
           <p class="dnote snote" data-i18n>Each is a set: one face for the window, one for the message list, and a mono one for dates, sizes and plain-text writing. System and Classic use fonts Windows already has.</p>
@@ -121,7 +126,16 @@
         <fieldset class="sgroup">
           <legend data-i18n>Account colors</legend>
           <div class="themes marks" id="s-marks"></div>
-          <p class="dnote snote" data-i18n>Each account has a color of its own, shown this way once there is more than one: in the folders, in lists that mix accounts (Unread, all mail, drafts) and in the status bar.</p>
+          <p class="dnote snote" data-i18n>Each account has a color of its own, shown this way once there is more than one: in the folders, on every row of the message list and in the status bar.</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Message list columns</legend>
+          <div class="sopts" id="s-dates"></div>
+          <div class="sopts">
+            <label class="sopt"><input type="checkbox" id="s-sizecol"><span data-i18n>Size column</span></label>
+          </div>
+          <div class="sbtns"><button type="button" class="btn" id="s-fitcols" data-i18n>Fit columns to the list</button></div>
+          <p class="dnote snote" data-i18n>Drag the edge between two headings to set a width; double-click it to fit the names. Right-click the headings for these choices too.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Text size</legend>
@@ -312,6 +326,7 @@
         <fieldset class="sgroup">
           <legend data-i18n>Spelling languages</legend>
           <div id="s-spell-langs"></div>
+          <p class="dnote snote" data-i18n>Every ticked language is checked at once, so one message can mix them: a word any of them knows is right. Compose shows them at the end of its bar, where a click changes them.</p>
         </fieldset>
         <p class="dnote" data-i18n>Signatures and the reply and forward headers belong to each identity: Accounts › Identities.</p>
       </section>
