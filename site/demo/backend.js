@@ -98,6 +98,8 @@ function installTelexDemo(options) {
       'To tylko demo: nie wczytuje plików ustawień. Pobierz Telex, aby zaimportować swoje.'],
     remove: ['This is a demo: its accounts can’t be removed. Download Telex to set up your own.',
       'To tylko demo: jego kont nie można usunąć. Pobierz Telex, aby dodać własne.'],
+    popup: ['The browser blocked the window. Allow pop-ups for this page to open messages in their own window.',
+      'Przeglądarka zablokowała okno. Zezwól tej stronie na wyskakujące okna, aby otwierać wiadomości w osobnych oknach.'],
     backup: ['This is a demo: it doesn’t write or read files. Download Telex to back up your own mail.',
       'To tylko demo: nie zapisuje ani nie czyta plików. Pobierz Telex, aby robić kopie zapasowe własnej poczty.'],
     mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
@@ -1260,6 +1262,12 @@ function installTelexDemo(options) {
     restore_backup: () => refuse('backup'),
     compact_base: () => refuse('backup'),
     show_backup_place: () => refuse('backup'),
+    // A message in a window of its own: the demo page again, in a popup, showing that message.
+    // Its mailbox starts afresh, so what is done there stays there.
+    open_window: ({ id }) => {
+      const url = `${location.pathname}?message=${id}&theme=${settings.theme}&lang=${settings.language}`;
+      if (!window.open(url, `telex-message-${id}`, 'popup,width=880,height=720')) fail(...DEMO.popup);
+    },
     import_mail: () => refuse('mbox'),
     pick_files: pickFiles,
     open_attachment: openAttachment,

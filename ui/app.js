@@ -5,6 +5,12 @@
 'use strict';
 
 const invoke = window.__TAURI__?.core?.invoke;
+// A message open in a window of its own (index.html?message=<id>): the same page, showing just
+// that message. Changes made there reach the main window, which refreshes and tells the server.
+const VIEWER = Number(new URLSearchParams(location.search).get('message')) || null;
+const tellMain = payload => window.__TAURI__?.event?.emitTo?.('main', 'viewer-did', payload ?? {});
+// Events about checks, sending and updates are the main window's business.
+const listenMain = (event, fn) => { if (!VIEWER) window.__TAURI__?.event?.listen(event, fn); };
 const I18n = window.TelexI18n;
 const {t, tn} = I18n;
 // Marks an English text for translation where it is defined; t() or tn() translates it where it is drawn.
@@ -43,6 +49,7 @@ const I = {
   quote: sv('<path d="M3 3.5v9"/><path d="M6 5h7M6 8h7M6 11h5"/>'),
   link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
+  popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
 // Special folders have a name in the interface's language, whatever the server calls them.
@@ -90,6 +97,7 @@ async function call(cmd, args){
 // They are saved in the mail base first, so closing Telex or losing the network loses nothing.
 let pushTimer;
 function schedulePush(delay = 2500){
+  if (VIEWER){ tellMain(); return; }
   if (!ACCOUNTS.some(a => a.imap)) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(pushNow, delay);
@@ -253,6 +261,7 @@ async function changeSettings(changes){
   SETTINGS = next;
   applySettings();
   if (sdlg.open) SETTINGS.language === before ? syncSettings() : renderSettings(true);
+  window.__TAURI__?.event?.emit('settings-changed', null);
   return true;
 }
 // After a language change: everything on screen again, in the new words.
@@ -325,7 +334,7 @@ function renderStatus(){
     : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}${more}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderMeter();
-  const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
+  const title = VIEWER ? `${selRow?.subj || t('Message')} – Telex` : ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
   if (title !== lastTitle){
     lastTitle = title;
     document.title = title;
@@ -757,6 +766,7 @@ async function rowAt(pos){
 // Load the view again with the selection in it (or from the top), e.g. after a folder
 // switch, a new order or filter. `top`: a different folder, so start at its top.
 async function loadView({top = false} = {}){
+  if (VIEWER) return viewerShow();
   const seq = ++list.seq, key = selKey();
   let id = state.sel[key], p;
   try { p = await fetchPage(id != null ? {around:id} : 'first'); }
@@ -777,6 +787,7 @@ async function loadView({top = false} = {}){
 // After mail changed (a check, rules, sending, a push): new counts, and the open page again,
 // keeping the first row on screen where it was. `skip`: a message that just went away.
 async function refresh({skip} = {}){
+  if (VIEWER) return viewerShow();
   try { await loadTree(); } catch { return; }
   if (!folderOf(state.folder)){ setFolder(homeOf(ACCOUNTS[0]?.id)); return; } // e.g. the folder is gone from the server
   if (state.picked.size){ // picked messages that went away (deleted elsewhere, moved by a rule) aren't picked any more
@@ -837,7 +848,12 @@ rowsEl.addEventListener('click', e => {
   else { unpick(); select(id); }
   listEl.focus({preventScroll:true});
 });
-rowsEl.addEventListener('dblclick', e => { if (e.target.closest('tr[data-id]') && allMail()) openInFolder(); });
+rowsEl.addEventListener('dblclick', e => { const tr = e.target.closest('tr[data-id]'); if (tr) openWindow(Number(tr.dataset.id)); });
+// A message in a window of its own, to read side by side or on another screen.
+function openWindow(id){
+  if (id == null) return;
+  invoke('open_window', {id}).catch(e => say(tr(e), 8000));
+}
 
 /* ---------- drag and drop ---------- */
 // Messages dragged from the list onto a folder in the tree move there, as with M. So nothing
@@ -1211,9 +1227,9 @@ const people = line => addresses(line).map(p => `<span class="pp">${person(p.nam
 // The message's header: the subject with its buttons (`controls`), who it is from (a click shows all
 // their mail), when and how large, who it went to, and its attachments. One face throughout.
 function headerHtml(m, controls){
-  const sender = m.from_email
+  const sender = m.from_email && !VIEWER
     ? `<button type="button" class="ph-who" data-act="sender" title="${esc(t('Show all mail from {email}', {email:m.from_email}))}">${person(m.from_name, m.from_email)}</button>`
-    : `<span class="ph-who">${person(m.from_name, '')}</span>`;
+    : `<span class="ph-who">${person(m.from_name, m.from_email)}</span>`;
   return `<header class="ph">
   <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${controls}</div>
   <dl class="ph-grid">
@@ -1260,8 +1276,9 @@ async function renderPreview(){
     ? `<button type="button" class="pbtn" data-act="paper" aria-pressed="${onWhite}" title="${esc(onWhite ? t('Show on dark paper') : t('Show on white, as sent'))}" aria-label="${esc(onWhite ? t('Show on dark paper') : t('Show on white, as sent'))}">${onWhite ? I.moon : I.sun}</button>` : '';
   const images = asHtml ? imagesBar(m, hv, spam)
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
+  const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
+${headerHtml(m, `${popout}${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -1304,6 +1321,7 @@ previewEl.addEventListener('click', async e => {
     await renderPreview();
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
+  if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
@@ -1673,6 +1691,13 @@ async function send(){
   state.compose = null;
   closeSuggestions();
   forgetRecipients(); // someone new may be in it
+  if (VIEWER){
+    const sent = sentText(r.sent);
+    tellMain(r.wait ? {say:t('Sending in {n} s. Press Z to undo.', {n:r.wait}), ms:r.wait * 1000 + 500, undo:{kind:'send', id:r.queued, until:Date.now() + r.wait * 1000}}
+      : {say:r.errors.length ? [sent, r.errors.join(' · ')].filter(Boolean).join(' ') : sent || t('In the Outbox. It goes out with the next check.'), ms:r.errors.length ? 15000 : 6000});
+    closeViewer();
+    return;
+  }
   renderPreview();
   await refresh();
   listEl.focus();
@@ -1686,12 +1711,18 @@ async function send(){
   else say(sent || t('In the Outbox. It goes out with the next check.'), 6000);
 }
 // Mail that waited its moment has gone out (or not): what the SMTP server said.
-window.__TAURI__?.event?.listen('outbox-sent', ({payload: r}) => {
+listenMain('outbox-sent', ({payload: r}) => {
   if (state.undo?.kind === 'send' && state.undo.id === r.queued) state.undo = null;
   refresh();
   const sent = sentText(r.sent);
   if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
   else if (sent) say(sent, 6000);
+});
+// A message open in its own window changed something, or sent mail: say so here, where Z works.
+listenMain('viewer-did', ({payload: p}) => {
+  if (p?.undo) state.undo = p.undo;
+  if (p?.say) say(p.say, p.ms ?? 6000);
+  refresh(); schedulePush();
 });
 // Z within the moment: the message stays in the Outbox, held, and opens again to be changed.
 async function unsend(u){
@@ -1777,6 +1808,7 @@ async function del(){
   const n = ids.length;
   say(r.trashed.length ? (n === 1 ? t('Moved to Trash. Press Z to undo.') : tn(n, 'Moved {n} message to Trash. Press Z to undo.', 'Moved {n} messages to Trash. Press Z to undo.', {n:num(n)}))
     : n === 1 ? t('Deleted for good.') : tn(n, 'Deleted {n} message for good.', 'Deleted {n} messages for good.', {n:num(n)}));
+  if (VIEWER){ tellMain({say:$('st-msg').textContent, undo:state.undo}); closeViewer(); return; }
   unpick();
   state.sel[selKey()] = next?.id;
   selRow = next;
@@ -1959,14 +1991,14 @@ async function getMail({quiet = false, first = false, account = null} = {}){
 // IDLE: the server said something changed in an account's Inbox. Several notices in a row are
 // one check.
 let inboxTimer;
-window.__TAURI__?.event?.listen('inbox-changed', ({payload: account}) => {
+listenMain('inbox-changed', ({payload: account}) => {
   clearTimeout(inboxTimer);
   inboxTimer = setTimeout(() => getMail({quiet:true, account}), 800);
 });
 
 // Progress while a folder downloads; each finished folder shows up right away.
 let reloadTimer;
-window.__TAURI__?.event?.listen('sync-progress', ({payload: p}) => {
+listenMain('sync-progress', ({payload: p}) => {
   say(t('{account} › {folder}: {done} of {total}', p), 0);
   if (p.done === p.total){
     clearTimeout(reloadTimer);
@@ -2121,7 +2153,7 @@ function finishStep(status, text, detail = ''){
 function renderSteps(){
   $('w-steps').innerHTML = steps.map(s => `<li class="${s.status}"><span>${esc(s.text)}</span>${s.detail ? `<small>${esc(s.detail)}</small>` : ''}</li>`).join('');
 }
-window.__TAURI__?.event?.listen('detect-progress', ({payload}) => {
+listenMain('detect-progress', ({payload}) => {
   if (wizardBusy !== 'find' || !steps.length) return;
   const domain = $('w-email').value.trim().split('@')[1] || '';
   steps[steps.length - 1].detail = payload === 'guess' ? t('Trying the usual server names…') : t('Asking {domain} and its DNS records…', {domain});
@@ -3112,7 +3144,7 @@ async function installUpdate(){
     setTimeout(() => { upd.installing = false; installUpdate(); }, 2000);
   }
 }
-window.__TAURI__?.event?.listen('update-progress', ({payload: p}) => {
+listenMain('update-progress', ({payload: p}) => {
   const mb = n => I18n.decimal(n / 1048576);
   upd.text = p.total && p.done >= p.total ? t('Checking the signature. Telex will close, update and open again.')
     : p.total ? t('Downloading Telex {version}: {done} of {total} MB', {version:upd.found?.version ?? '', done:mb(p.done), total:mb(p.total)})
@@ -3157,8 +3189,8 @@ udlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 // press. Keys are written "Shift+R"; a space separates keys that do the same or go together.
 const helpBtn = $('st-help'), helpPop = $('help-pop');
 const HELP_KEYS = [
-  [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Home End', N_('first or last message')],
-    ['H', N_('HTML or plain text')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')]]],
+  [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
+    ['H', N_('HTML or plain text')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
@@ -3230,12 +3262,14 @@ function onKey(e){
   const tg = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
   if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
+  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
     if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
     if (unpick()){ e.preventDefault(); afterPick(); return; }
     if (state.thread){ e.preventDefault(); leaveThread(); return; }
+    if (VIEWER && menuEl.hidden){ e.preventDefault(); closeViewer(); return; }
   }
   // Tab in the filter box: this folder or all mail, while there is something to look for.
   if (tg === qEl && e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && qEl.value.trim()){ e.preventDefault(); toggleScope(); return; }
@@ -3250,6 +3284,7 @@ function onKey(e){
   else if (k === 'End') shift ? pickEnd(true) : move(Infinity);
   else if (k === 'Delete') del();
   else if (k === 'Enter' && allMail()) openInFolder();
+  else if (k === 'Enter' && listEl.contains(tg) && current()) openWindow(current().id);
   else if (k === 'r' || k === 'R') openCompose(shift ? 'replyall' : 'reply');
   else if (k === 'F' && shift) openCompose('forward');
   else if (k === 'f') toggleFlag();
@@ -3295,9 +3330,42 @@ splitter($('split-h'),
   });
 
 /* ---------- boot ---------- */
+/* ---------- a message in its own window ---------- */
+// Just the message, its header and the toolbar's buttons for it. Read when opened, as the
+// settings say; Esc closes it; deleting or sending closes it too.
+const closeViewer = () => { const w = window.__TAURI__?.window?.getCurrentWindow?.(); if (w?.close) w.close(); else window.close(); };
+// Show the message (again, after a change). When it is gone, the window closes.
+async function viewerShow(){
+  bodies.delete(VIEWER);
+  let m;
+  try { m = await full(VIEWER); } catch { closeViewer(); return false; }
+  state.folder = m.folder; state.sel[m.folder] = m.id;
+  selRow = {id:m.id, f:m.folder, from:m.from_name, email:m.from_email, to:m.to, subj:m.subject, date:parseDate(m.date),
+    kb:m.size_kb, unread:m.unread, flagged:m.flagged, hasAtt:m.attachments.length > 0};
+  renderStatus();
+  if (!state.compose) await renderPreview();
+  return true;
+}
+async function bootViewer(){
+  win.classList.add('viewer');
+  await bootSettings();
+  try { await loadTree(); } catch {}
+  if (!await viewerShow()) return;
+  if (selRow.unread && pref().mark_read !== 'manual'){
+    call('set_unread', {id:selRow.id, unread:false}).then(() => { selRow.unread = false; bodies.delete(VIEWER); }).catch(() => {});
+  }
+}
+// Another window changed a setting (the look, H): this one follows.
+window.__TAURI__?.event?.listen('settings-changed', async () => {
+  try { const got = await invoke('get_settings'); if (got?.settings){ SETTINGS = got; applySettings(); } } catch {}
+});
+// Closing a window with a message being written keeps it as a draft.
+window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async () => { if (state.compose) await closeCompose(); });
+
 async function boot(){
   I18n.translatePage();
   paintToolbar(); paintDensity();
+  if (VIEWER && invoke){ await bootViewer(); return; }
   if (!invoke){
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div>${t('This page needs the Rust core. Start Telex with {command}.', {command:'<code>npm run dev</code>'})}</div></div>`;
     return;

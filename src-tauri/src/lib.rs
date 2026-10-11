@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use chrono::{Local, TimeDelta};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::drafts::{self, DraftKind, DraftStart};
@@ -402,6 +402,34 @@ async fn detect_settings(app: AppHandle, email: String) -> Option<Detected> {
         let _ = app.emit("detect-progress", step);
     };
     autoconfig::detect(&email, &progress).await
+}
+
+/// Open a message in a window of its own: the same page, showing just that message, its
+/// header and its buttons (index.html?message=<id>). A message already open in one comes to
+/// the front.
+#[tauri::command]
+fn open_window(app: AppHandle, id: MessageId) -> CmdResult<()> {
+    let label = format!("message-{id}");
+    if let Some(open) = app.get_webview_window(&label) {
+        let _ = open.unminimize();
+        return open.set_focus().map_err(|e| e.to_string());
+    }
+    WebviewWindowBuilder::new(
+        &app,
+        label,
+        WebviewUrl::App(format!("index.html?message={id}").into()),
+    )
+    .title("Telex")
+    .inner_size(880.0, 720.0)
+    .min_inner_size(480.0, 360.0)
+    .build()
+    .map(|_| ())
+    .map_err(|e| {
+        tr!(
+            "Couldn't open a window for the message: {e}",
+            "Nie udało się otworzyć okna wiadomości: {e}"
+        )
+    })
 }
 
 /// Open a web link from a message in the default browser.
@@ -853,10 +881,17 @@ pub fn run() {
             watch::restart(app.handle());
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::DragDrop(drop) = event {
-                files::drag_drop(window, drop);
+        .on_window_event(|window, event| match event {
+            WindowEvent::DragDrop(drop) => files::drag_drop(window, drop),
+            // Closing the main window closes the messages open in their own, and Telex.
+            WindowEvent::CloseRequested { .. } if window.label() == "main" => {
+                for (label, open) in window.app_handle().webview_windows() {
+                    if label != "main" {
+                        let _ = open.close();
+                    }
+                }
             }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             folder_tree,
@@ -911,6 +946,7 @@ pub fn run() {
             get_html,
             trust_sender,
             open_link,
+            open_window,
             list_rules,
             save_rule,
             delete_rule,

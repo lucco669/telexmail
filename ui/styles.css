@@ -587,6 +587,15 @@ button.chip[hidden]{display:none}
 .qchip{flex:none;padding:1px 4px;border-radius:3px;font:600 10px var(--font-data);background:var(--warn-bg);color:var(--warn-fg)}
 .qchip[data-level="full"]{background:var(--note-bg);color:var(--note-fg)}
 kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg)}
+/* A message in a window of its own: no folders or list, the toolbar's buttons for one message,
+   and the status bar for what happens to it */
+.win.viewer .main{grid-template-columns:minmax(0,1fr)}
+.win.viewer .tree,.win.viewer .split-v,.win.viewer .list,.win.viewer .split-h{display:none}
+.win.viewer .right{grid-template-rows:minmax(0,1fr)}
+.win.viewer #b-get,.win.viewer #b-new,.win.viewer #b-rules,.win.viewer #b-density,.win.viewer #b-settings,
+.win.viewer .search,.win.viewer #folder-select,.win.viewer .toolbar .sep{display:none}
+.win.viewer .status>:not(#st-msg){display:none}
+.win.viewer .tb .lbl{display:inline}
 /* Right-click menus */
 .cmenu{position:fixed;z-index:30;min-width:190px;margin:0;padding:4px 0;list-style:none;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg);box-shadow:0 8px 24px var(--shadow);font-size:12.5px}
 .cmenu[hidden]{display:none}

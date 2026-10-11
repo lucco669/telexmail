@@ -1,11 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the main Telex window",
-  "windows": ["main"],
+  "description": "Permissions for the main Telex window, and for messages open in windows of their own",
+  "windows": ["main", "message-*"],
   "permissions": [
     "core:default",
     "core:window:allow-set-title",
+    "core:window:allow-close",
+    "core:window:allow-set-focus",
+    "core:window:allow-destroy",
     "core:webview:allow-set-webview-zoom"
   ]
 }

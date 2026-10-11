@@ -283,7 +283,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Z            | undo the last delete or move; within the moment after Send, take the message back |
 | /            | quick filter (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
 | Tab          | in the quick filter: this folder / all mail |
-| Enter        | in all-mail results and conversations: open the message's folder |
+| Enter, double-click | open the message in a window of its own (Esc closes it); in all-mail results and conversations Enter opens the message's folder |
 | H            | switch HTML / plain text view (remembered) |
 | Esc          | clear filter, the selection or the conversation; in compose: save draft and close |
 | ↓ ↑ Enter Tab Esc | in To, Cc, Bcc: choose a suggested address |

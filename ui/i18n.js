@@ -643,6 +643,11 @@ const PL = {
   'Restored the backup{when}. The mail base as it was is kept as {file}.': 'Przywrócono kopię{when}. Poprzednia baza poczty została zachowana jako {file}.',
   'from {when}': 'z {when}',
   'Backups': 'Kopie zapasowe',
+
+  // A message in its own window
+  'Open in its own window (Enter)': 'Otwórz w osobnym oknie (Enter)',
+  'the message in its own window; or double-click it': 'wiadomość w osobnym oknie; albo kliknij ją dwukrotnie',
+  'in its own window: close it': 'w osobnym oknie: zamknij je',
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest
