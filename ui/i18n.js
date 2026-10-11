@@ -94,7 +94,6 @@ const PL = {
   'Images from {email} are blocked again.': 'Obrazy od {email} są znowu blokowane.',
 
   // Writing
-  'Message discarded.': 'Wiadomość odrzucona.',
   'Saved to Drafts.': 'Zapisano w Szkicach.',
   'Add a mail account first.': 'Najpierw dodaj konto pocztowe.',
   'Select a message first.': 'Najpierw wybierz wiadomość.',
@@ -538,7 +537,7 @@ const PL = {
   'to Trash; in Trash, twice to delete for good': 'do Kosza; w Koszu dwa razy, żeby usunąć na zawsze',
   'move to a folder: type part of its name': 'przenieś do folderu: wpisz część nazwy',
   'go to a folder': 'przejdź do folderu',
-  'undo a delete or a move; take back mail just sent': 'cofnij usunięcie lub przeniesienie; zatrzymaj właśnie wysłaną pocztę',
+  'undo a delete, a move or Discard; take back mail just sent': 'cofnij usunięcie, przeniesienie lub odrzucenie; zatrzymaj właśnie wysłaną pocztę',
   'one more or one fewer': 'o jedną więcej lub mniej',
   'everything to the top or bottom': 'wszystko do początku lub do końca',
   'the whole list': 'cała lista',
@@ -737,6 +736,20 @@ const PL = {
   'Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.': 'Kliknięcie kropki na początku wiersza oznacza wiadomość jako przeczytaną lub nie; flaga obok dodaje albo zdejmuje flagę.',
   'Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Right-click the column headings for dates and the Size column.': 'Przeciągnij krawędź przed Tematem, żeby poszerzyć albo zwęzić kolumnę Od; dwuklik dopasowuje ją do nazw. Prawy przycisk na nagłówkach kolumn: daty i kolumna Rozmiar.',
   'Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.': 'Prawy przycisk na koncie przesuwa je w górę albo w dół. Prawy przycisk na folderze › Zawsze na widoku: folder nie chowa się wśród pozostałych.',
+
+  // Drafts kept safe, failed checks, the Undo button
+  'The last check failed: {reason}': 'Ostatnie sprawdzanie nie powiodło się: {reason}',
+  'Undo send · {n} s': 'Cofnij wysyłkę · {n} s',
+  'Undo': 'Cofnij',
+  'Undo (Z)': 'Cofnij (Z)',
+  'Check failed · Retry': 'Błąd sprawdzania · Ponów',
+  'Click to check again.': 'Kliknij, żeby sprawdzić jeszcze raz.',
+  'You are writing that message already.': 'Ta wiadomość jest już otwarta do pisania.',
+  'The message you were writing is in Drafts.': 'Pisana wiadomość jest w Szkicach.',
+  'Draft saved {time}': 'Szkic zapisany {time}',
+  'Message discarded. Press Z to undo.': 'Wiadomość odrzucona. Z cofa.',
+  'The message is back. The one you were writing is in Drafts.': 'Wiadomość wróciła. Ta pisana przed chwilą jest w Szkicach.',
+  'The message is back.': 'Wiadomość wróciła.',
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest
@@ -806,6 +819,9 @@ const PL_N = {
   // Backups
   'the newest {n} backup': ['najnowszą {n} kopię', 'najnowsze {n} kopie', 'najnowszych {n} kopii'],
   '{n} on this PC': ['{n} na tym komputerze', '{n} na tym komputerze', '{n} na tym komputerze'],
+
+  // Failed checks
+  '{n} check failed · Retry': ['{n} błąd sprawdzania · Ponów', '{n} błędy sprawdzania · Ponów', '{n} błędów sprawdzania · Ponów'],
 };
 
 let lang = document.documentElement.lang === 'pl' ? 'pl' : 'en';

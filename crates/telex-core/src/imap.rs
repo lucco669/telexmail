@@ -824,6 +824,10 @@ async fn connect(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>
             ))
         })?
         .map_err(|e| unreachable(e.to_string()))?;
+    // async-imap writes a command in four small pieces (tag, space, command, line end). With
+    // Nagle's algorithm on, the rest waits for the server to acknowledge the first piece, and
+    // servers delay that: every command cost the round trip plus up to 200 ms.
+    let _ = tcp.set_nodelay(true);
     let name = ServerName::try_from(host)
         .map_err(|_| {
             unreachable(tr!(

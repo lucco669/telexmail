@@ -4999,6 +4999,7 @@ name = "telex"
 version = "0.7.1"
 dependencies = [
  "chrono",
+ "futures-util",
  "keyring",
  "serde",
  "serde_json",

@@ -16,6 +16,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use chrono::{Local, TimeDelta};
+use futures_util::future::join_all;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
@@ -212,9 +213,10 @@ fn draft_context(s: &MailStore, draft: &OutgoingDraft) -> Result<(Account, Origi
 }
 
 /// Save the compose pane's content as a draft, kept as a whole message so its HTML and
-/// forwarded files stay with it. Sending goes through `send_message`.
+/// forwarded files stay with it. Sending goes through `send_message`. Async, so reading
+/// big attachments for an autosave doesn't hold up the window.
 #[tauri::command]
-fn save_outgoing(
+async fn save_outgoing(
     state: State<'_, AppState>,
     files: State<'_, FilesState>,
     draft: OutgoingDraft,
@@ -230,6 +232,13 @@ fn save_outgoing(
             Local::now().naive_local(),
         )
     })
+}
+
+/// Drop an autosaved draft for good (compose's Discard). Only drafts on this PC; true when
+/// one was removed.
+#[tauri::command]
+fn discard_draft(state: State<'_, AppState>, id: MessageId) -> CmdResult<bool> {
+    with_store(&state, |s| s.discard_draft(id))
 }
 
 /// The HTML of a draft or an unsent message, cleaned for the editor, or `null` when it
@@ -424,8 +433,12 @@ async fn detect_settings(app: AppHandle, email: String) -> Option<Detected> {
 /// Open a message in a window of its own: the same page, showing just that message, its
 /// header and its buttons (index.html?message=<id>). A message already open in one comes to
 /// the front.
+///
+/// Async on purpose: a plain command runs on the main thread inside WebView2's message
+/// handler, and building a webview there waits for that same thread forever (both windows
+/// freeze, white and unclosable).
 #[tauri::command]
-fn open_window(app: AppHandle, id: MessageId) -> CmdResult<()> {
+async fn open_window(app: AppHandle, id: MessageId) -> CmdResult<()> {
     let label = format!("message-{id}");
     if let Some(open) = app.get_webview_window(&label) {
         let _ = open.unminimize();
@@ -585,10 +598,12 @@ pub(crate) fn server_accounts(state: &AppState) -> CmdResult<Vec<Account>> {
     })
 }
 
-/// Full sync of every account, one after another: send queued changes, download new
-/// mail and flag changes, send what changed meanwhile. Progress reaches the UI as
-/// "sync-progress" events. One account failing doesn't stop the others. With `account`,
-/// only that account's Inbox: what IDLE said changed.
+/// Full sync of every account: send queued changes, download new mail and flag changes,
+/// send what changed meanwhile. The accounts sync at the same time, each on its own
+/// connection: a sync mostly waits on its server, so one after another a check took as long
+/// as all of them added up. Progress reaches the UI as "sync-progress" events. One account
+/// failing doesn't stop the others. With `account`, only that account's Inbox: what IDLE
+/// said changed.
 #[tauri::command]
 async fn check_mail(
     app: AppHandle,
@@ -608,14 +623,18 @@ async fn check_mail(
     };
     let mut outcome = SyncOutcome::default();
     let mut arrived = Vec::new();
-    let accounts = server_accounts(&state)?
+    let accounts: Vec<Account> = server_accounts(&state)?
         .into_iter()
-        .filter(|a| account.as_ref().is_none_or(|only| &a.id == only));
-    for account in accounts {
-        // Send first, so the copies for Sent go to the server in this same sync.
-        send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
+        .filter(|a| account.as_ref().is_none_or(|only| &a.id == only))
+        .collect();
+    // Send first, so the copies for Sent go to the server in this same sync. One Outbox at a
+    // time: only one sender may run (an empty Outbox costs nothing).
+    for account in &accounts {
+        send_account_outbox(&state, account, &mut outcome.sent, &mut outcome.errors).await;
+    }
+    let results = join_all(accounts.iter().map(|account| async {
         let result = match secrets::load_password(&account.email) {
-            Ok(password) => imap::sync_account(&account, &password, &state.store, &progress, scope)
+            Ok(password) => imap::sync_account(account, &password, &state.store, &progress, scope)
                 .await
                 .map_err(|e| e.to_string()),
             Err(e) => Err(e),
@@ -624,6 +643,10 @@ async fn check_mail(
         let _ = with_store(&state, |s| {
             s.record_sync(&account.id, Local::now().naive_local(), error)
         });
+        result
+    }))
+    .await;
+    for (account, result) in accounts.iter().zip(results) {
         match result {
             Ok(report) => {
                 outcome.new.extend(report.new);
@@ -635,7 +658,7 @@ async fn check_mail(
                     .extend(refused.map(|r| format!("{}: {r}", account.name)));
                 // Rules may have queued automatic replies: send them now, not next time.
                 if report.answered > 0 {
-                    send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors)
+                    send_account_outbox(&state, account, &mut outcome.sent, &mut outcome.errors)
                         .await;
                 }
             }
@@ -725,7 +748,7 @@ async fn send_message(
     let send_after =
         (wait > 0).then(|| Local::now().naive_local() + TimeDelta::seconds(i64::from(wait)));
     let queued = with_store(&state, |s| {
-        s.queue_outgoing(
+        let queued = s.queue_outgoing(
             &account.id,
             &composed.message,
             &composed.raw,
@@ -733,7 +756,11 @@ async fn send_message(
             &composed.env_to,
             draft.replaces,
             send_after,
-        )
+        )?;
+        if let Some(autosave) = draft.autosaved {
+            s.discard_draft(autosave)?;
+        }
+        Ok(queued)
     })?;
     let mut outcome = SendOutcome {
         queued,
@@ -837,16 +864,18 @@ async fn send_account_outbox(
 }
 
 /// Send queued changes (read state, flags, moves, deletes) to the servers now, without
-/// downloading. The UI calls this a few seconds after the user changes something.
+/// downloading, every account at the same time. The UI calls this a few seconds after the
+/// user changes something.
 #[tauri::command]
 async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
     let Some(_busy) = BusyGuard::take(&state.busy) else {
         return Ok(SyncOutcome::busy());
     };
     let mut outcome = SyncOutcome::default();
-    for account in server_accounts(&state)? {
-        let result = match secrets::load_password(&account.email) {
-            Ok(password) => imap::push_account(&account, &password, &state.store)
+    let accounts = server_accounts(&state)?;
+    let results = join_all(accounts.iter().map(|account| async {
+        match secrets::load_password(&account.email) {
+            Ok(password) => imap::push_account(account, &password, &state.store)
                 .await
                 .map_err(|e| {
                     tr!(
@@ -856,7 +885,10 @@ async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
                     )
                 }),
             Err(e) => Err(e),
-        };
+        }
+    }))
+    .await;
+    for (account, result) in accounts.iter().zip(results) {
         match result {
             Ok(refused) => outcome
                 .errors
@@ -947,6 +979,7 @@ pub fn run() {
             folders::export_folder,
             folders::import_mail,
             save_outgoing,
+            discard_draft,
             draft_html,
             html_to_text,
             text_to_html,

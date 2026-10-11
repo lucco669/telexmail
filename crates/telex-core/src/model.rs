@@ -508,6 +508,10 @@ pub struct OutgoingDraft {
     /// The draft or unsent message this was edited from. It is removed once this is saved.
     #[serde(default)]
     pub replaces: Option<MessageId>,
+    /// The last autosave of this same message: a draft of its own, so the one in `replaces`
+    /// stays as it was until the user saves or sends. Removed once this is saved or sent.
+    #[serde(default)]
+    pub autosaved: Option<MessageId>,
     /// Who it is from; `None` is the account's default identity.
     #[serde(default)]
     pub identity: Option<i64>,

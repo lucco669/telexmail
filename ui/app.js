@@ -62,6 +62,7 @@ const KIND_NAME = {inbox:N_('Inbox'), outbox:N_('Outbox'), drafts:N_('Drafts'), 
 /* ---------- data (filled from Rust) ---------- */
 // The folder tree and its counts; the message list asks the core for pages (see "list").
 let ACCOUNTS = [], ACCT = {}, COUNTS = {};
+let PROBLEMS = {}; // account id -> why its last check failed (kept by the core until one works)
 let USAGE = null; // the last answer of `usage`: quotas for the meter and the Usage tab
 const bodies = new Map(); // id -> full message from get_message
 
@@ -82,6 +83,7 @@ async function loadTree(){
   ACCOUNTS = t.accounts;
   ACCT = Object.fromEntries(ACCOUNTS.map(a => [a.id, a]));
   COUNTS = t.counts;
+  PROBLEMS = t.problems ?? {};
 }
 // The core's errors and notes come in the interface's language already (its tr! macro).
 const tr = e => String(e);
@@ -187,7 +189,7 @@ const state = {
   scope: saved.scope === 'all' ? 'all' : 'folder', // the quick filter looks in this folder or in all mail
   more: saved.more && typeof saved.more === 'object' ? saved.more : {}, // accounts showing all their folders
   collapsed:{}, compose:null, images:new Set(), white:new Set(), // white: HTML shown on white
-  undo:null, // what Z takes back: {kind:'move', items:[{id, from}]} after a delete or move; {kind:'send', id, until}
+  undo:null, // what Z takes back (set with setUndo): {kind:'move', items:[{id, from}]} after a delete or move; {kind:'send', id, until}; {kind:'discard', compose}
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
   thread:null, // {id, subject}: the list shows this message's conversation
   recent: Array.isArray(saved.recent) ? saved.recent.slice(0, 8) : [], // folders last moved to or opened with M and G
@@ -345,6 +347,35 @@ function say(text, ms = 4500){
   clearTimeout(stTimer);
   if (ms) stTimer = setTimeout(() => { el.textContent = ''; el.title = ''; bar.classList.remove('saying'); }, ms);
 }
+// What Z takes back, also as a button next to the status, so other news doesn't hide it: mail
+// waiting to go counts down its moment; a move, delete or discard stays a while (Z works later too).
+const UNDO_SHOWN = 10000;
+let undoTimer;
+function setUndo(u){
+  state.undo = u ? {at:Date.now(), ...u} : null;
+  paintUndo();
+}
+function paintUndo(){
+  const b = $('st-undo'), u = state.undo;
+  clearTimeout(undoTimer);
+  const left = u ? (u.until ?? u.at + UNDO_SHOWN) - Date.now() : 0;
+  b.hidden = left <= 0;
+  if (b.hidden) return;
+  const n = Math.ceil(left / 1000);
+  b.textContent = u.kind === 'send' ? t('Undo send · {n} s', {n}) : t('Undo');
+  b.title = t('Undo (Z)');
+  undoTimer = setTimeout(paintUndo, u.kind === 'send' ? left - (n - 1) * 1000 : left);
+}
+$('st-undo').addEventListener('click', () => undo());
+// Accounts whose last check failed, on the right until a check works; a click checks again.
+function renderSync(){
+  const b = $('st-sync'), ids = VIEWER ? [] : ACCOUNTS.filter(a => PROBLEMS[a.id]).map(a => a.id);
+  b.hidden = !ids.length;
+  if (!ids.length) return;
+  b.textContent = ids.length === 1 ? t('Check failed · Retry') : tn(ids.length, '{n} check failed · Retry', '{n} checks failed · Retry', {n:num(ids.length)});
+  b.title = ids.map(id => `${acctLabel(id)}: ${PROBLEMS[id]}`).join('\n') + '\n' + t('Click to check again.');
+}
+$('st-sync').addEventListener('click', () => getMail());
 // How many older messages the "download" button in the status bar asks for at a time.
 const OLDER_BATCH = 1000;
 function renderStatus(){
@@ -357,6 +388,7 @@ function renderStatus(){
     : allMail() ? esc(t('All mail') + ' · ' + tn(found, '{n} match', '{n} matches', {n:num(found)})) + picked
     : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}${more}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
+  renderSync();
   renderMeter();
   const title = VIEWER ? `${selRow?.subj || t('Message')} – Telex` : ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
   if (title !== lastTitle){
@@ -469,7 +501,10 @@ function renderTree(){
     // A nearly full mailbox on the server says so next to its address.
     const q = quotaOf(a.id), pct = q ? pctOf(q) : 0;
     const full = pct >= 90 ? `<span class="qchip" data-level="${levelOf(pct)}" title="${esc(quotaText(q))}">${pct}%</span>` : '';
-    return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}</button>${items}`;
+    // An account whose last check failed says so until one works (the status bar can retry).
+    const failed = PROBLEMS[a.id] ? t('The last check failed: {reason}', {reason:PROBLEMS[a.id]}) : '';
+    const bad = failed ? `<span class="qchip" data-level="full" title="${esc(failed)}" aria-hidden="true">!</span><span class="vh">${esc(failed)}</span>` : '';
+    return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}${failed ? '\n' + esc(failed) : ''}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}${bad}</button>${items}`;
   }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(servers().length ? t('Add account') : t('Add your account'))}</span></button>`;
   const input = $('nf-name');
   if (input){
@@ -1717,7 +1752,7 @@ previewEl.addEventListener('click', async e => {
     readCompose(); state.compose.showBcc = true; renderCompose(); $('c-bcc')?.focus();
   }
   if (act.dataset.act === 'attach' && state.compose) pickFiles();
-  if (act.dataset.act === 'discard'){ state.compose = null; closeSuggestions(); renderPreview(); say(t('Message discarded.')); listEl.focus(); }
+  if (act.dataset.act === 'discard') discardCompose();
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
 });
@@ -1733,6 +1768,8 @@ async function openCompose(kind, preset = {}, of = null){
   const s = of != null ? {id:of, f:(await full(of).catch(() => null))?.folder} : current();
   if (kind !== 'new' && !s?.f){ say(t('Select a message first.')); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say(t('Only drafts and unsent messages in the Outbox can be edited.')); return; }
+  const open = state.compose;
+  if (kind === 'edit' && open && [open.replaces, open.autosaved].includes(s.id)){ say(t('You are writing that message already.')); focusCompose(); return; }
   if (kind !== 'new' && state.picked.size > 1){ unpick(); paintSelection(); }
   loadRecipients();
   let c;
@@ -1755,9 +1792,16 @@ async function openCompose(kind, preset = {}, of = null){
     }
   } catch (e){ say(tr(e), 8000); return; }
   Object.assign(c, preset); // e.g. {to} from a mailto: link
+  const kept = state.compose;
+  if (kept && !await saveCompose()) return; // the message being written goes to Drafts first
   state.compose = c;
   renderCompose();
+  c.saved = shapeOf(readCompose()); // as it opened: nothing to autosave yet
+  if (kept){ draftsChanged(); say(t('The message you were writing is in Drafts.'), 6000); }
 }
+const focusCompose = () => $('c-to')?.focus();
+// After a draft was saved or dropped: the Drafts folder's count and list (the main window's).
+const draftsChanged = () => VIEWER ? tellMain() : refresh();
 const allIdentities = () => servers().flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
 const composeNote = c => !ACCT[c.account]?.smtp ? t('This account has no SMTP server yet: add one in Settings › Accounts to send.') : '';
 function fromOptions(c){
@@ -1812,6 +1856,7 @@ ${esc(c.body)}</textarea>`}
   <button class="btn" type="button" data-act="attach" title="${esc(t('Attach files from this PC. You can also drop them on the window.'))}">${I.clip}<span>${esc(t('Attach…'))}</span></button>
   <button class="btn" type="button" data-act="discard">${esc(t('Discard'))}</button>
   <span class="cnote">${esc(note)}</span>
+  <span class="csaved" aria-live="polite"></span>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
   // Enter in a header field doesn't send: Ctrl+Enter does.
@@ -2033,7 +2078,71 @@ async function setFormat(fmt){
 }
 const draftOf = c => ({account:c.account, to:c.to, cc:c.cc, bcc:c.bcc, subject:c.subject || t('(no subject)'),
   body:c.html != null ? '' : c.body.replace(/^\n+/, ''), html:c.html,
-  attachments:c.attachments, reply_to:c.replyTo, forward_of:c.forwardOf, replaces:c.replaces, identity:c.identity});
+  attachments:c.attachments, reply_to:c.replyTo, forward_of:c.forwardOf, replaces:c.replaces, autosaved:c.autosaved ?? null, identity:c.identity});
+// What a save would keep: an autosave happens only when this changed.
+const shapeOf = c => JSON.stringify([c.identity, c.to, c.cc, c.bcc, c.subject, c.html ?? c.body, c.attachments.map(a => a.path ?? a.name)]);
+// Saves of the message being written go one at a time, so each knows the draft the one before
+// made (the autosave it replaces).
+let draftSaves = Promise.resolve();
+function inTurn(fn){ const p = draftSaves.then(fn); draftSaves = p.catch(() => {}); return p; }
+// Autosave: while a message is being written, what changed is kept every few seconds as a draft
+// of its own, each replacing the one before, so a crash or a frozen window loses little. The
+// draft it was opened from stays as it was until Esc, Save draft or Send.
+const AUTOSAVE_MS = 15000;
+async function autosave(){
+  const c = state.compose;
+  if (!c || !$('cform') || shapeOf(readCompose()) === c.saved) return;
+  try {
+    await inTurn(async () => {
+      if (state.compose !== c || c.done) return; // closed meanwhile, and saved or discarded
+      const shape = shapeOf(c);
+      c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), replaces:null}});
+      c.saved = shape;
+      const note = previewEl.querySelector('.csaved');
+      if (note && state.compose === c) note.textContent = t('Draft saved {time}', {time:hm(new Date())});
+    });
+  } catch { return; } // quietly: the next change tries again, and Esc still saves
+  draftsChanged();
+}
+setInterval(autosave, AUTOSAVE_MS);
+// Saves the message being written as a draft, in place of the draft it was edited from and its
+// last autosave. Resolves to true when it worked; the message stays on screen.
+function saveCompose(){
+  const c = readCompose();
+  return inTurn(async () => {
+    await call('save_outgoing', {draft:draftOf(c)});
+    c.done = true;
+    return true;
+  }).catch(() => false);
+}
+// Discard: the message closes unsaved and its autosave goes; Z brings it back.
+async function discardCompose(){
+  const c = readCompose();
+  state.compose = null;
+  closeSuggestions();
+  renderPreview();
+  listEl.focus();
+  const autosaved = c.autosaved;
+  await inTurn(async () => {
+    c.done = true;
+    if (c.autosaved != null) await invoke('discard_draft', {id:c.autosaved});
+    c.autosaved = null;
+  }).catch(() => {});
+  if (autosaved != null) draftsChanged();
+  setUndo({kind:'discard', compose:c});
+  say(t('Message discarded. Press Z to undo.'));
+}
+// Z after Discard: the message comes back as it was (one being written meanwhile goes to Drafts).
+async function restoreCompose(c){
+  setUndo(null);
+  const kept = state.compose;
+  if (kept && !await saveCompose()) return;
+  Object.assign(c, {done:false, autosaved:null, saved:null}); // its autosave went: the next one makes it again
+  state.compose = c;
+  renderCompose();
+  if (kept) draftsChanged();
+  say(kept ? t('The message is back. The one you were writing is in Drafts.') : t('The message is back.'));
+}
 const trimList = s => s.trim().replace(/[,;]\s*$/, '');
 function readCompose(){
   const c = state.compose;
@@ -2044,8 +2153,7 @@ function readCompose(){
 }
 // Saves the compose content as a draft and closes it. Resolves to true when it worked.
 async function closeCompose(){
-  const draft = draftOf(readCompose());
-  try { await call('save_outgoing', {draft}); } catch { return false; }
+  if (!await saveCompose()) return false;
   state.compose = null;
   closeSuggestions();
   renderPreview();
@@ -2072,7 +2180,8 @@ async function send(){
   btn.disabled = true; label.textContent = t('Sending…');
   say(t('Sending…'), 0);
   let r;
-  try { r = await call('send_message', {draft:draftOf(readCompose())}); }
+  const c = readCompose();
+  try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c)}); c.done = true; return r; }); }
   catch { btn.disabled = false; label.textContent = t('Send'); return; } // e.g. a bad address: fix it and try again
   state.compose = null;
   closeSuggestions();
@@ -2088,7 +2197,7 @@ async function send(){
   await refresh();
   listEl.focus();
   if (r.wait){ // it waits a moment in the Outbox, so Z can still take it back
-    state.undo = {kind:'send', id:r.queued, until:Date.now() + r.wait * 1000};
+    setUndo({kind:'send', id:r.queued, until:Date.now() + r.wait * 1000});
     say(t('Sending in {n} s. Press Z to undo.', {n:r.wait}), r.wait * 1000 + 500);
     return;
   }
@@ -2098,7 +2207,7 @@ async function send(){
 }
 // Mail that waited its moment has gone out (or not): what the SMTP server said.
 listenMain('outbox-sent', ({payload: r}) => {
-  if (state.undo?.kind === 'send' && state.undo.id === r.queued) state.undo = null;
+  if (state.undo?.kind === 'send' && state.undo.id === r.queued) setUndo(null);
   refresh();
   const sent = sentText(r.sent);
   if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
@@ -2106,13 +2215,13 @@ listenMain('outbox-sent', ({payload: r}) => {
 });
 // A message open in its own window changed something, or sent mail: say so here, where Z works.
 listenMain('viewer-did', ({payload: p}) => {
-  if (p?.undo) state.undo = p.undo;
+  if (p?.undo) setUndo(p.undo);
   if (p?.say) say(p.say, p.ms ?? 6000);
   refresh(); schedulePush();
 });
 // Z within the moment: the message stays in the Outbox, held, and opens again to be changed.
 async function unsend(u){
-  state.undo = null;
+  setUndo(null);
   if (Date.now() >= u.until){ say(t('Too late to undo: the message is on its way.')); return; }
   try { await invoke('hold_message', {id:u.id}); } catch (e){ say(tr(e), 8000); return; }
   await refresh();
@@ -2174,14 +2283,17 @@ async function markAllRead(){
   await refresh();
   say(n ? tn(n, 'Marked {n} message as read.', 'Marked {n} messages as read.', {n:num(n)}) : t('Everything here was read already.'), 3000);
 }
-// Deleting from Trash can't be undone (on the server either), so it takes a second Del.
+// Deleting from Trash can't be undone (on the server either), so it takes a second Del: a press
+// of its own, at least a moment after the first, so a double-click or a bounce isn't one.
 let armedDelete = null; // {key, at}
+const DELETE_GAP = 400;
 async function del(){
   const ids = chosen(); if (!ids.length) return;
   const many = state.picked.size > 1, m = current();
   const inTrash = many ? !allMail() && kindOf(state.folder) === 'trash' : m && kindOf(m.f) === 'trash';
   if (inTrash){
     const key = ids.join(',');
+    if (armedDelete?.key === key && Date.now() - armedDelete.at < DELETE_GAP) return;
     if (armedDelete?.key !== key || Date.now() - armedDelete.at > 5000){
       armedDelete = {key, at:Date.now()};
       say(many ? tn(ids.length, 'Press Del again to delete {n} message for good.', 'Press Del again to delete these {n} messages for good.', {n:num(ids.length)})
@@ -2197,7 +2309,7 @@ async function del(){
   let r;
   try { r = await call('delete_messages', {ids}); } catch { return; }
   ids.forEach(id => bodies.delete(id));
-  state.undo = r.trashed.length ? {kind:'move', items:r.trashed.map(([id, from]) => ({id, from}))} : null;
+  setUndo(r.trashed.length ? {kind:'move', items:r.trashed.map(([id, from]) => ({id, from}))} : null);
   const n = ids.length;
   say(r.trashed.length ? (n === 1 ? t('Moved to Trash. Press Z to undo.') : tn(n, 'Moved {n} message to Trash. Press Z to undo.', 'Moved {n} messages to Trash. Press Z to undo.', {n:num(n)}))
     : n === 1 ? t('Deleted for good.') : tn(n, 'Deleted {n} message for good.', 'Deleted {n} messages for good.', {n:num(n)}));
@@ -2214,7 +2326,7 @@ async function moveChosen(folder){
   const next = state.picked.size > 1 ? rowAfterPicked() : null;
   let places;
   try { places = await call('move_messages', {ids, folder}); } catch { return; }
-  state.undo = {kind:'move', items:places.filter(([, from]) => from !== folder).map(([id, from]) => ({id, from}))};
+  setUndo({kind:'move', items:places.filter(([, from]) => from !== folder).map(([id, from]) => ({id, from}))});
   const n = ids.length, where = placeName(folder);
   say(n === 1 ? t('Moved to {folder}. Press Z to undo.', {folder:where}) : tn(n, 'Moved {n} message to {folder}. Press Z to undo.', 'Moved {n} messages to {folder}. Press Z to undo.', {n:num(n), folder:where}));
   unpick();
@@ -2226,10 +2338,11 @@ async function moveChosen(folder){
 async function undo(){
   const u = state.undo; if (!u) return;
   if (u.kind === 'send'){ await unsend(u); return; }
+  if (u.kind === 'discard'){ await restoreCompose(u.compose); return; }
   const groups = new Map();
   for (const it of u.items){ if (!groups.has(it.from)) groups.set(it.from, []); groups.get(it.from).push(it.id); }
   try { for (const [folder, ids] of groups) await call('move_messages', {ids, folder}); } catch { return; }
-  state.undo = null;
+  setUndo(null);
   const first = u.items[0];
   if (first && (allMail() || state.folder === first.from)){ state.sel[selKey()] = first.id; selRow = null; }
   await loadTree().catch(() => {});
@@ -3750,7 +3863,7 @@ const HELP_KEYS = [
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
   [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
-    ['G', N_('go to a folder')], ['Z', N_('undo a delete or a move; take back mail just sent')]]],
+    ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],
   [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
     ['Ctrl+A', N_('the whole list')], ['Esc', N_('just the one message again')]]],
   [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
@@ -3852,7 +3965,7 @@ function onKey(e){
   else if (k === 'Home') shift ? pickEnd(false) : move(-Infinity);
   else if (k === 'End') shift ? pickEnd(true) : move(Infinity);
   else if (k === ' ') space(shift);
-  else if (k === 'Delete') del();
+  else if (k === 'Delete'){ if (!e.repeat) del(); } // holding Del deletes one, not a run of them
   else if (k === 'Enter' && allMail()) openInFolder();
   else if (k === 'Enter' && listEl.contains(tg) && current()) openWindow(current().id);
   else if (k === 'r' || k === 'R') openCompose(shift ? 'replyall' : 'reply');

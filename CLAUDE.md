@@ -124,7 +124,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?}}}` (empty folders left out; `older`: on the server, not downloaded) |
+| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?}}, problems: {"<account>": reason}}` (empty folders left out; `older`: on the server, not downloaded; `problems`: accounts whose last check failed) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
@@ -144,6 +144,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
 | `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
+| `discard_draft`  | `id`                         | true when that draft (on this PC, in Drafts) was removed for good: compose's Discard drops its autosave |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
@@ -196,9 +197,10 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `compact_base`   | –                            | `[before, after]` in bytes (VACUUM) |
 | `show_backup_place` | `base`                  | – (the mail base, or the newest backup, in Explorer) |
 
-A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
-user typed (`to`, `cc`, `bcc`, `subject`): threading headers, forwarded attachments, and the
-draft or unsent message it was edited from; and `identity`, who it is from (`null` = the
+A draft carries `reply_to`, `forward_of`, `replaces` and `autosaved` (message ids) besides the
+fields the user typed (`to`, `cc`, `bcc`, `subject`): threading headers, forwarded attachments,
+the draft or unsent message it was edited from, and its last autosave (a draft of its own; both
+go once it is saved or sent); and `identity`, who it is from (`null` = the
 account's default); and `html`, the editor's HTML when it is written in HTML (`null` = plain
 text in `body`). Its `attachments` are files from this PC (`path`, chosen through
 `pick_files` or dropped this session; others are refused) and ones carried over from
@@ -309,12 +311,12 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | U            | toggle unread (the selection: all read, or all unread when all are read) |
 | click the dot / flag | at the start of a row: that message read or unread, flagged or not |
 | Shift+U      | mark everything in the folder read |
-| Del          | move to Trash (in Trash: press twice to delete for good) |
+| Del          | move to Trash (in Trash: press twice to delete for good, two presses of their own; holding Del counts once) |
 | M            | move to a folder: type part of its name (also one on this PC) |
 | drag         | messages onto a folder: it fills up, then takes them on release; Esc cancels, Z undoes |
 | G            | go to a folder: type part of its name |
 | T            | the selected message's conversation (T or Esc goes back) |
-| Z            | undo the last delete or move; within the moment after Send, take the message back |
+| Z            | undo the last delete, move or Discard; within the moment after Send, take the message back (also the Undo button in the status bar) |
 | /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
 | ↓ ↑ Enter    | in the search box: choose a suggestion (a recent search, a person, an operator); Enter or ↓ with none chosen goes to the results |
 | Tab          | in the quick filter: this folder / all mail |
@@ -331,7 +333,26 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
-## Current state (v0.7.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions)
+## Current state (v0.7.2: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once)
+
+- New in 0.7.2 (no schema change):
+  - The message window no longer freezes Telex: `open_window` is async (a plain command runs
+    on the main thread inside WebView2's handler, and building a webview there waited forever).
+  - Checks are about eight times faster: `check_mail` (and `push_changes`) talk to every account
+    at once (`join_all`; Outboxes still go one at a time, as only one sender may run), and IMAP
+    sockets have Nagle off (`set_nodelay`): async-imap writes each command in four pieces, so
+    every command waited for the server's delayed ACK. Four Purelymail accounts: 19 s → 2.3 s.
+  - Drafts are safe: compose autosaves every 15 s when something changed, as a draft of its own
+    (`autosaved`), so the draft being edited stays as it was until Esc, Save or Send, which
+    remove both; New, Reply or E while writing save the message to Drafts first; Discard drops
+    the autosave (`discard_draft`) and Z (or the Undo button) brings the message back. Saves go
+    one at a time in the window (`inTurn`), so each knows the autosave it replaces.
+  - Del in Trash takes two presses of their own: repeats are ignored, and a second press within
+    0.4 s doesn't count (a double-click on Delete either).
+  - An Undo button in the status bar while Z can undo something: mail waiting to go counts down
+    its moment; a move, delete or discard shows it for 10 s. Accounts whose last check failed
+    (`folder_tree.problems`, from `accounts.sync_error`) get a "!" in the tree and a status-bar
+    chip with the reasons in its tooltip; clicking it checks again.
 
 - New in 0.7.1 (no schema change):
   - The list's columns fit its width (`fitColumns` in app.js): the status icons, the date and
@@ -651,7 +672,7 @@ then daily like `daily`),
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
-   AppImage (self-updating) and a .deb. The repository is public and v0.7.1 is released;
+   AppImage (self-updating) and a .deb. The repository is public and v0.7.2 is released;
    docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~ and ~~downloading older
    messages~~: done, see Current state and the numbers in docs/storage.md. ~~Backup and

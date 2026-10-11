@@ -273,6 +273,8 @@ pub struct FolderTree {
     pub accounts: Vec<Account>,
     /// By folder key. Empty folders are left out.
     pub counts: HashMap<String, FolderCount>,
+    /// Why an account's last check failed, by account id; gone once a check works.
+    pub problems: HashMap<String, String>,
 }
 
 /// An unread message and where it is in its list: what Space goes to.
@@ -578,9 +580,16 @@ impl MailStore {
             let (key, n) = row?;
             counts.entry(key).or_default().older = usize::try_from(n).unwrap_or_default();
         }
+        let mut stmt = self
+            .db
+            .prepare_cached("SELECT id, sync_error FROM accounts WHERE sync_error IS NOT NULL")?;
+        let problems = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
         Ok(FolderTree {
             accounts: self.accounts().to_vec(),
             counts,
+            problems,
         })
     }
 
@@ -1494,6 +1503,20 @@ mod tests {
         store.set_unread(unread, false).unwrap();
         let after = store.folder_tree().unwrap().counts["studio/inbox"];
         assert_eq!(after.unread, c.unread - 1);
+    }
+
+    #[test]
+    fn the_tree_says_which_accounts_failed_their_last_check() {
+        let mut store = store(1);
+        let at = chrono::Local::now().naive_local();
+        assert!(store.folder_tree().unwrap().problems.is_empty());
+        store
+            .record_sync("studio", at, Some("can't reach mail.x.pl"))
+            .unwrap();
+        let problems = store.folder_tree().unwrap().problems;
+        assert_eq!(problems["studio"], "can't reach mail.x.pl");
+        store.record_sync("studio", at, None).unwrap();
+        assert!(store.folder_tree().unwrap().problems.is_empty());
     }
 
     #[test]

@@ -599,6 +599,9 @@ impl MailStore {
         if let Some(old) = draft.replaces {
             self.remove_local(old)?;
         }
+        if let Some(old) = draft.autosaved {
+            self.discard_draft(old)?;
+        }
         let account = self.account(&draft.account)?.clone();
         let folder = self.folder_key_of_kind(&account.id, kind)?;
         let identity = account.identity(draft.identity);
@@ -638,6 +641,18 @@ impl MailStore {
             refs: Vec::new(),
         };
         insert_message(&self.db, &folder, None, &message, None, raw)
+    }
+
+    /// Delete a draft for good: an autosave the user discarded or saved over. Only a draft
+    /// that exists only here, in an account's Drafts; anything else is left alone. True when
+    /// one was removed.
+    pub fn discard_draft(&mut self, id: MessageId) -> Result<bool, StoreError> {
+        let removed = self.db.execute(
+            "DELETE FROM messages WHERE id = ?1 AND srv_folder IS NULL AND folder IN
+                 (SELECT account || '/' || id FROM folders WHERE kind = 'drafts')",
+            [id as i64],
+        )?;
+        Ok(removed > 0)
     }
 
     /// Delete a message that exists only here (a draft, an unsent message). Server mail
@@ -2635,6 +2650,49 @@ mod tests {
         assert!(store
             .save_outgoing(draft("nope"), None, FolderKind::Sent, now())
             .is_err());
+    }
+
+    #[test]
+    fn autosaves_leave_the_draft_being_edited_until_it_is_saved() {
+        let mut store = sample_store();
+        let draft = || OutgoingDraft {
+            body: "Dzień dobry,\n\nwdrożę do piątku.\n".into(),
+            ..draft("gmail")
+        };
+        let old = store
+            .save_outgoing(draft(), None, FolderKind::Drafts, now())
+            .unwrap();
+        // Editing it: each autosave replaces the one before, never the draft itself.
+        let first = store
+            .save_outgoing(draft(), None, FolderKind::Drafts, now())
+            .unwrap();
+        let second = OutgoingDraft {
+            autosaved: Some(first),
+            ..draft()
+        };
+        let second = store
+            .save_outgoing(second, None, FolderKind::Drafts, now())
+            .unwrap();
+        assert!(store.get(first).is_err());
+        assert!(store.get(old).is_ok());
+        // Saved for real: the draft it was edited from and the last autosave both go.
+        let saved = OutgoingDraft {
+            replaces: Some(old),
+            autosaved: Some(second),
+            ..draft()
+        };
+        let saved = store
+            .save_outgoing(saved, None, FolderKind::Drafts, now())
+            .unwrap();
+        assert!(store.get(old).is_err() && store.get(second).is_err());
+        assert_eq!(store.list("gmail/drafts").unwrap().len(), 1);
+        // Discarding removes drafts only.
+        let inbox = store.list("firma/inbox").unwrap()[0].id;
+        assert!(!store.discard_draft(inbox).unwrap());
+        assert!(store.get(inbox).is_ok());
+        assert!(store.discard_draft(saved).unwrap());
+        assert!(store.get(saved).is_err());
+        assert!(!store.discard_draft(saved).unwrap());
     }
 
     #[test]
