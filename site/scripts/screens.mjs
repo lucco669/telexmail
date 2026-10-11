@@ -44,6 +44,15 @@ const scenes = {
     body.value = 'Hi Anna,\\n\\nthe new homepage is attached, with the brighter header photo and the gallery newest first.' + body.value;
     ui.typeIn('c-to', 'Anna Kowalska <anna@kowalska-architects.pl>, m'); await ui.wait(150);`,
   },
+  // Folders on this PC: last year's client mail kept off the server, with the right-click menu.
+  local: {
+    run: `ui.folder('local/clients-2025'); await ui.wait(100); ui.row('Our new website'); await ui.wait(150);
+    const f = document.querySelector('[data-folder="local/clients-2025"]'), r = f.getBoundingClientRect();
+    f.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, clientX:r.left + 70, clientY:r.top + r.height / 2}));
+    await ui.wait(50);`,
+  },
+  // Settings › Backups: the mail base, backing up and restoring.
+  backups: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-backup'); await ui.wait(250);` },
   filter: { run: `await ui.type('krakow'); await ui.wait(300);` },
   // Operators in all mail (the scope chip): files since September, with the Folder column.
   operators: { run: `ui.click('#q-scope'); await ui.type('has:file after:2026-09'); await ui.wait(300);` },

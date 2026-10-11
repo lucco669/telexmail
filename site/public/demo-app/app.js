@@ -5,6 +5,12 @@
 'use strict';
 
 const invoke = window.__TAURI__?.core?.invoke;
+// A message open in a window of its own (index.html?message=<id>): the same page, showing just
+// that message. Changes made there reach the main window, which refreshes and tells the server.
+const VIEWER = Number(new URLSearchParams(location.search).get('message')) || null;
+const tellMain = payload => window.__TAURI__?.event?.emitTo?.('main', 'viewer-did', payload ?? {});
+// Events about checks, sending and updates are the main window's business.
+const listenMain = (event, fn) => { if (!VIEWER) window.__TAURI__?.event?.listen(event, fn); };
 const I18n = window.TelexI18n;
 const {t, tn} = I18n;
 // Marks an English text for translation where it is defined; t() or tn() translates it where it is drawn.
@@ -43,6 +49,7 @@ const I = {
   quote: sv('<path d="M3 3.5v9"/><path d="M6 5h7M6 8h7M6 11h5"/>'),
   link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
+  popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder'};
 // Special folders have a name in the interface's language, whatever the server calls them.
@@ -90,6 +97,7 @@ async function call(cmd, args){
 // They are saved in the mail base first, so closing Telex or losing the network loses nothing.
 let pushTimer;
 function schedulePush(delay = 2500){
+  if (VIEWER){ tellMain(); return; }
   if (!ACCOUNTS.some(a => a.imap)) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(pushNow, delay);
@@ -145,8 +153,22 @@ const keyOfKind = (acct, kind) => { const f = ACCT[acct]?.folders.find(x => x.ki
 const homeOf = acct => keyOfKind(acct, 'inbox') || (ACCT[acct]?.folders[0] ? acct + '/' + ACCT[acct].folders[0].id : '');
 const countOf = key => COUNTS[key] ?? {total:0, unread:0};
 const num = n => n.toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en');
-// Each account has a color, shown as a dot once there is more than one account.
-const adot = acct => { const i = ACCOUNTS.findIndex(a => a.id === acct); return i < 0 ? '' : `<i class="adot a${i % 6}" aria-hidden="true"></i>`; };
+// The folders on this PC ("On this PC"): mail kept only here. The core keeps them as an
+// account without servers, with this id, listed last.
+const LOCAL = 'local';
+const isLocal = key => acctId(String(key)) === LOCAL;
+const servers = () => ACCOUNTS.filter(a => a.imap); // the accounts that live on a server
+// A folder's name where it could be mistaken for a server folder: "Archive on this PC".
+const placeName = key => isLocal(key) ? t('{folder} on this PC', {folder:folderName(key)}) : folderName(key);
+// Who a folder belongs to, in words: the account's address, or "On this PC".
+const acctLabel = acct => acct === LOCAL ? t('On this PC') : ACCT[acct]?.email ?? '';
+// Each account has a color, shown as a dot once there is more than one account; the folders
+// on this PC have a small screen instead.
+const adot = acct => {
+  if (acct === LOCAL) return `<i class="adot pc" aria-hidden="true"></i>`;
+  const i = ACCOUNTS.findIndex(a => a.id === acct);
+  return i < 0 ? '' : `<i class="adot a${i % 6}" aria-hidden="true"></i>`;
+};
 // The window's own state: pane sizes, the filter's scope, when updates were last checked. Settings are elsewhere.
 const store = {
   get(){ try { return JSON.parse(localStorage.getItem('telex-ui') || '{}'); } catch { return {}; } },
@@ -199,7 +221,7 @@ const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', check_every:10,
     push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
-    spell_check:true, updates:'ask'},
+    spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -239,6 +261,7 @@ async function changeSettings(changes){
   SETTINGS = next;
   applySettings();
   if (sdlg.open) SETTINGS.language === before ? syncSettings() : renderSettings(true);
+  window.__TAURI__?.event?.emit('settings-changed', null);
   return true;
 }
 // After a language change: everything on screen again, in the new words.
@@ -246,6 +269,7 @@ function relabel(){
   I18n.translatePage();
   paintToolbar(); paintDensity(); paintScope();
   renderTree(); renderHead(); drawRows(); renderStatus();
+  if (!helpPop.hidden) renderHelp();
   if (!state.compose) renderPreview(); else { readCompose(); renderCompose(); }
   if (rdlg.open){ if (!$('r-list-view').hidden) showRuleList(); else { renderConditions(); renderActions(); } }
 }
@@ -310,7 +334,7 @@ function renderStatus(){
     : `${adot(acctId(state.folder))}${esc(folderName(state.folder))} · ${esc(tn(total, '{n} message', '{n} messages', {n:num(total)}))}${unread ? ', ' + esc(tn(unread, '{n} unread', '{n} unread', {n:num(unread)})) : ''}${picked}${more}`;
   $('st-check').textContent = lastCheck ? t('Last check {time}', {time:hm(lastCheck)}) : '';
   renderMeter();
-  const title = ACCOUNTS.length ? `${folderName(state.folder)} · ${ACCT[acctId(state.folder)]?.email ?? ''} – Telex` : 'Telex';
+  const title = VIEWER ? `${selRow?.subj || t('Message')} – Telex` : ACCOUNTS.length ? `${folderName(state.folder)} · ${acctLabel(acctId(state.folder))} – Telex` : 'Telex';
   if (title !== lastTitle){
     lastTitle = title;
     document.title = title;
@@ -340,15 +364,18 @@ const quotaOf = acct => USAGE?.accounts.find(u => u.account === acct)?.quota ?? 
 const pctOf = q => Math.min(100, Math.round(q.used_kb / q.limit_kb * 100));
 const levelOf = pct => pct >= 95 ? 'full' : pct >= 80 ? 'warn' : 'ok';
 const quotaText = q => t('Server storage: {used} of {limit} ({pct}%)', {used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct:pctOf(q)});
+// The bar is the account's own color, like its dot; next to it, how much room is left.
 function renderMeter(){
-  const q = ACCOUNTS.length && state.folder ? quotaOf(acctId(state.folder)) : null, m = $('st-usage');
+  const acct = ACCOUNTS.length && state.folder ? acctId(state.folder) : null, q = acct ? quotaOf(acct) : null, m = $('st-usage');
   m.hidden = !q;
   if (!q) return;
-  const pct = pctOf(q);
+  const pct = pctOf(q), free = fmtSize(Math.max(0, q.limit_kb - q.used_kb));
   m.dataset.level = levelOf(pct);
-  m.querySelector('i').style.width = Math.max(pct, 3) + '%';
-  m.querySelector('.mtxt').textContent = pct + '%';
-  m.title = quotaText(q) + '. ' + t('Click for usage.');
+  m.style.setProperty('--fill', `var(--acct-${Math.max(0, ACCOUNTS.findIndex(a => a.id === acct)) % 6})`);
+  m.querySelector('i').style.width = pct + '%';
+  m.querySelector('.mtxt').textContent = t('{size} free', {size:free});
+  m.title = t('{email} on the server: {used} of {limit} used ({pct}%), {free} free.', {email:ACCT[acct]?.email ?? '', used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct, free})
+    + ' ' + t('Click for usage.');
   m.setAttribute('aria-label', m.title);
 }
 async function loadUsage(){
@@ -364,15 +391,45 @@ const MAIN_KINDS = new Set(['inbox', 'sent']);
 const COUNT_ALL = new Set(['drafts', 'outbox']); // these count everything, not unread
 function folderButton(a, f){
   const key = a.id + '/' + f.id, c = countOf(key), all = COUNT_ALL.has(f.kind);
+  if (state.naming?.key === key) return `<li><span class="fold naming">${I[KIND_ICON[f.kind] || 'folder']}${nameInput()}</span></li>`;
   const n = all ? c.total : c.unread;
   const cnt = n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
   const on = key === state.folder;
   return `<li><button type="button" class="fold${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}>${I[KIND_ICON[f.kind] || 'folder']}<span>${esc(folderName(key))}</span>${cnt}</button></li>`;
 }
+// The box a folder on this PC is named in, in the tree itself.
+const nameInput = () => `<input id="nf-name" class="nfname" value="${esc(state.naming.value)}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Folder name'))}" placeholder="${esc(t('Folder name'))}">`;
+// The folders on this PC: their own group under the accounts, with a + for a new one. Trash
+// shows only when it holds something.
+// Mail on this PC exists nowhere else: the group says so while there is no backup, or (with
+// backups off) none for a month.
+function backupNudge(){
+  const held = (ACCT[LOCAL]?.folders ?? []).reduce((n, f) => n + countOf(LOCAL + '/' + f.id).total, 0);
+  if (!held || !bk.state?.base) return false;
+  const newest = bk.state.backups[0];
+  return !newest || (pref().backup_every === 'off' && Date.now() - parseDate(newest.made) > 30 * 864e5);
+}
+function localGroup(a){
+  const open = !state.collapsed[LOCAL];
+  let items = '';
+  if (open){
+    const shown = a.folders.filter(f => f.kind !== 'trash' || countOf(LOCAL + '/' + f.id).total > 0 || LOCAL + '/' + f.id === state.folder);
+    items = '<ul>' + (state.naming?.key === 'new' ? `<li><span class="fold naming">${I.folder}${nameInput()}</span></li>` : '')
+      + shown.map(f => folderButton(a, f)).join('') + '</ul>';
+  }
+  return `<div class="pcrow"><button type="button" class="acct" data-acct="${LOCAL}" aria-expanded="${open}" title="${esc(t('Mail kept only on this PC, on no server. Right-click a folder for more.'))}">${I.caret}${adot(LOCAL)}<span class="acct-mail">${esc(t('On this PC'))}</span></button>`
+    + (backupNudge() ? `<button type="button" class="qchip bkchip" data-act="backups" title="${esc(t('This mail is only on this PC and has no recent backup. Click to back it up.'))}">${esc(t('No backup'))}</button>` : '')
+    + `<button type="button" class="pcadd" data-act="new-folder" title="${esc(t('New folder on this PC'))}" aria-label="${esc(t('New folder on this PC'))}">${I.plus}</button></div>${items}`;
+}
 function renderTree(){
   win.classList.toggle('noacct', !ACCOUNTS.length); // the welcome takes the whole right side
-  win.classList.toggle('multi', ACCOUNTS.length > 1);
+  win.classList.toggle('multi', servers().length > 1);
+  // A folder being named keeps what was typed, and the focus, when the tree is drawn again.
+  const typing = state.naming && $('nf-name'), had = typing && document.activeElement === typing;
+  if (typing) state.naming.value = typing.value;
+  const caret = typing ? [typing.selectionStart, typing.selectionEnd] : null;
   treeEl.innerHTML = ACCOUNTS.map(a => {
+    if (a.id === LOCAL) return localGroup(a);
     const open = !state.collapsed[a.id];
     let items = '';
     if (open){
@@ -389,8 +446,14 @@ function renderTree(){
     const q = quotaOf(a.id), pct = q ? pctOf(q) : 0;
     const full = pct >= 90 ? `<span class="qchip" data-level="${levelOf(pct)}" title="${esc(quotaText(q))}">${pct}%</span>` : '';
     return `<button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}</button>${items}`;
-  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(ACCOUNTS.length ? t('Add account') : t('Add your account'))}</span></button>`;
-  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(a.email)}">` + a.folders.map(f => {
+  }).join('') + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(servers().length ? t('Add account') : t('Add your account'))}</span></button>`;
+  const input = $('nf-name');
+  if (input){
+    wireNaming(input);
+    if (had){ input.focus(); if (caret) input.setSelectionRange(...caret); }
+  }
+  if (drag?.started) paintDrag(); // the folders under a drag show it again
+  $('folder-select').innerHTML = ACCOUNTS.map(a => `<optgroup label="${esc(acctLabel(a.id))}">` + a.folders.map(f => {
     const key = a.id + '/' + f.id, n = countOf(key).unread;
     return `<option value="${key}"${key === state.folder ? ' selected' : ''}>${esc(folderName(key))}${n ? ` (${n})` : ''}</option>`;
   }).join('') + '</optgroup>').join('');
@@ -398,11 +461,169 @@ function renderTree(){
 treeEl.addEventListener('click', e => {
   const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]'), m = e.target.closest('[data-more]');
   if (e.target.closest('[data-act="add-account"]')) openAccountDialog();
+  else if (e.target.closest('[data-act="new-folder"]')) startNaming('new');
+  else if (e.target.closest('[data-act="backups"]')) openSettings('backup');
   else if (f) setFolder(f.dataset.folder);
   else if (m){ state.more[m.dataset.more] = !state.more[m.dataset.more]; if (!state.more[m.dataset.more]) delete state.more[m.dataset.more]; persist(); renderTree(); }
   else if (a){ state.collapsed[a.dataset.acct] = !state.collapsed[a.dataset.acct]; renderTree(); }
 });
 $('folder-select').addEventListener('change', e => setFolder(e.target.value));
+
+/* ---------- folders on this PC ---------- */
+// Made and renamed right in the tree: the name is typed where the folder shows; Enter keeps
+// it, Esc doesn't. Removed only when empty. Right-click (or the menu key) for more.
+function startNaming(key){
+  if (!ACCT[LOCAL]) return;
+  delete state.collapsed[LOCAL];
+  state.naming = {key, value:key === 'new' ? '' : folderName(key), busy:false};
+  renderTree();
+  const input = $('nf-name');
+  input?.focus(); input?.select();
+}
+function wireNaming(input){
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter'){ e.preventDefault(); e.stopPropagation(); finishNaming(true); }
+    else if (e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); finishNaming(false); }
+  });
+  input.addEventListener('input', () => { if (state.naming) state.naming.value = input.value; });
+  input.addEventListener('blur', () => setTimeout(() => {
+    if (state.naming && !state.naming.busy && document.activeElement !== $('nf-name')) finishNaming(!!input.value.trim());
+  }, 0));
+}
+async function finishNaming(save){
+  const n = state.naming;
+  if (!n || n.busy) return;
+  const name = ($('nf-name')?.value ?? n.value).trim();
+  const back = () => { state.naming = null; renderTree(); treeEl.querySelector(`[data-folder="${n.key}"]`)?.focus(); };
+  if (!save || !name || (n.key !== 'new' && name === folderName(n.key))){ back(); return; }
+  n.busy = true;
+  try {
+    if (n.key === 'new'){
+      const key = await invoke('create_local_folder', {name});
+      state.naming = null;
+      await loadTree();
+      await setFolder(key);
+      say(t('Made the folder {folder} on this PC. Drag mail onto it, or press M.', {folder:name}), 6000);
+      treeEl.querySelector(`[data-folder="${key}"]`)?.focus();
+    } else {
+      await invoke('rename_local_folder', {folder:n.key, name});
+      await loadTree();
+      back();
+      renderStatus();
+    }
+  } catch (e){
+    n.busy = false;
+    say(tr(e), 8000);
+    $('nf-name')?.focus();
+  }
+}
+async function markFolderRead(key){
+  let n;
+  try { n = await call('mark_folder_read', {folder:key}); } catch { return; }
+  await refresh();
+  say(tn(n, 'Marked {n} message as read.', 'Marked {n} messages as read.', {n:num(n)}), 3000);
+}
+async function deleteFolder(key){
+  const name = folderName(key);
+  let rules;
+  try { rules = await invoke('delete_local_folder', {folder:key}); } catch (e){ say(tr(e), 8000); return; }
+  await loadTree();
+  if (state.folder === key) setFolder(LOCAL + '/archive'); else renderTree();
+  say(t('Removed the folder {folder}.', {folder:name}) + (rules ? ' ' + tn(rules, '{n} rule no longer moves mail there.', '{n} rules no longer move mail there.') : ''), 6000);
+}
+// A folder as one mbox file, which other mail programs read.
+async function exportFolder(key){
+  let path;
+  try {
+    path = await invoke('export_folder', {folder:key, words:{title:t('Save {folder} as mbox', {folder:placeName(key)}), filter:t('mbox files'), file_name:folderName(key)}});
+  } catch (e){ say(tr(e), 8000); return; }
+  if (path) say(t('Saved {folder} to {path}.', {folder:placeName(key), path}), 8000);
+}
+// .eml and mbox files into a folder on this PC: dropped on it (`paths`), or chosen in Open.
+async function importInto(key, paths = null){
+  let r;
+  try {
+    r = await invoke('import_mail', {folder:key, paths, words:{title:t('Bring mail into {folder}', {folder:placeName(key)}), filter:t('Mail files'), all:t('All files')}});
+  } catch (e){ say(tr(e), 10000); return; }
+  if (!r) return; // cancelled
+  await refresh();
+  const lines = [tn(r.added, 'Brought {n} message into {folder}.', 'Brought {n} messages into {folder}.', {n:num(r.added), folder:placeName(key)})];
+  if (r.already) lines.push(tn(r.already, '{n} was there already.', '{n} were there already.', {n:num(r.already)}));
+  say([...lines, ...r.problems].join(' '), r.problems.length ? 15000 : 8000);
+}
+window.__TAURI__?.event?.listen('import-progress', ({payload: p}) => say(t('Reading mail from {file}: {n} so far…', {file:p.file, n:num(p.done)}), 0));
+// What a right-click (or the menu key) on a folder offers.
+function folderMenu(key){
+  const f = folderOf(key);
+  if (!f) return [];
+  const local = isLocal(key), own = local && f.kind === 'custom';
+  const sections = [
+    local ? [{label:t('New folder…'), run:() => startNaming('new')}] : [],
+    own ? [{label:t('Rename…'), key:'F2', run:() => startNaming(key)}, {label:t('Delete folder'), disabled:countOf(key).total > 0, run:() => deleteFolder(key)}] : [],
+    [...(countOf(key).unread ? [{label:t('Mark all as read'), key:'Shift+U', run:() => markFolderRead(key)}] : []),
+      ...(local && f.kind !== 'trash' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
+      {label:t('Save as mbox…'), run:() => exportFolder(key)}],
+  ];
+  return sections.filter(s => s.length).flatMap((s, i) => i ? [{sep:true}, ...s] : s);
+}
+treeEl.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  const f = e.target.closest('[data-folder]'), g = e.target.closest(`[data-acct="${LOCAL}"]`);
+  const items = f ? folderMenu(f.dataset.folder) : g ? [{label:t('New folder…'), run:() => startNaming('new')}] : [];
+  if (items.length) openMenu(e.clientX, e.clientY, items, f || g);
+});
+treeEl.addEventListener('keydown', e => {
+  const f = e.target.closest?.('[data-folder]');
+  if (!f) return;
+  if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)){
+    e.preventDefault(); e.stopPropagation();
+    const r = f.getBoundingClientRect(), items = folderMenu(f.dataset.folder);
+    if (items.length) openMenu(r.left + 24, r.bottom, items, f);
+  } else if (e.key === 'F2' && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) === 'custom'){
+    e.preventDefault(); e.stopPropagation(); startNaming(f.dataset.folder);
+  }
+});
+
+/* ---------- a small menu ---------- */
+// Right-click menus: ↑ ↓ choose, Enter takes, Esc or a click elsewhere closes, and the focus
+// goes back where it was.
+const menuEl = document.createElement('ul');
+menuEl.className = 'cmenu'; menuEl.setAttribute('role', 'menu'); menuEl.hidden = true;
+document.body.append(menuEl);
+let menuItems = [], menuFrom = null;
+function openMenu(x, y, items, from){
+  menuItems = items; menuFrom = from;
+  menuEl.innerHTML = items.map((it, i) => it.sep ? '<li class="msep" role="separator"></li>'
+    : `<li role="menuitem" tabindex="-1" data-i="${i}"${it.disabled ? ' aria-disabled="true"' : ''}><span>${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
+  menuEl.hidden = false;
+  const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
+  menuEl.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + 'px';
+  menuEl.style.top = Math.max(4, Math.min(y, innerHeight - h - 4)) + 'px';
+  menuEl.querySelector('[role="menuitem"]:not([aria-disabled])')?.focus();
+}
+function closeMenu(refocus = true){
+  if (menuEl.hidden) return;
+  menuEl.hidden = true;
+  if (refocus) menuFrom?.focus?.();
+}
+function runMenu(li){
+  const it = menuItems[Number(li?.dataset.i)];
+  if (!it || it.disabled) return;
+  closeMenu(false);
+  it.run();
+}
+menuEl.addEventListener('click', e => runMenu(e.target.closest('[role="menuitem"]')));
+menuEl.addEventListener('keydown', e => {
+  const all = [...menuEl.querySelectorAll('[role="menuitem"]:not([aria-disabled])')], i = all.indexOf(document.activeElement);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){ all[(i + (e.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length]?.focus(); }
+  else if (e.key === 'Home' || e.key === 'End'){ all[e.key === 'Home' ? 0 : all.length - 1]?.focus(); }
+  else if (e.key === 'Enter' || e.key === ' '){ runMenu(document.activeElement); }
+  else if (e.key === 'Escape' || e.key === 'Tab'){ closeMenu(); }
+  else return;
+  e.preventDefault(); e.stopPropagation();
+});
+document.addEventListener('pointerdown', e => { if (!menuEl.hidden && !menuEl.contains(e.target)) closeMenu(false); }, true);
+addEventListener('blur', () => closeMenu(false));
 
 function setFolder(key){
   state.folder = key; state.q = ''; qEl.value = ''; state.inText = false; state.thread = null;
@@ -479,7 +700,7 @@ function rowHtml(m, sel){
 <td class="c-ic"><span class="ic"><i class="dot"></i>${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : '<i class="sp"></i>'}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${esc(who)}</td>
 <td class="c-subj" title="${esc(m.subj)}">${esc(m.subj)}</td>
-<td class="c-where" title="${esc(ACCT[acctId(m.f)]?.email ?? '')} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(folderName(m.f))}</td>
+<td class="c-where" title="${esc(acctLabel(acctId(m.f)))} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(folderName(m.f))}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
 }
@@ -545,6 +766,7 @@ async function rowAt(pos){
 // Load the view again with the selection in it (or from the top), e.g. after a folder
 // switch, a new order or filter. `top`: a different folder, so start at its top.
 async function loadView({top = false} = {}){
+  if (VIEWER) return viewerShow();
   const seq = ++list.seq, key = selKey();
   let id = state.sel[key], p;
   try { p = await fetchPage(id != null ? {around:id} : 'first'); }
@@ -565,6 +787,7 @@ async function loadView({top = false} = {}){
 // After mail changed (a check, rules, sending, a push): new counts, and the open page again,
 // keeping the first row on screen where it was. `skip`: a message that just went away.
 async function refresh({skip} = {}){
+  if (VIEWER) return viewerShow();
   try { await loadTree(); } catch { return; }
   if (!folderOf(state.folder)){ setFolder(homeOf(ACCOUNTS[0]?.id)); return; } // e.g. the folder is gone from the server
   if (state.picked.size){ // picked messages that went away (deleted elsewhere, moved by a rule) aren't picked any more
@@ -625,7 +848,121 @@ rowsEl.addEventListener('click', e => {
   else { unpick(); select(id); }
   listEl.focus({preventScroll:true});
 });
-rowsEl.addEventListener('dblclick', e => { if (e.target.closest('tr[data-id]') && allMail()) openInFolder(); });
+rowsEl.addEventListener('dblclick', e => { const tr = e.target.closest('tr[data-id]'); if (tr) openWindow(Number(tr.dataset.id)); });
+// A message in a window of its own, to read side by side or on another screen.
+function openWindow(id){
+  if (id == null) return;
+  invoke('open_window', {id}).catch(e => say(tr(e), 8000));
+}
+
+/* ---------- drag and drop ---------- */
+// Messages dragged from the list onto a folder in the tree move there, as with M. So nothing
+// moves by accident: a drag starts only after the pointer has gone a few pixels; a folder takes
+// the messages only after the pointer has rested on it for a moment (it fills up, then shows
+// it is ready), and folders that can't take them say no; letting go anywhere else, or Esc,
+// does nothing; and Z puts them back. Resting on a closed account or "more" opens it.
+const DRAG_START = 6, ARM_MS = 350, SPRING_MS = 650;
+let drag = null; // {pointer, x, y, row, started, ids, folders, over, armed, timers, ghost}
+function dragTarget(x, y){
+  const el = document.elementFromPoint(x, y);
+  if (!el?.closest?.('#tree')) return null;
+  const f = el.closest('[data-folder]'), more = el.closest('[data-more]'), acct = el.closest('[data-acct]');
+  if (f){
+    const key = f.dataset.folder, kind = kindOf(key);
+    const ok = !drag.folders.includes(key) && kind !== 'outbox' && targetsFor(drag.folders).includes(acctId(key));
+    return {key, ok, el:f};
+  }
+  if (more && more.getAttribute('aria-expanded') === 'false') return {spring:() => { state.more[more.dataset.more] = true; persist(); renderTree(); }, el:more, key:'more:' + more.dataset.more};
+  if (acct && acct.getAttribute('aria-expanded') === 'false') return {spring:() => { delete state.collapsed[acct.dataset.acct]; renderTree(); }, el:acct, key:'acct:' + acct.dataset.acct};
+  return null;
+}
+// What the ghost under the pointer says, and which folder shows what.
+function paintDrag(){
+  if (!drag?.started) return;
+  treeEl.querySelectorAll('.dragover, .dropok, .dropno').forEach(el => el.classList.remove('dragover', 'dropok', 'dropno'));
+  const o = drag.over, el = o && !o.spring ? treeEl.querySelector(`[data-folder="${o.key}"]`) : null;
+  if (el) el.classList.add(o.ok ? (drag.armed ? 'dropok' : 'dragover') : 'dropno');
+  const what = drag.subject || tn(drag.ids.length, '{n} message', '{n} messages', {n:num(drag.ids.length)});
+  const hint = !o || o.spring ? t('Rest on a folder for a moment, then let go.')
+    : !o.ok ? (drag.folders.includes(o.key) ? t('It is in this folder already.') : t('Not to another account: put it in a folder on this PC first.'))
+    : drag.armed ? t('Let go to move it to {folder}.', {folder:placeName(o.key)}) : t('Hold on {folder}…', {folder:placeName(o.key)});
+  drag.ghost.innerHTML = `<b>${esc(what)}</b><span>${esc(hint)}</span>`;
+  drag.ghost.classList.toggle('ready', !!(o?.ok && drag.armed));
+}
+function startDrag(){
+  const d = drag, row = list.rows.find(r => r.id === d.row) ?? (selRow?.id === d.row ? selRow : null);
+  if (!row) { drag = null; return; }
+  // Dragging a message that isn't among those picked takes just that one, selected.
+  if (!state.picked.has(row.id)){ if (unpick()) paintSelection(); if (current()?.id !== row.id) select(row.id); }
+  d.ids = chosen();
+  const rows = state.picked.size > 1 ? pickedRows() : [row];
+  d.folders = [...new Set(rows.map(r => r.f))];
+  d.subject = d.ids.length === 1 ? row.subj : '';
+  d.started = true; d.over = null; d.armed = false; d.timers = [];
+  d.ghost = document.createElement('div');
+  d.ghost.className = 'dragghost'; d.ghost.setAttribute('aria-hidden', 'true');
+  document.body.append(d.ghost);
+  win.classList.add('dragging');
+  try { listEl.setPointerCapture(d.pointer); } catch {}
+  paintDrag();
+}
+function endDrag(){
+  const d = drag; drag = null;
+  if (!d?.started) return;
+  d.timers.forEach(clearTimeout); cancelAnimationFrame(d.scroll);
+  d.ghost.remove();
+  win.classList.remove('dragging');
+  treeEl.querySelectorAll('.dragover, .dropok, .dropno').forEach(el => el.classList.remove('dragover', 'dropok', 'dropno'));
+  try { listEl.releasePointerCapture(d.pointer); } catch {}
+  return d;
+}
+// Near the tree's top or bottom edge, the tree scrolls by itself.
+function dragScroll(){
+  const d = drag; if (!d?.started) return;
+  const r = treeEl.getBoundingClientRect(), edge = 28;
+  const step = d.x < r.left || d.x > r.right ? 0 : d.y < r.top + edge ? -6 : d.y > r.bottom - edge ? 6 : 0;
+  if (step){ treeEl.scrollTop += step; d.scroll = requestAnimationFrame(dragScroll); } else d.scroll = 0;
+}
+rowsEl.addEventListener('pointerdown', e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr || e.button !== 0 || e.pointerType === 'touch') return;
+  drag = {pointer:e.pointerId, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, row:Number(tr.dataset.id), started:false};
+});
+listEl.addEventListener('pointermove', e => {
+  const d = drag;
+  if (!d || e.pointerId !== d.pointer) return;
+  d.x = e.clientX; d.y = e.clientY;
+  if (!d.started){
+    if (Math.hypot(d.x - d.x0, d.y - d.y0) < DRAG_START) return;
+    startDrag();
+    if (!drag) return;
+  }
+  // Above the pointer, so the folders below it stay in sight; below it at the top of the window.
+  const gh = d.ghost.offsetHeight, gy = d.y - gh - 10 < 4 ? d.y + 18 : d.y - gh - 10;
+  d.ghost.style.transform = `translate(${d.x + 14}px, ${gy}px)`;
+  const over = dragTarget(d.x, d.y);
+  if ((over?.key ?? null) !== (d.over?.key ?? null)){
+    d.timers.forEach(clearTimeout); d.timers = [];
+    d.over = over; d.armed = false;
+    if (over?.ok) d.timers.push(setTimeout(() => { if (drag === d){ d.armed = true; paintDrag(); } }, ARM_MS));
+    if (over?.spring) d.timers.push(setTimeout(() => { if (drag === d){ over.spring(); d.over = null; paintDrag(); } }, SPRING_MS));
+    paintDrag();
+  }
+  if (!d.scroll) dragScroll();
+});
+listEl.addEventListener('pointerup', e => {
+  if (!drag || e.pointerId !== drag.pointer) return;
+  const d = endDrag();
+  if (!d) return;
+  if (d.over?.ok && d.armed){ moveChosen(d.over.key); listEl.focus({preventScroll:true}); }
+  else if (d.over?.ok) say(t('Not moved: rest on the folder until it fills, then let go.'), 5000);
+});
+listEl.addEventListener('pointercancel', () => endDrag());
+listEl.addEventListener('lostpointercapture', () => { if (drag?.started) endDrag(); });
+// Esc while dragging: nothing moves.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && drag?.started){ e.preventDefault(); e.stopPropagation(); endDrag(); say(t('Nothing moved.'), 2500); }
+}, true);
 document.querySelectorAll('th button[data-sort]').forEach(b => b.addEventListener('click', () => {
   const k = b.dataset.sort;
   state.sort = state.sort.key === k ? {key:k, dir:-state.sort.dir} : {key:k, dir:(k === 'date' || k === 'size' || k === 'flag') ? -1 : 1};
@@ -870,6 +1207,40 @@ async function saveAttachments(id){
   try { dir = await invoke('save_attachments', {id, words:{title:t('Save attachments to')}}); } catch (e){ say(tr(e), 8000); return; }
   if (dir) say(tn(n, 'Saved {n} file to {dir}.', 'Saved {n} files to {dir}.', {dir}), 6000);
 }
+// An address line ("Anna Kowalska <anna@x.pl>, "Nowak, Jan" <jan@y.pl>") as people: commas inside quotes don't split.
+function addresses(line){
+  const parts = [];
+  let cur = '', quoted = false;
+  for (const ch of String(line || '')){
+    if (ch === '"') quoted = !quoted;
+    if (!quoted && (ch === ',' || ch === ';')){ parts.push(cur); cur = ''; } else cur += ch;
+  }
+  parts.push(cur);
+  return parts.map(s => s.trim()).filter(Boolean).map(s => {
+    const m = s.match(/^(.*?)\s*<([^<>]+)>$/);
+    return m ? {name:m[1].replace(/^"(.*)"$/, '$1').trim(), email:m[2].trim()} : {name:'', email:s};
+  });
+}
+// A person: the name, then the address in a quieter color; the address alone when there is no name.
+const person = (name, email) => name && name !== email ? `<span class="pn">${esc(name)}</span> <span class="pa">${esc(email)}</span>` : `<span class="pn">${esc(email || name)}</span>`;
+const people = line => addresses(line).map(p => `<span class="pp">${person(p.name, p.email)}</span>`).join(', ');
+// The message's header: the subject with its buttons (`controls`), who it is from (a click shows all
+// their mail), when and how large, who it went to, and its attachments. One face throughout.
+function headerHtml(m, controls){
+  const sender = m.from_email && !VIEWER
+    ? `<button type="button" class="ph-who" data-act="sender" title="${esc(t('Show all mail from {email}', {email:m.from_email}))}">${person(m.from_name, m.from_email)}</button>`
+    : `<span class="ph-who">${person(m.from_name, m.from_email)}</span>`;
+  return `<header class="ph">
+  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${controls}</div>
+  <dl class="ph-grid">
+    <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
+    <dt>${esc(t('To'))}</dt><dd>${m.to ? people(m.to) : esc(t('(no recipient)'))}</dd>
+    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${people(m.cc)}</dd>` : ''}
+    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${people(m.bcc)}</dd>` : ''}
+  </dl>
+  ${attsHtml(m.attachments)}
+</header>`;
+}
 let pvSeq = 0;
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
@@ -905,18 +1276,9 @@ async function renderPreview(){
     ? `<button type="button" class="pbtn" data-act="paper" aria-pressed="${onWhite}" title="${esc(onWhite ? t('Show on dark paper') : t('Show on white, as sent'))}" aria-label="${esc(onWhite ? t('Show on dark paper') : t('Show on white, as sent'))}">${onWhite ? I.moon : I.sun}</button>` : '';
   const images = asHtml ? imagesBar(m, hv, spam)
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
+  const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-<header class="ph">
-  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}</div>
-  <dl class="ph-grid">
-    <dt>${esc(t('From'))}</dt><dd>${esc(m.from_name)} &lt;${esc(m.from_email)}&gt;</dd>
-    <dt>${esc(t('To'))}</dt><dd>${esc(m.to || t('(no recipient)'))}</dd>
-    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${esc(m.cc)}</dd>` : ''}
-    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${esc(m.bcc)}</dd>` : ''}
-    <dt>${esc(t('Date'))}</dt><dd class="mono">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</dd>
-  </dl>
-  ${attsHtml(m.attachments)}
-</header>
+${headerHtml(m, `${popout}${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -959,6 +1321,8 @@ previewEl.addEventListener('click', async e => {
     await renderPreview();
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
+  if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
+  if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
     renderPreview();
@@ -979,7 +1343,7 @@ previewEl.addEventListener('click', async e => {
 // says which a new message, a reply and a forward start in, and Text | HTML switches.
 // `of`: the message to edit when it isn't the selected one (one just taken back from sending).
 async function openCompose(kind, preset = {}, of = null){
-  if (!ACCOUNTS.length){ say(t('Add a mail account first.')); openAccountDialog(); return; }
+  if (!servers().length){ say(t('Add a mail account first.')); openAccountDialog(); return; }
   const s = of != null ? {id:of, f:(await full(of).catch(() => null))?.folder} : current();
   if (kind !== 'new' && !s?.f){ say(t('Select a message first.')); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say(t('Only drafts and unsent messages in the Outbox can be edited.')); return; }
@@ -1008,10 +1372,10 @@ async function openCompose(kind, preset = {}, of = null){
   state.compose = c;
   renderCompose();
 }
-const allIdentities = () => ACCOUNTS.flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
+const allIdentities = () => servers().flatMap(a => (a.identities || []).map(i => ({...i, account:a.id})));
 const composeNote = c => !ACCT[c.account]?.smtp ? t('This account has no SMTP server yet: add one in Settings › Accounts to send.') : '';
 function fromOptions(c){
-  return ACCOUNTS.map(a => `<optgroup label="${esc(a.name)}">` + (a.identities || []).map(i =>
+  return servers().map(a => `<optgroup label="${esc(a.name)}">` + (a.identities || []).map(i =>
     `<option value="${i.id}"${i.id === c.identity ? ' selected' : ''}>${esc(i.name)} &lt;${esc(i.email)}&gt;</option>`).join('') + '</optgroup>').join('');
 }
 // Another identity: the account follows it, and its signature replaces the old one.
@@ -1186,9 +1550,31 @@ async function pickFiles(){
   try { files = await invoke('pick_files', {words:{title:t('Attach files')}}); } catch (e){ say(tr(e), 8000); return; }
   await addFiles(files);
 }
+// Files dragged in from Explorer. Over a folder on this PC it lights up, and dropped there they
+// are read into it as mail (.eml, mbox); anywhere else they are attached to a message. The
+// core says where in physical pixels.
+let fileTarget = null;
+function dropSpot(x, y){
+  const el = document.elementFromPoint(x / (devicePixelRatio || 1), y / (devicePixelRatio || 1));
+  if (!el?.closest?.('#tree')) return null;
+  const f = el.closest('[data-folder]');
+  return {folder:f && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) !== 'trash' ? f : null};
+}
+window.__TAURI__?.event?.listen('files-over', ({payload}) => {
+  const f = payload ? dropSpot(payload[0], payload[1])?.folder ?? null : null;
+  if (f === fileTarget) return;
+  fileTarget?.classList.remove('dropok');
+  f?.classList.add('dropok');
+  fileTarget = f;
+});
 window.__TAURI__?.event?.listen('files-dropped', ({payload}) => {
+  fileTarget?.classList.remove('dropok'); fileTarget = null;
   if (document.querySelector('dialog[open]')) return; // not while a dialog is open
-  addFiles(payload);
+  const p = Array.isArray(payload) ? {files:payload} : payload; // the demo sends just the files
+  const spot = p.x != null ? dropSpot(p.x, p.y) : null;
+  if (spot?.folder){ importInto(spot.folder.dataset.folder, p.files.map(f => f.path)); return; }
+  if (spot){ say(t('To bring in mail files (.eml, mbox), drop them on a folder on this PC. Dropped anywhere else, files are attached to a message.'), 9000); return; }
+  addFiles(p.files);
 });
 // The caret at the very start, above the quote, as in the plain-text editor.
 function focusStart(body){
@@ -1305,6 +1691,13 @@ async function send(){
   state.compose = null;
   closeSuggestions();
   forgetRecipients(); // someone new may be in it
+  if (VIEWER){
+    const sent = sentText(r.sent);
+    tellMain(r.wait ? {say:t('Sending in {n} s. Press Z to undo.', {n:r.wait}), ms:r.wait * 1000 + 500, undo:{kind:'send', id:r.queued, until:Date.now() + r.wait * 1000}}
+      : {say:r.errors.length ? [sent, r.errors.join(' · ')].filter(Boolean).join(' ') : sent || t('In the Outbox. It goes out with the next check.'), ms:r.errors.length ? 15000 : 6000});
+    closeViewer();
+    return;
+  }
   renderPreview();
   await refresh();
   listEl.focus();
@@ -1318,12 +1711,18 @@ async function send(){
   else say(sent || t('In the Outbox. It goes out with the next check.'), 6000);
 }
 // Mail that waited its moment has gone out (or not): what the SMTP server said.
-window.__TAURI__?.event?.listen('outbox-sent', ({payload: r}) => {
+listenMain('outbox-sent', ({payload: r}) => {
   if (state.undo?.kind === 'send' && state.undo.id === r.queued) state.undo = null;
   refresh();
   const sent = sentText(r.sent);
   if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
   else if (sent) say(sent, 6000);
+});
+// A message open in its own window changed something, or sent mail: say so here, where Z works.
+listenMain('viewer-did', ({payload: p}) => {
+  if (p?.undo) state.undo = p.undo;
+  if (p?.say) say(p.say, p.ms ?? 6000);
+  refresh(); schedulePush();
 });
 // Z within the moment: the message stays in the Outbox, held, and opens again to be changed.
 async function unsend(u){
@@ -1409,6 +1808,7 @@ async function del(){
   const n = ids.length;
   say(r.trashed.length ? (n === 1 ? t('Moved to Trash. Press Z to undo.') : tn(n, 'Moved {n} message to Trash. Press Z to undo.', 'Moved {n} messages to Trash. Press Z to undo.', {n:num(n)}))
     : n === 1 ? t('Deleted for good.') : tn(n, 'Deleted {n} message for good.', 'Deleted {n} messages for good.', {n:num(n)}));
+  if (VIEWER){ tellMain({say:$('st-msg').textContent, undo:state.undo}); closeViewer(); return; }
   unpick();
   state.sel[selKey()] = next?.id;
   selRow = next;
@@ -1422,7 +1822,7 @@ async function moveChosen(folder){
   let places;
   try { places = await call('move_messages', {ids, folder}); } catch { return; }
   state.undo = {kind:'move', items:places.filter(([, from]) => from !== folder).map(([id, from]) => ({id, from}))};
-  const n = ids.length, where = folderName(folder);
+  const n = ids.length, where = placeName(folder);
   say(n === 1 ? t('Moved to {folder}. Press Z to undo.', {folder:where}) : tn(n, 'Moved {n} message to {folder}. Press Z to undo.', 'Moved {n} messages to {folder}. Press Z to undo.', {n:num(n), folder:where}));
   unpick();
   if (next){ state.sel[selKey()] = next.id; selRow = next; }
@@ -1442,13 +1842,20 @@ async function undo(){
   await loadTree().catch(() => {});
   renderTree();
   await loadView();
-  say(u.items.length === 1 ? t('Restored to {folder}.', {folder:folderName(first.from)}) : tn(u.items.length, 'Restored {n} message.', 'Restored {n} messages.', {n:num(u.items.length)}));
+  say(u.items.length === 1 ? t('Restored to {folder}.', {folder:placeName(first.from)}) : tn(u.items.length, 'Restored {n} message.', 'Restored {n} messages.', {n:num(u.items.length)}));
 }
 /* ---------- folder picker: M moves, G goes ---------- */
 // Type part of a folder's name (diacritics don't matter), ↑ ↓ to choose, Enter. Folders used
 // last come first. M lists the folders of the selected messages' account; G every folder.
 const pdlg = $('pick-dlg');
 let pick = null; // {mode, items:[{key, name, acct}], shown:[], at}
+// Where messages from these folders can go: a folder of their own account, or one on this
+// PC; mail on this PC can go anywhere. Messages of two server accounts go to this PC only.
+function targetsFor(folders){
+  const from = [...new Set(folders.map(acctId))].filter(a => a !== LOCAL);
+  const accts = from.length > 1 ? [] : from.length === 1 ? from : servers().map(a => a.id);
+  return ACCT[LOCAL] ? [...accts, LOCAL] : accts;
+}
 function openPicker(mode){
   if (state.compose || !ACCOUNTS.length) return;
   let accts = ACCOUNTS.map(a => a.id), skip = null;
@@ -1456,11 +1863,9 @@ function openPicker(mode){
     const ids = chosen();
     if (!ids.length){ say(t('Select a message first.')); return; }
     const rows = state.picked.size > 1 ? pickedRows() : [current()];
-    const from = [...new Set(rows.map(r => acctId(r.f)))];
-    if (from.length > 1){ say(t('Messages from different accounts can’t be moved together.')); return; }
-    accts = from;
-    const folders = new Set(rows.map(r => r.f));
-    if (folders.size === 1) skip = [...folders][0];
+    const folders = [...new Set(rows.map(r => r.f))];
+    accts = targetsFor(folders);
+    if (folders.length === 1) skip = folders[0];
   }
   const items = accts.flatMap(a => (ACCT[a]?.folders ?? [])
     .filter(f => mode !== 'move' || f.kind !== 'outbox')
@@ -1482,7 +1887,7 @@ function filterPicker(){
       : name.startsWith(q) ? (recent >= 0 ? recent : 20) + i / 1000
       : name.split(/[\s/._-]+/).some(w => w.startsWith(q)) ? 40 + i / 1000
       : name.includes(q) ? 60 + i / 1000
-      : fold(ACCT[it.acct]?.email ?? '').startsWith(q) ? 80 + i / 1000 : -1;
+      : fold(acctLabel(it.acct)).startsWith(q) ? 80 + i / 1000 : -1;
     return {it, r};
   }).filter(x => x.r >= 0).sort((a, b) => a.r - b.r);
   pick.shown = ranked.map(x => x.it);
@@ -1490,7 +1895,7 @@ function filterPicker(){
   const many = new Set(pick.items.map(it => it.acct)).size > 1; // say whose folder only when it isn't obvious
   $('pk-list').innerHTML = pick.shown.length ? pick.shown.map((it, i) => {
     const f = folderOf(it.key);
-    return `<li role="option" id="pk-${i}" data-i="${i}" aria-selected="${i === pick.at}">${I[KIND_ICON[f?.kind] || 'folder']}${many ? adot(it.acct) : ''}<span class="nm">${esc(it.name)}</span>${many ? `<span class="em">${esc(ACCT[it.acct]?.email ?? '')}</span>` : ''}</li>`;
+    return `<li role="option" id="pk-${i}" data-i="${i}" aria-selected="${i === pick.at}">${I[KIND_ICON[f?.kind] || 'folder']}${many ? adot(it.acct) : ''}<span class="nm">${esc(it.name)}</span>${many ? `<span class="em">${esc(acctLabel(it.acct))}</span>` : ''}</li>`;
   }).join('') : `<li class="none">${esc(t('No folder matches.'))}</li>`;
   $('pk-q').setAttribute('aria-activedescendant', pick.shown.length ? 'pk-' + pick.at : '');
   $('pk-list').querySelector('[aria-selected="true"]')?.scrollIntoView({block:'nearest'});
@@ -1586,14 +1991,14 @@ async function getMail({quiet = false, first = false, account = null} = {}){
 // IDLE: the server said something changed in an account's Inbox. Several notices in a row are
 // one check.
 let inboxTimer;
-window.__TAURI__?.event?.listen('inbox-changed', ({payload: account}) => {
+listenMain('inbox-changed', ({payload: account}) => {
   clearTimeout(inboxTimer);
   inboxTimer = setTimeout(() => getMail({quiet:true, account}), 800);
 });
 
 // Progress while a folder downloads; each finished folder shows up right away.
 let reloadTimer;
-window.__TAURI__?.event?.listen('sync-progress', ({payload: p}) => {
+listenMain('sync-progress', ({payload: p}) => {
   say(t('{account} › {folder}: {done} of {total}', p), 0);
   if (p.done === p.total){
     clearTimeout(reloadTimer);
@@ -1748,7 +2153,7 @@ function finishStep(status, text, detail = ''){
 function renderSteps(){
   $('w-steps').innerHTML = steps.map(s => `<li class="${s.status}"><span>${esc(s.text)}</span>${s.detail ? `<small>${esc(s.detail)}</small>` : ''}</li>`).join('');
 }
-window.__TAURI__?.event?.listen('detect-progress', ({payload}) => {
+listenMain('detect-progress', ({payload}) => {
   if (wizardBusy !== 'find' || !steps.length) return;
   const domain = $('w-email').value.trim().split('@')[1] || '';
   steps[steps.length - 1].detail = payload === 'guess' ? t('Trying the usual server names…') : t('Asking {domain} and its DNS records…', {domain});
@@ -1985,14 +2390,19 @@ const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contai
 const ACTIONS = [['move', N_('Move to folder')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
 const labelOf = (list, v) => { const l = list.find(([k]) => k === v)?.[1]; return l ? t(l) : v; };
 const options = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(t(l))}</option>`).join('');
-// Folders a rule can move mail to: the account's own, not its Outbox. Their names are the server's.
-const moveTargets = acct => (ACCT[acct]?.folders ?? []).filter(f => f.kind !== 'outbox').map(f => [acct + '/' + f.id, f.name]);
-const folderOptions = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('');
+// Folders a rule can move mail to: its account's own but the Outbox, by their names on the
+// server, and the folders on this PC (not its Trash), which take mail from any account.
+const moveTargets = acct => [
+  ...(acct && acct !== LOCAL ? (ACCT[acct]?.folders ?? []).filter(f => f.kind !== 'outbox').map(f => [acct + '/' + f.id, f.name, ACCT[acct].email]) : []),
+  ...(ACCT[LOCAL]?.folders ?? []).filter(f => f.kind !== 'trash').map(f => [LOCAL + '/' + f.id, folderName(LOCAL + '/' + f.id), t('On this PC')]),
+];
+const folderOptions = (list, v) => [...new Set(list.map(x => x[2]))].map(g => `<optgroup label="${esc(g)}">`
+  + list.filter(x => x[2] === g).map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('') + '</optgroup>').join('');
 
 function ruleSummary(r){
   const conds = r.conditions.map(c => t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field), op:labelOf(OPS, c.op), value:c.value}))
     .join(r.match_all ? t(' and ') : t(' or '));
-  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:folderName(a.folder)}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
+  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
   return t('If {conds}: {acts}.', {conds, acts}) + (r.account ? ' ' + t('{name} only.', {name:ACCT[r.account]?.email ?? r.account}) : '') + (r.stop ? ' ' + t('Then stop.') : '');
 }
 async function openRules(){
@@ -2019,18 +2429,18 @@ async function showRuleList(){
 // filed where this one is when that is one of the user's folders, else flagged.
 function ruleFrom(m){
   const out = isOut(m.f), to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0] ?? '';
-  return {id:0, name:out ? nameOf(m.to) : (m.from || m.email), enabled:true, account:acctId(m.f), match_all:true,
+  return {id:0, name:out ? nameOf(m.to) : (m.from || m.email), enabled:true, account:isLocal(m.f) ? null : acctId(m.f), match_all:true,
     conditions:[out ? {field:'to', op:'is', value:to} : {field:'from', op:'is', value:m.email}],
     actions:[kindOf(m.f) === 'custom' ? {type:'move', folder:m.f} : {type:'flag'}], stop:false};
 }
 function showRuleForm(existing, start = null){
-  const firstAccount = ACCOUNTS.find(a => a.imap)?.id ?? ACCOUNTS[0]?.id ?? null;
+  const firstAccount = servers()[0]?.id ?? null;
   rule = existing ? structuredClone(existing) : start ?? {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
     conditions:[{field:'from', op:'contains', value:''}], actions:[{type:'flag'}], stop:false};
   $('r-list-view').hidden = true; $('r-form').hidden = false; $('r-form-err').textContent = '';
   $('r-form-title').textContent = existing ? t('Edit rule') : t('New rule');
   $('r-name').value = rule.name;
-  $('r-acct').innerHTML = `<option value="">${esc(t('All accounts'))}</option>` + ACCOUNTS.map(a => `<option value="${esc(a.id)}"${a.id === rule.account ? ' selected' : ''}>${esc(a.name)} · ${esc(a.email)}</option>`).join('');
+  $('r-acct').innerHTML = `<option value="">${esc(t('All accounts'))}</option>` + servers().map(a => `<option value="${esc(a.id)}"${a.id === rule.account ? ' selected' : ''}>${esc(a.name)} · ${esc(a.email)}</option>`).join('');
   $('r-match').value = rule.match_all ? 'all' : 'any';
   $('r-stop').checked = rule.stop;
   renderConditions(); renderActions();
@@ -2046,7 +2456,7 @@ function renderActions(){
   $('r-acts').innerHTML = rule.actions.map((a, i) => {
     let param = '<span class="none"></span>';
     if (a.type === 'move'){
-      const targets = rule.account ? moveTargets(rule.account) : [];
+      const targets = moveTargets(rule.account);
       param = targets.length ? `<select data-k="folder" aria-label="${esc(t('Folder'))}">${folderOptions(targets, a.folder)}</select>`
         : `<span class="none">${esc(t('Pick the rule’s account to choose a folder.'))}</span>`;
     } else if (a.type === 'auto_reply'){
@@ -2059,7 +2469,7 @@ function renderActions(){
 // A new or changed action gets sensible defaults: a folder to move to, empty reply text.
 function fixAction(a){
   if (a.type === 'move'){
-    const targets = rule.account ? moveTargets(rule.account) : [];
+    const targets = moveTargets(rule.account);
     if (!targets.some(([k]) => k === a.folder)) a.folder = (targets.find(([k]) => folderOf(k)?.kind === 'custom') ?? targets[0])?.[0] ?? '';
   } else delete a.folder;
   if (a.type === 'auto_reply') a.body = a.body ?? ''; else delete a.body;
@@ -2201,19 +2611,21 @@ function paneOpened(tab){
   }
   if (tab === 'read') renderTrusted();
   if (tab === 'use') renderUsage();
+  if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
 }
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
   const want = {theme:s.theme, density:s.density, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format};
+    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-updates').checked = s.updates === 'daily';
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   $('s-undo').value = String(s.undo_send);
+  if ($('s-keep')) $('s-keep').value = String(s.backup_keep);
 }
 // How long sent mail waits so it can be taken back.
 const undoText = n => n === 0 ? t('Off: send at once') : tn(n, '{n} second', '{n} seconds');
@@ -2261,6 +2673,7 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-notify') changeSettings({notify:el.checked});
   else if (el.id === 's-undo') changeSettings({undo_send:Number(v)});
   else if (el.id === 's-updates') changeSettings({updates:el.checked ? 'daily' : 'off'});
+  else if (el.name === 'backup_every') changeSettings({backup_every:v}).then(ok => { if (ok){ renderTree(); autoBackup(); } });
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
 forcedColors.addEventListener('change', () => { if (sdlg.open) $('s-forced').hidden = !forcedColors.matches; });
@@ -2280,7 +2693,8 @@ const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('
   mark_read:N_('Mark messages as read'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
-  notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending')};
+  notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
+  backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
 function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
@@ -2296,6 +2710,8 @@ function settingValue(key, v){
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
     case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
     case 'undo_send': return undoText(v);
+    case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
+    case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
     default: return String(v);
   }
 }
@@ -2486,7 +2902,8 @@ function accountUsageHtml(u, since){
   const localKb = u.folders.reduce((n, f) => n + f.size_kb, 0), count = u.folders.reduce((n, f) => n + f.count, 0);
   const sync = u.sync_error ? `<span class="ustat warn" title="${esc(u.sync_error)}">${esc(t('Last check failed'))}</span>`
     : u.synced_at ? `<span class="ustat">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</span>` : '';
-  let html = `<article class="ucard"><header class="uhead">${adot(a.id)}<span class="uname" title="${esc(a.name)}">${esc(a.email)}</span>${sync}</header>`;
+  let html = `<article class="ucard"><header class="uhead">${adot(a.id)}<span class="uname" title="${esc(a.id === LOCAL ? t('On this PC') : a.name)}">${esc(acctLabel(a.id))}</span>${sync}</header>`;
+  if (a.id === LOCAL) html += `<p class="unote">${esc(t('This mail is kept only on this PC, on no server. Back it up now and then: Settings › Backups.'))}</p>`;
   if (u.sync_error) html += `<p class="unote warn">${esc(u.sync_error)}</p>`;
   // Storage on the server, when the server reports it.
   if (u.quota){
@@ -2543,6 +2960,124 @@ $('u-usage').addEventListener('click', e => {
   if (s){ sdlg.close(); filterAllMail(s.dataset.sender); }
   if (o){ sdlg.close(); openMessage(Number(o.dataset.open), o.dataset.folder); }
 });
+
+/* ---------- backups ---------- */
+// Settings › Backups: the mail base (where, how large, compacting it), backing it up now or by
+// itself into a folder that keeps the newest few, and putting a backup back. Restoring keeps
+// the mail base as it was next to it, then the window starts again on the restored mail.
+const BACKUP_KEEP = [3, 5, 10, 20];
+const bk = {state:null, work:'', restore:null, error:''}; // work: 'backup', 'restore' or 'compact' while it runs
+const fmtWhenFull = d => d.toDateString() === new Date().toDateString() ? t('today {time}', {time:hm(d)}) : dmy(d) + ' ' + hm(d);
+async function loadBackups(){
+  try { bk.state = await invoke('backup_state'); bk.error = bk.work ? bk.error : ''; } catch (e){ bk.error = tr(e); }
+  if (sdlg.open && setTab === 'backup') renderBackups();
+  renderTree(); // the folders on this PC say when they aren't backed up
+}
+function renderBackups(){
+  const el = $('s-backup'), s = bk.state, p = pref();
+  if (!s){
+    el.innerHTML = bk.error ? `<p class="derr">${esc(bk.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
+    if (!bk.error && !bk.loading){ bk.loading = true; loadBackups().finally(() => { bk.loading = false; }); }
+    return;
+  }
+  const newest = s.backups[0], when = b => fmtWhenFull(parseDate(b.made));
+  const work = bk.work, off = work ? ' disabled' : '';
+  let html = `<h3 class="rh">${esc(t('Mail base'))}</h3>`;
+  html += s.base ? `<p class="bkpath"><code title="${esc(s.base)}">${esc(s.base)}</code><button type="button" class="linkbtn" id="bk-show-base">${esc(t('Show in folder'))}</button></p>`
+    + `<p class="dnote">${esc(fmtBytes(s.base_bytes))}${s.free_bytes > 1048576 ? ' · ' + esc(t('{size} of it is free space left by removed mail', {size:fmtBytes(s.free_bytes)})) : ''}</p>`
+    + (s.free_bytes > 1048576 ? `<div class="sbtns"><button type="button" class="btn" id="bk-compact"${off}>${esc(work === 'compact' ? t('Compacting…') : t('Compact|base'))}</button><span class="sdim">${esc(t('Gives that space back to the disk. Telex pauses while it works.'))}</span></div>` : '')
+    : `<p class="dnote">${esc(t('There is no mail base yet: it is made when you add your first account.'))}</p>`;
+  html += `<h3 class="rh">${esc(t('Back up'))}</h3>
+<p class="dnote">${esc(t('A backup is one file with all your mail, the folders on this PC, rules and identities. Passwords stay in the system’s password store; settings go in Import and export.'))}</p>
+<div class="sbtns"><button type="button" class="btn primary" id="bk-now"${off || !s.base ? ' disabled' : ''}>${esc(work === 'backup' || s.running ? t('Backing up…') : t('Back up now'))}</button>
+<span class="sdone">${newest ? esc(t('Last backup {when}, {size}.', {when:when(newest), size:fmtBytes(newest.bytes)})) : esc(t('No backups yet.'))}</span></div>
+<div class="sgroup"><span class="slabel">${esc(t('Folder for backups'))}</span><div class="bkdir"><code title="${esc(s.dir)}">${esc(s.dir)}</code>${s.suggested ? `<small class="sdim">${esc(t('suggested'))}</small>` : ''}
+<button type="button" class="btn" id="bk-pick">${esc(t('Choose…'))}</button>${newest ? `<button type="button" class="linkbtn" id="bk-show">${esc(t('Show'))}</button>` : ''}</div>
+<p class="dnote snote">${esc(t('Another disk, a USB stick or a OneDrive folder keeps the mail safe if this disk fails.'))}</p></div>
+<fieldset class="sgroup"><legend>${esc(t('Back up by itself'))}</legend><div class="sopts">${radios('backup_every', [['off', esc(t('Never'))], ['daily', esc(t('Every day'))], ['weekly', esc(t('Every week'))]], p.backup_every)}</div></fieldset>
+<div class="sgroup"><label class="slabel" for="s-keep">${esc(t('Keep'))}</label><select id="s-keep" class="sselect">${BACKUP_KEEP.map(n => `<option value="${n}"${n === p.backup_keep ? ' selected' : ''}>${esc(tn(n, 'the newest {n} backup', 'the newest {n} backups'))}</option>`).join('')}</select>
+<p class="dnote snote">${esc(t('Older ones in that folder are removed. Only Telex’s own backup files are ever touched.'))}</p></div>`;
+  html += `<h3 class="rh">${esc(t('Restore'))}</h3>
+<p class="dnote">${esc(t('Restoring puts a backup in place of the mail base. The mail base as it is now is kept next to it, so nothing is lost.'))}</p>`;
+  if (s.backups.length) html += `<ul class="bklist">${s.backups.map(b => `<li><span class="bkwhen">${esc(when(b))}</span><span class="bksize">${esc(fmtBytes(b.bytes))}</span><button type="button" class="btn" data-restore="${esc(b.path)}"${off}>${esc(t('Restore…'))}</button></li>`).join('')}</ul>`;
+  html += `<div class="sbtns"><button type="button" class="btn" id="bk-file"${off}>${esc(t('Restore from a file…'))}</button></div>`;
+  const r = bk.restore;
+  if (r){
+    const what = tn(r.messages, '{n} message', '{n} messages', {n:num(r.messages)}) + (r.on_this_pc ? ` (${tn(r.on_this_pc, '{n} on this PC', '{n} on this PC', {n:num(r.on_this_pc)})})` : '');
+    html += `<div class="bkconfirm" role="group" aria-labelledby="bk-q"><b id="bk-q">${esc(r.made ? t('Restore the backup from {when}?', {when:fmtWhenFull(parseDate(r.made))}) : t('Restore this backup?'))}</b>
+<p>${esc(t('It holds {what}.', {what}))}${r.accounts.length ? ' ' + esc(t('Accounts: {accounts}.', {accounts:r.accounts.join(', ')})) : ''}</p>
+<ul><li>${esc(t('The mail base as it is now is kept next to it, as telex-before-restore-….db.'))}</li>
+<li>${esc(t('Changes not yet sent to the servers are dropped: at the next check, what the servers have wins, and newer mail comes down again.'))}</li>
+<li>${esc(t('Mail waiting in an Outbox moves to Drafts, since it may have gone out after the backup.'))}</li>
+<li>${esc(t('Mail kept only on this PC after the backup was made isn’t in it.'))}</li></ul>
+<div class="sbtns"><button type="button" class="btn primary" id="bk-go"${off}>${esc(work === 'restore' ? t('Restoring…') : t('Restore and start again'))}</button><button type="button" class="btn" id="bk-cancel"${off}>${esc(t('Cancel'))}</button></div></div>`;
+  }
+  html += `<p class="derr" role="alert">${esc(bk.error)}</p>`;
+  el.innerHTML = html;
+}
+async function backupWork(kind, run){
+  bk.work = kind; bk.error = ''; renderBackups();
+  try { await run(); } catch (e){ bk.error = tr(e); }
+  bk.work = '';
+  await loadBackups();
+}
+$('s-backup').addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b || b.disabled) return;
+  if (b.id === 'bk-now') backupWork('backup', async () => {
+    const made = await invoke('backup_now');
+    say(t('Backed up the mail base to {path}.', {path:made.path}), 8000);
+  });
+  else if (b.id === 'bk-pick'){
+    let dir;
+    try { dir = await invoke('pick_backup_dir', {words:{title:t('Folder for backups')}}); } catch (err){ bk.error = tr(err); renderBackups(); return; }
+    if (dir && await changeSettings({backup_dir:dir})) loadBackups();
+  }
+  else if (b.id === 'bk-show' || b.id === 'bk-show-base') invoke('show_backup_place', {base:b.id === 'bk-show-base'}).catch(err => say(tr(err), 8000));
+  else if (b.id === 'bk-compact') backupWork('compact', async () => {
+    const [before, after] = await invoke('compact_base');
+    say(t('Compacted the mail base: {before} to {after}.', {before:fmtBytes(before), after:fmtBytes(after)}), 8000);
+  });
+  else if (b.dataset.restore || b.id === 'bk-file'){
+    bk.error = '';
+    try { bk.restore = await invoke('inspect_backup', {path:b.dataset.restore ?? null, words:{title:t('Restore from a backup'), filter:t('Telex backups')}}) ?? bk.restore; }
+    catch (err){ bk.error = tr(err); bk.restore = null; }
+    renderBackups();
+    $('bk-go')?.focus();
+  }
+  else if (b.id === 'bk-cancel'){ bk.restore = null; renderBackups(); }
+  else if (b.id === 'bk-go'){
+    const r = bk.restore;
+    backupWork('restore', async () => {
+      const aside = await invoke('restore_backup', {path:r.path});
+      // The window starts again on the restored mail, and says so then.
+      try { sessionStorage.setItem('telex-restored', JSON.stringify({made:r.made, aside})); } catch {}
+      location.reload();
+    });
+  }
+});
+$('s-backup').addEventListener('change', e => { if (e.target.id === 's-keep') changeSettings({backup_keep:Number(e.target.value)}); });
+// Backups by themselves: a minute after start, then every hour, when the settings say one is due.
+let backupWarned = false;
+async function autoBackup(){
+  if (pref().backup_every === 'off' || !ACCOUNTS.length) return;
+  let made;
+  try { made = await invoke('auto_backup'); }
+  catch (e){ if (!backupWarned){ backupWarned = true; say(t('The automatic backup didn’t work: {why}', {why:tr(e)}), 15000); } return; }
+  if (!made) return;
+  backupWarned = false;
+  say(t('Backed up the mail base ({size}).', {size:fmtBytes(made.bytes)}), 5000);
+  bk.state = null;
+  if (sdlg.open && setTab === 'backup') loadBackups();
+}
+// After a restore the window starts again: say what happened.
+function sayRestored(){
+  let r = null;
+  try { r = JSON.parse(sessionStorage.getItem('telex-restored') || 'null'); sessionStorage.removeItem('telex-restored'); } catch {}
+  if (!r) return;
+  const file = String(r.aside).split(/[\\/]/).pop();
+  say(t('Restored the backup{when}. The mail base as it was is kept as {file}.', {when:r.made ? ' ' + t('from {when}', {when:fmtWhenFull(parseDate(r.made))}) : '', file}), 15000);
+}
 
 /* ---------- updates ---------- */
 // Only release builds can update themselves. Telex checks once a day if the user said yes
@@ -2609,7 +3144,7 @@ async function installUpdate(){
     setTimeout(() => { upd.installing = false; installUpdate(); }, 2000);
   }
 }
-window.__TAURI__?.event?.listen('update-progress', ({payload: p}) => {
+listenMain('update-progress', ({payload: p}) => {
   const mb = n => I18n.decimal(n / 1048576);
   upd.text = p.total && p.done >= p.total ? t('Checking the signature. Telex will close, update and open again.')
     : p.total ? t('Downloading Telex {version}: {done} of {total} MB', {version:upd.found?.version ?? '', done:mb(p.done), total:mb(p.total)})
@@ -2648,6 +3183,74 @@ $('u-install').addEventListener('click', installUpdate);
 $('u-close').addEventListener('click', () => udlg.close());
 udlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 
+/* ---------- keys and tips ---------- */
+// The "?" in the status bar shows every key and the features that aren't obvious while the
+// pointer is over it; a click, ? or F1 keeps it open until Esc, a click elsewhere or another
+// press. Keys are written "Shift+R"; a space separates keys that do the same or go together.
+const helpBtn = $('st-help'), helpPop = $('help-pop');
+const HELP_KEYS = [
+  [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
+    ['H', N_('HTML or plain text')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
+  [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
+    ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
+    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
+  [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread')], ['Shift+U', N_('everything in the folder read')],
+    ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
+    ['G', N_('go to a folder')], ['Z', N_('undo a delete or a move; take back mail just sent')]]],
+  [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
+    ['Ctrl+A', N_('the whole list')], ['Esc', N_('just the one message again')]]],
+  [N_('Find|help'), [['/', N_('quick filter')], ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
+  [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['? F1', N_('this help')]]],
+];
+const HELP_TIPS = [
+  N_('Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.'),
+  N_('Folders on this PC keep mail only here, off the server. Right-click one to name it, save it as mbox or bring mail in.'),
+  N_('Drop .eml or mbox files on a folder on this PC to bring that mail in.'),
+  N_('Shift+click selects a range, Ctrl+click one more message.'),
+  N_('Click the sender above a message to see all their mail.'),
+  N_('Drop files on the window to attach them, even with no message open.'),
+  N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
+  N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),
+  N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),
+  N_('Errors and notes from rules show above the message they are about.'),
+];
+const OPERATORS = 'from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
+const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/).map(k => `<kbd>${esc(k)}</kbd>`).join('+')).join(' ');
+function renderHelp(){
+  helpPop.innerHTML = `<div class="hgrid">${HELP_KEYS.map(([title, rows]) => `<section class="hsec"><h3>${esc(t(title))}</h3>`
+    + rows.map(([keys, what]) => `<div class="hrow"><span class="k">${keysHtml(keys)}</span><span>${esc(t(what))}</span></div>`).join('')
+    + (title === 'Find|help' ? `<p class="hops">${OPERATORS.split(' ').map(o => `<code>${esc(o)}</code>`).join(' ')}</p>` : '') + '</section>').join('')}</div>`
+    + `<h3 class="htitle">${esc(t('Good to know'))}</h3><ul class="htips">${HELP_TIPS.map(tip => `<li>${esc(t(tip))}</li>`).join('')}</ul>`;
+}
+let helpPinned = false, helpTimer;
+function showHelp(pin){
+  clearTimeout(helpTimer);
+  if (pin !== undefined) helpPinned = pin;
+  if (helpPop.hidden){ renderHelp(); helpPop.hidden = false; }
+  helpBtn.setAttribute('aria-expanded', 'true');
+}
+function hideHelp(){
+  clearTimeout(helpTimer);
+  helpPinned = false;
+  helpPop.hidden = true;
+  helpBtn.setAttribute('aria-expanded', 'false');
+}
+const toggleHelp = () => helpPop.hidden || !helpPinned ? showHelp(true) : hideHelp();
+// Hovering opens it after a moment and leaving closes it, unless it was opened on purpose.
+const helpHover = on => {
+  clearTimeout(helpTimer);
+  if (helpPinned) return;
+  helpTimer = setTimeout(() => on ? showHelp() : hideHelp(), on ? 150 : 250);
+};
+helpBtn.addEventListener('pointerenter', () => helpHover(true));
+helpBtn.addEventListener('pointerleave', () => helpHover(false));
+helpPop.addEventListener('pointerenter', () => clearTimeout(helpTimer));
+helpPop.addEventListener('pointerleave', () => helpHover(false));
+helpBtn.addEventListener('click', toggleHelp);
+document.addEventListener('pointerdown', e => {
+  if (!helpPop.hidden && !helpPop.contains(e.target) && !helpBtn.contains(e.target)) hideHelp();
+});
+
 /* ---------- keyboard ---------- */
 // Also attached to the HTML message frame, so keys work after clicking into it.
 function onKey(e){
@@ -2658,11 +3261,15 @@ function onKey(e){
   if (mod && e.key === ','){ e.preventDefault(); openSettings(); return; }
   const tg = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
+  if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
+  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
+    if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
     if (unpick()){ e.preventDefault(); afterPick(); return; }
     if (state.thread){ e.preventDefault(); leaveThread(); return; }
+    if (VIEWER && menuEl.hidden){ e.preventDefault(); closeViewer(); return; }
   }
   // Tab in the filter box: this folder or all mail, while there is something to look for.
   if (tg === qEl && e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && qEl.value.trim()){ e.preventDefault(); toggleScope(); return; }
@@ -2677,6 +3284,7 @@ function onKey(e){
   else if (k === 'End') shift ? pickEnd(true) : move(Infinity);
   else if (k === 'Delete') del();
   else if (k === 'Enter' && allMail()) openInFolder();
+  else if (k === 'Enter' && listEl.contains(tg) && current()) openWindow(current().id);
   else if (k === 'r' || k === 'R') openCompose(shift ? 'replyall' : 'reply');
   else if (k === 'F' && shift) openCompose('forward');
   else if (k === 'f') toggleFlag();
@@ -2690,6 +3298,7 @@ function onKey(e){
   else if (k === 't' || k === 'T') toggleThread();
   else if (k === 'z' || k === 'Z') undo();
   else if (k === '/') qEl.focus();
+  else if (k === '?') toggleHelp();
   else return;
   e.preventDefault();
 }
@@ -2721,9 +3330,42 @@ splitter($('split-h'),
   });
 
 /* ---------- boot ---------- */
+/* ---------- a message in its own window ---------- */
+// Just the message, its header and the toolbar's buttons for it. Read when opened, as the
+// settings say; Esc closes it; deleting or sending closes it too.
+const closeViewer = () => { const w = window.__TAURI__?.window?.getCurrentWindow?.(); if (w?.close) w.close(); else window.close(); };
+// Show the message (again, after a change). When it is gone, the window closes.
+async function viewerShow(){
+  bodies.delete(VIEWER);
+  let m;
+  try { m = await full(VIEWER); } catch { closeViewer(); return false; }
+  state.folder = m.folder; state.sel[m.folder] = m.id;
+  selRow = {id:m.id, f:m.folder, from:m.from_name, email:m.from_email, to:m.to, subj:m.subject, date:parseDate(m.date),
+    kb:m.size_kb, unread:m.unread, flagged:m.flagged, hasAtt:m.attachments.length > 0};
+  renderStatus();
+  if (!state.compose) await renderPreview();
+  return true;
+}
+async function bootViewer(){
+  win.classList.add('viewer');
+  await bootSettings();
+  try { await loadTree(); } catch {}
+  if (!await viewerShow()) return;
+  if (selRow.unread && pref().mark_read !== 'manual'){
+    call('set_unread', {id:selRow.id, unread:false}).then(() => { selRow.unread = false; bodies.delete(VIEWER); }).catch(() => {});
+  }
+}
+// Another window changed a setting (the look, H): this one follows.
+window.__TAURI__?.event?.listen('settings-changed', async () => {
+  try { const got = await invoke('get_settings'); if (got?.settings){ SETTINGS = got; applySettings(); } } catch {}
+});
+// Closing a window with a message being written keeps it as a draft.
+window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async () => { if (state.compose) await closeCompose(); });
+
 async function boot(){
   I18n.translatePage();
   paintToolbar(); paintDensity();
+  if (VIEWER && invoke){ await bootViewer(); return; }
   if (!invoke){
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div>${t('This page needs the Rust core. Start Telex with {command}.', {command:'<code>npm run dev</code>'})}</div></div>`;
     return;
@@ -2735,6 +3377,9 @@ async function boot(){
   await setFolder(homeOf(ACCOUNTS[0]?.id));
   listEl.focus({preventScroll:true});
   loadUsage(); // the status-bar meter, from what the last check saved
+  sayRestored();
+  loadBackups(); // whether the folders on this PC are backed up
+  setTimeout(autoBackup, 60e3); setInterval(autoBackup, 60 * 60e3);
   // Real accounts: check now, then as often as the settings say, quietly.
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account

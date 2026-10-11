@@ -2,15 +2,17 @@
 
 How Telex keeps mail on disk, why it should stay in one place, and the work that makes it fast
 at any size and safe to keep for years: paged loading, backups, local folders, POP3. Written
-after v0.2.0. Phase 1 is done (after v0.2.1); the later phases are the plan, not yet built.
+after v0.2.0. Phase 1 is done (after v0.2.1). Phases 2 and 3 are built for 0.6, except moving
+the mail base and a zip of .eml files; phase 4 (POP3) is the plan.
 
 ## Today
 
 - **One mail base**: `%APPDATA%\app.telexmail.desktop\telex.db`, SQLite in WAL mode (plus its
   `-wal` and `-shm` files). It holds every account: folders, message summaries, the plain-text
   body, the full raw message (attachments included), the FTS5 index, the queue of changes for
-  the server (`pending_ops`), the Outbox, rules, identities and trusted senders. Created when
-  the first account is added; until then the store is in memory.
+  the server (`pending_ops`), the Outbox, rules, identities and trusted senders, and the folders
+  on this PC, whose mail is nowhere else. Created when the first account is added; until then
+  the store is in memory.
 - **Not in it**: passwords (the system's store, service "Telex": Windows Credential Manager, a
   Secret Service keyring on Linux), settings (theme,
   language and the rest: `settings.json` in the same folder, written even before the first
@@ -22,9 +24,10 @@ after v0.2.0. Phase 1 is done (after v0.2.1); the later phases are the plan, not
   (`imap::FIRST_SYNC_LIMIT`), then everything new. Each sync also notes how many messages of a
   folder are on the server but not here (`folders.missing`); the status bar offers them and
   `imap::download_older` takes them a thousand at a time, newest first. Mail deleted on the
-  server is deleted locally; removing an account deletes its mail. No size cap, no expiry; the
-  file never shrinks (SQLite reuses freed pages, nothing runs VACUUM).
-- **Schema** (version 9): `messages` has only the summary columns, with indexes on
+  server is deleted locally; removing an account deletes its mail, but not what was moved to
+  the folders on this PC. No size cap, no expiry; the file shrinks only when the user compacts
+  it (Settings › Backups; SQLite otherwise reuses freed pages).
+- **Schema** (version 10): `messages` has only the summary columns, with indexes on
   `(folder, date)` for the list and `(folder, unread)` for the counts. The body and the raw
   message are in `message_content` (same id, removed with the message). `messages_fts` is a
   contentless FTS5 index over subject, people and body (`contentless_delete=1`), kept in step
@@ -34,7 +37,10 @@ after v0.2.0. Phase 1 is done (after v0.2.1); the later phases are the plan, not
   opens. Version 9 (`src/migrations/009_conversations_and_sending.sql`) adds `messages.bcc`,
   `messages.refs` (the Message-IDs a message answers, for conversations; the upgrade reads the
   first 64 KB of every stored message once to fill it in), `folders.missing`,
-  `outbox.send_after` (undo send) and `accounts.imap_security` (STARTTLS).
+  `outbox.send_after` (undo send) and `accounts.imap_security` (STARTTLS). Version 10
+  (`src/migrations/010_local_folders.sql`) adds the folders on this PC (an account row
+  `local` without servers, with Archive and Trash) to mail bases that have a server account,
+  and `pending_ops.origin` (see phase 3).
 - **SQLite settings**: WAL with `synchronous=NORMAL` (a power cut can lose the last commits,
   never damage the file), a 32 MiB page cache, a 256 MiB memory map, temporary tables in memory,
   and `PRAGMA optimize` when the store closes and when the window closes.
@@ -162,34 +168,59 @@ the message before it in its folder, so conversations are a few messages long):
 
 The rest of the table above stayed the same.
 
-## Phase 2: backup, restore, location
+## Phase 2: backup, restore, location (built for 0.6, except location)
 
-- **Back up**: SQLite's online backup (or `VACUUM INTO`) writes one consistent copy while
-  Telex runs. "Back up now", plus automatic daily or weekly backups to a folder the user picks
-  (OneDrive, a NAS, a USB disk), keeping the last N, named by date. A backup holds mail,
-  folders, rules, identities and trusted senders; not passwords, which stay in Credential
-  Manager and are asked for again after a restore if missing.
-- **Restore** puts the current mail base aside (renamed, not deleted), swaps the backup in, and
-  then has to be careful with the server:
-  - drop the restored `pending_ops`: replaying old read, move and delete changes would undo
-    what happened on the server since;
-  - resync IMAP folders with the server's state winning (flags, deletions, UIDVALIDITY);
-  - move anything in a restored Outbox to Drafts: it may have been sent after the backup was
-    taken, and must not go out twice.
-- **Location**: a setting to move the mail base (e.g. `D:\Mail`), done by copying with the
-  backup API and switching only when the copy is complete. A portable mode can come later.
-- **Storage readout**: the mail base's size per account, and "Compact" (VACUUM) after removing
-  an account or a large archive.
+- **Back up** (`src/backup.rs`, Settings › Backups): `VACUUM INTO` on a read-only connection of
+  its own writes one consistent, compacted copy while Telex runs; the store's connection goes on
+  writing meanwhile (WAL). "Back up now", and backups by themselves every day or week (the
+  window asks `auto_backup` a minute after start and then hourly; due when the newest backup is
+  older than the period, ten minutes' slack). They go to a folder the user picks (OneDrive, a
+  NAS, a USB disk; Documents\Telex backups until then) as `telex-backup-YYYY-MM-DD-HHMMSS.db`,
+  written as `.part` and renamed once it opens as a mail base; the newest 3 to 20 are kept and
+  nothing else in the folder is ever touched. A backup holds mail, folders, rules, identities
+  and trusted senders; not passwords (the system's store) nor settings.json (Import and export).
+- **Restore** checks the file (a Telex mail base, not from a newer Telex), copies it next to the
+  mail base, opens and upgrades it there, and makes it safe to meet the servers
+  (`MailStore::after_restore`):
+  - the restored `pending_ops` are dropped: replaying old read, move and delete changes would
+    undo what happened on the server since, so at the next check the server's state wins
+    (flags, deletions, UIDVALIDITY); newer mail has UIDs above `last_uid` and comes down again;
+  - mail whose move hadn't reached the server goes back where the server has it;
+  - anything in a restored Outbox moves to Drafts with a note: it may have been sent after the
+    backup was taken, and must not go out twice.
+  Then the current mail base is renamed `telex-before-restore-<time>.db` (never deleted) and the
+  copy takes its place. The app holds the busy flags meanwhile, lets go of the file (an empty
+  store in memory), reopens whatever is there afterwards, and the window starts again.
+- **Location** (not built yet): a setting to move the mail base (e.g. `D:\Mail`), done by
+  copying with `VACUUM INTO` and switching only when the copy is complete. A portable mode can
+  come later.
+- **Storage readout**: the Usage tab has sizes per account; Settings › Backups shows the file,
+  its size and its free space, and "Compact" (VACUUM, with the busy flags held) gives that space
+  back to the disk.
 
-## Phase 3: local folders, export and import
+## Phase 3: local folders, export and import (built for 0.6)
 
-- **Local folders ("On this PC")**: folders that exist only in the mail base, under any account
-  or a separate "Local" group. Moving server mail there downloads it if needed and removes it
-  from the server, which frees quota: the The Bat!-style archive. The schema already allows
-  folders without `remote` and messages without `uid`; rules can move mail there too.
-- **Export** a folder (or an account) as a zip of `.eml` files or an mbox file; **import** `.eml`
-  and mbox into a local folder, keeping dates, flags where known, and attachments (the raw
-  message is kept as it is).
+- **Folders on this PC**: a separate group, stored as an account row with the id `local` and no
+  servers, so its keys are `local/<folder>` and every query that works on folder keys works on
+  it. It comes with the first server account and stays when accounts are removed. Moving server
+  mail there removes it from the server, which frees quota: the The Bat!-style archive. The row
+  is detached at once (`srv_folder` and `uid` cleared, its queued changes dropped) and an
+  `expunge` with the old place goes out, remembering the message in `pending_ops.origin` (not
+  a foreign key: the expunge must still go out when the local copy is deleted). Moving it back
+  to that account before the expunge went out takes the expunge back and moves it there on the
+  server, with its read state and flag; otherwise it is uploaded (`append`, flags in `value`)
+  and the next download adopts the server's copy by Message-ID. Races with a push in flight are
+  settled when its answer comes: a message moved or uploaded while it was already on its way
+  to this PC (or elsewhere) leaves the server again from where it landed. An expunge without a
+  known UID finds the message by Message-ID, never taking one still stored here. Rules can move
+  mail from any account there; conversations reach into it.
+- **Export** (`src/mailbox.rs`): a folder as an mbox file (mboxrd, LF line ends, "Status:" and
+  "X-Status:" for read and flagged), read on a connection of its own and renamed into place
+  when complete. **Import**: `.eml` and mbox files (Thunderbird's, mutt's, The Bat!'s exports)
+  into a folder on this PC, streamed and stored 200 at a time with CRLF line ends as IMAP wants
+  them, flags from Status, X-Status and X-Mozilla-Status (read when none say), the mbox "From "
+  line's date for messages without a Date header, and Message-IDs already in the folder
+  skipped. A zip of `.eml` files is not built.
 
 ## Phase 4: POP3
 

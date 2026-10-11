@@ -36,7 +36,8 @@ Anti-goals: Electron, AI features by default, a web-app look, anything that phon
 ```
 crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
-                     for the server (pending_ops).
+                     for the server (pending_ops); the folders on this PC (LOCAL_ID "local") and
+                     moves to and from them.
   src/list.rs        The message list a page at a time: folder counts, keyset pages in every
                      sort, the quick filter (one folder or all mail, with operators such as
                      from: is:unread after:) and its SQL functions, conversations, ranges.
@@ -55,6 +56,10 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      dark paper in a theme's palette; HTML compose: what may be sent, plain text
                      from HTML and HTML from plain text.
   src/colors.rs      CSS colors read and turned around for dark paper (OKLab), for html.rs.
+  src/mailbox.rs     Mail as files: a folder written as mbox, .eml and mbox files read into a
+                     folder on this PC (mboxrd; Status, X-Status and X-Mozilla-Status flags).
+  src/backup.rs      Backups of the mail base (VACUUM INTO on a connection of its own), the
+                     backup folder's list and pruning, restoring (after_restore), compacting.
   src/usage.rs       What the Usage tab shows: quota, sizes per folder, 30 days of mail in and
                      out, top senders, largest messages, the last sync.
   src/i18n.rs        The core's language: `tr!("English", "Polski")`, set from the settings.
@@ -74,7 +79,11 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   src/secrets.rs     Passwords in the system store (keyring crate), service "Telex": Credential
                      Manager on Windows, Secret Service (GNOME Keyring, KWallet) on Linux.
   src/files.rs       Attachments opened in their app or saved (dialogs), files chosen or dropped
-                     to attach; only files chosen this way can be sent.
+                     to attach; only files chosen this way can be sent. Drag and drop events.
+  src/folders.rs     Folders on this PC (make, rename, remove), a folder saved as mbox, mail
+                     files read into one (dialogs, "import-progress" events).
+  src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
+                     restoring (holds the busy flags, swaps the store) and compacting.
   src/watch.rs       One IMAP IDLE watcher per account ("inbox-changed" events), and the
                      new-mail notification (tauri-plugin-notification).
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
@@ -124,14 +133,14 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `move_message`   | `id`, `folder`               | – (same account only)       |
 | `delete_message` | `id`                         | `moved_to_trash` / `removed`|
 | `set_unread_many`, `set_flagged_many` | `ids`, `unread` / `flagged` | how many changed (others are left alone) |
-| `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none, same account |
+| `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none; within an account, or to and from the folders on this PC (server mail moved there leaves the server; moved back, it is uploaded) |
 | `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` |
 | `mark_folder_read` | `folder`                   | how many were unread        |
 | `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
 | `save_attachment`| `id`, `index`, `words`       | the path saved to, or null (cancelled); opens Save |
 | `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
 | `show_saved`     | –                            | – (the last saved attachment in Explorer) |
-| `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events for files dropped on the window |
+| `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
 | `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
@@ -170,6 +179,20 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `show_export`    | –                            | – (the last exported file in Explorer) |
 | `open_import`    | `words` (dialog title, filter) | the plan, null (cancelled), or `{code, detail}` (not_json, not_telex, unreadable); opens Open |
 | `apply_import`   | `choice` `{settings, identities, rules}` | `{report, settings}`; the file is matched again first |
+| `create_local_folder` | `name`                | the new folder's key (`local/<id>`), or a sentence saying what's wrong |
+| `rename_local_folder` | `folder`, `name`      | – (the user's own folders on this PC; the key stays) |
+| `delete_local_folder` | `folder`              | how many rules lost their move to it; only an empty folder |
+| `export_folder`  | `folder`, `words` `{title, filter, file_name}` | the mbox file written, or null; opens Save |
+| `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, file}`; folders on this PC only |
+| `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
+| `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
+| `backup_now`     | –                            | the backup written; the folder keeps the newest `backup_keep` |
+| `auto_backup`    | –                            | a backup when `backup_every` says one is due, else null |
+| `pick_backup_dir`| `words`                      | a folder or null (the window saves it as `backup_dir`) |
+| `inspect_backup` | `path` (from the list; null opens Open), `words` | `{path, made, bytes, accounts, messages, on_this_pc}` or null |
+| `restore_backup` | `path` (the one last inspected) | where the mail base as it was went; the window then reloads |
+| `compact_base`   | –                            | `[before, after]` in bytes (VACUUM) |
+| `show_backup_place` | `base`                  | – (the mail base, or the newest backup, in Explorer) |
 
 A draft carries `reply_to`, `forward_of` and `replaces` (message ids) besides the fields the
 user typed (`to`, `cc`, `bcc`, `subject`): threading headers, forwarded attachments, and the
@@ -196,7 +219,8 @@ position of the first row and `total` the list's length. A filtered list is work
 paged from memory until the mail base changes. After any change (a check, rules, sending, a
 push) the UI asks for `folder_tree` and the open page again, nothing else.
 
-Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`. Dates cross the bridge as local
+Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this PC are
+`local/<folder>` (an account without servers, listed last in `folder_tree`). Dates cross the bridge as local
 `YYYY-MM-DDTHH:MM:SS` strings.
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
@@ -205,7 +229,9 @@ Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/da
 IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
 `mail_paper` (theme, white: HTML mail in a dark theme), `compose_format` (plain, html),
 `reply_format` (same, plain, html), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
-can take it back), `ask_subject`, `spell_check` and `updates` (ask, daily, off). Reading or changing them
+can take it back), `ask_subject`, `spell_check`, `updates` (ask, daily, off), `backup_every` (off, daily,
+weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
+leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
 all, even before the first account. The window keeps only its own state in localStorage
 (`telex-ui`: pane sizes, filter scope, "more" folders, the last update check; `telex-look`: a
@@ -277,7 +303,8 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | U            | toggle unread (the selection: all read, or all unread when all are read) |
 | Shift+U      | mark everything in the folder read |
 | Del          | move to Trash (in Trash: press twice to delete for good) |
-| M            | move to a folder: type part of its name |
+| M            | move to a folder: type part of its name (also one on this PC) |
+| drag         | messages onto a folder: it fills up, then takes them on release; Esc cancels, Z undoes |
 | G            | go to a folder: type part of its name |
 | T            | the selected message's conversation (T or Esc goes back) |
 | Z            | undo the last delete or move; within the moment after Send, take the message back |
@@ -292,8 +319,43 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 | ? / F1       | keys and tips (also on hover over the ? in the status bar) |
+| F2, Shift+F10 | in the folder tree: rename a folder on this PC; a folder's menu (also right-click) |
 
 ## Current state (v0.5.0: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS)
+
+- Built for 0.6.0, not released yet (schema version 10: the folders on this PC, created with
+  the first server account, and `pending_ops.origin`):
+  - Folders on this PC (`store.rs`, `LOCAL_ID`): a group of their own under the accounts, kept
+    as an account without servers with the id "local" (never removed with an account), with
+    Archive and Trash; the user's own folders are made, renamed (F2) and removed (when empty)
+    in the tree, from its + or a right-click menu. Server mail moved there leaves the server: an
+    expunge that remembers the local message (`origin`), taken back when the message returns
+    to that account before the server heard of it. Mail moved from there to a server folder is
+    uploaded (`append` with its flags in `value`). A message moved on while a move or upload
+    was under way leaves the server from where it landed (`change_moved`, `change_appended`);
+    an expunge without a UID finds the message by Message-ID first. Between two server accounts
+    mail goes by way of this PC. Rules can file mail there from any account; replies to it come
+    from the account it was sent to (`drafts::sender`); conversations include it; settings
+    files carry rules' moves there (`this_pc`).
+  - mbox and .eml (`mailbox.rs`): any folder saves as mbox (read on a connection of its own);
+    .eml and mbox files come into a folder on this PC from Open or dropped on it in the tree,
+    200 at a time, skipping Message-IDs already there.
+  - Backups (`backup.rs`, Settings › Backups): the mail base by hand or every day or week into a
+    folder (Documents\Telex backups until one is picked), the newest 3–20 kept, only
+    `telex-backup-<time>.db` files ever removed. Restore: the file is checked, the mail base
+    as it was is kept as `telex-before-restore-<time>.db`, and `after_restore` drops queued
+    changes, puts unpushed moves back and moves Outboxes to Drafts. Compact (VACUUM). The
+    folders on this PC say "No backup" while their mail has none (or none for a month with
+    backups off).
+  - Drag and drop of messages onto folders (6 px to start, a folder takes them after resting on
+    it for 0.35 s, Esc cancels, Z undoes; a closed account or "more" opens after 0.65 s).
+  - A message in a window of its own (double-click, Enter in a folder, the button above it):
+    the same page in viewer mode (`?message=<id>`); changes there reach the main window
+    ("viewer-did" events), which refreshes, pushes and keeps Z; closing a window with a message
+    being written saves a draft.
+  - The ? in the status bar (and ? or F1): every key and the tips that aren't obvious. The
+    message header in one face. The status bar's storage bar in the account's color with the
+    room left.
 
 - New in 0.5.0 (schema version 9: `messages.bcc`, `messages.refs`, `folders.missing`,
   `outbox.send_after`, `accounts.imap_security`; the upgrade reads the start of every stored
@@ -543,8 +605,9 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
    AppImage (self-updating) and a .deb. The repository is public and v0.5.0 is released;
    docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~ and ~~downloading older
-   messages~~: done, see Current state and the numbers in docs/storage.md. Next: backup and
-   restore with a movable mail base, local folders with .eml/mbox export and import, and POP3.
+   messages~~: done, see Current state and the numbers in docs/storage.md. ~~Backup and
+   restore~~ and ~~local folders with mbox export and .eml/mbox import~~: built for 0.6. Not
+   yet: moving the mail base to another folder, and POP3.
 
 ## Open decisions
 

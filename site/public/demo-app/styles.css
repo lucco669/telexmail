@@ -72,6 +72,24 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .fold svg{width:14px;height:14px;color:var(--muted)}
 .fold:hover{background:var(--hover)}
 .fold.active{background:var(--sel);font-weight:500}
+/* Dragging messages onto folders: a folder under the pointer fills up while it waits, then
+   shows it is ready (dropok, also for mail files dropped on this PC); one that can't take them
+   goes quiet. The ghost by the pointer says what moves and what letting go would do. */
+.fold.dragover{background:linear-gradient(90deg,var(--sel) 50%,var(--hover) 50%) right/200% 100% no-repeat;animation:arm .35s linear forwards}
+@keyframes arm{to{background-position:left}}
+.fold.dropok{background:var(--accent);color:var(--accent-fg)}
+.fold.dropok svg,.fold.dropok .cnt,.fold.dropok .cnt.dim{color:inherit}
+.fold.dropno{background:none;color:var(--faint)}
+.fold.dropno svg{color:var(--faint)}
+.win.dragging,.win.dragging *{cursor:grabbing!important}
+.dragghost{position:fixed;left:0;top:0;z-index:40;display:flex;flex-direction:column;gap:1px;max-width:340px;padding:5px 9px 6px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg);box-shadow:0 6px 18px var(--shadow);pointer-events:none;font-size:12px}
+.dragghost b{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dragghost span{color:var(--muted);font-size:11.5px}
+.dragghost.ready{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 6px 18px var(--shadow)}
+@media (forced-colors: active){
+  .fold.dropok{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .dragghost{border-color:CanvasText}
+}
 .fold .cnt{margin-left:auto;font:600 11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--accent)}
 .fold .cnt.dim{color:var(--faint);font-weight:400}
 .fold.active .cnt.dim{color:var(--muted)}
@@ -80,6 +98,18 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .fold.more svg{width:12px;height:12px;margin:0 1px;transition:transform .12s}
 .fold.more[aria-expanded="true"] svg{transform:rotate(-90deg)}
 .fold.more[aria-expanded="false"] svg{transform:rotate(90deg)}
+/* The folders on this PC: their own group, a small screen where accounts have a dot, and a +
+   for a new folder. A folder being named has a box in its place. */
+.adot.pc{display:inline-block;position:relative;width:10px;height:8px;margin:0 0 2px;border-radius:1.5px;background:none;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.adot.pc::after{content:"";position:absolute;left:2.5px;right:2.5px;bottom:-2.5px;height:1.5px;background:var(--muted)}
+.pcrow{display:flex;align-items:center;margin-top:6px;padding-top:4px;border-top:1px solid var(--line-soft)}
+.pcrow .acct{flex:1;min-width:0}
+.pcadd{flex:none;display:inline-grid;place-items:center;width:22px;height:20px;margin-right:6px;padding:0;border:1px solid transparent;border-radius:3px;background:none;color:var(--muted);cursor:pointer}
+.pcadd:hover{border-color:var(--line);background:var(--hover);color:var(--fg)}
+.pcadd svg{width:12px;height:12px}
+.fold.naming{cursor:default;background:var(--sel)}
+.nfname{flex:1;min-width:0;height:20px;padding:0 5px;border:1px solid var(--accent);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.nfname:focus{outline:0}
 .add-acct{display:flex;align-items:center;gap:7px;width:100%;height:var(--row-tree);margin-top:6px;padding:0 10px 0 24px;border:0;background:none;color:var(--muted);cursor:pointer;text-align:left;font-size:12px}
 .add-acct:hover{background:var(--hover);color:var(--fg)}
 .add-acct svg{width:14px;height:14px}
@@ -137,10 +167,16 @@ tr.empty:hover td{background:none}
 .ph-subj{flex:1;min-width:0;margin:0 0 6px;font:600 15px/1.3 var(--font-ui);text-wrap:balance;overflow-wrap:anywhere}
 .pill{flex:none;display:inline-flex;align-items:center;gap:4px;margin-top:2px;padding:2px 7px;border-radius:10px;font:500 10.5px var(--font-ui);letter-spacing:.04em;text-transform:uppercase;color:var(--flag);border:1px solid currentColor}
 .pill svg{width:10px;height:10px}
-.ph-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:1px 10px;margin:0;font-size:12px}
-.ph-grid dt{color:var(--muted)}
-.ph-grid dd{margin:0;overflow-wrap:anywhere}
-.mono{font-family:var(--font-data);font-size:11.5px;font-variant-numeric:tabular-nums}
+/* Who, when and to whom: one face, labels quieter than the people, figures in columns. */
+.ph-grid{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:2px 12px;margin:0;font-size:12.5px;line-height:1.45}
+.ph-grid dt{color:var(--muted);font-size:12px}
+.ph-grid dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.ph-from{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:14px}
+.ph-who{min-width:0;padding:0;border:0;background:none;text-align:left;overflow-wrap:anywhere;cursor:pointer}
+.ph-who .pn{font-weight:600}
+button.ph-who:hover .pn{text-decoration:underline}
+.pa{color:var(--muted)}
+.ph-when{margin-left:auto;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .atts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
 /* An attachment: open it (the name), save it (the arrow); in compose, × takes it off. */
 .att{display:inline-flex;align-items:center;gap:6px;max-width:100%;height:24px;padding:0 0 0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);font-size:12px;min-width:0}
@@ -475,6 +511,19 @@ tr.empty:hover td{background:none}
 .ulink .n{flex:none;min-width:52px;text-align:right;font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
 .spark{flex:0 0 72px;height:5px;border-radius:3px;background:var(--line-soft);overflow:hidden}
 .spark i{display:block;height:100%;background:var(--accent)}
+/* Settings › Backups: the mail base and the backup folder, the backups there, and the
+   question before one is put back */
+.bkpath,.bkdir{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 6px;min-width:0}
+.bkpath code,.bkdir code{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 6px;border:1px solid var(--line-soft);border-radius:3px;background:var(--surface);font:11.5px var(--font-data)}
+.bklist{list-style:none;margin:0 0 10px;padding:0;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface)}
+.bklist li{display:flex;align-items:center;gap:12px;min-height:32px;padding:0 4px 0 10px;border-bottom:1px solid var(--line-soft);font-size:12.5px}
+.bklist li:last-child{border-bottom:0}
+.bkwhen{flex:1;min-width:0;font-variant-numeric:tabular-nums}
+.bksize{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.bkconfirm{margin:0 0 12px;padding:10px 12px 2px;border:1px solid var(--accent);border-radius:5px;background:var(--surface);font-size:12.5px}
+.bkconfirm p{margin:6px 0}
+.bkconfirm ul{margin:6px 0 10px;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5}
+.bkchip{flex:none;margin-right:4px;border:0;cursor:pointer}
 @media (max-width: 620px){
   .setbody{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
   .settabs{flex-direction:row;padding:6px;border-right:0;border-bottom:1px solid var(--line-soft)}
@@ -514,18 +563,68 @@ button.chip[hidden]{display:none}
 .ask .linkbtn{margin:0 2px}
 .status:has(#st-ask:not([hidden])) .hint{display:none}
 /* The server's storage for the open folder's account: a quiet bar, warning colors near full */
-.meter{flex:none;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:none;font:11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted);cursor:pointer}
+/* A small tank of liquid in the account's own color (--fill, set per account): how much the
+   server holds, its surface rolling gently at the edge; the free space written next to it. Near
+   full, the tank gets a warning rim. */
+.meter{flex:none;display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:none;font:11.5px var(--font-ui);font-variant-numeric:tabular-nums;color:var(--muted);cursor:pointer}
 .meter[hidden]{display:none}
 .meter:hover,.meter:focus-visible{color:var(--fg)}
-.mbar{display:block;width:34px;height:5px;border-radius:3px;background:var(--line);overflow:hidden}
-.mbar i{display:block;height:100%;background:var(--accent)}
-.meter[data-level="warn"] .mbar i{background:var(--flag)}
-.meter[data-level="full"] .mbar i{background:var(--note-fg)}
+.mbar{position:relative;display:block;width:68px;height:10px;border-radius:5px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line);overflow:hidden}
+.mbar i{position:relative;display:block;height:100%;min-width:6px;border-radius:5px 0 0 5px;background-color:var(--fill,var(--accent));
+  background-image:linear-gradient(180deg,rgb(255 255 255/.3),rgb(255 255 255/0) 50%,rgb(0 0 0/.1));transition:width .7s cubic-bezier(.2,.8,.2,1)}
+.mbar i::after{content:"";position:absolute;top:-10px;right:-3px;width:6px;height:calc(100% + 20px);background:inherit;
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='10'%3E%3Cpath d='M0 0H3C4.4 0 5 1.4 5 2.5S4.4 5 3 5 1 6.4 1 7.5 1.6 10 3 10H0Z'/%3E%3C/svg%3E") 0 0/6px 10px repeat-y;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='6' height='10'%3E%3Cpath d='M0 0H3C4.4 0 5 1.4 5 2.5S4.4 5 3 5 1 6.4 1 7.5 1.6 10 3 10H0Z'/%3E%3C/svg%3E") 0 0/6px 10px repeat-y;
+  animation:slosh 1.8s linear infinite}
+.mbar i::before{content:"";position:absolute;inset:0;border-radius:inherit;background:linear-gradient(100deg,transparent 35%,rgb(255 255 255/.35) 50%,transparent 65%) no-repeat;background-size:250% 100%;animation:glint 4.5s ease-in-out infinite}
+@keyframes slosh{from{transform:translateY(0)}to{transform:translateY(10px)}}
+@keyframes glint{0%,30%{background-position:110% 0}70%,100%{background-position:-10% 0}}
+.meter[data-level="warn"] .mbar{box-shadow:inset 0 0 0 1px var(--flag)}
+.meter[data-level="full"] .mbar{box-shadow:inset 0 0 0 1.5px var(--note-fg)}
 .meter[data-level="warn"],.meter[data-level="full"]{color:var(--fg)}
+.meter[data-level="full"] .mtxt{font-weight:600}
 /* A nearly full account in the folder tree */
 .qchip{flex:none;padding:1px 4px;border-radius:3px;font:600 10px var(--font-data);background:var(--warn-bg);color:var(--warn-fg)}
 .qchip[data-level="full"]{background:var(--note-bg);color:var(--note-fg)}
 kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border:1px solid var(--line);border-radius:3px;background:var(--surface);color:var(--fg)}
+/* A message in a window of its own: no folders or list, the toolbar's buttons for one message,
+   and the status bar for what happens to it */
+.win.viewer .main{grid-template-columns:minmax(0,1fr)}
+.win.viewer .tree,.win.viewer .split-v,.win.viewer .list,.win.viewer .split-h{display:none}
+.win.viewer .right{grid-template-rows:minmax(0,1fr)}
+.win.viewer #b-get,.win.viewer #b-new,.win.viewer #b-rules,.win.viewer #b-density,.win.viewer #b-settings,
+.win.viewer .search,.win.viewer #folder-select,.win.viewer .toolbar .sep{display:none}
+.win.viewer .status>:not(#st-msg){display:none}
+.win.viewer .tb .lbl{display:inline}
+/* Right-click menus */
+.cmenu{position:fixed;z-index:30;min-width:190px;margin:0;padding:4px 0;list-style:none;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg);box-shadow:0 8px 24px var(--shadow);font-size:12.5px}
+.cmenu[hidden]{display:none}
+.cmenu li[role="menuitem"]{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:26px;padding:0 12px;cursor:pointer;outline:0}
+.cmenu li[role="menuitem"]:hover,.cmenu li[role="menuitem"]:focus{background:var(--sel)}
+.cmenu li[aria-disabled="true"]{color:var(--faint);cursor:default}
+.cmenu li[aria-disabled="true"]:hover{background:none}
+.cmenu .msep{height:1px;margin:4px 0;background:var(--line-soft)}
+@media (forced-colors: active){
+  .cmenu{border-color:CanvasText}
+  .cmenu li[role="menuitem"]:focus,.cmenu li[role="menuitem"]:hover{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .adot.pc{forced-color-adjust:none}
+}
+/* Keys and tips: the "?" in the status bar, and what it opens above it */
+.helpbtn{flex:none;display:inline-grid;place-items:center;width:17px;height:17px;padding:0;border:1px solid var(--field);border-radius:50%;background:var(--surface);color:var(--muted);font:600 10.5px/1 var(--font-ui);cursor:help}
+.helpbtn:hover,.helpbtn[aria-expanded="true"]{color:var(--fg);border-color:var(--accent)}
+.helppop{position:fixed;right:8px;bottom:29px;z-index:20;width:min(880px,calc(100vw - 16px));max-height:min(78vh,640px);overflow:auto;padding:4px 16px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);box-shadow:0 12px 32px var(--shadow);font-size:12px}
+.helppop[hidden]{display:none}
+.hgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0 24px}
+.hsec h3,.htitle{margin:10px 0 5px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.hrow{display:grid;grid-template-columns:minmax(64px,max-content) minmax(0,1fr);gap:8px;align-items:baseline;padding:2px 0;line-height:1.4}
+.hrow .k{white-space:nowrap}
+.hops{display:flex;flex-wrap:wrap;gap:3px;margin:5px 0 0}
+.hops code{padding:0 4px;border-radius:3px;background:var(--surface);font:11px/1.6 var(--font-data);color:var(--fg)}
+.htitle{margin-top:12px;padding-top:10px;border-top:1px solid var(--line-soft)}
+.htips{margin:0;padding:0;list-style:none;columns:3 230px;column-gap:24px;line-height:1.45}
+.htips li{position:relative;margin:0 0 5px;padding-left:13px;break-inside:avoid}
+.htips li::before{content:"";position:absolute;left:1px;top:.6em;width:5px;height:5px;border-radius:50%;background:var(--accent)}
+@media (forced-colors: active){ .helppop{border-color:CanvasText} }
 
 @media (max-width: 1080px){ .tb .lbl{display:none} .tb{padding:0 6px} .hint .more{display:none} }
 @media (max-width: 760px){

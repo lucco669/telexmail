@@ -3,11 +3,11 @@
 // loads this file directly.
 
 /**
- * The version being finished. What is marked `since: NEXT` is built but not released yet: the site
+ * The version being finished. What is marked `since: '0.5.0'` is built but not released yet: the site
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.5.0';
+export const NEXT = '0.6.0';
 
 /** The six points on the home page. */
 export const features = [
@@ -56,6 +56,7 @@ export const featureRows: FeatureRow[] = [
       'Unread in bold, flags and attachments at a glance',
       'Dates and sizes in mono, so columns line up',
       'Resizable panes, and a Comfortable setting for more room',
+      { text: 'Double-click or Enter opens a message in a window of its own, to read side by side', since: NEXT },
     ],
   },
   {
@@ -63,12 +64,13 @@ export const featureRows: FeatureRow[] = [
     screen: 'select',
     title: 'Fifty messages, one key',
     text: 'Select with Shift and the arrows, Shift-click a range, Ctrl-click one more, or Ctrl+A for the whole list. Then F, U, Del and M work on all of them, and Z undoes the move.',
-    since: NEXT,
+    since: '0.5.0',
     points: [
       'M moves the selection: type part of a folder’s name, diacritics ignored',
       'G goes to a folder the same way; folders you used last come first',
       'Shift+U marks a whole folder read',
       'The server gets one command per change, not one per message',
+      { text: 'Or drag them onto a folder: it fills up before it takes them, so nothing moves by accident', since: NEXT },
     ],
   },
   {
@@ -76,11 +78,39 @@ export const featureRows: FeatureRow[] = [
     screen: 'thread',
     title: 'The whole conversation, one key away',
     text: 'Press T on any message to see everything it answers and everything that answers it: your replies in Sent, the client’s mail you filed in Clients, the draft you haven’t finished. T or Esc goes back.',
-    since: NEXT,
+    since: '0.5.0',
     points: [
       'Followed by Message-ID, In-Reply-To and References, however deep',
       'Across the account’s folders, leaving out Spam and Trash',
       'Enter opens a message in its own folder',
+    ],
+  },
+  {
+    id: 'local',
+    screen: 'local',
+    title: 'Mail that lives on your PC',
+    text: 'Folders on this PC keep mail only on your disk, off the server and out of its quota: drag old mail there, press M, or let a rule file it. Bring in mail from Thunderbird or The Bat! as mbox or .eml, and save any folder as mbox.',
+    since: NEXT,
+    points: [
+      'Their own group under your accounts, with Archive and Trash; make, rename and remove your own folders right in the tree',
+      'Moving mail there removes it from the server; moving it back uploads it, read state and flag included',
+      'Searchable offline like everything else, and part of conversations (T)',
+      'Rules can file mail from any account there',
+      'Drop .eml and mbox files on a folder to bring the mail in; Thunderbird’s read and starred marks come along',
+    ],
+  },
+  {
+    id: 'backups',
+    screen: 'backups',
+    title: 'Backups you can count on',
+    text: 'Mail on your PC deserves a copy elsewhere. Back up the whole mail base in one file while you work, by hand or every day or week, to a folder you choose: another disk, a USB stick, OneDrive.',
+    since: NEXT,
+    points: [
+      'One consistent file with all mail, folders, rules and identities; never passwords',
+      'Keeps the newest 3 to 20 backups and touches no other file',
+      'Restoring keeps the mail base as it was next to it, so nothing is lost',
+      'After a restore the servers’ state wins, and mail that was waiting in the Outbox moves to Drafts instead of going out twice',
+      'Compact gives the space of removed mail back to the disk',
     ],
   },
   {
@@ -102,7 +132,7 @@ export const featureRows: FeatureRow[] = [
     screen: 'attach',
     title: 'Attachments, Bcc and the right address',
     text: 'Click an attachment to open it in its app, or save one or all of them. Attach files with Attach… or drop them on the window. Telex suggests addresses from your own mail as you type.',
-    since: NEXT,
+    since: '0.5.0',
     points: [
       'Programs, scripts, shortcuts and macro documents ask before they open; anything in Spam too',
       'Opened files carry the Mark of the Web, so Windows treats them with care',
@@ -131,7 +161,7 @@ export const featureRows: FeatureRow[] = [
     text: 'Mail goes out over SMTP with SSL/TLS or STARTTLS. Telex says “Sent” only after your server has accepted the message, and keeps it in the Outbox until then, with the reason.',
     points: [
       'SMTP on port 465 (SSL/TLS) or 587 (STARTTLS), same login as IMAP',
-      { text: 'Undo send: mail waits 5 seconds (or up to 30), and Z takes it back to change it', since: NEXT },
+      { text: 'Undo send: mail waits 5 seconds (or up to 30), and Z takes it back to change it', since: '0.5.0' },
       'An Outbox that retries at every check when the connection fails',
       'A copy of every sent message lands in your server’s Sent folder',
       'Forwarded attachments travel with the forward',
@@ -155,13 +185,13 @@ export const featureRows: FeatureRow[] = [
     title: 'Two-way sync, and new mail at once',
     text: 'Reading, flagging, moving and deleting happen on your PC at once and reach the server right after. Changes wait in a queue that survives restarts and lost connections.',
     points: [
-      { text: 'New mail shows within seconds: one IMAP IDLE connection per Inbox', since: NEXT },
-      { text: 'A notification names the sender while Telex is in the background', since: NEXT },
+      { text: 'New mail shows within seconds: one IMAP IDLE connection per Inbox', since: '0.5.0' },
+      { text: 'A notification names the sender while Telex is in the background', since: '0.5.0' },
       'IMAP over SSL/TLS, folders straight from the server',
-      { text: 'IMAP over STARTTLS on port 143 too, never unencrypted', since: NEXT },
+      { text: 'IMAP over STARTTLS on port 143 too, never unencrypted', since: '0.5.0' },
       'Inbox, Sent, Trash and others found by their flags or by English and Polish names',
       'The first sync takes the newest 300 messages of each folder',
-      { text: 'Older mail on request, newest first, a thousand at a time', since: NEXT },
+      { text: 'Older mail on request, newest first, a thousand at a time', since: '0.5.0' },
     ],
   },
   {
@@ -174,7 +204,7 @@ export const featureRows: FeatureRow[] = [
       'Ignores diacritics: “krakow” finds “Kraków”',
       {
         text: 'Operators: from: to: subject: is:unread is:flagged has:file after:2026-09 before: larger:5m smaller:',
-        since: NEXT,
+        since: '0.5.0',
       },
       'Esc clears the filter and puts you back in the list',
     ],
@@ -199,6 +229,7 @@ export const featureRows: FeatureRow[] = [
     text: 'A quiet bar in the status bar shows how full the open account is on the server. Settings › Usage shows each account the way a phone shows its storage: what takes the space, and how mail comes and goes.',
     points: [
       'The server’s storage, when it reports a quota, with a warning before it fills up',
+      { text: 'The status bar’s storage bar fills in the account’s own color and says how much room is left', since: NEXT },
       'This PC by kind of folder: Inbox, Sent, your folders, Spam and Trash',
       'Mail received, sent and caught as spam, day by day for 30 days',
       'Who sends the most, and the largest messages, one click away',
@@ -213,7 +244,7 @@ export const featureRows: FeatureRow[] = [
       'Conditions on From, To or Cc, subject, text or anywhere',
       'Move, mark read, flag, move to Trash or answer automatically',
       'Run on arrival, or on any folder when you ask',
-      { text: 'Start a rule from the selected message: “New rule for mail from …”', since: NEXT },
+      { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
     ],
   },
@@ -258,12 +289,13 @@ export type Shortcut = {
 export const shortcuts: Shortcut[] = [
   { id: 'move', group: 'Move', keys: [['↑'], ['↓']], action: 'Previous / next message', match: [{ key: 'ArrowUp', shift: false }, { key: 'ArrowDown', shift: false }], home: true },
   { id: 'ends', group: 'Move', keys: [['Home'], ['End']], action: 'First / last message', match: [{ key: 'Home', shift: false }, { key: 'End', shift: false }] },
-  { id: 'thread', group: 'Move', keys: [['T']], action: 'The message’s conversation (T or Esc goes back)', match: [{ key: 't' }], since: NEXT, home: true },
-  { id: 'goto', group: 'Move', keys: [['G']], action: 'Go to a folder: type part of its name', match: [{ key: 'g' }], since: NEXT, home: true },
-  { id: 'open', group: 'Move', keys: [['Enter']], action: 'Open the message’s folder (in all-mail results and conversations)', match: [{ key: 'Enter' }], since: NEXT },
-  { id: 'select', group: 'Select', keys: [['Shift', '↑'], ['↓']], action: 'Select more (or fewer) messages', match: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }], since: NEXT, home: true },
-  { id: 'selectends', group: 'Select', keys: [['Shift', 'Home'], ['End']], action: 'Select to the top / bottom', match: [{ key: 'Home', shift: true }, { key: 'End', shift: true }], since: NEXT },
-  { id: 'selectall', group: 'Select', keys: [['Ctrl', 'A']], action: 'Select every message in the list', match: [{ key: 'a', ctrl: true }], since: NEXT },
+  { id: 'thread', group: 'Move', keys: [['T']], action: 'The message’s conversation (T or Esc goes back)', match: [{ key: 't' }], since: '0.5.0', home: true },
+  { id: 'goto', group: 'Move', keys: [['G']], action: 'Go to a folder: type part of its name', match: [{ key: 'g' }], since: '0.5.0', home: true },
+  { id: 'window', group: 'Move', keys: [['Enter']], action: 'The message in a window of its own (or double-click it); Esc closes it', match: [{ key: 'Enter' }], since: NEXT },
+  { id: 'open', group: 'Move', keys: [['Enter']], action: 'Open the message’s folder (in all-mail results and conversations)', match: [{ key: 'Enter' }], since: '0.5.0' },
+  { id: 'select', group: 'Select', keys: [['Shift', '↑'], ['↓']], action: 'Select more (or fewer) messages', match: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }], since: '0.5.0', home: true },
+  { id: 'selectends', group: 'Select', keys: [['Shift', 'Home'], ['End']], action: 'Select to the top / bottom', match: [{ key: 'Home', shift: true }, { key: 'End', shift: true }], since: '0.5.0' },
+  { id: 'selectall', group: 'Select', keys: [['Ctrl', 'A']], action: 'Select every message in the list', match: [{ key: 'a', ctrl: true }], since: '0.5.0' },
   { id: 'new', group: 'Write', keys: [['N']], action: 'New message', match: [{ key: 'n' }], home: true },
   { id: 'reply', group: 'Write', keys: [['R']], action: 'Reply', match: [{ key: 'r' }], home: true },
   { id: 'replyall', group: 'Write', keys: [['Shift', 'R']], action: 'Reply to all', match: [{ key: 'R', shift: true }] },
@@ -273,9 +305,9 @@ export const shortcuts: Shortcut[] = [
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
   { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }], home: true },
   { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread', match: [{ key: 'u' }] },
-  { id: 'folderread', group: 'Organize', keys: [['Shift', 'U']], action: 'Mark everything in the folder read', match: [{ key: 'U', shift: true }], since: NEXT },
+  { id: 'folderread', group: 'Organize', keys: [['Shift', 'U']], action: 'Mark everything in the folder read', match: [{ key: 'U', shift: true }], since: '0.5.0' },
   { id: 'delete', group: 'Organize', keys: [['Del']], action: 'Move to Trash (in Trash: twice deletes for good)', match: [{ key: 'Delete' }], home: true },
-  { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: NEXT, home: true },
+  { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: '0.5.0', home: true },
   { id: 'undo', group: 'Organize', keys: [['Z']], action: 'Undo the last delete or move · take back what you just sent', match: [{ key: 'z' }], home: true },
   { id: 'filter', group: 'Find', keys: [['/']], action: 'Quick filter, with from: is:unread has:file …', match: [{ key: '/' }], home: true },
   { id: 'scope', group: 'Find', keys: [['Tab']], action: 'In the filter: this folder / all mail', match: [{ key: 'Tab', shift: false }] },
@@ -284,6 +316,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'settings', group: 'View', keys: [['Ctrl', ',']], action: 'Settings', match: [{ key: ',', ctrl: true }] },
   { id: 'larger', group: 'View', keys: [['Ctrl', '='], ['−']], action: 'Larger / smaller text', match: [{ key: '=', ctrl: true }, { key: '+', ctrl: true }, { key: '-', ctrl: true }] },
   { id: 'normal', group: 'View', keys: [['Ctrl', '0']], action: 'Normal text size', match: [{ key: '0', ctrl: true }] },
+  { id: 'help', group: 'View', keys: [['?'], ['F1']], action: 'Every key, and the tips that aren’t obvious (or hover the ? in the status bar)', match: [{ key: '?' }, { key: 'F1' }], since: NEXT },
 ];
 
 export type Tip = { title: string; text: string; since?: string };
@@ -296,7 +329,7 @@ export const keyboardTips: Tip[] = [
   {
     title: 'Clear a pile in four keys',
     text: 'Shift+↓ a few times, then M, three letters of the folder’s name and Enter. F, U and Del work on the selection the same way.',
-    since: NEXT,
+    since: '0.5.0',
   },
   {
     title: 'Delete without fear',
@@ -305,6 +338,11 @@ export const keyboardTips: Tip[] = [
   {
     title: 'Take it back',
     text: 'After Ctrl+Enter, a message waits five seconds before it goes. Z in that moment brings it back into compose, untouched.',
+    since: '0.5.0',
+  },
+  {
+    title: 'Drag without accidents',
+    text: 'Drag messages onto a folder and rest there a moment: the folder fills up, then takes them. Let go early, or press Esc, and nothing moves; Z undoes the rest.',
     since: NEXT,
   },
   {
@@ -339,20 +377,34 @@ export const screens: Screen[] = [
     label: 'Conversation',
     title: 'Conversation · sam@lindenstudio.com – Telex',
     caption: 'T shows the whole conversation: the enquiry filed in Clients, your estimate in Sent, the reply in the Inbox, the answer still in the Outbox.',
-    since: NEXT,
+    since: '0.5.0',
   },
   {
     id: 'select',
     label: 'Move many',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Three messages selected with Shift+↓, then M: type part of a folder’s name and press Enter.',
-    since: NEXT,
+    since: '0.5.0',
   },
   {
     id: 'attach',
     label: 'Attachments',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'A new message with two files attached and Bcc open. Addresses are suggested from your own mail as you type.',
+    since: '0.5.0',
+  },
+  {
+    id: 'local',
+    label: 'On this PC',
+    title: 'Clients 2025 · On this PC – Telex',
+    caption: 'Folders on this PC keep mail off the server for good. Right-click one to rename it, save it as mbox or bring mail in from files.',
+    since: NEXT,
+  },
+  {
+    id: 'backups',
+    label: 'Backups',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Settings › Backups: the mail base in one file, by hand or every day or week, and a restore that keeps what was there.',
     since: NEXT,
   },
   {
@@ -372,7 +424,7 @@ export const screens: Screen[] = [
     label: 'Operators',
     title: 'All mail · sam@lindenstudio.com – Telex',
     caption: 'Operators in the quick filter, across all mail: every message with a file since September, with the folder it is in.',
-    since: NEXT,
+    since: '0.5.0',
   },
   {
     id: 'images',
@@ -460,6 +512,16 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
     text: 'Select a few messages, press M, type “arch” and Enter: they go to the Archive. Z puts them back.',
   },
   {
+    keys: ['Drag'],
+    title: 'Drag to a folder',
+    text: 'Drag a message onto Clients 2025 under On this PC and rest a moment: the folder fills, then takes it. Z puts it back.',
+  },
+  {
+    keys: ['?'],
+    title: 'Every key at hand',
+    text: 'Hover the ? at the right of the status bar, or press ?, for every key and the tricks that aren’t obvious.',
+  },
+  {
     keys: ['/'],
     title: 'Filter with operators',
     text: 'Type krakow, or has:file after:2026-09. Tab looks in all mail at once; Esc goes back.',
@@ -487,7 +549,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['reply', 'thread', 'select', 'attach', 'filter', 'images', 'rules', 'settings', 'usage', 'polish'].map(
+export const homeScreens = ['reply', 'thread', 'select', 'local', 'attach', 'filter', 'images', 'rules', 'settings', 'backups', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -506,6 +568,31 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Folders on this PC, backups and drag and drop',
+    date: '',
+    summary: 'Keep mail for good on your own disk, back it all up in one file, and move mail with the mouse as safely as with M.',
+    points: [
+      'Folders on this PC: their own group under the accounts, with Archive and Trash. Mail moved there leaves the server and its quota; moved back, it is uploaded with its flags.',
+      'Make, rename and remove those folders right in the tree; rules can file mail from any account there.',
+      'Save any folder as an mbox file; bring in .eml and mbox files from Thunderbird or The Bat!, from Open or dropped on a folder.',
+      'Settings › Backups: the mail base in one file while you work, by hand or every day or week, keeping the newest few. Restore keeps the old mail base next to it, and Compact gives space back.',
+      'Drag messages onto a folder: it fills up before it takes them, Esc stops, Z undoes. A closed account or “more” opens when you rest on it.',
+      'Double-click or Enter opens a message in a window of its own.',
+      'The ? in the status bar shows every key and the tips that aren’t obvious.',
+      'A cleaner message header in one face, and a storage bar in each account’s color with the room left.',
+    ],
+    upgrade: 'This version upgrades the mail base when it first starts; Telex 0.5 can’t open it afterwards.',
+    highlights: [
+      { title: 'On this PC', text: 'Folders kept only on your disk: archive old mail and free the server’s quota.' },
+      { title: 'Backups', text: 'The whole mail base in one file, every day or week, and a restore that keeps what was there.' },
+      { title: 'Drag and drop', text: 'Drag messages onto a folder; it fills before it takes them, so nothing moves by accident.' },
+      { title: 'mbox and .eml', text: 'Bring mail in from Thunderbird or The Bat!, and save any folder as mbox.' },
+      { title: 'Its own window', keys: 'Enter', text: 'Double-click a message to read it in a window of its own.' },
+      { title: 'Every key', keys: '?', text: 'Hover the ? in the status bar for every key and tip.' },
+    ],
+  },
+  {
+    version: '0.5.0',
     title: 'Attachments, conversations and mail at once',
     date: '',
     summary: 'The everyday tools: files in and out, many messages at a time, whole conversations, and new mail the moment it lands.',
@@ -654,15 +741,17 @@ export const roadmap: Step[] = [
     title: 'Attachments and mail at speed',
     text: 'Open, save and attach files, Bcc and address suggestions, many messages at once with M and G, conversations with T, undo send, new mail at once over IMAP IDLE, older mail on request, STARTTLS.',
     status: 'done',
-    since: NEXT,
+    since: '0.5.0',
     notYet: 'Rules on attachments.',
   },
-  { title: 'Gmail and Outlook.com', text: 'OAuth2 sign-in, since both refuse plain passwords over IMAP.', status: 'next' },
   {
     title: 'Archive and backup',
-    text: 'Folders kept only on your PC, automatic backups you can restore, export and import as .eml or mbox, and POP3 accounts.',
-    status: 'later',
+    text: 'Folders kept only on your PC, backups by hand or every day or week that you can restore, mbox export and .eml and mbox import, drag and drop, a message in its own window.',
+    status: 'done',
+    since: NEXT,
+    notYet: 'POP3 accounts, and moving the mail base to another folder or disk.',
   },
+  { title: 'Gmail and Outlook.com', text: 'OAuth2 sign-in, since both refuse plain passwords over IMAP.', status: 'next' },
 ];
 
 export type Question = { id?: string; q: string; a: string };
@@ -730,6 +819,14 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         q: 'Where is my mail kept?',
         a: 'In one file on your disk: %APPDATA%\\app.telexmail.desktop\\telex.db on Windows, ~/.local/share/app.telexmail.desktop/telex.db on Linux. Your settings sit next to it in settings.json. Passwords are stored separately, in Windows Credential Manager or your Linux keyring.',
+      },
+      {
+        q: 'Can I keep mail only on my PC?',
+        a: 'From version 0.6, yes: folders on this PC keep mail on your disk only, off the server and out of its quota. Drag mail there, press M, or let a rule file it; moving it back to a server folder uploads it again. You can also bring in mail from other programs as mbox or .eml files, and save any folder as mbox.',
+      },
+      {
+        q: 'How do I back up my mail?',
+        a: 'From version 0.6, in Settings › Backups: back up now, or every day or week by itself, into a folder you pick, ideally on another disk or in OneDrive. A backup is one file with all your mail, folders, rules and identities, never passwords. Restoring keeps the mail base as it was next to it, lets the servers’ state win at the next check, and moves mail waiting to be sent to Drafts.',
       },
       {
         q: 'Can I move Telex to another PC?',
