@@ -121,7 +121,7 @@ pub async fn import_mail(
                 .file()
                 .set_parent(&window)
                 .set_title(words.title)
-                .add_filter(words.filter, &["eml", "mbox", "mbx", "msg"])
+                .add_filter(words.filter, &["eml", "emlx", "mbox", "mbx", "msg"])
                 .add_filter(words.all, &["*"])
                 .pick_files(move |paths| {
                     let _ = tx.send(paths);

@@ -1,12 +1,17 @@
 //! Mail in and out of Telex as files: a folder written as an mbox file, the format other mail
-//! programs import, and .eml and mbox files read into a folder on this PC: the way in from
-//! Thunderbird, The Bat! and the rest, and the way back out.
+//! programs import, and mail files read into a folder on this PC: the way in from Thunderbird,
+//! The Bat!, Outlook, Apple Mail and the rest, and the way back out.
 //!
 //! mbox (mboxrd): each message starts with a "From " line (sender and date); a line of the
 //! message that starts with "From " after any number of ">" gets one more ">", which reading
 //! takes off again. The read state and flag travel in "Status:" and "X-Status:" headers, as
-//! mutt and others write them; Thunderbird's "X-Mozilla-Status" is read too. Line ends are
-//! LF in the file and CRLF in the mail base, as IMAP wants them.
+//! mutt and others write them; Thunderbird's "X-Mozilla-Status" is read too, and a message it
+//! deleted but hasn't compacted away yet stays out. Line ends are LF in the file and CRLF in
+//! the mail base, as IMAP wants them.
+//!
+//! Besides mbox: .eml (one message), .emlx (Apple Mail), .msg (Outlook, see
+//! `migrate::outlook`), and folders in Maildir (Evolution, KMail, mutt) or MH (Claws Mail)
+//! form, a file per message.
 
 use std::collections::HashSet;
 use std::fs::File;
@@ -14,26 +19,29 @@ use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use chrono::NaiveDateTime;
+use chrono::{DateTime, Local, NaiveDateTime};
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::mime::parse_message;
-use crate::model::split_folder_key;
+use crate::model::{split_folder_key, Message};
 use crate::store::{insert_message, MailStore, StoreError, LOCAL_ID};
 use crate::tr;
 
 /// How many messages go into the mail base in one transaction while importing. The store is
 /// free for the window between them.
 const IMPORT_BATCH: usize = 200;
+/// Bytes read from a file at a time: big mbox files go faster in large pieces.
+const READ_BUFFER: usize = 1 << 20;
 
-/// One message read from a file: as it was, with CRLF line ends, and what its headers said.
+/// One message read from a file: as it was, with CRLF line ends, and what its headers (or
+/// its file's name) said.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileMessage {
     pub raw: Vec<u8>,
     pub seen: bool,
     pub flagged: bool,
-    /// The date of mbox's "From " line, for a message without a Date header.
+    /// The date of mbox's "From " line, or the file's, for a message without a Date header.
     pub date: Option<NaiveDateTime>,
 }
 
@@ -48,10 +56,19 @@ pub struct ImportReport {
     pub problems: Vec<String>,
 }
 
-/// Progress while importing: messages read so far, and the file being read.
+impl ImportReport {
+    pub fn add(&mut self, other: ImportReport) {
+        self.added += other.added;
+        self.already += other.already;
+        self.problems.extend(other.problems);
+    }
+}
+
+/// Progress while importing: messages and bytes read so far, and the file being read.
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportProgress {
     pub done: usize,
+    pub bytes: u64,
     pub file: String,
 }
 
@@ -72,28 +89,27 @@ impl MailStore {
         Ok(ids)
     }
 
-    /// Store messages read from files in a folder on this PC, skipping those whose Message-ID
-    /// is in `known` (which grows with every message added). Returns (added, already there).
-    pub fn import_messages(
+    /// Store messages read from files (and parsed: `parsed[i]` is `files[i]`) in a folder on
+    /// this PC, skipping those whose Message-ID is in `known`, which grows with every message
+    /// added. Returns (added, already there).
+    fn store_imported(
         &mut self,
         folder: &str,
-        batch: &[FileMessage],
+        parsed: &[Message],
+        files: &[FileMessage],
         known: &mut HashSet<String>,
     ) -> Result<(usize, usize), StoreError> {
         check_local(self, folder)?;
         let (mut added, mut already) = (0, 0);
         let tx = self.db.transaction()?;
-        for m in batch {
-            let mut message = parse_message(&m.raw, folder, m.date);
+        for (message, file) in parsed.iter().zip(files) {
             if let Some(id) = &message.message_id {
                 if !known.insert(id.clone()) {
                     already += 1;
                     continue;
                 }
             }
-            message.unread = !m.seen;
-            message.flagged = m.flagged;
-            insert_message(&tx, folder, None, &message, None, Some(&m.raw))?;
+            insert_message(&tx, folder, None, message, None, Some(&file.raw))?;
             added += 1;
         }
         tx.commit()?;
@@ -239,10 +255,23 @@ fn is_status_header(line: &[u8]) -> bool {
     .any(|h| header_name_is(line, h))
 }
 
-/// Read state and flag from a message's own headers. Without any, mail from a file counts as
-/// read: it is usually an archive.
-fn flags_of(raw: &[u8]) -> (bool, bool) {
-    let (mut seen, mut flagged) = (None, false);
+/// Thunderbird's X-Mozilla-Status bits: read, flagged ("marked"), and deleted but still in
+/// the file until the folder is compacted.
+const MOZ_READ: u32 = 0x0001;
+const MOZ_MARKED: u32 = 0x0004;
+const MOZ_EXPUNGED: u32 = 0x0008;
+
+/// What a message's own headers say about it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct HeaderFlags {
+    seen: Option<bool>,
+    flagged: bool,
+    /// Deleted in Thunderbird: it stays out.
+    deleted: bool,
+}
+
+fn header_flags(raw: &[u8]) -> HeaderFlags {
+    let mut flags = HeaderFlags::default();
     for line in lines(raw).take_while(|l| !l.is_empty()) {
         let value = |name: &str| {
             header_name_is(line, name).then(|| {
@@ -252,17 +281,18 @@ fn flags_of(raw: &[u8]) -> (bool, bool) {
             })
         };
         if let Some(v) = value("Status") {
-            seen = Some(v.contains('R'));
+            flags.seen = Some(v.contains('R'));
         } else if let Some(v) = value("X-Status") {
-            flagged |= v.contains('F');
+            flags.flagged |= v.contains('F');
         } else if let Some(v) = value("X-Mozilla-Status") {
             if let Ok(bits) = u32::from_str_radix(&v, 16) {
-                seen = Some(bits & 0x1 != 0);
-                flagged |= bits & 0x4 != 0;
+                flags.seen = Some(bits & MOZ_READ != 0);
+                flags.flagged |= bits & MOZ_MARKED != 0;
+                flags.deleted = bits & MOZ_EXPUNGED != 0;
             }
         }
     }
-    (seen.unwrap_or(true), flagged)
+    flags
 }
 
 /// The date of an mbox "From " line: "From anna@x.pl Sat Oct 10 22:35:00 2026".
@@ -273,47 +303,84 @@ fn from_line_date(line: &[u8]) -> Option<NaiveDateTime> {
     NaiveDateTime::parse_from_str(&tail, "%a %b %e %H:%M:%S %Y").ok()
 }
 
-/// One finished message: CRLF line ends, the blank line before the next "From " left out.
-fn finish(mut lines: Vec<Vec<u8>>, date: Option<NaiveDateTime>) -> Option<FileMessage> {
-    while lines.last().is_some_and(Vec::is_empty) {
-        lines.pop();
+/// One finished message: the blank lines before the next "From " left out, its flags read.
+/// Without any, mail from a file counts as read: it is usually an archive. `None` for an
+/// empty one, and for one Thunderbird deleted.
+fn finish(mut raw: Vec<u8>, date: Option<NaiveDateTime>) -> Option<FileMessage> {
+    while raw.ends_with(b"\r\n\r\n") {
+        raw.truncate(raw.len() - 2);
     }
-    if lines.is_empty() {
+    if raw.is_empty() || raw == b"\r\n" {
         return None;
     }
-    let mut raw = lines.join(&b"\r\n"[..]);
-    raw.extend_from_slice(b"\r\n");
-    let (seen, flagged) = flags_of(&raw);
-    Some(FileMessage {
+    let flags = header_flags(&raw);
+    (!flags.deleted).then_some(FileMessage {
         raw,
-        seen,
-        flagged,
+        seen: flags.seen.unwrap_or(true),
+        flagged: flags.flagged,
         date,
     })
 }
 
-/// Read the messages in a file, giving each to `each`: an mbox file holds many, anything else
-/// (.eml) one. Returns how many there were.
-pub fn read_file(
+/// `bytes` with every line ending in CRLF.
+pub(crate) fn crlf_lines(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len() + bytes.len() / 32);
+    for line in lines(bytes) {
+        out.extend_from_slice(line);
+        out.extend_from_slice(b"\r\n");
+    }
+    out
+}
+
+/// When a file was last changed, for a message without a Date header.
+fn file_date(path: &Path) -> Option<NaiveDateTime> {
+    let modified = std::fs::metadata(path).ok()?.modified().ok()?;
+    Some(DateTime::<Local>::from(modified).naive_local())
+}
+
+fn unreadable(e: std::io::Error) -> StoreError {
+    StoreError::Invalid(tr!("can't read it: {e}", "nie można go odczytać: {e}"))
+}
+
+/// Read the messages at `path`, giving each to `each`: an mbox file holds many, a Maildir or
+/// MH folder a file each, anything else one (.eml, .emlx, .msg). Returns how many there were.
+pub fn read_path(
     path: &Path,
     each: &mut dyn FnMut(FileMessage) -> Result<(), StoreError>,
 ) -> Result<usize, StoreError> {
-    let unreadable = |e: std::io::Error| {
-        StoreError::Invalid(tr!("can't read it: {e}", "nie można go odczytać: {e}"))
-    };
-    let mut reader = BufReader::new(File::open(path).map_err(unreadable)?);
+    if path.is_dir() {
+        return read_mail_dir(path, each);
+    }
+    let extension = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase());
+    match extension.as_deref() {
+        Some("msg") => {
+            let m = crate::migrate::outlook::read_msg(path)?;
+            each(m).map(|()| 1)
+        }
+        Some("emlx") => read_emlx(path, each),
+        _ => read_file(path, each),
+    }
+}
+
+/// An mbox file, or a file that holds one message (.eml).
+fn read_file(
+    path: &Path,
+    each: &mut dyn FnMut(FileMessage) -> Result<(), StoreError>,
+) -> Result<usize, StoreError> {
+    let mut reader = BufReader::with_capacity(READ_BUFFER, File::open(path).map_err(unreadable)?);
     let mbox = reader.fill_buf().map_err(unreadable)?.starts_with(b"From ");
     if !mbox {
         let mut raw = Vec::new();
         reader.read_to_end(&mut raw).map_err(unreadable)?;
-        let lines: Vec<Vec<u8>> = lines(&raw).map(<[u8]>::to_vec).collect();
-        return match finish(lines, None) {
+        return match finish(crlf_lines(&raw), file_date(path)) {
             Some(m) => each(m).map(|()| 1),
             None => Ok(0),
         };
     }
     let mut count = 0;
-    let mut current: Option<(Vec<Vec<u8>>, Option<NaiveDateTime>)> = None;
+    let mut current: Option<(Vec<u8>, Option<NaiveDateTime>)> = None;
     let mut blank = true;
     let mut line = Vec::new();
     loop {
@@ -324,11 +391,11 @@ pub fn read_file(
         let text = line.strip_suffix(b"\n").unwrap_or(&line);
         let text = text.strip_suffix(b"\r").unwrap_or(text);
         if blank && text.starts_with(b"From ") {
-            if let Some(m) = current.take().and_then(|(lines, date)| finish(lines, date)) {
+            if let Some(m) = current.take().and_then(|(raw, date)| finish(raw, date)) {
                 each(m)?;
                 count += 1;
             }
-            current = Some((Vec::new(), from_line_date(text)));
+            current = Some((Vec::with_capacity(16 * 1024), from_line_date(text)));
             blank = false;
             continue;
         }
@@ -340,71 +407,266 @@ pub fn read_file(
         } else {
             text
         };
-        if let Some((lines, _)) = &mut current {
-            lines.push(text.to_vec());
+        if let Some((raw, _)) = &mut current {
+            raw.extend_from_slice(text);
+            raw.extend_from_slice(b"\r\n");
         }
     }
-    if let Some(m) = current.and_then(|(lines, date)| finish(lines, date)) {
+    if let Some(m) = current.and_then(|(raw, date)| finish(raw, date)) {
         each(m)?;
         count += 1;
     }
     Ok(count)
 }
 
-/// Read .eml and mbox files into a folder on this PC, a batch at a time so the window keeps
-/// working, skipping messages that are there already. A file that can't be read is reported
-/// and the others still come in.
+/// Apple Mail's .emlx: the message's length on the first line, the message, then a property
+/// list whose "flags" say read (bit 0), deleted (bit 1) and flagged (bit 4).
+fn read_emlx(
+    path: &Path,
+    each: &mut dyn FnMut(FileMessage) -> Result<(), StoreError>,
+) -> Result<usize, StoreError> {
+    let bytes = std::fs::read(path).map_err(unreadable)?;
+    let start = bytes.iter().position(|&b| b == b'\n').map_or(0, |i| i + 1);
+    let length = std::str::from_utf8(&bytes[..start])
+        .ok()
+        .and_then(|l| l.trim().parse::<usize>().ok());
+    let Some(end) = length.map(|n| start + n).filter(|&end| end <= bytes.len()) else {
+        return read_file(path, each); // not an .emlx after all
+    };
+    let plist = String::from_utf8_lossy(&bytes[end..]);
+    let flags = plist
+        .split_once("<key>flags</key>")
+        .and_then(|(_, rest)| rest.split_once("<integer>"))
+        .and_then(|(_, rest)| rest.split_once("</integer>"))
+        .and_then(|(n, _)| n.trim().parse::<u64>().ok())
+        .unwrap_or(1);
+    if flags & 0b10 != 0 {
+        return Ok(0);
+    }
+    match finish(crlf_lines(&bytes[start..end]), file_date(path)) {
+        Some(mut m) => {
+            m.seen = flags & 1 != 0;
+            m.flagged = flags & 0x10 != 0;
+            each(m).map(|()| 1)
+        }
+        None => Ok(0),
+    }
+}
+
+/// Whether a folder holds mail as a file per message: Maildir (cur/ and new/) or MH (files
+/// named 1, 2, 3…).
+pub fn is_mail_dir(path: &Path) -> bool {
+    path.join("cur").is_dir() || path.join("new").is_dir() || !mh_files(path).is_empty()
+}
+
+/// An MH folder's messages, in order.
+fn mh_files(path: &Path) -> Vec<(u32, PathBuf)> {
+    let mut files: Vec<(u32, PathBuf)> = std::fs::read_dir(path)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let n = e.file_name().to_str()?.parse::<u32>().ok()?;
+            e.file_type().ok()?.is_file().then(|| (n, e.path()))
+        })
+        .collect();
+    files.sort_unstable_by_key(|(n, _)| *n);
+    files
+}
+
+/// MH's ".mh_sequences": "unseen: 1-3 7" → {1, 2, 3, 7}.
+fn mh_sequence(path: &Path, name: &str) -> Option<HashSet<u32>> {
+    let text = std::fs::read_to_string(path.join(".mh_sequences")).ok()?;
+    let line = text
+        .lines()
+        .find_map(|l| l.strip_prefix(name)?.strip_prefix(':'))?;
+    let mut set = HashSet::new();
+    for part in line.split_whitespace() {
+        match part.split_once('-') {
+            Some((a, b)) => {
+                if let (Ok(a), Ok(b)) = (a.parse::<u32>(), b.parse::<u32>()) {
+                    set.extend(a..=b.min(a.saturating_add(1_000_000)));
+                }
+            }
+            None => set.extend(part.parse::<u32>().ok()),
+        }
+    }
+    Some(set)
+}
+
+/// A Maildir or MH folder: a file per message. Maildir keeps the state in the file's name
+/// (":2," then S seen, F flagged, T deleted); mail in new/ is unread.
+fn read_mail_dir(
+    path: &Path,
+    each: &mut dyn FnMut(FileMessage) -> Result<(), StoreError>,
+) -> Result<usize, StoreError> {
+    let mut count = 0;
+    let mut one = |file: &Path, state: Option<(bool, bool)>| -> Result<(), StoreError> {
+        let Ok(bytes) = std::fs::read(file) else {
+            return Ok(()); // gone meanwhile, or not ours to read
+        };
+        if let Some(mut m) = finish(crlf_lines(&bytes), file_date(file)) {
+            if let Some((seen, flagged)) = state {
+                (m.seen, m.flagged) = (seen, flagged);
+            }
+            each(m)?;
+            count += 1;
+        }
+        Ok(())
+    };
+    if path.join("cur").is_dir() || path.join("new").is_dir() {
+        for (sub, new) in [("cur", false), ("new", true)] {
+            let mut files: Vec<PathBuf> = std::fs::read_dir(path.join(sub))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+                .map(|e| e.path())
+                .collect();
+            files.sort_unstable();
+            for file in files {
+                let name = file.file_name().unwrap_or_default().to_string_lossy();
+                // Windows can't have ":" in a name; Maildir copies made there use "!" or ";".
+                let info = name
+                    .rsplit_once(":2,")
+                    .or_else(|| name.rsplit_once("!2,"))
+                    .or_else(|| name.rsplit_once(";2,"))
+                    .map_or("", |(_, i)| i);
+                if info.contains('T') {
+                    continue;
+                }
+                let state = (!new && info.contains('S'), info.contains('F'));
+                one(&file, Some(state))?;
+            }
+        }
+        return Ok(count);
+    }
+    let unseen = mh_sequence(path, "unseen");
+    let flagged = mh_sequence(path, "flagged").unwrap_or_default();
+    for (n, file) in mh_files(path) {
+        let state = unseen
+            .as_ref()
+            .map(|u| (!u.contains(&n), flagged.contains(&n)));
+        one(&file, state)?;
+    }
+    Ok(count)
+}
+
+/// Reads mail files into one folder on this PC, a batch at a time so the window keeps
+/// working, skipping messages that are there already. Messages are parsed before the store
+/// is locked; only storing them holds it.
+pub(crate) struct Importer<'a> {
+    store: &'a Mutex<MailStore>,
+    folder: String,
+    known: HashSet<String>,
+    batch: Vec<FileMessage>,
+    progress: &'a (dyn Fn(ImportProgress) + Send + Sync),
+    file: String,
+    pub report: ImportReport,
+    /// Messages and bytes read so far, counted from where the caller's progress starts.
+    pub done: usize,
+    pub bytes: u64,
+}
+
+impl<'a> Importer<'a> {
+    pub fn new(
+        store: &'a Mutex<MailStore>,
+        folder: &str,
+        progress: &'a (dyn Fn(ImportProgress) + Send + Sync),
+    ) -> Result<Self, StoreError> {
+        let known = {
+            let s = store.lock().map_err(|_| StoreError::poisoned())?;
+            check_local(&s, folder)?;
+            s.message_ids_in(folder)?
+        };
+        Ok(Self {
+            store,
+            folder: folder.to_owned(),
+            known,
+            batch: Vec::with_capacity(IMPORT_BATCH),
+            progress,
+            file: String::new(),
+            report: ImportReport::default(),
+            done: 0,
+            bytes: 0,
+        })
+    }
+
+    /// Read a file or a mail folder. One that can't be read is reported by `name`, and the
+    /// rest still comes in.
+    pub fn read(&mut self, path: &Path, name: &str) -> Result<(), StoreError> {
+        name.clone_into(&mut self.file);
+        let read = read_path(path, &mut |m| self.add(m));
+        self.flush()?;
+        match read {
+            Ok(_) => Ok(()),
+            Err(StoreError::Invalid(why)) => {
+                self.report.problems.push(format!("{name}: {why}"));
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn add(&mut self, m: FileMessage) -> Result<(), StoreError> {
+        self.batch.push(m);
+        if self.batch.len() >= IMPORT_BATCH {
+            self.flush()?;
+        }
+        Ok(())
+    }
+
+    pub fn flush(&mut self) -> Result<(), StoreError> {
+        if self.batch.is_empty() {
+            return Ok(());
+        }
+        let batch = std::mem::take(&mut self.batch);
+        let parsed: Vec<Message> = batch
+            .iter()
+            .map(|m| {
+                let mut message = parse_message(&m.raw, &self.folder, m.date);
+                message.unread = !m.seen;
+                message.flagged = m.flagged;
+                message
+            })
+            .collect();
+        let (added, already) = self
+            .store
+            .lock()
+            .map_err(|_| StoreError::poisoned())?
+            .store_imported(&self.folder, &parsed, &batch, &mut self.known)?;
+        self.report.added += added;
+        self.report.already += already;
+        self.done += batch.len();
+        self.bytes += batch.iter().map(|m| m.raw.len() as u64).sum::<u64>();
+        (self.progress)(ImportProgress {
+            done: self.done,
+            bytes: self.bytes,
+            file: self.file.clone(),
+        });
+        self.batch = batch;
+        self.batch.clear();
+        Ok(())
+    }
+}
+
+/// Read mail files and folders into a folder on this PC, skipping messages that are there
+/// already. A file that can't be read is reported and the others still come in.
 pub fn import_files(
     store: &Mutex<MailStore>,
     folder: &str,
     paths: &[PathBuf],
     progress: &(dyn Fn(ImportProgress) + Send + Sync),
 ) -> Result<ImportReport, StoreError> {
-    let lock = || store.lock().map_err(|_| StoreError::poisoned());
-    let mut known = {
-        let s = lock()?;
-        check_local(&s, folder)?;
-        s.message_ids_in(folder)?
-    };
-    let mut report = ImportReport::default();
-    let mut done = 0;
+    let mut importer = Importer::new(store, folder, progress)?;
     for path in paths {
-        let file = path.file_name().map_or_else(
+        let name = path.file_name().map_or_else(
             || path.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
-        let mut batch = Vec::new();
-        let mut flush =
-            |batch: &mut Vec<FileMessage>, report: &mut ImportReport, done: &mut usize| {
-                if batch.is_empty() {
-                    return Ok(());
-                }
-                let (added, already) = lock()?.import_messages(folder, batch, &mut known)?;
-                report.added += added;
-                report.already += already;
-                *done += batch.len();
-                batch.clear();
-                progress(ImportProgress {
-                    done: *done,
-                    file: file.clone(),
-                });
-                Ok::<(), StoreError>(())
-            };
-        let read = read_file(path, &mut |m| {
-            batch.push(m);
-            if batch.len() >= IMPORT_BATCH {
-                flush(&mut batch, &mut report, &mut done)?;
-            }
-            Ok(())
-        });
-        flush(&mut batch, &mut report, &mut done)?;
-        match read {
-            Ok(_) => {}
-            Err(StoreError::Invalid(why)) => report.problems.push(format!("{file}: {why}")),
-            Err(e) => return Err(e),
-        }
+        importer.read(path, &name)?;
     }
-    Ok(report)
+    Ok(importer.report)
 }
 
 /// The mbox file's name for a folder: its name, without characters Windows doesn't allow.

@@ -56,8 +56,16 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      dark paper in a theme's palette; HTML compose: what may be sent, plain text
                      from HTML and HTML from plain text.
   src/colors.rs      CSS colors read and turned around for dark paper (OKLab), for html.rs.
-  src/mailbox.rs     Mail as files: a folder written as mbox, .eml and mbox files read into a
-                     folder on this PC (mboxrd; Status, X-Status and X-Mozilla-Status flags).
+  src/mailbox.rs     Mail as files: a folder written as mbox; mbox, .eml, .emlx, .msg files and
+                     Maildir and MH folders read into a folder on this PC (mboxrd; Status,
+                     X-Status and X-Mozilla-Status flags, Thunderbird's deleted ones left out).
+  src/migrate/       Moving in from another mail program, found on this PC only: mod.rs (what a
+                     program has, mail into folders on this PC, filters into rules, Maildir/MH
+                     folders of Evolution, KMail, Claws, mutt), thunderbird.rs (profiles.ini,
+                     prefs.js accounts and identities, Local Folders, msgFilterRules.dat; also
+                     Betterbird, SeaMonkey, Postbox), outlook.rs (registry accounts on Windows,
+                     .pst with outlook-pst, .msg with cfb), mapi.rs (Outlook's properties →
+                     RFC 822). Never passwords: the user types them in the dialog.
   src/backup.rs      Backups of the mail base (VACUUM INTO on a connection of its own), the
                      backup folder's list and pruning, restoring (after_restore), compacting.
   src/usage.rs       What the Usage tab shows: quota, sizes per folder, 30 days of mail in and
@@ -82,6 +90,8 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
                      to attach; only files chosen this way can be sent. Drag and drop events.
   src/folders.rs     Folders on this PC (make, rename, remove), a folder saved as mbox, mail
                      files read into one (dialogs, "import-progress" events).
+  src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
+                     bringing accounts (passwords saved, a first login each), mail and filters.
   src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
                      restoring (holds the busy flags, swaps the store) and compacting.
   src/watch.rs       One IMAP IDLE watcher per account ("inbox-changed" events), and the
@@ -193,7 +203,10 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `rename_local_folder` | `folder`, `name`      | – (the user's own folders on this PC; the key stays) |
 | `delete_local_folder` | `folder`              | how many rules lost their move to it; only an empty folder |
 | `export_folder`  | `folder`, `words` `{title, filter, file_name}` | the mbox file written, or null; opens Save |
-| `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, file}`; folders on this PC only |
+| `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC only |
+| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
+| `open_source`    | `folder` (true: a folder, false: a .pst), `words` | the same for what the user picks, or null |
+| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items]}`; "move-progress" events `{step, done, total, name}` |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
 | `backup_now`     | –                            | the backup written; the folder keeps the newest `backup_keep` |
@@ -349,6 +362,30 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
 ## Current state (v0.8.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts)
+
+- Not released yet (no schema change):
+  - Moving in from another mail program (`migrate/`, Settings › Import and export, and the
+    add-account wizard when one is found): Thunderbird (Betterbird, SeaMonkey, Postbox) from
+    profiles.ini and prefs.js: IMAP accounts with their servers, identities and signatures (an
+    HTML signature as text), the outgoing server of the first identity; Local Folders and POP3
+    accounts' mail (mbox or Maildir, ".sbd" subfolders) into folders on this PC of the same
+    names ("Archives / 2019"; Archive and Trash by name); filters (msgFilterRules.dat) into rules
+    through `settings::plan_rules`, the same matching a settings import does, after the
+    accounts have logged in once to list their folders. Filters needing what rules can't do
+    (dates, tags, priority, copying) are listed with Thunderbird's own word for it
+    (`Skip::Unsupported`). Outlook: IMAP accounts from the registry (Windows), .pst files the
+    profile opens or in the usual folders, read with Microsoft's outlook-pst (Unicode and ANSI;
+    received mail keeps its transport headers, mail written in Outlook gets headers from its
+    properties; HTML with its cid: pictures, attachments, read state and flag). .ost files are
+    left out (the server has that mail). Maildir and MH folders (Evolution, KMail, Claws, mutt).
+    Passwords are typed in the dialog; accounts log in six at a time; OAuth (Gmail,
+    Outlook.com), POP3 and Exchange accounts are shown and why they can't come. Moving in twice
+    brings nothing twice (Message-ID per folder, rules by name).
+  - Mail files: .msg (Outlook, was read as text before) and .emlx (Apple Mail) in Open and drops;
+    Maildir and MH folders; messages Thunderbird deleted but hadn't compacted stay out; a file
+    without a Date header gets the file's time. Reading mbox builds each message in one buffer
+    and parses outside the store's lock (215 MB/s of Thunderbird mbox here; a 614 MB .pst of
+    1,903 messages in 7 s).
 
 - New in 0.8.1 (no schema change):
   - Unread at the top of the tree (`UNREAD = "*/unread"` in app.js; the core gets `folder: null`

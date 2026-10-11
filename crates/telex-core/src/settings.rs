@@ -732,6 +732,9 @@ pub enum Skip {
     Unreadable,
     /// It doesn't pass the editor's checks; the sentence says why.
     Invalid { detail: String },
+    /// A filter from another program needs something Telex's rules can't do: a condition
+    /// or an action, in that program's own words.
+    Unsupported { what: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -934,111 +937,7 @@ impl Import {
             }
         }
 
-        let existing_rules = store.rules().unwrap_or_default();
-        let mut rules = Vec::new();
-        let mut rule_items = Vec::new();
-        for value in &raw.rules {
-            let Ok(entry) = serde_json::from_value::<RuleEntry>(value.clone()) else {
-                let account = value
-                    .get("account")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned);
-                rule_items.push(skipped(name_of(value), account, Skip::Unreadable));
-                continue;
-            };
-            let name = entry.name.trim().to_owned();
-            let account = match &entry.account {
-                None => None,
-                Some(email) => match local(email) {
-                    Some(a) => Some(a),
-                    None => {
-                        let why = Skip::NoAccount {
-                            email: email.clone(),
-                        };
-                        rule_items.push(skipped(name, Some(email.clone()), why));
-                        continue;
-                    }
-                },
-            };
-            let mut actions = Vec::new();
-            let mut missing = None;
-            for action in &entry.actions {
-                actions.push(match action {
-                    ActionEntry::Move {
-                        folder,
-                        folder_id,
-                        this_pc,
-                    } => {
-                        let owner = if *this_pc { store.this_pc() } else { account };
-                        let found = owner.and_then(|a| {
-                            a.folders
-                                .iter()
-                                .find(|f| !folder_id.is_empty() && f.id == *folder_id)
-                                .or_else(|| a.folders.iter().find(|f| same_text(&f.name, folder)))
-                                .map(|f| a.folder_key(&f.id))
-                        });
-                        match found {
-                            Some(key) => Action::Move { folder: key },
-                            None => {
-                                missing = Some(folder.clone());
-                                break;
-                            }
-                        }
-                    }
-                    ActionEntry::MarkRead => Action::MarkRead,
-                    ActionEntry::Flag => Action::Flag,
-                    ActionEntry::Delete => Action::Delete,
-                    ActionEntry::AutoReply { body } => Action::AutoReply { body: body.clone() },
-                });
-            }
-            let email = account.map(|a| a.email.clone());
-            if let Some(folder) = missing {
-                rule_items.push(skipped(name, email, Skip::NoFolder { folder }));
-                continue;
-            }
-            let mut rule = Rule {
-                id: 0,
-                name: name.clone(),
-                enabled: entry.enabled,
-                account: account.map(|a| a.id.clone()),
-                match_all: entry.match_all,
-                conditions: entry.conditions,
-                actions,
-                stop: entry.stop,
-            };
-            if let Err(detail) = rule.check(accounts) {
-                rule_items.push(skipped(name, email, Skip::Invalid { detail }));
-                continue;
-            }
-            let existing = existing_rules
-                .iter()
-                .find(|r| same_text(&r.name, &rule.name) && r.account == rule.account);
-            let status = match existing {
-                None => Status::Add,
-                Some(e) => {
-                    rule.id = e.id;
-                    let unchanged = e.enabled == rule.enabled
-                        && e.match_all == rule.match_all
-                        && e.conditions == rule.conditions
-                        && e.actions == rule.actions
-                        && e.stop == rule.stop;
-                    if unchanged {
-                        Status::Same
-                    } else {
-                        Status::Update
-                    }
-                }
-            };
-            rule_items.push(PlanItem {
-                name,
-                account: email,
-                status,
-                skip: None,
-            });
-            if status != Status::Same {
-                rules.push((status, rule));
-            }
-        }
+        let (rule_items, rules) = plan_rules(&raw.rules, store);
 
         let account_plans = entries
             .iter()
@@ -1115,6 +1014,124 @@ impl Import {
         }
         (settings, report)
     }
+}
+
+/// Rules as a settings file holds them, matched against this store: what happens to each,
+/// and the rules to save (new ones, and changed ones with their id here). Each finds its
+/// account by address and the folders it moves to by id, then by name.
+pub fn plan_rules(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<(Status, Rule)>) {
+    let accounts = store.accounts();
+    let local = |email: &str| {
+        accounts
+            .iter()
+            .find(|a| a.email.eq_ignore_ascii_case(email))
+    };
+    let existing_rules = store.rules().unwrap_or_default();
+    let mut rules = Vec::new();
+    let mut items = Vec::new();
+    for value in values {
+        let Ok(entry) = serde_json::from_value::<RuleEntry>(value.clone()) else {
+            let account = value
+                .get("account")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            items.push(skipped(name_of(value), account, Skip::Unreadable));
+            continue;
+        };
+        let name = entry.name.trim().to_owned();
+        let account = match &entry.account {
+            None => None,
+            Some(email) => match local(email) {
+                Some(a) => Some(a),
+                None => {
+                    let why = Skip::NoAccount {
+                        email: email.clone(),
+                    };
+                    items.push(skipped(name, Some(email.clone()), why));
+                    continue;
+                }
+            },
+        };
+        let mut actions = Vec::new();
+        let mut missing = None;
+        for action in &entry.actions {
+            actions.push(match action {
+                ActionEntry::Move {
+                    folder,
+                    folder_id,
+                    this_pc,
+                } => {
+                    let owner = if *this_pc { store.this_pc() } else { account };
+                    let found = owner.and_then(|a| {
+                        a.folders
+                            .iter()
+                            .find(|f| !folder_id.is_empty() && f.id == *folder_id)
+                            .or_else(|| a.folders.iter().find(|f| same_text(&f.name, folder)))
+                            .map(|f| a.folder_key(&f.id))
+                    });
+                    match found {
+                        Some(key) => Action::Move { folder: key },
+                        None => {
+                            missing = Some(folder.clone());
+                            break;
+                        }
+                    }
+                }
+                ActionEntry::MarkRead => Action::MarkRead,
+                ActionEntry::Flag => Action::Flag,
+                ActionEntry::Delete => Action::Delete,
+                ActionEntry::AutoReply { body } => Action::AutoReply { body: body.clone() },
+            });
+        }
+        let email = account.map(|a| a.email.clone());
+        if let Some(folder) = missing {
+            items.push(skipped(name, email, Skip::NoFolder { folder }));
+            continue;
+        }
+        let mut rule = Rule {
+            id: 0,
+            name: name.clone(),
+            enabled: entry.enabled,
+            account: account.map(|a| a.id.clone()),
+            match_all: entry.match_all,
+            conditions: entry.conditions,
+            actions,
+            stop: entry.stop,
+        };
+        if let Err(detail) = rule.check(accounts) {
+            items.push(skipped(name, email, Skip::Invalid { detail }));
+            continue;
+        }
+        let existing = existing_rules
+            .iter()
+            .find(|r| same_text(&r.name, &rule.name) && r.account == rule.account);
+        let status = match existing {
+            None => Status::Add,
+            Some(e) => {
+                rule.id = e.id;
+                let unchanged = e.enabled == rule.enabled
+                    && e.match_all == rule.match_all
+                    && e.conditions == rule.conditions
+                    && e.actions == rule.actions
+                    && e.stop == rule.stop;
+                if unchanged {
+                    Status::Same
+                } else {
+                    Status::Update
+                }
+            }
+        };
+        items.push(PlanItem {
+            name,
+            account: email,
+            status,
+            skip: None,
+        });
+        if status != Status::Same {
+            rules.push((status, rule));
+        }
+    }
+    (items, rules)
 }
 
 #[cfg(test)]

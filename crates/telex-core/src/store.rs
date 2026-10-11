@@ -1400,6 +1400,16 @@ impl MailStore {
 
     // ---- Folders on this PC ----
 
+    /// Make the folders on this PC now, before any server account: mail moved in from
+    /// another program can live there alone.
+    pub fn ensure_this_pc(&mut self) -> Result<(), StoreError> {
+        if self.this_pc().is_none() {
+            self.db.execute_batch(ENSURE_LOCAL)?;
+            self.reload_accounts()?;
+        }
+        Ok(())
+    }
+
     /// The folders on this PC, once the mail base has them: from the first server account on.
     pub fn this_pc(&self) -> Option<&Account> {
         self.accounts

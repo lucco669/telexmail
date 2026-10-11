@@ -21,11 +21,16 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder",
 ammonia = "4.2.1"
 ureq = "3.4.2"
 base64 = "0.22"
+# Moving in from Outlook: its data files (.pst), read with Microsoft's reader of the MS-PST
+# specification, and single messages (.msg), which are compound files (the Tauri app already
+# has this cfb for file types).
+outlook-pst = "1.2.0"
+cfb = "0.14.0"
 
-# MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver, and
-# Windows' display languages for the interface language.
+# MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver;
+# Windows' display languages for the interface language; Outlook's accounts in the registry.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_NetworkManagement_Dns"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Globalization", "Win32_NetworkManagement_Dns", "Win32_System_Registry"] }
 
 # MX and SRV lookups elsewhere (Linux, macOS): a DNS client in Rust that reads the system's DNS
 # servers from /etc/resolv.conf. Plain DNS only, no DNS over TLS or HTTPS.
@@ -34,3 +39,5 @@ hickory-resolver = { version = "0.26.3", default-features = false, features = ["
 
 [dev-dependencies]
 tokio = { version = "1.53.2", features = ["rt", "macros", "io-util"] }
+# Writes Outlook data files for the tests: a fork of outlook-pst that can create them.
+pst_fixture = { package = "outlook-pst-rw", version = "1.2.9" }

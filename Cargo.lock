@@ -3136,6 +3136,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "outlook-pst"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "299eace9d895cc31490927d7de779f8e8f3deb5fb6bd1e68eb192aa1da19bd47"
+dependencies = [
+ "byteorder",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "outlook-pst-rw"
+version = "1.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b886bf1b3fbe92fd95a0051a06dff8f01651b026badcb65d54467c8cf0db7540"
+dependencies = [
+ "byteorder",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
 name = "pango"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5020,11 +5042,14 @@ dependencies = [
  "ammonia",
  "async-imap",
  "base64 0.22.1",
+ "cfb",
  "chrono",
  "futures-util",
  "hickory-resolver",
  "lettre",
  "mail-parser",
+ "outlook-pst",
+ "outlook-pst-rw",
  "rusqlite",
  "serde",
  "serde_json",

@@ -1796,9 +1796,13 @@ let pvSeq = 0;
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
   if (!ACCOUNTS.length){
+    // Another mail program on this PC: everything can come from there in one go.
+    if (!moveIn.sources) findPrograms().then(() => { if (!ACCOUNTS.length) renderPreview(); });
+    const from = moveIn.sources?.find(s => s.accounts.length || s.folders.length);
     previewEl.innerHTML = `<div class="welcome">${I.mail}<h2>${esc(t('Welcome to Telex'))}</h2>
 <p>${esc(t('Add your mail account to start. Telex keeps your mail on this PC and talks only to your mail servers.'))}</p>
-<button type="button" class="btn primary" data-act="add-account">${esc(t('Add your mail account'))}</button></div>`;
+<div class="wbtns"><button type="button" class="btn primary" data-act="add-account">${esc(t('Add your mail account'))}</button>
+${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(from.path)}">${esc(t('Bring everything from {program}', {program:programName(from.program)}))}</button>` : ''}</div></div>`;
     return;
   }
   if (state.picked.size > 1){
@@ -1886,6 +1890,7 @@ previewEl.addEventListener('click', async e => {
   if (act.dataset.act === 'discard') discardCompose();
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
+  if (act.dataset.act === 'move-in') openMoveIn(act.dataset.path);
 });
 
 /* ---------- compose ---------- */
@@ -2832,8 +2837,23 @@ function showAccountView(view){
   accountView = view;
   for (const [v, id] of Object.entries(ACCOUNT_VIEWS)) $(id).hidden = v !== view;
   if (view === 'home') renderAccountList();
+  if (view === 'start') offerMoveIn();
   sdlg.querySelector('.setpanes').scrollTop = 0;
 }
+
+// Adding an account while another mail program on this PC has some: all of them can come at once.
+function offerMoveIn(){
+  const el = $('w-move');
+  const show = () => {
+    const from = moveIn.sources?.find(src => src.accounts.some(canAdd));
+    el.hidden = !from || accountView !== 'start';
+    if (!from) return;
+    el.innerHTML = esc(tn(from.accounts.filter(canAdd).length, '{program} is on this PC with {n} account.', '{program} is on this PC with {n} accounts.', {program:programName(from.program)}))
+      + ` <button type="button" class="linkbtn" data-path="${esc(from.path)}">${esc(t('Bring them all, with their mail'))}</button>`;
+  };
+  if (moveIn.sources) show(); else findPrograms().then(show);
+}
+$('w-move').addEventListener('click', e => { const b = e.target.closest('[data-path]'); if (b) openMoveIn(b.dataset.path); });
 
 // The core sends tips and reasons as codes; the words are here, to translate with the rest.
 const NOTE_TEXT = {
@@ -3494,6 +3514,7 @@ const undoText = n => n === 0 ? t('Off: send at once') : tn(n, '{n} second', '{n
 function openSettings(tab){
   if (tab) setTab = tab;
   move_ = {plan:null, choice:null, report:null, exported:move_.exported, error:'', counts:null};
+  if (!moveIn.running) moveIn = {...moveIn, source:null, report:null, error:'', passwords:{}};
   renderSettings();
   if (!sdlg.open) sdlg.showModal();
   sdlg.querySelector(`[role="tab"][data-tab="${setTab}"]`).focus();
@@ -3539,6 +3560,7 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-undo') changeSettings({undo_send:Number(v)});
   else if (el.name === 'updates') changeSettings({updates:v}).then(ok => ok && autoCheck(true));
   else if (el.name === 'backup_every') changeSettings({backup_every:v}).then(ok => { if (ok){ renderTree(); autoBackup(); } });
+  else if (el.dataset.mv) moveInTick(el);
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
 forcedColors.addEventListener('change', () => { if (sdlg.open) $('s-forced').hidden = !forcedColors.matches; });
@@ -3589,6 +3611,7 @@ function skipText(s){
   if (s.code === 'no_account') return t('{email} isn’t set up here yet', {email:s.email});
   if (s.code === 'no_folder') return t('no folder “{folder}” here', {folder:s.folder});
   if (s.code === 'unreadable') return t('from a newer Telex, or edited by hand');
+  if (s.code === 'unsupported') return t('Telex can’t do “{what}”', {what:s.what});
   return tr(s.detail ?? '');
 }
 function counted(items){
@@ -3609,10 +3632,12 @@ function planSection(part, title, items){
 }
 function renderMove(){
   const el = $('s-move'), p = move_.plan;
+  if (moveIn.source){ renderSource(el); return; }
   if (!p){
     const c = move_.counts;
     const n = (k, text) => c ? ` <small class="sdim">${esc(tn(c[k], text, text))}</small>` : '';
-    el.innerHTML = `<h3 class="rh">${esc(t('Export'))}</h3>
+    if (!moveIn.sources) findPrograms().then(() => { if (sdlg.open && setTab === 'move' && !moveIn.source && !move_.plan) renderMove(); });
+    el.innerHTML = movingSection() + `<h3 class="rh">${esc(t('Export'))}</h3>
 <p class="dnote">${esc(t('Save your settings to a file, to set up Telex on another PC or keep a copy. The file holds no passwords.'))}</p>
 <div class="sopts">
   <label class="sopt"><input type="checkbox" data-ex="settings" checked><span>${esc(t('Settings: theme, language, rows, mail checks'))}</span></label>
@@ -3673,9 +3698,30 @@ function importError(e){
   if (e?.code === 'unreadable') return t('Telex couldn’t read the file: {detail}', {detail:e.detail});
   return tr(e?.detail ?? e);
 }
+$('s-move').addEventListener('input', e => {
+  const key = e.target.dataset?.pw;
+  if (key) moveIn.passwords[key] = e.target.value;
+});
 $('s-move').addEventListener('click', async e => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.source){ const src = moveIn.sources?.find(x => x.path === b.dataset.source); if (src) chooseSource(src); return; }
+  if (b.id === 'mv-pst' || b.id === 'mv-dir'){
+    let src;
+    try {
+      src = await invoke('open_source', {folder:b.id === 'mv-dir', words:b.id === 'mv-dir'
+        ? {title:t('Choose a folder of mail: Maildir, MH, or a Thunderbird profile'), filter:''}
+        : {title:t('Choose an Outlook data file'), filter:t('Outlook data files')}});
+    } catch (err){ move_.error = tr(err); renderMove(); return; }
+    if (src) chooseSource(src);
+    return;
+  }
+  if (b.id === 'mv-go'){ bringIn(); return; }
+  if (b.id === 'mv-back' || b.id === 'mv-done'){
+    moveIn = {...moveIn, source:null, report:null, error:'', passwords:{}};
+    renderMove();
+    return;
+  }
   move_.error = '';
   if (b.id === 's-export'){
     const choice = {};
@@ -3722,6 +3768,143 @@ $('s-move').addEventListener('click', async e => {
     editing = null;
     openForm(a.setup, '', null, t('The servers come from the settings file: {servers}. Check them before you enter your password.', {servers}));
   }
+});
+
+// Moving in from another mail program (Thunderbird, Outlook, Maildir folders): what it has is
+// found on this PC only; the user ticks accounts (typing their passwords), mail kept on the PC
+// and filters; the core adds them and reads the mail into folders on this PC.
+let moveIn = {sources:null, finding:null, source:null, choice:null, passwords:{}, running:null, report:null, error:''};
+const PROGRAMS = {thunderbird:'Thunderbird', betterbird:'Betterbird', seamonkey:'SeaMonkey', postbox:'Postbox', outlook:'Outlook', evolution:'Evolution', kmail:'KMail', folder:N_('Mail folder')};
+const programName = p => p === 'folder' ? t(PROGRAMS.folder) : PROGRAMS[p] ?? p;
+const BLOCKED = {oauth:N_('signs in with Google or Microsoft, which Telex can’t do yet'), pop3:N_('POP3: Telex reads mail over IMAP; its mail on this PC can come along below'),
+  exchange:N_('Exchange or Microsoft 365: Telex can’t sign in there yet')};
+const canAdd = a => !a.present && !a.blocked;
+function findPrograms(){
+  moveIn.finding ??= invoke('find_programs').then(list => { moveIn.sources = list; }, () => { moveIn.sources = []; }).finally(() => { moveIn.finding = null; });
+  return moveIn.finding;
+}
+// What a source holds, in a line: "40 accounts · 2.1 GB of mail · 5 filters".
+function sourceSummary(s){
+  const mail = s.folders.reduce((n, f) => n + f.bytes, 0);
+  return [s.accounts.length ? tn(s.accounts.length, '{n} account', '{n} accounts') : '',
+    s.folders.length ? t('{size} of mail', {size:fmtSize(Math.ceil(mail / 1024))}) : '',
+    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : ''].filter(Boolean).join(' · ');
+}
+function openMoveIn(path){
+  openSettings('move');
+  const s = moveIn.sources?.find(x => x.path === path);
+  if (s) chooseSource(s);
+}
+function chooseSource(s){
+  moveIn = {...moveIn, source:s, report:null, running:null, error:'', passwords:{}, choice:{
+    accounts:new Set(s.accounts.filter(canAdd).map(a => a.key)),
+    folders:new Set(s.folders.filter(f => f.tick).map(f => f.key)),
+    filters:s.filters > 0}};
+  renderMove();
+  sdlg.querySelector('#s-move input:not([disabled])')?.focus();
+}
+function movingSection(){
+  const list = moveIn.sources;
+  const found = list === null ? `<p class="dnote">${esc(t('Looking for mail programs on this PC…'))}</p>`
+    : list.length ? `<ul class="ilist mvlist">${list.map(s => `<li><span class="iname">${esc(programName(s.program))}</span><span class="iwhy" title="${esc(s.path)}">${esc(s.name)} · ${esc(sourceSummary(s))}</span>`
+      + `<button type="button" class="btn" data-source="${esc(s.path)}">${esc(t('Bring in…'))}</button></li>`).join('')}</ul>`
+    : `<p class="dnote">${esc(t('No other mail program found on this PC.'))}</p>`;
+  return `<h3 class="rh">${esc(t('From another mail program'))}</h3>
+<p class="dnote">${esc(t('Thunderbird, Outlook and others: their accounts with identities and signatures, the mail they keep on this PC, and their filters. Telex looks only on this PC.'))}</p>
+${found}
+<div class="sbtns"><button class="btn" type="button" id="mv-pst">${esc(t('Outlook data file (.pst)…'))}</button><button class="btn" type="button" id="mv-dir">${esc(t('A folder of mail…'))}</button></div>`;
+}
+// Ticked or not, as the user left it.
+const ticked = (on, attrs) => `<input type="checkbox" ${attrs}${on ? ' checked' : ''}>`;
+function renderSource(el){
+  const s = moveIn.source, c = moveIn.choice, r = moveIn.report, run = moveIn.running;
+  const title = `<h3 class="rh">${esc(programName(s.program))} · ${esc(s.name)}</h3>`;
+  if (run){
+    const order = ['accounts', 'mail', 'rules'], at = order.indexOf(run.step);
+    const step = (id, label, small) => `<li class="${run.step === id ? 'work' : order.indexOf(id) < at ? 'done' : ''}">${esc(label)}${small ? `<small>${esc(small)}</small>` : ''}</li>`;
+    const size = n => fmtSize(Math.ceil(n / 1024));
+    const accounts = c.accounts.size ? step('accounts', run.step === 'accounts' ? t('Adding accounts: {done} of {total}', {done:run.done, total:run.total}) : t('Adding accounts'),
+      run.step === 'accounts' ? run.name : '') : '';
+    const mail = c.folders.size ? step('mail', run.step === 'mail' ? t('Reading mail: {done} of {total}', {done:size(run.done), total:size(run.total)}) : t('Reading mail'),
+      run.step === 'mail' ? run.name : '') : '';
+    const rules = c.filters ? step('rules', t('Making rules of the filters'), '') : '';
+    const bar = run.step === 'mail' && run.total ? `<div class="ubar mvbar"><i style="width:${Math.min(100, run.done / run.total * 100).toFixed(1)}%"></i></div>` : '';
+    el.innerHTML = `${title}<ul class="wsteps" aria-live="polite">${accounts}${mail}${rules}</ul>${bar}
+<p class="dnote">${esc(t('Telex keeps working meanwhile. Mail already here isn’t brought twice.'))}</p>`;
+    return;
+  }
+  if (r){
+    const ok = r.accounts.filter(a => !a.error), bad = r.accounts.filter(a => a.error);
+    const made = r.rules.filter(i => i.status === 'add' || i.status === 'update').length;
+    const lines = [ok.length ? tn(ok.length, '{n} account added', '{n} accounts added') : '',
+      r.mail.added ? tn(r.mail.added, '{n} message in folders on this PC', '{n} messages in folders on this PC', {n:num(r.mail.added)}) : '',
+      r.mail.already ? tn(r.mail.already, '{n} was here already', '{n} were here already', {n:num(r.mail.already)}) : '',
+      made ? tn(made, '{n} rule', '{n} rules') : ''].filter(Boolean);
+    const accounts = r.accounts.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Accounts'))}</b><span>${esc(bad.length ? tn(bad.length, '{n} needs attention', '{n} need attention') : t('all logged in'))}</span></div>`
+      + `<ul class="ilist">${r.accounts.map(a => `<li><span class="ist ${a.error ? 'skip' : 'add'}">${esc(a.error ? t('Check|account') : t('Added|account'))}</span><span class="iname">${esc(a.email)}</span>`
+      + `<span class="iwhy" title="${esc(a.error ? tr(a.error) : '')}">${esc(a.error ? tr(a.error) : '')}</span></li>`).join('')}</ul>`
+      + (bad.length ? `<p class="dnote">${esc(t('Fix these in Settings › Accounts › Edit: the account is there and needs its password or servers.'))}</p>` : '') + '</section>' : '';
+    const rules = r.rules.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Filters'))}</b><span>${esc(counted(r.rules))}</span></div>${planItems(r.rules)}</section>` : '';
+    el.innerHTML = `${title}<p class="whint">${esc(lines.length ? lines.join(', ') + '.' : t('Nothing needed bringing.'))}</p>
+${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${rules}
+<div class="sbtns"><button class="btn primary" type="button" id="mv-done">${esc(t('Done'))}</button></div>`;
+    return;
+  }
+  const addable = s.accounts.filter(canAdd);
+  const accounts = s.accounts.length ? `<section class="ipart"><label class="ihead">${ticked(addable.length && addable.every(a => c.accounts.has(a.key)), `data-mv="all-accounts"${addable.length ? '' : ' disabled'}`)}`
+    + `<b>${esc(t('Accounts'))}</b><span>${esc(tn(c.accounts.size, '{n} to add', '{n} to add'))}</span></label><ul class="ilist mvaccts">${s.accounts.map(a => {
+      const why = a.present ? t('already in Telex') : a.blocked ? t(BLOCKED[a.blocked] ?? a.blocked) : `${a.setup.email} · ${a.setup.host}`;
+      const pw = canAdd(a) ? `<input type="password" class="mvpw" data-pw="${esc(a.key)}" value="${esc(moveIn.passwords[a.key] ?? '')}" placeholder="${esc(t('Password'))}" aria-label="${esc(t('Password for {email}', {email:a.setup.email}))}" autocomplete="off"${c.accounts.has(a.key) ? '' : ' disabled'}>` : '';
+      return `<li><label class="mvpick">${ticked(c.accounts.has(a.key), `data-mv="account" data-key="${esc(a.key)}"${canAdd(a) ? '' : ' disabled'}`)}<span class="iname">${esc(a.setup.name || a.setup.email)}</span></label>`
+        + `<span class="iwhy" title="${esc(why)}">${esc(why)}</span>${pw}</li>`;
+    }).join('')}</ul><p class="dnote">${esc(t('Type each password once; Telex keeps it in the system’s password store. An account left without one is added anyway and asks for it in Settings › Accounts. Mail on the servers isn’t copied from here: Telex downloads it from them.'))}</p></section>` : '';
+  const total = s.folders.filter(f => c.folders.has(f.key)).reduce((n, f) => n + f.bytes, 0);
+  const folders = s.folders.length ? `<section class="ipart"><label class="ihead">${ticked(s.folders.every(f => c.folders.has(f.key)), 'data-mv="all-folders"')}`
+    + `<b>${esc(t('Mail on this PC'))}</b><span>${esc(c.folders.size ? fmtSize(Math.ceil(total / 1024)) : t('none ticked'))}</span></label><ul class="ilist">${s.folders.map(f =>
+      `<li><label class="mvpick">${ticked(c.folders.has(f.key), `data-mv="folder" data-key="${esc(f.key)}"`)}<span class="iname">${esc(f.name)}</span></label>`
+      + `<span class="iwhy">${esc([f.messages != null ? tn(f.messages, '{n} message', '{n} messages', {n:num(f.messages)}) : '', fmtSize(Math.ceil(f.bytes / 1024))].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`
+    + `<p class="dnote">${esc(t('Each folder comes into a folder on this PC of the same name.'))}</p></section>` : '';
+  const filters = s.filters ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(t('Filters'))}</b><span>${esc(tn(s.filters, '{n} filter', '{n} filters'))}</span></label>`
+    + `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p></section>` : '';
+  const nothing = !c.accounts.size && !c.folders.size && !c.filters;
+  el.innerHTML = `${title}${accounts}${folders}${filters}<p class="derr" role="alert">${esc(moveIn.error)}</p>
+<div class="sbtns"><button class="btn primary" type="button" id="mv-go"${nothing ? ' disabled' : ''}>${esc(t('Bring in'))}</button><button class="btn" type="button" id="mv-back">${esc(t('Back'))}</button></div>`;
+}
+// A tick in the source's lists: the counts and the buttons follow; typed passwords stay.
+function moveInTick(el){
+  const c = moveIn.choice, s = moveIn.source, on = el.checked, key = el.dataset.key;
+  if (el.dataset.mv === 'account'){ on ? c.accounts.add(key) : c.accounts.delete(key); }
+  else if (el.dataset.mv === 'folder'){ on ? c.folders.add(key) : c.folders.delete(key); }
+  else if (el.dataset.mv === 'filters') c.filters = on;
+  else if (el.dataset.mv === 'all-accounts') c.accounts = new Set(on ? s.accounts.filter(canAdd).map(a => a.key) : []);
+  else if (el.dataset.mv === 'all-folders') c.folders = new Set(on ? s.folders.map(f => f.key) : []);
+  const again = el.dataset.mv + (key ? `"][data-key="${key}` : '');
+  renderMove();
+  sdlg.querySelector(`#s-move [data-mv="${again}"]`)?.focus();
+}
+async function bringIn(){
+  const s = moveIn.source, c = moveIn.choice;
+  const passwords = {};
+  c.accounts.forEach(k => { if (moveIn.passwords[k]) passwords[k] = moveIn.passwords[k]; });
+  const choice = {accounts:[...c.accounts], passwords, folders:[...c.folders], filters:c.filters};
+  moveIn.passwords = {}; // typed once, sent once
+  moveIn.running = {step:c.accounts.size ? 'accounts' : c.folders.size ? 'mail' : 'rules', done:0, total:c.accounts.size, name:''};
+  moveIn.error = '';
+  renderMove();
+  let r;
+  try { r = await invoke('move_in', {path:s.path, choice}); }
+  catch (e){ moveIn.running = null; moveIn.error = tr(e); renderMove(); return; }
+  moveIn.running = null; moveIn.report = r;
+  moveIn.sources = null; // what is in Telex now has changed
+  if (sdlg.open && setTab === 'move') renderMove();
+  await refresh();
+  if (r.accounts.some(a => !a.error)) getMail({quiet:true});
+  say(t('Moved in from {program}.', {program:programName(s.program)}));
+}
+window.__TAURI__?.event?.listen('move-progress', ({payload: p}) => {
+  if (!moveIn.running) return;
+  moveIn.running = p;
+  if (sdlg.open && setTab === 'move') renderMove();
 });
 
 // Settings › Reading: senders whose images load without asking. Removing one asks again.

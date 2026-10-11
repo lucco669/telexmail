@@ -308,6 +308,7 @@ button.ph-who:hover .pn{text-decoration:underline}
 .welcome svg{width:36px;height:36px;color:var(--faint)}
 .welcome h2{margin:0;font:600 17px var(--font-ui);color:var(--fg)}
 .welcome p{margin:0 0 4px;max-width:380px;font-size:12.5px;line-height:1.5}
+.wbtns{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
 
 /* Compose */
 .compose{display:flex;flex-direction:column;height:100%;min-height:0}
@@ -572,6 +573,15 @@ button.ph-who:hover .pn{text-decoration:underline}
 .ist.same{background:var(--panel);color:var(--muted)}
 .ist.skip{background:var(--warn-bg);color:var(--warn-fg)}
 .ipart .dnote{padding:6px 10px 8px}
+/* Moving in from another program: a tick and a name, a password per account. */
+.mvpick{display:flex;align-items:center;gap:8px;min-width:0;max-width:45%;cursor:pointer}
+.mvpick .iname{max-width:none}
+.mvaccts{max-height:300px}
+.mvpw{flex:none;width:140px;height:22px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12px}
+.mvpw:focus{border-color:var(--accent);outline:0}
+.mvpw:disabled{opacity:.5}
+.mvlist .btn{flex:none}
+.mvbar{margin:-6px 0 12px}
 /* Settings › Accounts: the list, and the wizard, server form and identities in the pane */
 .spane .cf.df{padding:8px 0 10px}
 .spane .rlist{padding:0 0 6px;max-height:none}

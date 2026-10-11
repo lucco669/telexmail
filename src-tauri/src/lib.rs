@@ -4,6 +4,7 @@
 mod backup;
 mod files;
 mod folders;
+mod migrate;
 mod secrets;
 mod settings;
 mod updates;
@@ -986,6 +987,9 @@ pub fn run() {
             folders::delete_local_folder,
             folders::export_folder,
             folders::import_mail,
+            migrate::find_programs,
+            migrate::open_source,
+            migrate::move_in,
             save_outgoing,
             discard_draft,
             draft_html,
