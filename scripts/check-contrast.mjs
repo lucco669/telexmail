@@ -62,13 +62,20 @@ const UI = [
     [`acct-${i}`, 'surface', `Account ${i + 1}'s dot in All mail`],
   ]),
 ];
-// Text on backgrounds the stylesheet mixes from two tokens: [foreground, [a, share of a, b, how],
-// what]. "oklab" is color-mix(in oklab, a p%, b); "over" is color-mix(…, a p%, transparent)
-// drawn over b, as the browser blends it.
-const MIXED = [0, 1, 2, 3, 4, 5].flatMap((i) => [
-  ['fg', [`acct-${i}`, 0.26, 'surface', 'oklab'], `Account ${i + 1}'s initials`],
-  ['fg', [`acct-${i}`, 0.24, 'panel', 'over'], `Account ${i + 1}'s tinted line under the pointer`],
-]);
+// Text (and with 'ui', marks) on backgrounds the stylesheet mixes from two tokens: [foreground,
+// [a, share of a, b, how], what, kind]. "oklab" is color-mix(in oklab, a p%, b); "over" is
+// color-mix(…, a p%, transparent) drawn over b, as the browser blends it.
+const MIXED = [0, 1, 2, 3, 4, 5].flatMap((i) => {
+  const row = [`acct-${i}`, 0.09, 'surface', 'oklab']; // a row of a list that mixes accounts, tinted
+  return [
+    ['fg', [`acct-${i}`, 0.26, 'surface', 'oklab'], `Account ${i + 1}'s initials`],
+    ['fg', [`acct-${i}`, 0.24, 'panel', 'over'], `Account ${i + 1}'s tinted line under the pointer`],
+    ['fg', row, `A tinted row of account ${i + 1}`],
+    ['muted', row, `Dates and folders in a tinted row of account ${i + 1}`],
+    ['accent', row, `The unread dot in a tinted row of account ${i + 1}`, 'ui'],
+    ['flag', row, `The flag in a tinted row of account ${i + 1}`, 'ui'],
+  ];
+});
 const NEED = { AA: 4.5, AAA: 7 };
 
 const hex = (s) => {
@@ -134,12 +141,13 @@ for (const t of themes.values()) {
   };
   for (const [fg, bg, what] of TEXT) check(fg, bg, what, NEED[t.level] ?? 4.5, 'text');
   for (const [fg, bg, what] of UI) check(fg, bg, what, 3, 'ui');
-  for (const [fg, [a, p, b, how], what] of MIXED) {
+  for (const [fg, [a, p, b, how], what, kind = 'text'] of MIXED) {
     const [x, y, z] = [fg, a, b].map((k) => hex(t.tokens[k] ?? ''));
     if (!x || !y || !z) continue; // a missing token is reported above
-    const back = mix(y, p, z, how), r = ratio(x, back), need = NEED[t.level] ?? 4.5, bg = `${a} ${p * 100}% ${how === 'over' ? 'over' : 'with'} ${b}`;
+    const back = mix(y, p, z, how), r = ratio(x, back), need = kind === 'ui' ? 3 : NEED[t.level] ?? 4.5;
+    const bg = `${a} ${Math.round(p * 100)}% ${how === 'over' ? 'over' : 'with'} ${b}`;
     const color = '#' + back.map((v) => v.toString(16).padStart(2, '0')).join('');
-    pairs.push({ fg, bg, color, what, kind: 'text', need, ratio: Math.round(r * 100) / 100 });
+    pairs.push({ fg, bg, color, what, kind, need, ratio: Math.round(r * 100) / 100 });
     if (r < need) problems.push(`${t.id}: --${fg} on ${bg} is ${r.toFixed(2)}:1, needs ${need}:1 (${what})`);
   }
   const min = (kind) => Math.min(...pairs.filter((p) => p.kind === kind).map((p) => p.ratio));
@@ -170,4 +178,5 @@ if (problems.length) {
   console.error(`\n${problems.length} problem${problems.length === 1 ? '' : 's'}:\n  ` + problems.join('\n  '));
   process.exit(1);
 }
-console.log(`\nAll ${results.length} themes pass (${TEXT.length + MIXED.length} text and ${UI.length} UI pairs each).`);
+const mixedUi = MIXED.filter((m) => m[3] === 'ui').length;
+console.log(`\nAll ${results.length} themes pass (${TEXT.length + MIXED.length - mixedUi} text and ${UI.length + mixedUi} UI pairs each).`);

@@ -44,8 +44,8 @@
       <div class="list" id="list" tabindex="0" aria-label="Messages" data-i18n>
         <table>
           <thead><tr>
-            <th class="c-ic" scope="col"><button type="button" data-sort="flag" aria-label="Sort by status" data-i18n>
-              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg><span class="arr"></span></button></th>
+            <th class="c-ic" scope="col"><span class="ich"><button type="button" class="unf" id="b-unread" aria-pressed="false"><i class="dot"></i></button><button type="button" data-sort="flag" aria-label="Sort by status" data-i18n>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg><span class="arr"></span></button></span></th>
             <th class="c-from" scope="col"><button type="button" data-sort="from"><span id="from-label">From</span><span class="arr"></span></button></th>
             <th class="c-subj" scope="col"><span class="grip" data-grip="from" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the From column" data-i18n></span><button type="button" data-sort="subject" data-i18n>Subject<span class="arr"></span></button></th>
             <th class="c-where" scope="col"><span class="grip" data-grip="where" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the Folder column" data-i18n></span><span class="th-lbl" id="where-label">Folder</span></th>
@@ -64,7 +64,7 @@
        the last check, help and the version. -->
   <footer class="status">
     <span class="st-side st-left"><span id="st-folder"></span><button class="chip" id="st-undo" type="button" hidden></button><span id="st-msg"></span></span>
-    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
+    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
     <span class="st-side st-right">
       <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
       <button class="chip" id="st-update" type="button" hidden></button>
@@ -112,9 +112,14 @@
           <div class="segs" id="s-density"></div>
         </fieldset>
         <fieldset class="sgroup">
-          <legend data-i18n>Accounts in the folder list</legend>
+          <legend data-i18n>Font</legend>
+          <div class="themes fonts" id="s-fonts"></div>
+          <p class="dnote snote" data-i18n>Each is a set: one face for the window, one for the message list, and a mono one for dates, sizes and plain-text writing. System and Classic use fonts Windows already has.</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Account colors</legend>
           <div class="themes marks" id="s-marks"></div>
-          <p class="dnote snote" data-i18n>Each account has a color of its own, shown this way once there is more than one, also in the list and the status bar.</p>
+          <p class="dnote snote" data-i18n>Each account has a color of its own, shown this way once there is more than one: in the folders, in lists that mix accounts (Unread, all mail, drafts) and in the status bar.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Text size</legend>

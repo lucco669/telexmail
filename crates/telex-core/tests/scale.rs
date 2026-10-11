@@ -528,7 +528,7 @@ fn view(folder: Option<&str>, sort: SortKey, filter: &str, bodies: bool) -> List
         ascending: false,
         filter: filter.to_owned(),
         bodies,
-        thread: None,
+        ..ListView::default()
     }
 }
 

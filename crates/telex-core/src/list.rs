@@ -58,6 +58,14 @@ pub struct ListView {
     /// except Spam and Trash; `folder` doesn't count then.
     #[serde(default)]
     pub thread: Option<MessageId>,
+    /// Only unread messages: of the folder, or with `folder: None` of all mail (the Unread
+    /// list). Those in `keep` stay too.
+    #[serde(default)]
+    pub unread: bool,
+    /// Messages an unread list keeps after they were read: the window passes the ones read
+    /// while the list is open, so a message doesn't vanish from under the reader.
+    #[serde(default)]
+    pub keep: Vec<MessageId>,
 }
 
 /// The quick filter, read: plain words, and operators. Unknown operators and values that
@@ -409,6 +417,17 @@ impl Query {
         if terms.has_file {
             filter.push_str(" AND attachments <> '[]'");
         }
+        if view.unread {
+            if view.keep.is_empty() {
+                filter.push_str(" AND unread = 1");
+            } else {
+                filter.push_str(" AND (unread = 1 OR id IN (SELECT value FROM json_each(?)))");
+                args.push(Value::Text(
+                    serde_json::to_string(&view.keep)
+                        .map_err(|e| StoreError::Database(e.to_string()))?,
+                ));
+            }
+        }
 
         let desc = !view.ascending;
         let folder = view.folder.as_deref().filter(|_| view.thread.is_none());
@@ -623,10 +642,12 @@ impl MailStore {
     /// One page of a list: up to `limit` summaries in the view's order, where it says.
     /// An `After` or `Before` message that no longer exists (or, in a filtered list, no
     /// longer matches) is an `UnknownMessage` error; the UI then asks for the row instead.
+    /// An unread list is worked out once, like a filtered one: unread mail is a few rows
+    /// scattered through a folder's index.
     pub fn page(&self, view: &ListView, at: PageAt, limit: usize) -> Result<Page, StoreError> {
         let limit = limit.clamp(1, MAX_PAGE);
         let q = Query::new(self, view)?;
-        if view.filter.trim().is_empty() && view.thread.is_none() {
+        if view.filter.trim().is_empty() && view.thread.is_none() && !view.unread {
             self.keyset_page(&q, at, limit)
         } else {
             self.found_page(&q, view, at, limit)
@@ -1135,15 +1156,17 @@ mod tests {
             for sort in sorts {
                 for ascending in [false, true] {
                     for filter in ["", "kow", " ŁUCJA ", "WYC"] {
-                        let view = ListView {
-                            folder: Some(folder.into()),
-                            sort,
-                            ascending,
-                            filter: filter.into(),
-                            bodies: false,
-                            thread: None,
-                        };
-                        check_paging(&store, &view, folder.ends_with("sent"));
+                        for unread in [false, true] {
+                            let view = ListView {
+                                folder: Some(folder.into()),
+                                sort,
+                                ascending,
+                                filter: filter.into(),
+                                unread,
+                                ..Default::default()
+                            };
+                            check_paging(&store, &view, folder.ends_with("sent"));
+                        }
                     }
                 }
             }
@@ -1157,6 +1180,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .filter(|m| matches(m, &view.filter))
+            .filter(|m| !view.unread || m.unread || view.keep.contains(&m.id))
             .collect();
         reference_order(&mut all, view, outgoing);
         let all = ids(&all);
@@ -1351,6 +1375,73 @@ mod tests {
         assert_eq!(
             store.next_unread(&view, Some(99_999), false).unwrap(),
             store.next_unread(&view, None, false).unwrap()
+        );
+    }
+
+    #[test]
+    fn unread_lists_keep_what_was_read_while_they_were_open() {
+        let mut store = store(12);
+        let unread_in = |store: &MailStore, folder: &str| -> Vec<MessageId> {
+            let mut rows: Vec<_> = store
+                .list(folder)
+                .unwrap()
+                .into_iter()
+                .filter(|m| m.unread)
+                .collect();
+            reference_order(&mut rows, &ListView::default(), false);
+            ids(&rows)
+        };
+        // The Unread list: every folder but Spam and Trash, newest first.
+        let everywhere = ListView {
+            unread: true,
+            ..Default::default()
+        };
+        let mut expected: Vec<_> = ["studio/inbox", "studio/sent"]
+            .iter()
+            .flat_map(|f| store.list(f).unwrap())
+            .filter(|m| m.unread)
+            .collect();
+        reference_order(&mut expected, &everywhere, false);
+        let page = store.page(&everywhere, PageAt::First, 100).unwrap();
+        assert_eq!(ids(&page.rows), ids(&expected));
+        assert!(unread_in(&store, "studio/spam")
+            .iter()
+            .all(|id| !ids(&page.rows).contains(id)));
+
+        // Read one: it leaves the list, unless the list keeps it, in its place.
+        let inbox = unread_in(&store, "studio/inbox");
+        let view = ListView {
+            folder: Some("studio/inbox".into()),
+            unread: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            ids(&store.page(&view, PageAt::First, 100).unwrap().rows),
+            inbox
+        );
+        store.set_unread(inbox[1], false).unwrap();
+        let rows = ids(&store.page(&view, PageAt::First, 100).unwrap().rows);
+        assert_eq!(rows, [&inbox[..1], &inbox[2..]].concat());
+        let kept = ListView {
+            keep: vec![inbox[1]],
+            ..view.clone()
+        };
+        assert_eq!(
+            ids(&store.page(&kept, PageAt::First, 100).unwrap().rows),
+            inbox
+        );
+        check_paging(&store, &kept, false);
+        // Space skips it: it is read now.
+        let next = store.next_unread(&kept, Some(inbox[0]), false).unwrap();
+        assert_eq!(next.map(|u| (u.id, u.row)), Some((inbox[2], 2)));
+        // Kept mail of another folder stays out.
+        let elsewhere = ListView {
+            keep: unread_in(&store, "studio/sent"),
+            ..view
+        };
+        assert_eq!(
+            ids(&store.page(&elsewhere, PageAt::First, 100).unwrap().rows),
+            rows
         );
     }
 

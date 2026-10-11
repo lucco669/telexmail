@@ -94,7 +94,8 @@ ui/                  The interface. index.html + styles.css + app.js, no build s
   themes.css         Every color, one block per theme (data-theme on <html> and on theme cards).
   i18n.js            English and Polish: t(), tn() (Polish plurals), data-i18n in index.html.
   boot.js            Puts the saved theme, language and text size on <html> before first paint.
-  fonts/             IBM Plex (OFL) bundled so the app works offline.
+  fonts/             IBM Plex, Inter, JetBrains Mono, Atkinson Hyperlegible Next and Mono (OFL, from
+                     @fontsource; latin and latin-ext) bundled so the app works offline; fonts.css.
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
                      an English demo mailbox (site/scripts/demo-mailbox.json) via `npm run screens`;
@@ -215,10 +216,12 @@ retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progr
 calls `check_mail` with that account.
 
 The window never loads all mail. `list_page` takes a `view` `{folder, sort, ascending, filter,
-bodies, thread}` (`folder: null` = all mail except Spam and Trash; `"*/drafts"`, `"*/outbox"`: that
+bodies, thread, unread, keep}` (`folder: null` = all mail except Spam and Trash; `"*/drafts"`, `"*/outbox"`: that
 kind of folder of every account in one list (`list::every_kind`); `sort`: date, size, flag, from,
 subject; `filter`: the quick filter, `bodies` also searching the text; `thread`: a message id,
-whose conversation the list shows instead of a folder) and `at`: `"first"`,
+whose conversation the list shows instead of a folder; `unread`: only unread mail, besides the
+ids in `keep`, which the window passes for mail read while the list is open; with `folder: null`
+that is the tree's Unread, `UNREAD = "*/unread"` in app.js) and `at`: `"first"`,
 `"last"`, `{after: id}`, `{before: id}` (scrolling, keyset on (sort key, id)), `{around: id}`
 (the selection after a change) or `{row: n}` (a jump with the scroll bar). `start` is the
 position of the first row and `total` the list's length. A filtered list is worked out once and
@@ -231,7 +234,10 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this 
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
 ("auto", "en", "pl"), `density`, `account_mark` (rail, dot, initials, tint, none: how accounts'
-colors show in the tree, list and status bar; `data-mark` on `<html>`), `text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
+colors show in the tree, the rows of lists that mix accounts, and the status bar; `data-mark` on
+`<html>`), `font` (plex, system, classic, inter, atkinson: the window's, the list's and the mono
+face; `data-font` on `<html>`, sets of `--font-ui`, `--font-list`, `--font-data` in styles.css),
+`text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
 (moment, at_once, window, manual), `read_delay` (ms a message is on screen before it counts as
 read with moment: 600, 1000, 2000, 3000, 5000, 10000), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
 IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
@@ -245,7 +251,7 @@ all, even before the first account. The window keeps only its own state in local
 (`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
 dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
 update check; `telex-look`: a
-copy of theme, language, zoom and account mark for boot.js).
+copy of theme, language, zoom, account mark and font for boot.js).
 
 ## Commands
 
@@ -319,13 +325,14 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | drag         | messages onto a folder: it fills up, then takes them on release; Esc cancels, Z undoes |
 | G            | go to a folder: type part of its name |
 | T            | the selected message's conversation (T or Esc goes back) |
+| O            | only the unread mail of the list (also the dot above the list's dots, or "n unread" in the status bar); O again or Esc: all of it. In Unread (top of the tree) O goes back to the folder before |
 | Z            | undo the last delete, move or Discard; within the moment after Send, take the message back (also the Undo button in the status bar) |
 | /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
 | ↓ ↑ Enter    | in the search box: choose a suggestion (a recent search, a person, an operator); Enter or ↓ with none chosen goes to the results |
 | Tab          | in the quick filter: this folder / all mail |
 | Enter, double-click | open the message in a window of its own (Esc closes it); in all-mail results and conversations Enter opens the message's folder |
 | H            | switch HTML / plain text view (remembered) |
-| Esc          | clear filter, the selection or the conversation; in compose: save draft and close |
+| Esc          | clear filter, the selection, the conversation or only-unread; in compose: save draft and close |
 | ↓ ↑ Enter Tab Esc | in To, Cc, Bcc: choose a suggested address |
 | Ctrl+Enter   | send (compose)                 |
 | Ctrl+,       | settings                       |
@@ -336,9 +343,29 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
-## Current state (v0.7.2: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once)
+## Current state (v0.8.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts)
 
-- New since 0.7.2, not released (schema version 11: `folders.chosen`):
+- New in 0.8.1 (no schema change):
+  - Unread at the top of the tree (`UNREAD = "*/unread"` in app.js; the core gets `folder: null`
+    with `unread: true`): the unread mail of every folder but Spam and Trash, with its count; G
+    offers it. A list worked out once (`found_page`), like a filtered one.
+  - Only unread in any folder: O, the dot above the rows' dots (`#b-unread`), or "n unread" in
+    the status bar (which then says "only unread: n of total · Show all"); O again, Esc or another
+    folder shows everything. In Unread, O goes back to the folder open before.
+  - Mail read while an unread list is open stays in it (`state.kept`, sent as `ListView.keep`)
+    until the list is left; Shift+U empties it. Space skips what is read.
+  - Rows of lists that mix accounts (Unread, all mail, conversations, every account's drafts and
+    Outbox; `.allmail` with `.multi`) carry their account's mark as `account_mark` says: a
+    line at the row's start (rail), a 9% tint (tint), or the dot or initials by the folder's name.
+    The Appearance cards draw list rows too. check-contrast.mjs checks text, the unread dot and the
+    flag on each account's tinted row (MIXED pairs can be 'ui' now).
+  - Fonts (`font`, Settings › Appearance, cards written in their own set): IBM Plex; System
+    (Segoe UI Variable, Cascadia Mono); Classic (Tahoma, Consolas); Inter with JetBrains Mono;
+    Atkinson Hyperlegible Next and Mono. System and Classic ship nothing (Linux gets stand-ins);
+    the others are about 330 KB of woff2 in ui/fonts, loaded only when chosen. The list's column
+    widths are measured again in the new face.
+
+- New in 0.8.0 (schema version 11: `folders.chosen`):
   - Which folder is Sent (`imap::plan_folders` with `FolderHints` from `MailStore::folder_hints`):
     each special kind goes to the folder the user chose (`folders.chosen`, Settings › Accounts ›
     Folders or "Use for sent mail" on a folder), else of those the server flags, whose name says
@@ -699,7 +726,7 @@ then daily like `daily`),
    messages (a greeting), HTML signatures, per-folder templates.
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
-   AppImage (self-updating) and a .deb. The repository is public and v0.7.2 is released;
+   AppImage (self-updating) and a .deb. The repository is public and v0.8.1 is released;
    docs/releasing.md has the process.
 8. **Storage** (plan in docs/storage.md). ~~Phase 1, fast at any size~~ and ~~downloading older
    messages~~: done, see Current state and the numbers in docs/storage.md. ~~Backup and

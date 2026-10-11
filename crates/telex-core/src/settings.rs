@@ -55,6 +55,7 @@ const KEYS: &[&str] = &[
     "language",
     "density",
     "account_mark",
+    "font",
     "text_size",
     "prefer_text",
     "mark_read",
@@ -82,6 +83,8 @@ pub struct Settings {
     pub density: Density,
     /// How each account's color shows, once there is more than one.
     pub account_mark: AccountMark,
+    /// The faces the window is written in.
+    pub font: Font,
     /// Percent, one of [`TEXT_SIZES`].
     pub text_size: u16,
     /// Show HTML mail as plain text (H switches).
@@ -190,6 +193,24 @@ pub enum AccountMark {
     None,
 }
 
+/// The faces the window is written in: one for its words, one for the message list, and a
+/// mono one for dates, sizes and plain-text writing. Plex, Inter and Atkinson are bundled
+/// (ui/fonts); System and Classic use the fonts Windows has, and stand-ins elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Font {
+    /// IBM Plex Sans, Sans Condensed in the list, and Plex Mono.
+    Plex,
+    /// The system's own: Segoe UI Variable and Cascadia Mono on Windows 11.
+    System,
+    /// Tahoma and Consolas, as mail programs on Windows used to look.
+    Classic,
+    /// Inter with JetBrains Mono.
+    Inter,
+    /// Atkinson Hyperlegible Next and Mono, made for low vision: no two letters alike.
+    Atkinson,
+}
+
 /// When a message on screen counts as read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -224,6 +245,7 @@ impl Default for Settings {
             language: "auto".into(),
             density: Density::Compact,
             account_mark: AccountMark::Rail,
+            font: Font::Plex,
             text_size: 100,
             prefer_text: false,
             mark_read: MarkRead::Moment,
@@ -1194,6 +1216,7 @@ mod tests {
             "text_size": 133,           // not one of the sizes
             "density": "comfortable",
             "account_mark": "initials",
+            "font": "atkinson",
             "colour": "blue",           // a key Telex doesn't have
         });
         let (s, ignored) = Settings::default().merged(&changes);
@@ -1202,6 +1225,7 @@ mod tests {
         assert_eq!(s.text_size, 100);
         assert_eq!(s.density, Density::Comfortable);
         assert_eq!(s.account_mark, AccountMark::Initials);
+        assert_eq!(s.font, Font::Atkinson);
         let mut ignored = ignored;
         ignored.sort();
         assert_eq!(ignored, ["colour", "text_size", "theme"]);
@@ -1218,6 +1242,7 @@ mod tests {
         assert_eq!((s.theme.as_str(), s.check_every), ("fjord", 15));
         assert_eq!(s.mail_paper, MailPaper::Theme);
         assert_eq!(s.account_mark, AccountMark::Rail);
+        assert_eq!(s.font, Font::Plex);
         assert_eq!(s.compose_format, ComposeFormat::Plain);
         assert_eq!(s.reply_format, ReplyFormat::Same);
         assert!(s.ask_subject && s.spell_check);

@@ -9,6 +9,16 @@
   --font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace;
   --row:20px; --row-tree:22px;
 }
+/* Fonts (Settings › Appearance; data-font on <html>, and on each card there): a face for the
+   window, one for the message list and a mono one for dates, sizes and plain-text writing.
+   Plex, Inter and Atkinson are bundled (fonts.css); System and Classic are Windows' own, with
+   the system's faces standing in elsewhere. Elements that set a face of their own read these
+   variables, so a card shows its set whatever the window uses. */
+[data-font="plex"]{--font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"IBM Plex Sans Condensed","Segoe UI",system-ui,sans-serif;--font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace}
+[data-font="system"]{--font-ui:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"Segoe UI Variable Small","Segoe UI",system-ui,sans-serif;--font-data:"Cascadia Mono",Consolas,ui-monospace,monospace}
+[data-font="classic"]{--font-ui:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-list:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-data:Consolas,"Lucida Console","DejaVu Sans Mono",monospace}
+[data-font="inter"]{--font-ui:Inter,"Segoe UI",system-ui,sans-serif;--font-list:Inter,"Segoe UI",system-ui,sans-serif;--font-data:"JetBrains Mono",Consolas,ui-monospace,monospace}
+[data-font="atkinson"]{--font-ui:"Atkinson Hyperlegible Next","Segoe UI",system-ui,sans-serif;--font-list:"Atkinson Hyperlegible Next","Segoe UI",system-ui,sans-serif;--font-data:"Atkinson Hyperlegible Mono",Consolas,ui-monospace,monospace}
 
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%}
@@ -130,6 +140,8 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 /* Sent is quieter than the Inbox: mail that went out, not mail to read. */
 .fold.out:not(.active)>span:not(.cnt){color:var(--muted)}
 .fold .srv{font-style:normal;color:var(--muted)}
+/* Unread mail of every folder, on top of the tree above a hairline. */
+.unreadg{margin-bottom:6px!important;padding-bottom:4px!important;border-bottom:1px solid var(--line-soft)}
 /* What isn't sent yet, every account's at once, at the end: under a hairline, only while there is some. */
 .unsent{margin-top:6px!important;padding-top:4px!important;border-top:1px solid var(--line-soft)}
 .fold .cnt.dim{color:var(--faint);font-weight:400}
@@ -170,6 +182,14 @@ th.c-from{width:27%}
 th.c-date{width:96px}
 th.c-size{width:64px}
 th.c-size button{justify-content:flex-end}
+/* Above the rows' dots, a dot of its own: only unread mail (O). A ring while off, filled while on. */
+.ich{display:flex;height:21px}
+th button.unf{flex:none;display:inline-grid;place-items:center;width:19px;padding:0 0 0 4px}
+th button.unf+button{flex:1;min-width:0;padding-left:2px}
+.unf .dot{width:7px;height:7px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--muted)}
+.unf:hover .dot{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.unf[aria-pressed="true"] .dot{background:var(--accent);box-shadow:none}
+@media (forced-colors: active){ .unf .dot{box-shadow:inset 0 0 0 1.5px ButtonText} .unf[aria-pressed="true"] .dot{forced-color-adjust:none;background:Highlight} }
 th.c-where{width:132px}
 /* The edge between two headings: drag to change the width, double-click to fit the names. */
 .grip{position:absolute;top:0;bottom:0;left:-4px;z-index:2;width:8px;cursor:col-resize;touch-action:none;outline:0}
@@ -183,6 +203,11 @@ th.c-where,td.c-where{display:none}
 td.c-where{color:var(--muted)}
 td.c-where .adot{display:inline-block;margin-right:5px;vertical-align:1px}
 tbody td{height:var(--row);padding:0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-bottom:1px solid var(--line-soft);cursor:default}
+/* Lists that mix accounts (Unread, all mail, every account's drafts) mark each row with its
+   account the way the tree does (data-mark): a line at its start, or a tint behind it; a dot or
+   the initials stand by the folder's name. The selection and the pointer still show over a tint. */
+:where([data-mark="tint"] .multi.allmail) tbody tr.acc td{background:color-mix(in oklab,var(--ac) 9%,var(--surface))}
+:is([data-mark="rail"],[data-mark="tint"]) .multi td.c-where .adot:not(.pc){display:none}
 tbody tr:hover td{background:var(--hover)}
 tbody tr.unread td.c-from,tbody tr.unread td.c-subj{font-weight:600}
 tbody tr.sel td,tbody tr.picked td{background:var(--sel)}
@@ -191,6 +216,10 @@ tbody tr.sel td,tbody tr.picked td{background:var(--sel)}
 tbody tr.picked td.c-ic{box-shadow:inset 3px 0 var(--accent)}
 td.c-ic{padding:0 0 0 4px}
 .list:focus tbody tr.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg)}
+:where([data-mark="rail"] .multi.allmail) tbody tr.acc td.c-ic{box-shadow:inset 3px 0 var(--ac)}
+:where([data-mark="rail"] .multi.allmail) tbody tr.acc.picked td.c-ic{box-shadow:inset 3px 0 var(--accent),inset 6px 0 var(--ac)}
+:where([data-mark="rail"] .multi.allmail) .list:focus tbody tr.acc.sel td.c-ic{box-shadow:inset 3px 0 var(--ac),inset 4px 0 var(--surface)}
+:where([data-mark="rail"] .multi.allmail) .list:focus tbody tr.acc.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg),inset 6px 0 var(--ac)}
 .list:focus tbody tr.sel td.c-date,.list:focus tbody tr.sel td.c-size,.list:focus tbody tr.sel .flag{color:inherit}
 td.c-date,td.c-size{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
 td.c-size{text-align:right}
@@ -494,9 +523,16 @@ button.ph-who:hover .pn{text-decoration:underline}
 .m-list b.s::after{background:var(--accent-fg)}
 .m-list b.f::before{content:"";position:absolute;right:7px;top:50%;width:6px;height:7px;margin-top:-3.5px;background:var(--flag);clip-path:polygon(0 0,100% 0,72% 50%,100% 100%,0 100%)}
 .tprev.both .mini+.mini{clip-path:polygon(58% 0,100% 0,100% 100%,42% 100%)}
-/* How accounts are told apart: two small account groups each, drawn with the real marks. */
+/* Fonts: each card written in its own set. */
+.fonts{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.fprev{grid-column:1/-1;display:flex;flex-direction:column;justify-content:center;gap:3px;height:72px;padding:0 9px;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface);color:var(--fg);overflow:hidden;font-family:var(--font-ui)}
+.fprev b{font:600 19px/1.1 var(--font-ui)}
+.fprev .fl{font:12.5px/1.3 var(--font-list);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fprev .fd{font:11.5px/1.3 var(--font-data);color:var(--muted)}
+/* How accounts are told apart: two small account groups each, and rows of a list that mixes
+   them, drawn with the real marks. */
 .marks{grid-template-columns:repeat(auto-fill,minmax(92px,1fr))}
-.mprev{grid-column:1/-1;display:flex;flex-direction:column;gap:5px;height:72px;padding:6px 0 0;border:1px solid var(--line-soft);border-radius:4px;background:var(--panel);overflow:hidden}
+.mprev{grid-column:1/-1;display:flex;flex-direction:column;gap:5px;height:110px;padding:6px 0 0;border:1px solid var(--line-soft);border-radius:4px;background:var(--panel);overflow:hidden}
 .mprev .multi{display:contents}
 .mgrp{position:relative;display:flex;flex-direction:column;gap:4px}
 .mhead{display:flex;align-items:center;gap:5px;height:14px;padding:0 8px}
@@ -510,6 +546,17 @@ button.ph-who:hover .pn{text-decoration:underline}
 .mprev[data-mark="tint"] .mhead{background:color-mix(in oklab,var(--ac) 16%,transparent)}
 .mprev[data-mark="initials"] .adot{width:auto;min-width:18px;height:14px;padding:0 3px;border-radius:3px;background:color-mix(in oklab,var(--ac) 26%,var(--surface));color:var(--fg);font:600 9px/14px var(--font-data);letter-spacing:.03em;text-align:center}
 .mprev[data-mark="initials"] .adot::before{content:attr(data-i)}
+.mlist{display:flex;flex-direction:column;margin-top:auto;border-top:1px solid var(--line);background:var(--surface)}
+.mrow{display:flex;align-items:center;gap:4px;height:12px;padding:0 6px 0 8px;border-bottom:1px solid var(--line-soft)}
+.mrow:last-child{border-bottom:0}
+.mrow .ml{width:42%;height:3px;border-radius:2px;background:var(--fg)}
+.mrow .adot{margin-left:auto}
+.mrow .mw{width:16%;height:3px;border-radius:2px;background:var(--muted)}
+.mprev[data-mark="initials"] .mrow .adot{min-width:15px;height:10px;font-size:7px;line-height:10px;padding:0 2px}
+.mprev[data-mark="rail"] .mrow{box-shadow:inset 3px 0 var(--ac)}
+.mprev[data-mark="tint"] .mrow{background:color-mix(in oklab,var(--ac) 9%,var(--surface))}
+.mprev:is([data-mark="rail"],[data-mark="tint"],[data-mark="none"]) .mrow .adot{display:none}
+.mprev:is([data-mark="rail"],[data-mark="tint"],[data-mark="none"]) .mrow .mw{margin-left:auto}
 /* An import's plan: one box per part, ticked to import it */
 .ipart{margin:0 0 12px;border:1px solid var(--line);border-radius:5px;overflow:hidden;background:var(--surface)}
 .ihead{display:flex;align-items:center;gap:8px;min-height:32px;padding:0 10px;background:var(--chrome);font-size:12.5px}
@@ -625,6 +672,8 @@ button.ph-who:hover .pn{text-decoration:underline}
 .status{display:flex;align-items:center;gap:14px;height:23px;padding:0 10px;background:var(--chrome);border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;min-width:0}
 #st-folder .adot{margin-right:5px;vertical-align:1px}
 #st-folder .linkbtn{color:var(--fg)}
+#st-folder .linkbtn.quiet{color:inherit;font-weight:inherit;text-decoration:none}
+#st-folder .linkbtn.quiet:hover{color:var(--fg);text-decoration:underline}
 #st-folder .linkbtn[disabled]{opacity:.6;cursor:default}
 #st-msg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 /* The two sides share what the keys leave, so the keys sit in the middle. The right side never

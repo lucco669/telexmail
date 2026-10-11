@@ -673,9 +673,15 @@ const PL = {
   'Which of the server’s folders Telex uses for each kind of mail. Telex finds them itself and prefers the one that holds mail; choose another where it got it wrong. Your choice stays.':
     'Których folderów na serwerze Telex używa do każdego rodzaju poczty. Telex znajduje je sam i wybiera ten, w którym jest poczta; jeśli się pomylił, wybierz inny. Twój wybór zostaje.',
   // How accounts are told apart (Settings › Appearance)
-  'Accounts in the folder list': 'Konta na liście folderów',
-  'Each account has a color of its own, shown this way once there is more than one, also in the list and the status bar.':
-    'Każde konto ma swój kolor, pokazany w ten sposób, gdy kont jest więcej niż jedno, także na liście wiadomości i w pasku stanu.',
+  'Account colors': 'Kolory kont',
+  'Each account has a color of its own, shown this way once there is more than one: in the folders, in lists that mix accounts (Unread, all mail, drafts) and in the status bar.':
+    'Każde konto ma swój kolor, pokazany w ten sposób, gdy kont jest więcej niż jedno: w folderach, na listach, które łączą konta (Nieprzeczytane, cała poczta, szkice), i w pasku stanu.',
+  // Fonts (Settings › Appearance)
+  'Font': 'Czcionka',
+  'System|font': 'Systemowa',
+  'Classic|font': 'Klasyczna',
+  'Each is a set: one face for the window, one for the message list, and a mono one for dates, sizes and plain-text writing. System and Classic use fonts Windows already has.':
+    'Każda to zestaw: krój dla okna, krój dla listy wiadomości i krój o stałej szerokości dla dat, rozmiarów i pisania zwykłym tekstem. Systemowa i Klasyczna to czcionki, które Windows już ma.',
   'Line': 'Linia',
   'Dot': 'Kropka',
   'Initials': 'Inicjały',
@@ -738,6 +744,25 @@ const PL = {
   'When I open them in their own window': 'Gdy otworzę je w osobnym oknie',
   'Only when I mark them myself': 'Tylko gdy oznaczę je ręcznie',
   'By hand: U, a click on the dot at the start of a row, the envelope above a message, or the menu on a right-click. Each marks read or unread.': 'Ręcznie: U, kliknięcie kropki na początku wiersza, koperta nad wiadomością albo menu pod prawym przyciskiem myszy. Każde z nich oznacza jako przeczytaną lub nie.',
+
+  // Only unread: O, the dot above the list, Unread in the tree
+  'Unread': 'Nieprzeczytane',
+  'only unread': 'tylko nieprzeczytane',
+  'Show only unread mail (O)': 'Pokaż tylko nieprzeczytane (O)',
+  'Show every message (O)': 'Pokaż wszystkie wiadomości (O)',
+  'Show all': 'Pokaż wszystkie',
+  'all read': 'wszystko przeczytane',
+  'only unread: {n} of {total}': 'tylko nieprzeczytane: {n} z {total}',
+  'Unread mail from every folder except Spam and Trash. O shows only the unread mail of a folder.':
+    'Nieprzeczytana poczta ze wszystkich folderów oprócz Spamu i Kosza. O pokazuje tylko nieprzeczytane w jednym folderze.',
+  'Unread mail of every folder. O goes back to the folder before.': 'Nieprzeczytana poczta ze wszystkich folderów. O wraca do poprzedniego folderu.',
+  'Only unread mail. O shows everything again.': 'Tylko nieprzeczytane. O znów pokazuje wszystko.',
+  'Nothing unread here. O shows everything again.': 'Tu nie ma nic nieprzeczytanego. O znów pokazuje wszystko.',
+  'Nothing unread. Everything in every folder is read.': 'Nic nieprzeczytanego. We wszystkich folderach wszystko jest przeczytane.',
+  'Nothing unread here. Press O to see every message.': 'Tu nie ma nic nieprzeczytanego. O pokazuje wszystkie wiadomości.',
+  'only the unread messages; O again shows them all': 'tylko nieprzeczytane wiadomości; ponowne O pokazuje wszystkie',
+  'Unread, at the top of the folders, gathers the unread mail of every folder and account. Mail you read there stays until you leave.':
+    'Nieprzeczytane na górze folderów zbierają nieprzeczytaną pocztę ze wszystkich folderów i kont. To, co tam przeczytasz, zostaje, dopóki stamtąd nie wyjdziesz.',
 
   // Space
   'read on; at the end, the next unread message': 'czytaj dalej; na końcu następna nieprzeczytana wiadomość',
