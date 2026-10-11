@@ -36,7 +36,7 @@ export function RoadmapList({ release, details = false, recent }: { release: Rel
               </span>
               <h3 className={s.title}>{folded.length} steps done before these</h3>
             </div>
-            <p className={s.text}>{folded.map((x) => x.step.title).join(' · ')}</p>
+            <p className={`${s.text} ${s.foldedText}`}>{folded.map((x) => x.step.title).join(' · ')}</p>
           </div>
         </li>
       )}
@@ -83,16 +83,11 @@ export function Roadmap({ release }: { release: Release | null }) {
           </p>
           <p>
             <Link className="more" href={pages.roadmap.path}>
-              The full roadmap
-            </Link>
-          </p>
-          <p>
-            <Link className="more" href={pages.changelog.path}>
-              What each version brought
+              Every step, and what each still leaves out
             </Link>
           </p>
         </header>
-        <RoadmapList release={release} recent={2} />
+        <RoadmapList release={release} recent={1} />
       </div>
     </section>
   );

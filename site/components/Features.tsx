@@ -16,12 +16,10 @@ export function Features() {
             Everything in Telex is tuned for getting through a lot of mail quickly, without reaching for the mouse and
             without anyone looking over your shoulder.
           </p>
-          <p>
+          <p className={s.links}>
             <Link className="more" href={pages.features.path}>
               All features, with screenshots
             </Link>
-          </p>
-          <p>
             <Link className="more" href={pages.about.path}>
               Why it’s built this way
             </Link>

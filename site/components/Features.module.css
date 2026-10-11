@@ -17,7 +17,7 @@
   display: grid;
   align-content: start;
   gap: 10px;
-  padding: 28px 0 32px;
+  padding: 22px 0 24px;
   border-bottom: 1px solid var(--line);
 }
 @media (min-width: 640px) {
@@ -31,6 +31,7 @@
   .item:nth-child(3n) { padding-right: 0; }
   .item:not(:nth-child(3n + 1)) { border-left: 1px solid var(--line); }
 }
+.links { display: flex; flex-wrap: wrap; gap: 8px 24px; }
 .num { color: var(--accent); font: 500 12px/1 var(--font-mono); letter-spacing: 0.06em; }
 .title { font-size: 24px; line-height: 1.15; letter-spacing: -0.01em; }
 .text { color: var(--muted); font-size: 15.5px; line-height: 1.6; }

@@ -25,7 +25,8 @@ npm run themes     # measure the app's themes again into lib/themes.json (the ac
   it true to the app; update the roadmap when a step lands.
 - `lib/versions.ts`: what the site says about something built for a version (see below).
 - `lib/release.ts`: reads the GitHub releases that have an `.exe` or `.msi`, with their AppImage
-  and .deb (checked hourly).
+  and .deb (checked hourly). `lib/known-release.ts`: the newest release, for when GitHub can't be
+  asked while the site is built (see "Making the download button live").
 - `lib/seo.ts`: per-page metadata and the structured data (breadcrumbs, app, website, FAQ).
 - `lib/theme.ts`: the light/dark choice. It is `data-theme` on `<html>`, saved in localStorage
   and set before the first paint by the script in `app/layout.tsx`; tokens are in `app/globals.css`.
@@ -48,6 +49,7 @@ After a release:
 2. Set `NEXT` to the version after it, and add that version's entry (title, summary, points and
    `highlights` for the home page) as its features land.
 3. Retake the screenshots (`npm run screens`) and rebuild the demo (`npm run demo`).
+4. Put the new release in `lib/known-release.ts` (version, date, file sizes from GitHub).
 
 The changelog page merges `versions` with the releases on GitHub: dates and files come from GitHub,
 and a release the site doesn't describe yet still shows, with a link to its notes.
@@ -64,7 +66,11 @@ demo moves the mailbox's dates so that its "today" is the visitor's.
 
 `components/DemoFrame.tsx` starts it in the page's theme (`?theme=light|dark`; `?lang=en|pl` works
 too), shows the inbox screenshot until the app has drawn itself, and puts the app's window title in
-the frame's title bar. `next.config.ts` lets only this site frame `/demo-app/` and keeps it out of
+the frame's title bar. When the visitor switches the site between light and dark, it posts
+`{type: 'telex-demo-theme', theme}` to the frame; `demo/backend.js` sets the theme and emits the
+app's own `settings-changed`, so the running app follows without a restart. Above the frame (and
+on the home page's demo band) are three first tries, `demoFirst` in `lib/content.ts`; keep them
+true to the mailbox. `next.config.ts` lets only this site frame `/demo-app/` and keeps it out of
 search results. Nothing in the demo talks to the network: sending moves mail to Sent, and
 attachments can be added but not opened.
 
@@ -160,7 +166,13 @@ releases. If `telexmail` stays private, make a public repo just for installers (
 The release workflow makes a **draft** release, and GitHub hides drafts from everyone else, the
 site included: the button stays "Coming soon" until you press **Publish release** on GitHub.
 "Within an hour" means the first visit after the hour starts a rebuild of the page in the
-background (`cacheLife('hours')` in `lib/release.ts`), and the visits after that see the new
-release. Set `GITHUB_TOKEN` in Vercel to be safe: without it the lookup shares GitHub's limit of 60
-requests an hour with everything else on Vercel's IP address, and a refused lookup shows "Coming
-soon" for another hour. A fine-grained token with read access to public repositories is enough.
+background (`cacheLife` in `lib/release.ts`: revalidate after an hour, never expire), and the
+visits after that see the new release. Set `GITHUB_TOKEN` in Vercel to be safe: without it the
+lookup shares GitHub's limit of 60 requests an hour with everything else on Vercel's IP address.
+
+When GitHub can't be asked (refused, unreachable), the lookup throws on the live site: the page's
+background refresh fails, Next.js keeps serving the page with the last good answer and tries again
+on the next visit, so a failure never turns the downloads into "Coming soon". At build time and in
+`npm run dev` there is no earlier answer, so the site offers `lib/known-release.ts` (with a note on
+the download page that it couldn't check for a newer one), or, if that is empty, links to GitHub's
+newest-release page. "Coming soon" is only for when GitHub answers that nothing is released.

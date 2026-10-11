@@ -55,5 +55,9 @@
 .step[data-status='now'] .badge,
 .step[data-status='next'] .badge { background: var(--accent-soft); color: var(--accent); }
 .text { color: var(--muted); font-size: 15.5px; }
+/* Phones: the folded steps are a count; their names are on the roadmap page. */
+@media (max-width: 639px) {
+  .foldedText { display: none; }
+}
 .notYet { margin-top: 4px; color: var(--faint); font-size: 14.5px; }
 .notYet span { color: var(--muted); font-weight: 500; }

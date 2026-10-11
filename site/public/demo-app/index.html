@@ -64,12 +64,13 @@
   <!-- Left: the folder and what just happened; middle: the main keys; right: updates, storage,
        the last check, help and the version. -->
   <footer class="status">
-    <span class="st-side st-left"><span id="st-folder"></span><span id="st-msg"></span></span>
+    <span class="st-side st-left"><span id="st-folder"></span><button class="chip" id="st-undo" type="button" hidden></button><span id="st-msg"></span></span>
     <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
     <span class="st-side st-right">
       <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
       <button class="chip" id="st-update" type="button" hidden></button>
       <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
+      <button class="chip bad" id="st-sync" type="button" hidden></button>
       <span id="st-check"></span>
       <button class="helpbtn" id="st-help" type="button" aria-expanded="false" aria-controls="help-pop" aria-label="Keys and tips" data-i18n><span aria-hidden="true">?</span></button>
       <button class="ver" id="st-ver" type="button" hidden></button>

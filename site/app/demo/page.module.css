@@ -1,4 +1,9 @@
 .stage { display: grid; gap: 12px; padding-bottom: 24px; }
+/* The first tries in a row above the window, where the eye is before it goes in. */
+.first { margin-bottom: 8px; }
+@media (min-width: 900px) {
+  .first ol { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+}
 .small { color: var(--faint); font-size: 13.5px; }
 @media (min-width: 900px) {
   .small { display: none; }

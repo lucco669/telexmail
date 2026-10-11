@@ -1,14 +1,19 @@
-import { faqGroups, features, NEXT, roadmap, versions } from '@/lib/content';
+import { faqGroups, features, roadmap, versions } from '@/lib/content';
+import { knownRelease } from '@/lib/known-release';
 import { pages } from '@/lib/pages';
 import { site } from '@/lib/site';
+import { compareVersions } from '@/lib/versions';
 
 // /llms.txt (llmstxt.org): a plain summary of the site for AI assistants, from the same data as
 // the pages. Prerendered at build time like a page.
 export function GET() {
   const url = (path: string) => `${site.url}${path === '/' ? '/' : path}`;
-  // Written at build time, so what is built for the next version is listed as next.
-  const done = roadmap.filter((s) => s.status === 'done' && !s.since).map((s) => s.title);
-  const next = roadmap.filter((s) => s.status !== 'done' || s.since).map((s) => s.title);
+  // Written at build time without asking GitHub: what is built for a version newer than the last
+  // known release (lib/known-release.ts) is listed as next.
+  const out = (v: string) => !!knownRelease && compareVersions(v, knownRelease.version) <= 0;
+  const isDone = (s: (typeof roadmap)[number]) => s.status === 'done' && (!s.since || out(s.since));
+  const done = roadmap.filter(isDone).map((s) => s.title);
+  const next = roadmap.filter((s) => !isDone(s)).map((s) => s.title);
   const body = [
     `# ${site.name}`,
     '',
@@ -27,7 +32,7 @@ export function GET() {
     '',
     '## Versions',
     '',
-    ...versions.map((v) => `- ${v.version}${v.version === NEXT ? ' (the next version, when this file was made)' : ''}: ${v.title}. ${v.summary}`),
+    ...versions.map((v) => `- ${v.version}${out(v.version) ? '' : ' (the next version, when this file was made)'}: ${v.title}. ${v.summary}`),
     '',
     '## Pages',
     '',

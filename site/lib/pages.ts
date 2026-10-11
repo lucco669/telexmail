@@ -92,7 +92,7 @@ export const pages = {
     label: 'Roadmap',
     title: 'Roadmap: what’s done and what’s next',
     description:
-      'Where Telex stands: what works today, what the next version brings, and what follows, from Gmail sign-in to backups and local folders.',
+      'Where Telex stands: what works today, what each step still leaves out, and what comes next: Microsoft and Google sign-in.',
     ogTitle: 'Early, and honest about it.',
     ogScreen: 'comfortable',
   },

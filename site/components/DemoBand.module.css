@@ -5,12 +5,11 @@
 }
 .head { margin-bottom: 0; }
 
-.hints { display: grid; gap: 10px; margin: 4px 0 8px; padding: 0; list-style: none; color: var(--muted); font-size: 15.5px; }
-.hints li { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.keys { display: inline-flex; align-items: center; gap: 4px; }
-.plus { color: var(--faint); font: 12px var(--font-mono); }
-
 .preview { position: relative; display: block; border-radius: 10px; color: inherit; text-decoration: none; }
+/* Phones: the demo is for a keyboard; the band keeps to the words and the button. */
+@media (max-width: 639px) {
+  .preview, .head .first { display: none; }
+}
 .preview > :first-child { transition: transform 0.25s, box-shadow 0.25s; }
 @media (min-width: 960px) {
   /* Bigger than its column, running off the right edge like a window on a desk. */

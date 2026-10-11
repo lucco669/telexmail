@@ -7,40 +7,77 @@
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.7.1';
+export const NEXT = '0.7.2';
 
 /** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
-export const nextTeaser = 'Space for the next unread, a list that fits, search that suggests.';
+export const nextTeaser = 'Faster mail checks, drafts that save themselves, an Undo you can click.';
 
-/** The six points on the home page. */
+/** The six points on the home page: short, the features page has the detail. */
 export const features = [
   {
     title: 'Dense by default',
-    text: 'Twenty-pixel rows, a condensed face for the list and mono for dates and sizes, so a screen holds a lot of mail. Want more air? Switch to Comfortable.',
+    text: 'Twenty-pixel rows and a condensed face: a screen holds thirty messages, not twelve. Want more air? Switch to Comfortable.',
   },
   {
     title: 'One key per action',
-    text: 'Reply, forward, flag, delete, move, undo, search, follow a conversation, read on to the next unread: each is a single key, and works on one message or fifty. The mouse is optional.',
+    text: 'Reply, flag, move, delete, undo, search, read on to the next unread: one key each, for one message or fifty. The mouse is optional.',
   },
   {
     title: 'Your mail, on your disk',
-    text: 'Messages are kept in full in a local mail base, so reading, searching and opening attachments work offline. There is no Telex server for your mail to pass through.',
+    text: 'Messages are kept whole in a local mail base, so reading, search and attachments work offline. No Telex server in between.',
   },
   {
     title: 'Private by default',
-    text: 'No account and no telemetry. Remote images stay blocked until you allow them, and your password stays in your system’s password store.',
+    text: 'No account and no telemetry. Remote images stay blocked until you allow them, and passwords stay in your system’s password store.',
   },
   {
     title: 'Light on your PC',
-    text: 'A Rust core in the web view your system already has: WebView2 on Windows, WebKitGTK on Linux. No Electron, no bundled browser, an installer under 4 MB.',
+    text: 'A Rust core in the web view your system already has. No Electron, no bundled browser, an installer under 4 MB.',
   },
   {
     title: 'Fluent in Polish',
-    text: 'The whole interface speaks Polish as well as English, picked from Windows. Old charsets like Windows-1250 decode correctly, search ignores diacritics, and replies quote the Polish way: “Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):”.',
+    text: 'The whole interface in Polish or English. Windows-1250 mail decodes correctly, search ignores diacritics, replies quote “Dnia … napisał(a):”.',
   },
 ];
 
-export const facts = ['Rust core', 'WebView2 · WebKitGTK', 'SQLite + FTS5', 'IMAP + SMTP over TLS', 'IMAP IDLE', 'WCAG 2.2 AA', 'No Electron', 'No telemetry'];
+/** The strip under the hero's screenshot: what you get, in a few words each. */
+export const facts = ['Offline search', 'Several accounts', 'Undo send', 'Rules with notes', 'New mail at once', 'English and Polish', 'No Electron', 'No telemetry'];
+
+/**
+ * Which mail works, beside the download buttons. Keep it true to crates/telex-core/src/autoconfig.rs:
+ * Gmail is on its provider list with the app-password tip; Outlook.com and Microsoft 365 are
+ * `unsupported: MicrosoftSignIn` until OAuth2 sign-in lands (roadmap step 5).
+ */
+export const compat = {
+  works: 'Works with any IMAP/SMTP mail, Gmail included (with an app password).',
+  later: 'Outlook.com and Microsoft 365: coming with Microsoft sign-in.',
+};
+
+/** The download page's "Which mail works" lists. */
+export type ProviderGroup = { title: string; text: string; link?: { href: string; label: string } };
+export const providers: Record<'works' | 'appPassword' | 'later', ProviderGroup> = {
+  works: {
+    title: 'Works today',
+    text: 'Any provider with IMAP and SMTP over SSL/TLS or STARTTLS and a password: your own domain or hosting mailbox, Zoho, GMX, WEB.DE, mail.com, OVHcloud, WP, o2, Onet, Interia and many more. For some of them you turn on IMAP in their settings first; Telex says so.',
+  },
+  appPassword: {
+    title: 'Works with an app password',
+    text: 'Gmail and Google Workspace, iCloud, Yahoo, AOL, Fastmail, Yandex, Mail.ru. These take an app password made for mail programs instead of your usual one, and Telex tells you when you add the account. Google offers app passwords once 2-Step Verification is on, but not with Advanced Protection, and some work or school accounts have them turned off.',
+    link: { href: 'https://support.google.com/accounts/answer/185833', label: 'Google: sign in with app passwords' },
+  },
+  later: {
+    title: 'Not yet',
+    text: 'Outlook.com, Hotmail, Live and Microsoft 365 let other mail apps in only with Microsoft sign-in (OAuth2). That is the next step on the roadmap, together with signing in with Google, so Gmail won’t need an app password. Proton Mail works with other apps only through its Bridge, which Telex can’t use yet.',
+  },
+};
+
+/** Beside the download buttons: what Telex does for you, true to the current build. */
+export const benefits = [
+  { title: 'Search all your mail offline', text: 'Every message is kept whole on your PC, attachments too.' },
+  { title: 'Several accounts, one window', text: 'Each in its own color, one search across all of them.' },
+  { title: 'Take it back', text: 'Z undoes a delete, a move or a discarded message, and holds sent mail for five seconds.' },
+  { title: 'Nothing to sign up for', text: 'No account, no telemetry, no Telex server in between.' },
+];
 
 /** A line in a list that may belong to a version not released yet. */
 export type Point = string | { text: string; since: string };
@@ -60,8 +97,8 @@ export const featureRows: FeatureRow[] = [
       'Dates and sizes in mono, so columns line up',
       'Resizable panes, and a Comfortable setting for more room',
       { text: 'Double-click or Enter opens a message in a window of its own, to read side by side', since: '0.6.0' },
-      { text: 'Columns fit the window, so a date is never cut; drag From wider, double-click to fit the names, right-click the headings for full dates', since: NEXT },
-      { text: 'Click the dot to mark a message read or unread, the flag to flag it; right-click a message for everything else', since: NEXT },
+      { text: 'Columns fit the window, so a date is never cut; drag From wider, double-click to fit the names, right-click the headings for full dates', since: '0.7.1' },
+      { text: 'Click the dot to mark a message read or unread, the flag to flag it; right-click a message for everything else', since: '0.7.1' },
     ],
   },
   {
@@ -69,7 +106,7 @@ export const featureRows: FeatureRow[] = [
     screen: 'menu',
     title: 'Read on your terms',
     text: 'Space reads on: it pages down the message, then opens the next unread one, and after the last it takes you to the next folder with new mail. Mail counts as read when you say so, and everything you can do with a message is one right-click away.',
-    since: NEXT,
+    since: '0.7.1',
     points: [
       'Settings › Reading: read at once, after a moment you choose, only when opened in its own window, or only when you mark it',
       'Click the dot at the start of a row for read or unread, the flag next to it to flag; the envelope above a message does the same',
@@ -143,6 +180,8 @@ export const featureRows: FeatureRow[] = [
       'A From picker with all your identities; the signature follows',
       'Ctrl+Enter sends, Esc saves a draft and closes',
       'E reopens a draft or a message still in the Outbox',
+      { text: 'Drafts save themselves while you write; New or Reply in the middle of a message puts it in Drafts first', since: NEXT },
+      { text: 'Discard can be undone: Z or the Undo button brings the message back', since: NEXT },
     ],
   },
   {
@@ -168,7 +207,7 @@ export const featureRows: FeatureRow[] = [
       'A built-in list of common providers, checked against their live servers',
       'Then your domain’s own setup file and its DNS records (SRV and MX)',
       'Then the usual names: imap., mail. and smtp. your domain',
-      'Tips when a provider needs an app password or IMAP turned on',
+      'Tips when a provider needs an app password or IMAP turned on: Gmail, iCloud and Yahoo work with an app password',
       'Asks only DNS and your domain’s servers, never a lookup service',
     ],
   },
@@ -180,6 +219,7 @@ export const featureRows: FeatureRow[] = [
     points: [
       'SMTP on port 465 (SSL/TLS) or 587 (STARTTLS), same login as IMAP',
       { text: 'Undo send: mail waits 5 seconds (or up to 30), and Z takes it back to change it', since: '0.5.0' },
+      { text: 'An Undo button in the status bar counts down the seconds left', since: NEXT },
       'An Outbox that retries at every check when the connection fails',
       'A copy of every sent message lands in your server’s Sent folder',
       'Forwarded attachments travel with the forward',
@@ -210,6 +250,8 @@ export const featureRows: FeatureRow[] = [
       'Inbox, Sent, Trash and others found by their flags or by English and Polish names',
       'The first sync takes the newest 300 messages of each folder',
       { text: 'Older mail on request, newest first, a thousand at a time', since: '0.5.0' },
+      { text: 'Every account checked at the same time, so several take about as long as one', since: NEXT },
+      { text: 'An account whose last check failed says so in the folder tree and the status bar; one click tries again', since: NEXT },
     ],
   },
   {
@@ -225,8 +267,8 @@ export const featureRows: FeatureRow[] = [
         since: '0.5.0',
       },
       'Esc clears the filter and puts you back in the list',
-      { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: NEXT },
-      { text: 'What matched is marked in the list', since: NEXT },
+      { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: '0.7.1' },
+      { text: 'What matched is marked in the list', since: '0.7.1' },
     ],
   },
   {
@@ -275,11 +317,11 @@ export const featureRows: FeatureRow[] = [
     text: 'Eight themes, from plain light to a green phosphor screen, each measured against WCAG 2.2. The interface speaks English and Polish. Settings save as you change them, and travel to another PC in one file.',
     points: [
       'Every theme meets AA contrast; the two high-contrast ones meet AAA',
-      { text: 'Updates checked when Telex starts, once a day, or only when you ask; never before you say yes', since: NEXT },
+      { text: 'Updates checked when Telex starts, once a day, or only when you ask; never before you say yes', since: '0.7.1' },
       'English or Polish, as in Windows or as you pick, down to the error messages',
       'Accounts, identities and servers in the same window',
-      { text: 'Put your accounts in the order you like, and keep any folder in view', since: NEXT },
-      { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: NEXT },
+      { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
+      { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
       'Export settings, rules, identities and servers to a file, never passwords',
       'Import shows what would change, part by part, before anything does',
@@ -289,7 +331,7 @@ export const featureRows: FeatureRow[] = [
 
 /** Honest gaps, shown on the features page. */
 export const notYet = [
-  'Gmail and Outlook.com need OAuth2 sign-in, which isn’t built yet.',
+  'Outlook.com, Hotmail and Microsoft 365 accept only Microsoft sign-in (OAuth2), which isn’t built yet. Gmail works today with an app password; signing in with Google comes in the same step.',
   'HTML mail keeps its inline styling, but style sheets inside a message (<style> blocks) are dropped for now.',
   'Drafts stay on your PC; they aren’t saved to the server’s Drafts folder yet.',
   'HTML compose has no images or colors yet, and signatures are plain text.',
@@ -311,36 +353,36 @@ export type Shortcut = {
 
 export const shortcuts: Shortcut[] = [
   { id: 'move', group: 'Move', keys: [['↑'], ['↓']], action: 'Previous / next message', match: [{ key: 'ArrowUp', shift: false }, { key: 'ArrowDown', shift: false }], home: true },
-  { id: 'space', group: 'Move', keys: [['Space']], action: 'Read on: page down, then the next unread message (Shift: back)', match: [{ key: ' ' }], since: NEXT, home: true },
+  { id: 'space', group: 'Move', keys: [['Space']], action: 'Read on: page down, then the next unread message (Shift: back)', match: [{ key: ' ' }], since: '0.7.1', home: true },
   { id: 'ends', group: 'Move', keys: [['Home'], ['End']], action: 'First / last message', match: [{ key: 'Home', shift: false }, { key: 'End', shift: false }] },
   { id: 'thread', group: 'Move', keys: [['T']], action: 'The message’s conversation (T or Esc goes back)', match: [{ key: 't' }], since: '0.5.0', home: true },
-  { id: 'goto', group: 'Move', keys: [['G']], action: 'Go to a folder: type part of its name', match: [{ key: 'g' }], since: '0.5.0', home: true },
+  { id: 'goto', group: 'Move', keys: [['G']], action: 'Go to a folder: type part of its name', match: [{ key: 'g' }], since: '0.5.0' },
   { id: 'window', group: 'Move', keys: [['Enter']], action: 'The message in a window of its own (or double-click it); Esc closes it', match: [{ key: 'Enter' }], since: '0.6.0' },
   { id: 'open', group: 'Move', keys: [['Enter']], action: 'Open the message’s folder (in all-mail results and conversations)', match: [{ key: 'Enter' }], since: '0.5.0' },
-  { id: 'select', group: 'Select', keys: [['Shift', '↑'], ['↓']], action: 'Select more (or fewer) messages', match: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }], since: '0.5.0', home: true },
+  { id: 'select', group: 'Select', keys: [['Shift', '↑'], ['↓']], action: 'Select more (or fewer) messages', match: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }], since: '0.5.0' },
   { id: 'selectends', group: 'Select', keys: [['Shift', 'Home'], ['End']], action: 'Select to the top / bottom', match: [{ key: 'Home', shift: true }, { key: 'End', shift: true }], since: '0.5.0' },
   { id: 'selectall', group: 'Select', keys: [['Ctrl', 'A']], action: 'Select every message in the list', match: [{ key: 'a', ctrl: true }], since: '0.5.0' },
-  { id: 'new', group: 'Write', keys: [['N']], action: 'New message', match: [{ key: 'n' }], home: true },
+  { id: 'new', group: 'Write', keys: [['N']], action: 'New message', match: [{ key: 'n' }] },
   { id: 'reply', group: 'Write', keys: [['R']], action: 'Reply', match: [{ key: 'r' }], home: true },
   { id: 'replyall', group: 'Write', keys: [['Shift', 'R']], action: 'Reply to all', match: [{ key: 'R', shift: true }] },
-  { id: 'forward', group: 'Write', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }], home: true },
+  { id: 'forward', group: 'Write', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }] },
   { id: 'edit', group: 'Write', keys: [['E']], action: 'Edit a draft or an unsent message', match: [{ key: 'e' }] },
-  { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }], home: true },
+  { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }] },
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
-  { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }], home: true },
+  { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }] },
   { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread (or click the dot in the row)', match: [{ key: 'u' }] },
   { id: 'folderread', group: 'Organize', keys: [['Shift', 'U']], action: 'Mark everything in the folder read', match: [{ key: 'U', shift: true }], since: '0.5.0' },
-  { id: 'delete', group: 'Organize', keys: [['Del']], action: 'Move to Trash (in Trash: twice deletes for good)', match: [{ key: 'Delete' }], home: true },
+  { id: 'delete', group: 'Organize', keys: [['Del']], action: 'Move to Trash (in Trash: two separate presses delete for good)', match: [{ key: 'Delete' }], home: true },
   { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: '0.5.0', home: true },
-  { id: 'undo', group: 'Organize', keys: [['Z']], action: 'Undo the last delete or move · take back what you just sent', match: [{ key: 'z' }], home: true },
+  { id: 'undo', group: 'Organize', keys: [['Z']], action: 'Undo the last delete, move or discard · take back what you just sent', match: [{ key: 'z' }], home: true },
   { id: 'filter', group: 'Find', keys: [['/']], action: 'Search, with from: is:unread has:file …', match: [{ key: '/' }], home: true },
   { id: 'scope', group: 'Find', keys: [['Tab']], action: 'In the filter: this folder / all mail', match: [{ key: 'Tab', shift: false }] },
   { id: 'view', group: 'Find', keys: [['H']], action: 'HTML / plain text view', match: [{ key: 'h' }] },
-  { id: 'esc', group: 'Find', keys: [['Esc']], action: 'Clear the filter, the selection or the conversation · save draft and close', match: [{ key: 'Escape' }], home: true },
+  { id: 'esc', group: 'Find', keys: [['Esc']], action: 'Clear the filter, the selection or the conversation · save draft and close', match: [{ key: 'Escape' }] },
   { id: 'settings', group: 'View', keys: [['Ctrl', ',']], action: 'Settings', match: [{ key: ',', ctrl: true }] },
   { id: 'larger', group: 'View', keys: [['Ctrl', '='], ['−']], action: 'Larger / smaller text', match: [{ key: '=', ctrl: true }, { key: '+', ctrl: true }, { key: '-', ctrl: true }] },
   { id: 'normal', group: 'View', keys: [['Ctrl', '0']], action: 'Normal text size', match: [{ key: '0', ctrl: true }] },
-  { id: 'menu', group: 'View', keys: [['Shift', 'F10']], action: 'The menu of the selected message (or right-click it)', match: [{ key: 'F10', shift: true }], since: NEXT },
+  { id: 'menu', group: 'View', keys: [['Shift', 'F10']], action: 'The menu of the selected message (or right-click it)', match: [{ key: 'F10', shift: true }], since: '0.7.1' },
   { id: 'help', group: 'View', keys: [['?'], ['F1']], action: 'Every key, and the tips that aren’t obvious (or hover the ? in the status bar)', match: [{ key: '?' }, { key: 'F1' }], since: '0.6.0' },
 ];
 
@@ -354,12 +396,12 @@ export const keyboardTips: Tip[] = [
   {
     title: 'Read without the mouse',
     text: 'Space pages down the message and, at its end, opens the next unread one. After the last, it names the next folder with new mail; Space again goes there.',
-    since: NEXT,
+    since: '0.7.1',
   },
   {
     title: 'Unread until you say so',
     text: 'Settings › Reading can leave mail unread until you mark it: U, the dot at the start of a row, or the envelope above the message.',
-    since: NEXT,
+    since: '0.7.1',
   },
   {
     title: 'Clear a pile in four keys',
@@ -412,7 +454,7 @@ export const screens: Screen[] = [
     label: 'Message menu',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Right-click a message for everything you can do with it, each with its key. The dot and the flag at the start of a row switch read and flag with a click.',
-    since: NEXT,
+    since: '0.7.1',
   },
   {
     id: 'thread',
@@ -460,7 +502,7 @@ export const screens: Screen[] = [
     label: 'Search',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Search keeps your recent searches and offers the operators; as you type, it suggests people from your own mail. Enter goes to the results.',
-    since: NEXT,
+    since: '0.7.1',
   },
   {
     id: 'filter',
@@ -486,7 +528,7 @@ export const screens: Screen[] = [
     label: 'Reading',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Settings › Reading: mail counts as read at once, after the moment you choose, only in its own window, or only when you mark it.',
-    since: NEXT,
+    since: '0.7.1',
   },
   {
     id: 'rules',
@@ -548,6 +590,17 @@ export const screens: Screen[] = [
     title: 'Inbox · sam@carterfamily.net – Telex',
     caption: 'Compact is the default. One click on the toolbar gives every row more room.',
   },
+];
+
+/**
+ * Three things to try first: above the live demo, and on the home page's demo band. The `keys` come
+ * first, then `text`, where [Tab] is drawn as a key. Keep them true to scripts/demo-mailbox.json and
+ * demo/backend.js.
+ */
+export const demoFirst: { keys: string[]; text: string }[] = [
+  { keys: ['/'], text: 'and type from:anna: the list narrows as you type, and [Tab] looks in all her mail.' },
+  { keys: ['T'], text: 'on Daniel Price’s “Re: Online shop estimate”: the whole conversation, from four folders.' },
+  { keys: ['Del'], text: 'moves a message to Trash, and [Z] brings it back.' },
 ];
 
 /** The cards under the live demo. Keep them true to scripts/demo-mailbox.json and demo/backend.js. */
@@ -634,6 +687,27 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Faster checks, drafts that keep, an Undo you can see',
+    date: '2026-10-11',
+    summary: 'Mail checks take seconds, nothing you write gets lost, and a message opens in its own window every time.',
+    points: [
+      'Opening a message in a window of its own (double-click or Enter) could freeze Telex on Windows; it opens at once now.',
+      'Checking mail is much faster: every account is checked at the same time, and server commands no longer wait on the network between them. Four accounts on a server across the Atlantic went from about 19 seconds to about 2.',
+      'Compose saves the message as a draft every few seconds while you write, so a crash loses little; a draft you are editing stays as it was until you save or send.',
+      'New, Reply or E while you are writing puts that message in Drafts first, instead of dropping it.',
+      'Discard can be undone: Z, or the Undo button, brings the message back.',
+      'An Undo button in the status bar whenever Z can undo something; for sent mail it counts down the seconds left.',
+      'An account whose last check failed shows a mark in the folder tree and a chip in the status bar with the reason; click it to try again.',
+      'Deleting for good in Trash takes two separate presses of Del: holding the key or a double-click no longer counts as both.',
+    ],
+    highlights: [
+      { title: 'Checks in seconds', text: 'Every account at once, and no waiting between commands: four accounts in about two seconds.' },
+      { title: 'Drafts that keep', text: 'Saved as you write; New or Reply mid-message files it in Drafts, and Z undoes Discard.' },
+      { title: 'Undo you can see', keys: 'Z', text: 'A button in the status bar, counting down while sent mail waits to go.' },
+    ],
+  },
+  {
+    version: '0.7.1',
     title: 'Space for the next unread, a list that fits, search that suggests',
     date: '2026-10-11',
     summary: 'Read on with one key, decide when mail counts as read, find things faster, and put the window in your order.',
@@ -685,7 +759,7 @@ export const versions: Version[] = [
   {
     version: '0.5.0',
     title: 'Attachments, conversations and mail at once',
-    date: '',
+    date: '2026-10-10',
     summary: 'The everyday tools: files in and out, many messages at a time, whole conversations, and new mail the moment it lands.',
     points: [
       'Attachments open in their app with a click; programs, scripts and anything in Spam ask first. Save one, or all of them into a folder.',
@@ -846,10 +920,14 @@ export const roadmap: Step[] = [
     title: 'Reading and finding',
     text: 'Space for the next unread, read rules of your own, a right-click menu, columns that fit the window, search with suggestions, accounts in your order.',
     status: 'done',
-    since: NEXT,
+    since: '0.7.1',
     notYet: 'Saved searches as folders of their own.',
   },
-  { title: 'Gmail and Outlook.com', text: 'OAuth2 sign-in, since both refuse plain passwords over IMAP.', status: 'next' },
+  {
+    title: 'Sign in with Microsoft and Google',
+    text: 'OAuth2 sign-in. Outlook.com, Hotmail and Microsoft 365 let other mail apps in no other way, and Gmail, which works today with an app password, won’t need one.',
+    status: 'next',
+  },
 ];
 
 export type Question = { id?: string; q: string; a: string };
@@ -861,7 +939,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         id: 'providers',
         q: 'Which mail providers work?',
-        a: 'Any provider that offers IMAP over SSL/TLS (port 993) and SMTP over SSL/TLS (465) or STARTTLS (587) with a password: most hosting mailboxes and many providers. From version 0.5, IMAP over STARTTLS (port 143) works too. Telex finds the settings from your address. Gmail and Outlook.com need OAuth2 sign-in, which is on the roadmap.',
+        a: 'Any provider that offers IMAP (SSL/TLS on port 993, or STARTTLS on 143) and SMTP (SSL/TLS on 465, or STARTTLS on 587) with a password: your own domain or hosting mailbox, and providers such as Gmail, iCloud, Yahoo, Fastmail, Zoho, GMX, WP, Onet and Interia. Telex finds the settings from your address and tells you when a provider wants an app password (Gmail, iCloud, Yahoo) or IMAP turned on. Not yet: Outlook.com, Hotmail and Microsoft 365, which accept only Microsoft sign-in (planned), and Proton Mail, which needs its Bridge.',
       },
       {
         id: 'setup',
@@ -889,8 +967,9 @@ export const faqGroups: { title: string; items: Question[] }[] = [
         a: 'The first sync takes the newest 300 messages of each folder, so you can start at once. From version 0.5 the status bar says how many older ones are still on the server, and downloads them when you ask, newest first.',
       },
       {
+        id: 'gmail',
         q: 'Does it work with Gmail or Outlook.com?',
-        a: 'Not yet. Both require OAuth2 sign-in instead of a password, and that is next on the roadmap.',
+        a: 'Gmail, yes, with an app password: turn on 2-Step Verification in your Google account, make an app password (myaccount.google.com/apppasswords) and give Telex that instead of your usual password; Telex reminds you when you add the account. Google doesn’t offer app passwords with Advanced Protection, and some work or school accounts have them turned off. Outlook.com, Hotmail and Microsoft 365, not yet: Microsoft lets other mail apps in only with Microsoft sign-in (OAuth2). That is next on the roadmap, together with signing in with Google.',
       },
       {
         q: 'Do changes I make reach the server?',
@@ -976,8 +1055,8 @@ export const faqGroups: { title: string; items: Question[] }[] = [
   },
 ];
 
-/** The four questions on the home page. */
-export const faq: Question[] = ['providers', 'setup', 'privacy', 'demo'].map(
+/** The questions on the home page. */
+export const faq: Question[] = ['providers', 'gmail', 'privacy'].map(
   (id) => faqGroups.flatMap((g) => g.items).find((q) => q.id === id)!,
 );
 
@@ -987,7 +1066,7 @@ export const ticker = [
   'FAST KEYBOARD MAIL. LOCAL MAIL BASE. NO TELEMETRY.',
   'TRY IT IN YOUR BROWSER: SEE THE LIVE DEMO',
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
-  'NEXT: GMAIL AND OUTLOOK.COM SIGN-IN',
+  'GMAIL: WORKS WITH AN APP PASSWORD. NEXT: MICROSOFT SIGN-IN',
   'EIGHT THEMES, ALL WCAG 2.2. ENGLISH AND POLISH.',
   'TRY: SPACE = NEXT UNREAD, R = REPLY, T = CONVERSATION, / = SEARCH',
   'NNNN',

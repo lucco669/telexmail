@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { CtaBand } from '@/components/CtaBand';
+import { DemoFirst } from '@/components/DemoFirst';
 import { DemoFrame } from '@/components/DemoFrame';
 import { PageHeader } from '@/components/PageHeader';
 import { demoTries } from '@/lib/content';
@@ -20,6 +21,7 @@ export default function DemoPage() {
       />
 
       <section className={`container ${s.stage}`} aria-label="Live demo">
+        <DemoFirst title="Try these first" className={s.first} />
         <DemoFrame />
         <p className={s.small}>
           Telex is a desktop app, so the demo is best on a computer with a keyboard. On a phone it works, but cramped.

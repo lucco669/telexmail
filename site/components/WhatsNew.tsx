@@ -5,11 +5,16 @@ import type { Release } from '@/lib/release';
 import { isReleased, shortVersion, versionAnchor } from '@/lib/versions';
 import s from './WhatsNew.module.css';
 
+/** How many highlights the home page shows; the changelog has the rest. */
+const SHOWN = 3;
+
 /** The home page's look at the newest version this site describes: coming soon, or just out. */
 export function WhatsNew({ release }: { release: Release | null }) {
   const v = versions[0];
   const out = isReleased(v.version, release);
-  const cards = v.highlights ?? v.points.map((text) => ({ title: '', text, keys: undefined }));
+  const all = v.highlights ?? v.points.map((text) => ({ title: '', text, keys: undefined }));
+  const cards = all.slice(0, SHOWN);
+  const anchor = `${pages.changelog.path}#${versionAnchor(v.version)}`;
   return (
     <section id="new" className="section">
       <div className="container">
@@ -26,16 +31,13 @@ export function WhatsNew({ release }: { release: Release | null }) {
               ? 'Telex offers the update by itself, or click the version number in its status bar.'
               : 'It comes as an update to everyone who has Telex; the live demo already runs it.'}
           </p>
-          <p className={s.links}>
-            <Link className="more" href={`${pages.changelog.path}#${versionAnchor(v.version)}`}>
-              Everything in {shortVersion(v.version)}
-            </Link>
-            {!out && (
+          {!out && (
+            <p>
               <Link className="more" href={pages.demo.path}>
                 Try it now
               </Link>
-            )}
-          </p>
+            </p>
+          )}
         </header>
         <ul className={s.grid}>
           {cards.map((c) => (
@@ -58,6 +60,14 @@ export function WhatsNew({ release }: { release: Release | null }) {
             </li>
           ))}
         </ul>
+        <p className={s.links}>
+          <Link className="more" href={anchor}>
+            {all.length > SHOWN ? `All ${all.length} highlights of ${shortVersion(v.version)}` : `Everything in ${shortVersion(v.version)}`}
+          </Link>
+          <Link className="more" href={pages.changelog.path}>
+            What each version brought
+          </Link>
+        </p>
       </div>
     </section>
   );

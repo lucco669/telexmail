@@ -8,24 +8,27 @@ import { Roadmap } from '@/components/Roadmap';
 import { Screens } from '@/components/Screens';
 import { WhatsNew } from '@/components/WhatsNew';
 import { pages } from '@/lib/pages';
-import { getLatestRelease } from '@/lib/release';
+import { getReleaseInfo } from '@/lib/release';
 import { appLd, organizationLd, pageMetadata, websiteLd } from '@/lib/seo';
 
 export const metadata = pageMetadata(pages.home);
 
 export default async function Home() {
-  const release = await getLatestRelease();
+  const { list, live } = await getReleaseInfo();
+  const release = list[0] ?? null;
+  // GitHub couldn't be asked and no release is known: link to GitHub rather than say "coming soon".
+  const unknown = !live && !release;
   return (
     <>
       <JsonLd items={[organizationLd(), websiteLd(), appLd(release)]} />
-      <Hero release={release} />
+      <Hero release={release} unknown={unknown} />
       <Features />
       <Keyboard release={release} />
       <DemoBand />
       <Screens release={release} />
       <WhatsNew release={release} />
       <Roadmap release={release} />
-      <Download release={release} />
+      <Download release={release} unknown={unknown} />
     </>
   );
 }

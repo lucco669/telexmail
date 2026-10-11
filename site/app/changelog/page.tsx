@@ -4,7 +4,7 @@ import { DownloadButton } from '@/components/DownloadButton';
 import { PageHeader } from '@/components/PageHeader';
 import { versions, type Version } from '@/lib/content';
 import { pages } from '@/lib/pages';
-import { getReleases, megabytes, type Release } from '@/lib/release';
+import { allReleasesPage, getReleaseInfo, megabytes, type Release } from '@/lib/release';
 import { pageMetadata } from '@/lib/seo';
 import { compareVersions, shortVersion, versionAnchor } from '@/lib/versions';
 import s from './page.module.css';
@@ -43,9 +43,11 @@ function Files({ r }: { r: Release }) {
 }
 
 export default async function ChangelogPage() {
-  const releases = await getReleases();
+  const { list: releases, live } = await getReleaseInfo();
   const latest = releases[0] ?? null;
   const list = entries(releases);
+  // Without GitHub's answer the site knows only its newest release; anything up to it is out too.
+  const isOut = (e: Entry) => !!e.release || (!!latest && compareVersions(e.version, latest.version) <= 0);
   return (
     <>
       <PageHeader
@@ -53,7 +55,7 @@ export default async function ChangelogPage() {
         title="What’s new."
         lead="Every release of Telex, newest first. Telex updates itself: click the version number in its status bar, or let it check when it starts, and your mail and settings stay where they are."
       >
-        <DownloadButton release={latest} />
+        <DownloadButton release={latest} unknown={!live && !latest} />
         <Link className="btn btn-lg" href={pages.demo.path}>
           Try the newest in your browser
         </Link>
@@ -70,16 +72,17 @@ export default async function ChangelogPage() {
       <div className={`container ${s.list}`}>
         {list.map((e) => {
           const date = e.release?.date || e.notes?.date;
+          const out = isOut(e);
           const isLatest = !!latest && e.version === latest.version;
           return (
-            <article key={e.version} id={versionAnchor(e.version)} className={s.entry} data-released={!!e.release || undefined}>
+            <article key={e.version} id={versionAnchor(e.version)} className={s.entry} data-released={out || undefined}>
               <header className={s.meta}>
                 <p className={s.ver}>{shortVersion(e.version)}</p>
                 <p className={s.full}>Version {e.version}</p>
                 {date ? (
                   <p className={s.date}>{dateFmt.format(new Date(date))}</p>
                 ) : (
-                  <span className="badge badge-coming">In the works</span>
+                  !out && <span className="badge badge-coming">In the works</span>
                 )}
                 {isLatest && <span className="badge badge-new">Newest</span>}
               </header>
@@ -97,6 +100,10 @@ export default async function ChangelogPage() {
                 {e.notes?.upgrade && <p className={s.upgrade}>{e.notes.upgrade}</p>}
                 {e.release ? (
                   <Files r={e.release} />
+                ) : out && !live ? (
+                  <p className={s.files}>
+                    <a href={allReleasesPage}>Its downloads are on GitHub</a>
+                  </p>
                 ) : (
                   !date && (
                     <p className={s.pending}>

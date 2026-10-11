@@ -14,7 +14,8 @@
  *   options.data       the mailbox (site/scripts/demo-mailbox.json)
  *   options.live       true on the website: dates follow the visitor's calendar, Get mail
  *                      brings the mailbox's `incoming` messages, IMAP IDLE "pushes" one after
- *                      `idle.after_s` seconds, ?theme= and ?lang= are read
+ *                      `idle.after_s` seconds, ?theme= and ?lang= are read, and in a frame
+ *                      a {type: 'telex-demo-theme', theme} message from the page switches theme
  *   options.scene      a screenshot's scene name (messages with `only` show in their scenes;
  *                      "live" is the live demo's name)
  *   options.empty      no account yet, as on the first start
@@ -369,7 +370,7 @@ function installTelexDemo(options) {
       if (m.unread) c.unread++;
     }
     for (const [key, n] of Object.entries(older)) if (n > 0 && folderOf(key)) (counts[key] ??= { total: 0, unread: 0 }).older = n;
-    return { accounts, counts };
+    return { accounts, counts, problems: {} };
   }
 
   /* ---------- changes to mail (store.rs) ---------- */
@@ -459,6 +460,8 @@ function installTelexDemo(options) {
 
   // A draft or an unsent message, replaced by the one saved or sent from it.
   const removeLocal = (id) => { const m = byId(id); if (m && ['drafts', 'outbox'].includes(kindOf(m.folder))) msgs.splice(msgs.indexOf(m), 1); return m; };
+  // An autosave dropped (Discard) or saved over: a draft only.
+  const discardDraft = ({ id }) => { const m = byId(id); if (!m || kindOf(m.folder) !== 'drafts') return false; msgs.splice(msgs.indexOf(m), 1); return true; };
   const addNote = (m, text) => { if (!m.note) m.note = text; else if (!m.note.includes(text)) m.note += ' ' + text; };
 
   /* ---------- drafts (drafts.rs) ---------- */
@@ -756,6 +759,7 @@ function installTelexDemo(options) {
     const body = clean != null ? toText(clean) : String(d.body || '');
     const attachments = (d.attachments || []).map((x) => ({ name: x.name, size_kb: Math.max(1, x.size_kb | 0) }));
     const orig = d.reply_to != null ? byId(d.reply_to) : null, replaced = d.replaces != null ? removeLocal(d.replaces) : null;
+    if (d.autosaved != null) discardDraft({ id: d.autosaved });
     let thread = replaced?.thread ?? null;
     if (orig) thread = orig.thread ??= `t${orig.id}`;
     return message({
@@ -1239,6 +1243,7 @@ function installTelexDemo(options) {
     recipients,
     start_draft: startDraft,
     save_outgoing: saveOutgoing,
+    discard_draft: discardDraft,
     draft_html: ({ id }) => need(id).clean ?? null,
     text_to_html: ({ text }) => fromText(text),
     html_to_text: ({ html }) => toText(cleanHtml(html)),
@@ -1387,6 +1392,18 @@ function installTelexDemo(options) {
       localStorage.setItem('telex-look', JSON.stringify({ theme: settings.theme, lang: lang(), zoom: 100 }));
       localStorage.removeItem('telex-ui');
     } catch { /* storage blocked: boot.js guesses, app.js corrects */ }
+    // The site's /demo page (components/DemoFrame.tsx) follows its own light/dark switch: the app
+    // takes the new theme as if another window had changed the setting (app.js reloads the settings
+    // on "settings-changed"), without a restart.
+    if (inFrame) {
+      addEventListener('message', (e) => {
+        if (e.origin !== location.origin || e.source !== window.parent || e.data?.type !== 'telex-demo-theme') return;
+        const theme = e.data.theme;
+        if (!THEMES.includes(theme) || settings.theme === theme) return;
+        settings.theme = theme;
+        emit('settings-changed', null);
+      });
+    }
     // IMAP IDLE: a while after the start, the server says something arrived in an Inbox.
     const idle = data.idle;
     if (idle?.account) {

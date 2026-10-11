@@ -1,0 +1,39 @@
+/* Windows and Linux as two equal cards, side by side wherever there is room for both. */
+.wrap { container-type: inline-size; }
+.choice { display: grid; gap: 12px; }
+@container (min-width: 500px) {
+  .choice { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+}
+.option {
+  display: grid;
+  align-content: start;
+  justify-items: start;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.option :global(.btn) { width: 100%; height: auto; min-height: 44px; padding: 10px 12px; gap: 8px; white-space: normal; text-align: center; }
+.os { display: grid; gap: 2px; color: var(--muted); font-size: 14.5px; line-height: 1.35; }
+.name { color: var(--fg); font: 600 22px/1.2 var(--font-cond); }
+.file { color: var(--fg); font: 13px/1.5 var(--font-mono); }
+.alt { color: var(--muted); font-size: 14px; }
+.alt a, .compat a, .lookup a, .status a { color: var(--accent); }
+
+.status { color: var(--muted); font-size: 14.5px; }
+.status b { color: var(--fg); font-weight: 600; }
+.sep { color: var(--faint); }
+.alt b { color: var(--fg); font-weight: 600; }
+.date { white-space: nowrap; }
+
+.compat { color: var(--muted); font-size: 14.5px; }
+.compat a, .nowrap { white-space: nowrap; }
+
+.lookup {
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}

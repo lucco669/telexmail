@@ -1,4 +1,5 @@
 import { cacheLife } from 'next/cache';
+import { knownRelease } from './known-release';
 import { site } from './site';
 
 export type Asset = { name: string; url: string; size: number };
@@ -12,6 +13,19 @@ export type Release = {
   appimage: Asset | null;
   deb: Asset | null;
 };
+
+/** What the site knows about the releases. */
+export type Releases = {
+  /** Newest first: GitHub's answer, or, when GitHub couldn't be asked, the last release this site knew of. */
+  list: Release[];
+  /** GitHub answered. When false, an empty list means "not known", not "nothing released yet". */
+  live: boolean;
+};
+
+/** GitHub's page for the newest release: always right, whatever this site knows. */
+export const latestReleasePage = `https://github.com/${site.releasesRepo}/releases/latest`;
+/** Every release on GitHub. */
+export const allReleasesPage = `https://github.com/${site.releasesRepo}/releases`;
 
 type GitHubAsset = { name: string; browser_download_url: string; size: number };
 type GitHubRelease = {
@@ -30,15 +44,19 @@ function pick(assets: GitHubAsset[], ext: string): Asset | null {
 }
 
 /**
- * Releases that have a Windows installer (and the Linux AppImage and .deb, if they have them), newest first
- * (up to 10). Empty when there are none yet,
- * they are still drafts, the repository is private, or GitHub can't be reached. Checked at most
- * once an hour, so a new
- * release shows up on the site without a redeploy.
+ * Releases that have a Windows installer (and the Linux AppImage and .deb, if they have them), newest
+ * first (up to 10); empty when there are none yet or they are still drafts. Asked at most once an hour,
+ * so a new release shows up without a redeploy.
+ *
+ * When GitHub can't be reached or refuses (rate limit, a private repository), this throws on a live
+ * site: the page's background refresh then fails, and Next.js keeps serving the page as it was with
+ * the last good answer, trying again on the next visit. (No `expire`: the default profile's "never",
+ * so a long outage never turns that page into an error.) At build time and in development there is
+ * no earlier answer to keep, so it returns null and the site offers the last release it knew of.
  */
-export async function getReleases(): Promise<Release[]> {
+async function lookUp(): Promise<Release[] | null> {
   'use cache';
-  cacheLife('hours');
+  cacheLife({ stale: 300, revalidate: 3600 });
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -49,7 +67,7 @@ export async function getReleases(): Promise<Release[]> {
 
   try {
     const res = await fetch(`https://api.github.com/repos/${site.releasesRepo}/releases?per_page=10`, { headers });
-    if (!res.ok) return [];
+    if (!res.ok) throw new Error(`GitHub answered ${res.status} ${res.statusText}`);
     const releases = (await res.json()) as GitHubRelease[];
     return releases
       .filter((r) => !r.draft)
@@ -65,9 +83,25 @@ export async function getReleases(): Promise<Release[]> {
         deb: pick(r.assets, '.deb'),
       }))
       .filter((r) => r.exe || r.msi);
-  } catch {
-    return [];
+  } catch (error) {
+    if (process.env.NEXT_PHASE === 'phase-production-build' || process.env.NODE_ENV === 'development') {
+      console.warn(`Couldn't look up the releases of ${site.releasesRepo} (${error}); using lib/known-release.ts.`);
+      return null;
+    }
+    throw error;
   }
+}
+
+/** The releases, and whether GitHub said so (see `Releases`). */
+export async function getReleaseInfo(): Promise<Releases> {
+  const list = await lookUp();
+  if (list) return { list, live: true };
+  return { list: knownRelease ? [knownRelease] : [], live: false };
+}
+
+/** The releases this site knows, newest first. */
+export async function getReleases(): Promise<Release[]> {
+  return (await getReleaseInfo()).list;
 }
 
 /** The newest release with a Windows installer, or null. */

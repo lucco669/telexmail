@@ -9,3 +9,5 @@
 }
 .title { max-width: 18ch; font-size: clamp(30px, 4vw, 44px); line-height: 1.05; letter-spacing: -0.015em; }
 .actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.side { display: grid; gap: 12px; }
+.note { color: var(--muted); font: 13px/1.5 var(--font-mono); }

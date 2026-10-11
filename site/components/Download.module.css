@@ -1,6 +1,6 @@
 .layout { display: grid; gap: 48px; }
 @media (min-width: 960px) {
-  .layout { grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 64px; align-items: start; }
+  .layout { grid-template-columns: minmax(0, 7fr) minmax(0, 4fr); gap: 56px; align-items: start; }
 }
 .card {
   display: grid;
@@ -13,29 +13,21 @@
 @media (min-width: 640px) {
   .card { padding: 44px 44px 40px; }
 }
-.text { color: var(--muted); font-size: 17px; max-width: 52ch; }
-.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-top: 8px; }
-.alt { color: var(--muted); font-size: 14.5px; }
-.alt:hover { color: var(--accent); }
-.req {
+.benefits {
   display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
-  gap: 10px 16px;
-  margin: 16px 0 0;
-  padding-top: 24px;
+  gap: 10px 24px;
+  margin: 8px 0 0;
+  padding: 20px 0 0;
   border-top: 1px solid var(--line);
-  font-size: 15px;
-}
-.req dt { color: var(--faint); font: 500 12px/1.9 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
-.req dd { margin: 0; }
-.note {
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: var(--line-soft);
+  list-style: none;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 15px;
+  line-height: 1.5;
 }
-.note b { color: var(--fg); font-weight: 600; }
+@media (min-width: 640px) {
+  .benefits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.benefits b { color: var(--fg); font-weight: 600; }
 
 .faqTitle { margin-bottom: 8px; font-size: 24px; }
 .item { border-bottom: 1px solid var(--line); }
@@ -64,6 +56,4 @@
 .q:hover { color: var(--accent); }
 .a { padding: 0 40px 20px 0; color: var(--muted); font-size: 15.5px; }
 .faqMore { margin-top: 20px; }
-.linux { color: var(--muted); font-size: 14.5px; }
-.linux a { color: var(--accent); }
 .links { display: flex; flex-wrap: wrap; gap: 8px 24px; }

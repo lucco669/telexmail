@@ -1,4 +1,4 @@
-.links { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+.links { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 24px; }
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
@@ -11,7 +11,10 @@
   background: var(--line-soft);
   overflow: hidden;
 }
-.card { display: grid; align-content: start; gap: 10px; padding: 24px 24px 28px; background: var(--bg); }
+.card { display: grid; align-content: start; gap: 10px; padding: 20px 20px 22px; background: var(--bg); }
+@media (min-width: 640px) {
+  .card { padding: 24px 24px 28px; }
+}
 .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .title { font-size: 21px; line-height: 1.2; }
 .keys { display: inline-flex; gap: 4px; }

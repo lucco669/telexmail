@@ -1,10 +1,11 @@
 import Link from 'next/link';
+import { shortcuts } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import type { Release } from '@/lib/release';
 import { KeyboardDemo } from './KeyboardDemo';
 import s from './Keyboard.module.css';
 
-/** The keyboard section on the home page. */
+/** The keyboard section on the home page: the keys used most, and the way to all of them. */
 export function Keyboard({ release }: { release: Release | null }) {
   return (
     <section id="keyboard" className={`section ${s.section}`}>
@@ -19,17 +20,19 @@ export function Keyboard({ release }: { release: Release | null }) {
             whole selection. Try them here: press any key from the list.
           </p>
           <p>
-            <Link className="more" href={pages.keyboard.path}>
-              Every shortcut, with tips
-            </Link>
-          </p>
-          <p>
             <Link className="more" href={pages.demo.path}>
               Or press them in the live demo
             </Link>
           </p>
         </header>
-        <KeyboardDemo release={release} onlyHome />
+        <div className={s.side}>
+          <KeyboardDemo release={release} onlyHome />
+          <p>
+            <Link className="more" href={pages.keyboard.path}>
+              All {shortcuts.length} shortcuts, with tips
+            </Link>
+          </p>
+        </div>
       </div>
     </section>
   );

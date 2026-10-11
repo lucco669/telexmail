@@ -1,18 +1,13 @@
 import Link from 'next/link';
 import { screens } from '@/lib/content';
 import { pages } from '@/lib/pages';
+import { DemoFirst } from './DemoFirst';
 import { ArrowIcon } from './Icons';
 import { Shot } from './Shot';
 import { WindowFrame } from './WindowFrame';
 import s from './DemoBand.module.css';
 
 const thread = screens.find((x) => x.id === 'thread')!;
-
-const hints: { keys: string[]; text: string }[] = [
-  { keys: ['T'], text: 'follow a conversation across folders' },
-  { keys: ['Shift', '↓'], text: 'then M: move a pile in four keys' },
-  { keys: ['Ctrl', 'Enter'], text: 'then Z: take back what you just sent' },
-];
 
 /** The home page's way into the live demo. */
 export function DemoBand() {
@@ -28,21 +23,7 @@ export function DemoBand() {
             The live demo runs Telex’s real interface in your browser, on a made-up mailbox. Every key works, the settings
             and themes too, and nothing you do leaves the page.
           </p>
-          <ul className={s.hints}>
-            {hints.map((h) => (
-              <li key={h.text}>
-                <span className={s.keys}>
-                  {h.keys.map((k, i) => (
-                    <span key={k} className={s.keys}>
-                      {i > 0 && <span className={s.plus}>+</span>}
-                      <kbd className="kbd">{k}</kbd>
-                    </span>
-                  ))}
-                </span>
-                {h.text}
-              </li>
-            ))}
-          </ul>
+          <DemoFirst title="Try these first" className={s.first} />
           <p>
             <Link href={pages.demo.path} className="btn btn-primary btn-lg">
               Open the live demo
