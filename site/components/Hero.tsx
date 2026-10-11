@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { facts, hero, NEXT, versions } from '@/lib/content';
+import { facts, hero, NEXT, nextTeaser, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
 import { isReleased, shortVersion, versionAnchor } from '@/lib/versions';
@@ -12,7 +12,7 @@ import s from './Hero.module.css';
 /** The line in the pill above the title: what the next version brings, or what the newest one did. */
 function news(release: Release | null) {
   if (!release || !isReleased(NEXT, release)) {
-    return { lead: `Coming in ${shortVersion(NEXT)}:`, text: 'attachments, conversations, undo send and new mail at once.', anchor: NEXT };
+    return { lead: `Coming in ${shortVersion(NEXT)}:`, text: nextTeaser, anchor: NEXT };
   }
   const notes = versions.find((v) => v.version === release.version);
   if (!notes) return { lead: `Version ${release.version} is out:`, text: 'see what’s new.', anchor: release.version };

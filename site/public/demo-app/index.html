@@ -32,7 +32,7 @@
     <button class="tb" id="b-settings" type="button" title="Settings: accounts, theme, language, writing, usage (Ctrl+,)" data-i18n></button>
     <label class="search" for="q">
       <span id="search-ic" aria-hidden="true"></span>
-      <input id="q" type="search" placeholder="Quick filter" autocomplete="off" spellcheck="false" title="Words, or from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k" data-i18n>
+      <input id="q" type="search" placeholder="Search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="q-list" autocomplete="off" spellcheck="false" title="Words, or from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k" data-i18n>
       <button type="button" class="scope" id="q-scope" aria-pressed="false" title="Look in this folder or in all mail (Tab)" data-i18n>This folder</button>
       <kbd>/</kbd>
     </label>
@@ -48,8 +48,8 @@
             <th class="c-ic" scope="col"><button type="button" data-sort="flag" aria-label="Sort by status" data-i18n>
               <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg><span class="arr"></span></button></th>
             <th class="c-from" scope="col"><button type="button" data-sort="from"><span id="from-label">From</span><span class="arr"></span></button></th>
-            <th class="c-subj" scope="col"><button type="button" data-sort="subject" data-i18n>Subject<span class="arr"></span></button></th>
-            <th class="c-where" scope="col"><span class="th-lbl" data-i18n>Folder</span></th>
+            <th class="c-subj" scope="col"><span class="grip" data-grip="from" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the From column" data-i18n></span><button type="button" data-sort="subject" data-i18n>Subject<span class="arr"></span></button></th>
+            <th class="c-where" scope="col"><span class="grip" data-grip="where" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to change the width; double-click to fit the names" aria-label="Width of the Folder column" data-i18n></span><span class="th-lbl" data-i18n>Folder</span></th>
             <th class="c-date" scope="col"><button type="button" data-sort="date" data-i18n>Received<span class="arr"></span></button></th>
             <th class="c-size" scope="col"><button type="button" data-sort="size" data-i18n>Size<span class="arr"></span></button></th>
           </tr></thead>
@@ -61,18 +61,24 @@
     </div>
   </div>
 
+  <!-- Left: the folder and what just happened; middle: the main keys; right: updates, storage,
+       the last check, help and the version. -->
   <footer class="status">
-    <span id="st-folder"></span>
-    <span id="st-msg"></span>
-    <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates once a day? <button type="button" class="linkbtn" data-ask="daily" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
-    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
-    <button class="chip" id="st-update" type="button" hidden></button>
-    <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
-    <span id="st-check"></span>
-    <button class="helpbtn" id="st-help" type="button" aria-expanded="false" aria-controls="help-pop" aria-label="Keys and tips" data-i18n><span aria-hidden="true">?</span></button>
-    <button class="ver" id="st-ver" type="button" hidden></button>
+    <span class="st-side st-left"><span id="st-folder"></span><span id="st-msg"></span></span>
+    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
+    <span class="st-side st-right">
+      <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
+      <button class="chip" id="st-update" type="button" hidden></button>
+      <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
+      <span id="st-check"></span>
+      <button class="helpbtn" id="st-help" type="button" aria-expanded="false" aria-controls="help-pop" aria-label="Keys and tips" data-i18n><span aria-hidden="true">?</span></button>
+      <button class="ver" id="st-ver" type="button" hidden></button>
+    </span>
   </footer>
 </div>
+
+<!-- Under the search box while it has the focus: recent searches, people, operators. -->
+<div class="qpop" id="q-pop" hidden></div>
 
 <!-- Every key and the features that aren't obvious: on hover over the "?" in the status bar, or ? and F1. -->
 <div class="helppop" id="help-pop" role="dialog" aria-label="Keys and tips" hidden data-i18n></div>
@@ -216,12 +222,13 @@
           </div>
           <p class="dnote snote" data-i18n>At once: Telex keeps one connection open to each server that allows it (IMAP IDLE) and checks the Inbox when the server says something changed. The other folders are checked as often as set above.</p>
         </fieldset>
+      </section>
+      <section class="spane" role="tabpanel" id="s-pane-read" aria-labelledby="s-tab-read" hidden>
         <fieldset class="sgroup">
           <legend data-i18n>Mark messages as read</legend>
           <div class="sopts" id="s-read"></div>
+          <p class="dnote snote" data-i18n>By hand: U, a click on the dot at the start of a row, the envelope above a message, or the menu on a right-click. Each marks read or unread.</p>
         </fieldset>
-      </section>
-      <section class="spane" role="tabpanel" id="s-pane-read" aria-labelledby="s-tab-read" hidden>
         <fieldset class="sgroup">
           <legend data-i18n>HTML mail</legend>
           <div class="sopts" id="s-view"></div>
@@ -269,7 +276,10 @@
         <div id="s-backup"></div>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-upd" aria-labelledby="s-tab-upd" hidden>
-        <label class="rcheck sfirst"><input type="checkbox" id="s-updates"> <span data-i18n>Check for updates once a day</span></label>
+        <fieldset class="sgroup">
+          <legend data-i18n>Check for updates</legend>
+          <div class="sopts" id="s-updates"></div>
+        </fieldset>
         <p class="dnote" data-i18n>A check downloads one small file from GitHub that names the newest version. It sends nothing about you, your mail or this copy of Telex. An update installs only when you choose, and only if it carries Telex’s signature.</p>
         <p class="dnote" id="s-upd-none" hidden data-i18n>This build of Telex can’t update itself. Release builds from telexmail.app can.</p>
         <div class="sbtns"><button class="btn" type="button" id="s-check" data-i18n>Check now</button></div>
@@ -289,7 +299,7 @@
   <h2 class="dtitle" id="upd-title">Telex</h2>
   <p class="ustate" id="u-state" role="status"></p>
   <div class="unotes" id="u-notes" hidden></div>
-  <label class="rcheck" id="u-auto-row"><input type="checkbox" id="u-auto"> <span data-i18n>Check for updates once a day</span></label>
+  <label class="rcheck" id="u-auto-row"><input type="checkbox" id="u-auto"> <span data-i18n>Check for updates when Telex starts and once a day</span></label>
   <p class="dnote" id="u-note" data-i18n>A check downloads one small file from GitHub that names the newest version. It sends nothing about you, your mail or this copy of Telex. An update installs only when you choose, and only if it carries Telex’s signature.</p>
   <p class="derr" id="u-err" role="alert"></p>
   <div class="cbar">

@@ -37,8 +37,9 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.tb.busy svg{animation:none}}
 .sep{width:1px;height:18px;background:var(--line);margin:0 4px;flex:none}
-.search{margin-left:auto;display:flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--muted);flex:0 1 240px;min-width:140px}
-.search:focus-within{border-color:var(--accent)}
+.search{margin-left:auto;display:flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--muted);flex:0 1 280px;min-width:140px;transition:flex-basis .15s}
+.search:focus-within{border-color:var(--accent);flex-basis:400px}
+.search.active{flex-basis:340px}
 .search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--fg);font:inherit;font-size:12px}
 .search kbd{flex:none}
 .scope{display:none;flex:none;height:18px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--muted);font:500 10.5px var(--font-ui);white-space:nowrap;cursor:pointer}
@@ -47,6 +48,25 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .search:focus-within .scope,.search.active .scope{display:inline-flex;align-items:center}
 .search:focus-within kbd,.search.active kbd{display:none}
 .search svg{width:13px;height:13px}
+/* Under the search box: recent searches, people and operators, and the keys */
+.qpop{position:fixed;z-index:25;max-height:min(60vh,420px);overflow:auto;padding:4px 0 0;border:1px solid var(--field);border-radius:5px;background:var(--surface);color:var(--fg);box-shadow:0 8px 24px var(--shadow);font-size:12.5px}
+.qpop[hidden]{display:none}
+.qpop ul{list-style:none;margin:0;padding:0 4px 4px}
+.qpop li{display:flex;align-items:center;gap:8px;min-height:26px;padding:0 8px;border-radius:3px;cursor:pointer}
+.qpop li:hover{background:var(--hover)}
+.qpop li[aria-selected="true"]{background:var(--sel)}
+.qpop li svg{width:13px;height:13px;color:var(--muted)}
+.qpop .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qpop .em{margin-left:auto;padding-left:10px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11.5px;color:var(--muted)}
+.qpop code{font:12px var(--font-data)}
+.qhead{display:flex;align-items:center;justify-content:space-between;padding:2px 12px 4px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.qhead .linkbtn{font:500 11.5px var(--font-ui);letter-spacing:0;text-transform:none;color:var(--accent);text-decoration:none}
+.qops{display:flex;flex-wrap:wrap;align-items:center;gap:4px;padding:6px 12px 8px;border-top:1px solid var(--line-soft);font-size:11.5px;color:var(--muted)}
+.qops span{margin-right:2px}
+.qops button{height:20px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:11.5px var(--font-data);cursor:pointer}
+.qops button:hover{border-color:var(--accent)}
+.qfoot{display:flex;flex-wrap:wrap;gap:4px 14px;padding:5px 12px 6px;border-top:1px solid var(--line-soft);background:var(--panel);font-size:11px;color:var(--muted)}
+@media (forced-colors: active){ .qpop{border-color:CanvasText} .qpop li[aria-selected="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText} }
 #folder-select{display:none;height:24px;max-width:150px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:12px;flex:none}
 
 /* Panes */
@@ -123,12 +143,18 @@ th button{display:flex;align-items:center;gap:4px;width:100%;height:21px;padding
 th button:hover{color:var(--fg)}
 th[aria-sort] button{color:var(--fg)}
 th .arr{font-size:9px;color:var(--accent)}
-th.c-ic{width:48px}
+/* Widths until app.js fits them to the list (fitColumns), which sets each one on its heading. */
+th.c-ic{width:50px}
 th.c-from{width:27%}
 th.c-date{width:96px}
 th.c-size{width:64px}
 th.c-size button{justify-content:flex-end}
 th.c-where{width:132px}
+/* The edge between two headings: drag to change the width, double-click to fit the names. */
+.grip{position:absolute;top:0;bottom:0;left:-4px;z-index:2;width:8px;cursor:col-resize;touch-action:none;outline:0}
+.grip:hover,.grip.drag,.grip:focus-visible{background:linear-gradient(90deg,transparent 3px,var(--accent) 3px 5px,transparent 5px)}
+.win.resizing,.win.resizing *{cursor:col-resize!important}
+.nosize th.c-size,.nosize td.c-size{display:none}
 th .th-lbl{display:block;padding:0 6px;font:500 11.5px/21px var(--font-ui);color:var(--muted);white-space:nowrap}
 th.c-where,td.c-where{display:none}
 .allmail th.c-where,.allmail td.c-where{display:table-cell}
@@ -142,19 +168,31 @@ tbody tr.sel td,tbody tr.picked td{background:var(--sel)}
 .list:focus tbody tr.sel td{background:var(--accent);color:var(--accent-fg)}
 /* Several picked: each has the selection color, and a bar at its start marks it even in focus. */
 tbody tr.picked td.c-ic{box-shadow:inset 3px 0 var(--accent)}
+td.c-ic{padding:0 0 0 4px}
 .list:focus tbody tr.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg)}
 .list:focus tbody tr.sel td.c-date,.list:focus tbody tr.sel td.c-size,.list:focus tbody tr.sel .flag{color:inherit}
 td.c-date,td.c-size{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
 td.c-size{text-align:right}
-.ic{display:flex;align-items:center;gap:4px}
-.ic .dot,.ic .sp{width:7px;height:7px;border-radius:50%;flex:none}
+/* The status cell: the unread dot and the flag are switches (a click marks read or unread, flags
+   or unflags); under the pointer, a read message shows a ring and an unflagged one a quiet flag. */
+.ic{display:flex;align-items:center}
+.ic .mk{display:inline-grid;place-items:center;flex:none;width:15px;height:calc(var(--row) - 1px);cursor:pointer}
+.ic .dot{width:7px;height:7px;border-radius:50%}
+.ic .sp{flex:none;width:11px;height:7px;margin-left:2px}
 tr.unread .ic .dot{background:var(--accent)}
 .list:focus tr.sel.unread .ic .dot{background:var(--accent-fg)}
-.ic .sp{width:11px;border-radius:0}
+tbody tr:not(.unread) .ic .rd:hover .dot{box-shadow:inset 0 0 0 1.5px currentColor}
 .ic svg{width:11px;height:11px}
+.ic .clip{margin-left:2px}
 .ic .flag{color:var(--flag)}
+.ic .off{visibility:hidden;color:var(--muted)}
+tbody tr:hover .ic .off{visibility:visible}
+.ic .fl:hover .off{color:var(--flag)}
 .ic .clip{color:var(--muted)}
-.list:focus tr.sel .ic .clip{color:inherit}
+.list:focus tr.sel .ic .clip,.list:focus tr.sel .ic .off{color:inherit}
+/* What the quick filter found, marked in From and Subject */
+tbody mark{background:var(--warn-bg);color:var(--warn-fg);border-radius:2px}
+.list:focus tbody tr.sel mark{background:none;color:inherit;text-decoration:underline 1.5px;text-underline-offset:2px}
 tbody tr.pad td{height:auto;padding:0;border:0}
 tbody tr.pad:hover td,tbody tr.ph:hover td{background:none}
 tr.empty td{height:auto;padding:22px 12px;color:var(--muted);font-family:var(--font-ui);white-space:normal;text-align:center}
@@ -397,6 +435,7 @@ button.ph-who:hover .pn{text-decoration:underline}
 .sopts{display:flex;flex-direction:column;gap:2px;margin-bottom:12px}
 .sopt{display:flex;align-items:center;gap:8px;min-height:26px;font-size:12.5px;cursor:pointer}
 .sopt input{flex:none;margin:0}
+.sopt .sinline{min-width:0;height:24px}
 /* Segmented choices (rows, text size): real radio buttons, drawn as one bar */
 .segs{display:inline-flex;flex-wrap:wrap;max-width:100%;border:1px solid var(--field);border-radius:4px;overflow:hidden}
 .seg2{position:relative}
@@ -550,8 +589,13 @@ button.ph-who:hover .pn{text-decoration:underline}
 #st-folder .linkbtn{color:var(--fg)}
 #st-folder .linkbtn[disabled]{opacity:.6;cursor:default}
 #st-msg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+/* The two sides share what the keys leave, so the keys sit in the middle. The right side never
+   shrinks below what it holds; a message too long for the left makes the keys give way (say). */
+.st-side{display:flex;align-items:center;gap:14px;flex:1 1 0;min-width:0}
+.st-right{justify-content:flex-end;min-width:max-content}
+.status.saying .hint{display:none}
 #st-check{font-variant-numeric:tabular-nums}
-.hint{display:flex;align-items:center;gap:8px}
+.hint{display:flex;align-items:center;gap:10px;flex:none}
 .chip{font:500 10px/1 var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--chip-fg);background:var(--chip-bg);padding:4px 6px;border-radius:3px;white-space:nowrap}
 button.chip{border:0;cursor:pointer}
 button.chip:hover{background:var(--sel)}
@@ -594,19 +638,21 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
 .win.viewer .right{grid-template-rows:minmax(0,1fr)}
 .win.viewer #b-get,.win.viewer #b-new,.win.viewer #b-rules,.win.viewer #b-density,.win.viewer #b-settings,
 .win.viewer .search,.win.viewer #folder-select,.win.viewer .toolbar .sep{display:none}
-.win.viewer .status>:not(#st-msg){display:none}
+.win.viewer .hint,.win.viewer .st-right,.win.viewer #st-folder{display:none}
 .win.viewer .tb .lbl{display:inline}
 /* Right-click menus */
 .cmenu{position:fixed;z-index:30;min-width:190px;margin:0;padding:4px 0;list-style:none;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg);box-shadow:0 8px 24px var(--shadow);font-size:12.5px}
 .cmenu[hidden]{display:none}
-.cmenu li[role="menuitem"]{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:26px;padding:0 12px;cursor:pointer;outline:0}
-.cmenu li[role="menuitem"]:hover,.cmenu li[role="menuitem"]:focus{background:var(--sel)}
+.cmenu li[data-i]{display:flex;align-items:center;justify-content:space-between;gap:18px;min-height:26px;padding:0 12px;cursor:pointer;outline:0}
+.cmenu li[data-i]:hover,.cmenu li[data-i]:focus{background:var(--sel)}
 .cmenu li[aria-disabled="true"]{color:var(--faint);cursor:default}
 .cmenu li[aria-disabled="true"]:hover{background:none}
 .cmenu .msep{height:1px;margin:4px 0;background:var(--line-soft)}
+.cmenu .tick{display:inline-block;width:18px;font-style:normal;font-weight:700;color:var(--accent)}
+.cmenu kbd{flex:none}
 @media (forced-colors: active){
   .cmenu{border-color:CanvasText}
-  .cmenu li[role="menuitem"]:focus,.cmenu li[role="menuitem"]:hover{forced-color-adjust:none;background:Highlight;color:HighlightText}
+  .cmenu li[data-i]:focus,.cmenu li[data-i]:hover{forced-color-adjust:none;background:Highlight;color:HighlightText}
   .adot.pc{forced-color-adjust:none}
 }
 /* Keys and tips: the "?" in the status bar, and what it opens above it */
@@ -626,7 +672,8 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
 .htips li::before{content:"";position:absolute;left:1px;top:.6em;width:5px;height:5px;border-radius:50%;background:var(--accent)}
 @media (forced-colors: active){ .helppop{border-color:CanvasText} }
 
-@media (max-width: 1080px){ .tb .lbl{display:none} .tb{padding:0 6px} .hint .more{display:none} }
+@media (max-width: 1360px){ .hint .more{display:none} }
+@media (max-width: 1080px){ .tb .lbl{display:none} .tb{padding:0 6px} }
 @media (max-width: 760px){
   .main{grid-template-columns:minmax(0,1fr)}
   .tree,.split-v{display:none}
@@ -634,8 +681,4 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
   .hint{display:none}
   .search{min-width:110px;flex:1 1 120px}
   .search kbd{display:none}
-  th.c-size,td.c-size{display:none}
-  th.c-from{width:32%}
-  th.c-date{width:88px}
-  th.c-ic{width:40px}
 }

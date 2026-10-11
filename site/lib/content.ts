@@ -7,7 +7,10 @@
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.6.0';
+export const NEXT = '0.7.1';
+
+/** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
+export const nextTeaser = 'Space for the next unread, a list that fits, search that suggests.';
 
 /** The six points on the home page. */
 export const features = [
@@ -17,7 +20,7 @@ export const features = [
   },
   {
     title: 'One key per action',
-    text: 'Reply, forward, flag, delete, move, undo, filter, follow a conversation: each is a single key, and works on one message or fifty. The mouse is optional.',
+    text: 'Reply, forward, flag, delete, move, undo, search, follow a conversation, read on to the next unread: each is a single key, and works on one message or fifty. The mouse is optional.',
   },
   {
     title: 'Your mail, on your disk',
@@ -56,7 +59,22 @@ export const featureRows: FeatureRow[] = [
       'Unread in bold, flags and attachments at a glance',
       'Dates and sizes in mono, so columns line up',
       'Resizable panes, and a Comfortable setting for more room',
-      { text: 'Double-click or Enter opens a message in a window of its own, to read side by side', since: NEXT },
+      { text: 'Double-click or Enter opens a message in a window of its own, to read side by side', since: '0.6.0' },
+      { text: 'Columns fit the window, so a date is never cut; drag From wider, double-click to fit the names, right-click the headings for full dates', since: NEXT },
+      { text: 'Click the dot to mark a message read or unread, the flag to flag it; right-click a message for everything else', since: NEXT },
+    ],
+  },
+  {
+    id: 'read',
+    screen: 'menu',
+    title: 'Read on your terms',
+    text: 'Space reads on: it pages down the message, then opens the next unread one, and after the last it takes you to the next folder with new mail. Mail counts as read when you say so, and everything you can do with a message is one right-click away.',
+    since: NEXT,
+    points: [
+      'Settings › Reading: read at once, after a moment you choose, only when opened in its own window, or only when you mark it',
+      'Click the dot at the start of a row for read or unread, the flag next to it to flag; the envelope above a message does the same',
+      'Right-click a message (or Shift+F10) for reply, move, flag, read, the conversation and a rule, each with its key',
+      'Shift+Space pages back, then goes to the previous unread',
     ],
   },
   {
@@ -70,7 +88,7 @@ export const featureRows: FeatureRow[] = [
       'G goes to a folder the same way; folders you used last come first',
       'Shift+U marks a whole folder read',
       'The server gets one command per change, not one per message',
-      { text: 'Or drag them onto a folder: it fills up before it takes them, so nothing moves by accident', since: NEXT },
+      { text: 'Or drag them onto a folder: it fills up before it takes them, so nothing moves by accident', since: '0.6.0' },
     ],
   },
   {
@@ -90,7 +108,7 @@ export const featureRows: FeatureRow[] = [
     screen: 'local',
     title: 'Mail that lives on your PC',
     text: 'Folders on this PC keep mail only on your disk, off the server and out of its quota: drag old mail there, press M, or let a rule file it. Bring in mail from Thunderbird or The Bat! as mbox or .eml, and save any folder as mbox.',
-    since: NEXT,
+    since: '0.6.0',
     points: [
       'Their own group under your accounts, with Archive and Trash; make, rename and remove your own folders right in the tree',
       'Moving mail there removes it from the server; moving it back uploads it, read state and flag included',
@@ -104,7 +122,7 @@ export const featureRows: FeatureRow[] = [
     screen: 'backups',
     title: 'Backups you can count on',
     text: 'Mail on your PC deserves a copy elsewhere. Back up the whole mail base in one file while you work, by hand or every day or week, to a folder you choose: another disk, a USB stick, OneDrive.',
-    since: NEXT,
+    since: '0.6.0',
     points: [
       'One consistent file with all mail, folders, rules and identities; never passwords',
       'Keeps the newest 3 to 20 backups and touches no other file',
@@ -196,7 +214,7 @@ export const featureRows: FeatureRow[] = [
   },
   {
     id: 'search',
-    screen: 'filter',
+    screen: 'suggest',
     title: 'Search that works offline',
     text: 'Press / and type. Senders and subjects match as you type; the text of every message matches through full-text search in the local mail base. Tab looks in all your mail at once.',
     points: [
@@ -207,6 +225,8 @@ export const featureRows: FeatureRow[] = [
         since: '0.5.0',
       },
       'Esc clears the filter and puts you back in the list',
+      { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: NEXT },
+      { text: 'What matched is marked in the list', since: NEXT },
     ],
   },
   {
@@ -229,7 +249,7 @@ export const featureRows: FeatureRow[] = [
     text: 'A quiet bar in the status bar shows how full the open account is on the server. Settings › Usage shows each account the way a phone shows its storage: what takes the space, and how mail comes and goes.',
     points: [
       'The server’s storage, when it reports a quota, with a warning before it fills up',
-      { text: 'The status bar’s storage bar fills in the account’s own color and says how much room is left', since: NEXT },
+      { text: 'The status bar’s storage bar fills in the account’s own color and says how much room is left', since: '0.6.0' },
       'This PC by kind of folder: Inbox, Sent, your folders, Spam and Trash',
       'Mail received, sent and caught as spam, day by day for 30 days',
       'Who sends the most, and the largest messages, one click away',
@@ -255,8 +275,11 @@ export const featureRows: FeatureRow[] = [
     text: 'Eight themes, from plain light to a green phosphor screen, each measured against WCAG 2.2. The interface speaks English and Polish. Settings save as you change them, and travel to another PC in one file.',
     points: [
       'Every theme meets AA contrast; the two high-contrast ones meet AAA',
+      { text: 'Updates checked when Telex starts, once a day, or only when you ask; never before you say yes', since: NEXT },
       'English or Polish, as in Windows or as you pick, down to the error messages',
       'Accounts, identities and servers in the same window',
+      { text: 'Put your accounts in the order you like, and keep any folder in view', since: NEXT },
+      { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: NEXT },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
       'Export settings, rules, identities and servers to a file, never passwords',
       'Import shows what would change, part by part, before anything does',
@@ -288,10 +311,11 @@ export type Shortcut = {
 
 export const shortcuts: Shortcut[] = [
   { id: 'move', group: 'Move', keys: [['↑'], ['↓']], action: 'Previous / next message', match: [{ key: 'ArrowUp', shift: false }, { key: 'ArrowDown', shift: false }], home: true },
+  { id: 'space', group: 'Move', keys: [['Space']], action: 'Read on: page down, then the next unread message (Shift: back)', match: [{ key: ' ' }], since: NEXT, home: true },
   { id: 'ends', group: 'Move', keys: [['Home'], ['End']], action: 'First / last message', match: [{ key: 'Home', shift: false }, { key: 'End', shift: false }] },
   { id: 'thread', group: 'Move', keys: [['T']], action: 'The message’s conversation (T or Esc goes back)', match: [{ key: 't' }], since: '0.5.0', home: true },
   { id: 'goto', group: 'Move', keys: [['G']], action: 'Go to a folder: type part of its name', match: [{ key: 'g' }], since: '0.5.0', home: true },
-  { id: 'window', group: 'Move', keys: [['Enter']], action: 'The message in a window of its own (or double-click it); Esc closes it', match: [{ key: 'Enter' }], since: NEXT },
+  { id: 'window', group: 'Move', keys: [['Enter']], action: 'The message in a window of its own (or double-click it); Esc closes it', match: [{ key: 'Enter' }], since: '0.6.0' },
   { id: 'open', group: 'Move', keys: [['Enter']], action: 'Open the message’s folder (in all-mail results and conversations)', match: [{ key: 'Enter' }], since: '0.5.0' },
   { id: 'select', group: 'Select', keys: [['Shift', '↑'], ['↓']], action: 'Select more (or fewer) messages', match: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }], since: '0.5.0', home: true },
   { id: 'selectends', group: 'Select', keys: [['Shift', 'Home'], ['End']], action: 'Select to the top / bottom', match: [{ key: 'Home', shift: true }, { key: 'End', shift: true }], since: '0.5.0' },
@@ -304,19 +328,20 @@ export const shortcuts: Shortcut[] = [
   { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }], home: true },
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
   { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }], home: true },
-  { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread', match: [{ key: 'u' }] },
+  { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread (or click the dot in the row)', match: [{ key: 'u' }] },
   { id: 'folderread', group: 'Organize', keys: [['Shift', 'U']], action: 'Mark everything in the folder read', match: [{ key: 'U', shift: true }], since: '0.5.0' },
   { id: 'delete', group: 'Organize', keys: [['Del']], action: 'Move to Trash (in Trash: twice deletes for good)', match: [{ key: 'Delete' }], home: true },
   { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: '0.5.0', home: true },
   { id: 'undo', group: 'Organize', keys: [['Z']], action: 'Undo the last delete or move · take back what you just sent', match: [{ key: 'z' }], home: true },
-  { id: 'filter', group: 'Find', keys: [['/']], action: 'Quick filter, with from: is:unread has:file …', match: [{ key: '/' }], home: true },
+  { id: 'filter', group: 'Find', keys: [['/']], action: 'Search, with from: is:unread has:file …', match: [{ key: '/' }], home: true },
   { id: 'scope', group: 'Find', keys: [['Tab']], action: 'In the filter: this folder / all mail', match: [{ key: 'Tab', shift: false }] },
   { id: 'view', group: 'Find', keys: [['H']], action: 'HTML / plain text view', match: [{ key: 'h' }] },
   { id: 'esc', group: 'Find', keys: [['Esc']], action: 'Clear the filter, the selection or the conversation · save draft and close', match: [{ key: 'Escape' }], home: true },
   { id: 'settings', group: 'View', keys: [['Ctrl', ',']], action: 'Settings', match: [{ key: ',', ctrl: true }] },
   { id: 'larger', group: 'View', keys: [['Ctrl', '='], ['−']], action: 'Larger / smaller text', match: [{ key: '=', ctrl: true }, { key: '+', ctrl: true }, { key: '-', ctrl: true }] },
   { id: 'normal', group: 'View', keys: [['Ctrl', '0']], action: 'Normal text size', match: [{ key: '0', ctrl: true }] },
-  { id: 'help', group: 'View', keys: [['?'], ['F1']], action: 'Every key, and the tips that aren’t obvious (or hover the ? in the status bar)', match: [{ key: '?' }, { key: 'F1' }], since: NEXT },
+  { id: 'menu', group: 'View', keys: [['Shift', 'F10']], action: 'The menu of the selected message (or right-click it)', match: [{ key: 'F10', shift: true }], since: NEXT },
+  { id: 'help', group: 'View', keys: [['?'], ['F1']], action: 'Every key, and the tips that aren’t obvious (or hover the ? in the status bar)', match: [{ key: '?' }, { key: 'F1' }], since: '0.6.0' },
 ];
 
 export type Tip = { title: string; text: string; since?: string };
@@ -324,7 +349,17 @@ export type Tip = { title: string; text: string; since?: string };
 export const keyboardTips: Tip[] = [
   {
     title: 'Arrow past without reading',
-    text: 'A message counts as read after it has been on screen for a moment, so moving through the list with ↑ ↓ doesn’t mark everything you pass.',
+    text: 'A message counts as read after it has been on screen for a moment, so moving through the list with ↑ ↓ doesn’t mark everything you pass. Settings › Reading says how long, or leaves it to you.',
+  },
+  {
+    title: 'Read without the mouse',
+    text: 'Space pages down the message and, at its end, opens the next unread one. After the last, it names the next folder with new mail; Space again goes there.',
+    since: NEXT,
+  },
+  {
+    title: 'Unread until you say so',
+    text: 'Settings › Reading can leave mail unread until you mark it: U, the dot at the start of a row, or the envelope above the message.',
+    since: NEXT,
   },
   {
     title: 'Clear a pile in four keys',
@@ -343,15 +378,15 @@ export const keyboardTips: Tip[] = [
   {
     title: 'Drag without accidents',
     text: 'Drag messages onto a folder and rest there a moment: the folder fills up, then takes them. Let go early, or press Esc, and nothing moves; Z undoes the rest.',
-    since: NEXT,
+    since: '0.6.0',
   },
   {
     title: 'Never lose a draft',
     text: 'Esc in compose saves a draft and closes it. E opens it again, and also reopens a message that is still waiting in the Outbox.',
   },
   {
-    title: 'Filter in two keys',
-    text: 'Press / and type a few letters; the list narrows as you type. Add from:anna or has:file to be exact, Tab for all mail, Esc to go back.',
+    title: 'Search in two keys',
+    text: 'Press / and type a few letters; the list narrows as you type and marks what matched. Pick a person or an operator from under the box, Enter for the results, Tab for all mail, Esc to go back.',
   },
 ];
 
@@ -371,6 +406,13 @@ export const screens: Screen[] = [
     label: 'Reply',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'R opens the reply right in the reading pane: plain text in a mono face, quoted and signed, from the identity you pick.',
+  },
+  {
+    id: 'menu',
+    label: 'Message menu',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Right-click a message for everything you can do with it, each with its key. The dot and the flag at the start of a row switch read and flag with a click.',
+    since: NEXT,
   },
   {
     id: 'thread',
@@ -398,14 +440,14 @@ export const screens: Screen[] = [
     label: 'On this PC',
     title: 'Clients 2025 · On this PC – Telex',
     caption: 'Folders on this PC keep mail off the server for good. Right-click one to rename it, save it as mbox or bring mail in from files.',
-    since: NEXT,
+    since: '0.6.0',
   },
   {
     id: 'backups',
     label: 'Backups',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Settings › Backups: the mail base in one file, by hand or every day or week, and a restore that keeps what was there.',
-    since: NEXT,
+    since: '0.6.0',
   },
   {
     id: 'writing',
@@ -414,16 +456,23 @@ export const screens: Screen[] = [
     caption: 'A message in HTML: bold, lists, quotes and links from a small bar or the usual keys. It goes out with a plain-text copy.',
   },
   {
-    id: 'filter',
-    label: 'Quick filter',
+    id: 'suggest',
+    label: 'Search',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Press / and type. Senders and subjects match as you type, message text through full-text search: “krakow” finds “Kraków”.',
+    caption: 'Search keeps your recent searches and offers the operators; as you type, it suggests people from your own mail. Enter goes to the results.',
+    since: NEXT,
+  },
+  {
+    id: 'filter',
+    label: 'Found',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Senders and subjects match as you type, message text through full-text search, and what matched is marked: “krakow” finds “Kraków”.',
   },
   {
     id: 'operators',
     label: 'Operators',
     title: 'All mail · sam@lindenstudio.com – Telex',
-    caption: 'Operators in the quick filter, across all mail: every message with a file since September, with the folder it is in.',
+    caption: 'Operators in search, across all mail: every message with a file since September, with the folder it is in.',
     since: '0.5.0',
   },
   {
@@ -431,6 +480,13 @@ export const screens: Screen[] = [
     label: 'HTML mail',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'HTML mail in a sandbox. Remote images stay off until you load them, so a sender can’t tell when you opened the message.',
+  },
+  {
+    id: 'reading',
+    label: 'Reading',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Settings › Reading: mail counts as read at once, after the moment you choose, only in its own window, or only when you mark it.',
+    since: NEXT,
   },
   {
     id: 'rules',
@@ -502,6 +558,16 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
     text: 'Arrow through the Inbox. A message counts as read after a moment on screen, not as you pass it.',
   },
   {
+    keys: ['Space'],
+    title: 'Read on with Space',
+    text: 'Space pages down a message, then opens the next unread. After the Inbox’s last one, Space again goes to the next folder with new mail.',
+  },
+  {
+    keys: ['Right-click'],
+    title: 'Everything on one menu',
+    text: 'Right-click a message for reply, move, flag, read or unread and more. Right-click the column headings for full dates; drag the edge before Subject.',
+  },
+  {
     keys: ['T'],
     title: 'Follow a conversation',
     text: 'On Daniel Price’s “Re: Online shop estimate”: his enquiry filed in Clients, your estimate in Sent, his reply. Esc goes back.',
@@ -523,8 +589,8 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
   },
   {
     keys: ['/'],
-    title: 'Filter with operators',
-    text: 'Type krakow, or has:file after:2026-09. Tab looks in all mail at once; Esc goes back.',
+    title: 'Search with suggestions',
+    text: 'Type “ko” and pick Anna from the list, or has:file after:2026-09. What matched is marked; Tab looks in all mail, Esc goes back.',
   },
   {
     keys: ['R', 'Ctrl+Enter'],
@@ -549,7 +615,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['reply', 'thread', 'select', 'local', 'attach', 'filter', 'images', 'rules', 'settings', 'backups', 'polish'].map(
+export const homeScreens = ['menu', 'reply', 'thread', 'select', 'suggest', 'local', 'attach', 'images', 'rules', 'reading', 'settings', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -568,8 +634,33 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Space for the next unread, a list that fits, search that suggests',
+    date: '2026-10-11',
+    summary: 'Read on with one key, decide when mail counts as read, find things faster, and put the window in your order.',
+    points: [
+      'Space reads on: it pages down the message, then opens the next unread one, and after the last offers the next folder with new mail. Shift+Space goes back.',
+      'Settings › Reading: mail counts as read at once, after a moment you choose (up to 10 seconds), only in its own window, or only when you mark it.',
+      'Click the dot at the start of a row to mark it read or unread, the flag next to it to flag; the envelope above a message does the same.',
+      'Right-click a message (or Shift+F10) for everything you can do with it, each with its key.',
+      'The list’s columns fit the window, so a date is never cut. Drag the edge before Subject to set From’s width, double-click it to fit the names; right-click the headings for full dates or no Size column.',
+      'Search suggests as you type: people from your own mail, operators, your recent searches. Enter goes to the results, and what matched is marked.',
+      'Put your accounts in your order (right-click › Move up, Alt+↑ ↓, or Settings › Accounts), and keep any folder in view outside “more”.',
+      'Updates can be checked each time Telex starts, as well as once a day; still never before you say yes.',
+      'The status bar keeps its keys in the middle, and the list scrolls with less work.',
+    ],
+    highlights: [
+      { title: 'Next unread', keys: 'Space', text: 'Read on with one key: down the message, then to the next unread, folder after folder.' },
+      { title: 'Read when you say', text: 'At once, after the moment you pick, only in its own window, or only when you mark it.' },
+      { title: 'One right-click', text: 'Everything you can do with a message, each with its key; the dot and the flag switch with a click.' },
+      { title: 'Columns that fit', text: 'Dates never cut, From as wide as you drag it, full dates on request.' },
+      { title: 'Search that suggests', keys: '/', text: 'People, operators and recent searches under the box; what matched is marked.' },
+      { title: 'Your order', keys: 'Alt+↑', text: 'Accounts in the order you like, and the folders you use kept in view.' },
+    ],
+  },
+  {
+    version: '0.6.0',
     title: 'Folders on this PC, backups and drag and drop',
-    date: '',
+    date: '2026-10-11',
     summary: 'Keep mail for good on your own disk, back it all up in one file, and move mail with the mouse as safely as with M.',
     points: [
       'Folders on this PC: their own group under the accounts, with Archive and Trash. Mail moved there leaves the server and its quota; moved back, it is uploaded with its flags.',
@@ -721,7 +812,7 @@ export const roadmap: Step[] = [
   },
   {
     title: 'Updates',
-    text: 'Telex checks GitHub for a new version once a day if you allow it, or when you click its version number, and installs it with one click and a restart. Updates must carry Telex’s signature.',
+    text: 'Telex checks GitHub for a new version when it starts and once a day, if you allow it, or when you click its version number, and installs it with one click and a restart. Updates must carry Telex’s signature.',
     status: 'done',
     notYet: 'A code-signed installer, so Windows SmartScreen stops warning.',
   },
@@ -748,8 +839,15 @@ export const roadmap: Step[] = [
     title: 'Archive and backup',
     text: 'Folders kept only on your PC, backups by hand or every day or week that you can restore, mbox export and .eml and mbox import, drag and drop, a message in its own window.',
     status: 'done',
-    since: NEXT,
+    since: '0.6.0',
     notYet: 'POP3 accounts, and moving the mail base to another folder or disk.',
+  },
+  {
+    title: 'Reading and finding',
+    text: 'Space for the next unread, read rules of your own, a right-click menu, columns that fit the window, search with suggestions, accounts in your order.',
+    status: 'done',
+    since: NEXT,
+    notYet: 'Saved searches as folders of their own.',
   },
   { title: 'Gmail and Outlook.com', text: 'OAuth2 sign-in, since both refuse plain passwords over IMAP.', status: 'next' },
 ];
@@ -799,6 +897,10 @@ export const faqGroups: { title: string; items: Question[] }[] = [
         a: 'Yes. Reading, flagging, moving and deleting happen locally at once and then on the server. If you are offline, they wait in a queue and go out at the next sync.',
       },
       {
+        q: 'Can I keep mail unread until I decide?',
+        a: 'From version 0.7, yes. Settings › Reading says when a message counts as read: as soon as you select it, after it has been on screen for a moment you choose, only when you open it in its own window, or only when you mark it yourself, with U, the dot at the start of its row, or the envelope above it. Space goes to the next unread message either way.',
+      },
+      {
         q: 'Can it read HTML newsletters?',
         a: 'Yes. HTML mail is shown in a sandbox where no script can run. Remote images stay blocked until you load them for that message, or for everything from a sender you trust (never automatically in Spam). H switches to plain text. In a dark theme the message takes the theme’s colors, or stays white if you prefer.',
       },
@@ -834,7 +936,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Can I search without an internet connection?',
-        a: 'Yes. Every downloaded message is stored in full and indexed on your PC, so the quick filter and full-text search work offline, and so does opening attachments.',
+        a: 'Yes. Every downloaded message is stored in full and indexed on your PC, so search, full-text included, works offline, and so does opening attachments.',
       },
     ],
   },
@@ -856,7 +958,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'How do I update Telex?',
-        a: 'Click the version number at the right end of the status bar. Telex asks GitHub for the newest version and, with your click, installs it and restarts. On first start it also asks whether to check once a day by itself. Installing a newer version over the old one works too; your mail and settings stay.',
+        a: 'Click the version number at the right end of the status bar. Telex asks GitHub for the newest version and, with your click, installs it and restarts. On first start it also asks whether to check by itself each time it starts (or, in Settings › Updates, once a day). Installing a newer version over the old one works too; your mail and settings stay.',
       },
       {
         q: 'Is Telex available in Polish?',
@@ -887,6 +989,6 @@ export const ticker = [
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
   'NEXT: GMAIL AND OUTLOOK.COM SIGN-IN',
   'EIGHT THEMES, ALL WCAG 2.2. ENGLISH AND POLISH.',
-  'TRY: R = REPLY, T = CONVERSATION, M = MOVE, / = FILTER',
+  'TRY: SPACE = NEXT UNREAD, R = REPLY, T = CONVERSATION, / = SEARCH',
   'NNNN',
 ];

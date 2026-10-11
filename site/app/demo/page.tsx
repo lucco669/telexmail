@@ -63,7 +63,7 @@ export default function DemoPage() {
           <h2 className={s.h3}>What is real</h2>
           <ul className={s.list}>
             <li>The whole interface, from the folder tree to the settings, exactly as the app has it.</li>
-            <li>Every key, the selection, the quick filter and its operators, compose in text or HTML.</li>
+            <li>Every key, the selection, search with its suggestions and operators, compose in text or HTML.</li>
             <li>All eight themes, text size, density, and the interface in English and Polish.</li>
           </ul>
         </div>

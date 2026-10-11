@@ -8,7 +8,7 @@ import s from './page.module.css';
 export const metadata = pageMetadata(pages.privacy);
 
 // Change this date whenever the text below changes.
-const UPDATED = '10 October 2026';
+const UPDATED = '11 October 2026';
 
 export default function PrivacyPage() {
   return (
@@ -72,9 +72,10 @@ export default function PrivacyPage() {
           </p>
           <h3 id="updates">Update checks</h3>
           <p>
-            Telex looks for a new version only if you allow it. From the first start it asks whether to check once a
-            day; if you say no, it never checks on its own. Clicking the version number in the status bar checks right
-            away. A check is a single request to GitHub, where Telex is published:
+            Telex looks for a new version only if you allow it. From the first start it asks whether to check when it
+            starts; yes means a check a few seconds after each start and once a day while it stays open (Settings ›
+            Updates can make it once a day only). If you say no, it never checks on its own. Clicking the version number
+            in the status bar checks right away. A check is a single request to GitHub, where Telex is published:
           </p>
           <ul>
             <li>

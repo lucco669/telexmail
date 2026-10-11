@@ -27,6 +27,21 @@ const W = 1280, H = 800, SCALE = 2;
 const scenes = {
   inbox: {},
   reply: { run: `ui.key('r'); await ui.wait(150);` },
+  // Right-click on the shop reply: the message's menu, every action with its key.
+  menu: {
+    run: `const c = [...document.querySelectorAll('#rows tr[data-id]')].find(r => r.textContent.includes('Re: Online shop estimate')).querySelector('.c-subj');
+    const r = c.getBoundingClientRect();
+    c.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, clientX:r.left + 90, clientY:r.top + r.height / 2}));
+    await ui.wait(80);`,
+  },
+  // Search after two searches: the box, empty again, offers them and the operators.
+  suggest: {
+    run: `ui.list.focus(); ui.key('/'); await ui.wait(50); await ui.type('has:file'); await ui.wait(250); ui.key('Enter'); await ui.wait(200);
+    ui.key('/'); await ui.wait(50); await ui.type('from:anna'); await ui.wait(250); ui.key('Enter'); await ui.wait(200);
+    ui.key('/'); await ui.wait(50); await ui.type(''); await ui.wait(300);`,
+  },
+  // Settings › Reading: when mail counts as read.
+  reading: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-read'); await ui.wait(150);` },
   // Shift+↓ twice in the Inbox, then M with the first letters of a folder.
   select: {
     run: `ui.key('ArrowDown', {shiftKey:true}); await ui.wait(120); ui.key('ArrowDown', {shiftKey:true}); await ui.wait(120);

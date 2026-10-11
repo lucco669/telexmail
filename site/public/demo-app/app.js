@@ -26,6 +26,7 @@ const I = {
   forward: sv('<path d="M9.5 4L13 7.5 9.5 11"/><path d="M12.5 7.5H7a4 4 0 00-4 4v1"/>'),
   trash: sv('<path d="M2.5 4.5h11M6.5 4.5V2.8h3v1.7M4 4.5l.7 9h6.6l.7-9"/>'),
   flag: sv('<path d="M3.5 14.5V2.5"/><path d="M3.5 3h9l-2 3 2 3h-9"/>'),
+  flagOff: sv('<path d="M3.5 14.5V2.5"/><path d="M3.5 3h9l-2 3 2 3h-9"/>', 'class="off"'),
   flagFill: '<svg class="flag" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M3 15V2h10l-2.2 3.5L13 9H4.5v6z"/></svg>',
   clip: sv('<path d="M10.5 5L6 9.5a1.4 1.4 0 002 2L13 6.5a2.8 2.8 0 00-4-4L4 7.5a4.2 4.2 0 006 6l3.5-3.5"/>', 'class="clip"'),
   rows: sv('<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>'),
@@ -40,6 +41,9 @@ const I = {
   spam: sv('<circle cx="8" cy="8" r="5.5"/><path d="M4.2 11.8l7.6-7.6"/>'),
   outbox: sv('<path d="M2 9h3.5l1 1.5h3l1-1.5H14"/><path d="M2 9v4.5h12V9"/><path d="M8 7.5V1.8M5.6 4.2L8 1.8l2.4 2.4"/>'),
   mail: sv('<rect x="1.5" y="3" width="13" height="10" rx="1.2"/><path d="M2 4l6 5 6-5"/>'),
+  mailOpen: sv('<path d="M1.5 6.8L8 2.3l6.5 4.5v6.7h-13z"/><path d="M2 7.2l6 4.3 6-4.3"/>'),
+  clock: sv('<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.6"/>'),
+  person: sv('<circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 14c.6-2.8 2.7-4.3 5.2-4.3s4.6 1.5 5.2 4.3"/>'),
   plus: sv('<path d="M8 3v10M3 8h10"/>'),
   rules: sv('<path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5z"/>'),
   sun: sv('<circle cx="8" cy="8" r="2.7"/><path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1.05 1.05M11.45 11.45l1.05 1.05M3.5 12.5l1.05-1.05M11.45 4.55l1.05-1.05"/>'),
@@ -123,6 +127,7 @@ const DOW = [N_('Sun'),N_('Mon'),N_('Tue'),N_('Wed'),N_('Thu'),N_('Fri'),N_('Sat
 const hm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
 const dmy = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
 function fmtList(d){
+  if (colPref.dates === 'full') return dmy(d) + ' ' + hm(d);
   const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate());
   const diff = Math.round((day(new Date()) - day(d)) / 864e5);
   if (diff <= 0) return hm(d);
@@ -186,9 +191,19 @@ const state = {
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
   thread:null, // {id, subject}: the list shows this message's conversation
   recent: Array.isArray(saved.recent) ? saved.recent.slice(0, 8) : [], // folders last moved to or opened with M and G
+  pinned: new Set(Array.isArray(saved.pinned) ? saved.pinned : []), // folders shown outside "more"
+  searches: Array.isArray(saved.searches) ? saved.searches.slice(0, 8) : [], // what was looked for last
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
 };
+// The list's columns: From and Folder as wide as they were dragged (px; null fits them to the
+// list), the Size column, and dates short (06:12, Wed 06:12, 10.10.2026) or full.
+const colPref = {from:null, where:null, size:true, dates:'short'};
+if (saved.cols && typeof saved.cols === 'object'){
+  for (const k of ['from', 'where']) if (Number(saved.cols[k]) > 0) colPref[k] = Math.round(saved.cols[k]);
+  if (saved.cols.size === false) colPref.size = false;
+  if (saved.cols.dates === 'full') colPref.dates = 'full';
+}
 const sdlg = $('set-dlg'); // the settings window, which also holds the accounts
 const win = $('win'), rowsEl = $('rows'), listEl = $('list'), previewEl = $('preview'), treeEl = $('tree'), qEl = $('q');
 if (saved.treeW) win.style.setProperty('--tree-w', saved.treeW + 'px');
@@ -201,6 +216,9 @@ const persist = () => store.set({
   scope: state.scope === 'all' ? 'all' : undefined,
   more: Object.keys(state.more).length ? state.more : undefined,
   recent: state.recent.length ? state.recent : undefined,
+  pinned: state.pinned.size ? [...state.pinned] : undefined,
+  searches: state.searches.length ? state.searches : undefined,
+  cols: colPref.from || colPref.where || !colPref.size || colPref.dates !== 'short' ? {...colPref} : undefined,
 });
 
 /* ---------- settings ---------- */
@@ -214,12 +232,13 @@ const LANG_NAMES = {en:'English', pl:'Polski'}; // each in itself, never transla
 const TEXT_SIZES = [90, 100, 110, 125, 150, 175, 200];
 const CHECK_EVERY = [5, 10, 15, 30, 60, 0];
 const UNDO_SEND = [0, 5, 10, 20, 30];
+const READ_DELAYS = [600, 1000, 2000, 3000, 5000, 10000]; // ms on screen before a message counts as read
 const darkMode = matchMedia('(prefers-color-scheme: dark)'), forcedColors = matchMedia('(forced-colors: active)');
 const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light') : id;
 // Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
-  settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', check_every:10,
+  settings:{theme:'system', language:'auto', density:'compact', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
     spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
@@ -316,10 +335,15 @@ function paintDensity(){
 
 /* ---------- status ---------- */
 let stTimer, lastCheck = null, lastTitle = '';
+// What just happened, on the left of the status bar. A message too long for its side takes the
+// keys' place in the middle until it goes.
 function say(text, ms = 4500){
-  $('st-msg').textContent = text;
+  const el = $('st-msg'), bar = el.closest('.status');
+  el.textContent = text; el.title = text;
+  bar.classList.remove('saying');
+  if (text && el.scrollWidth > el.clientWidth) bar.classList.add('saying');
   clearTimeout(stTimer);
-  if (ms) stTimer = setTimeout(() => { $('st-msg').textContent = ''; }, ms);
+  if (ms) stTimer = setTimeout(() => { el.textContent = ''; el.title = ''; bar.classList.remove('saying'); }, ms);
 }
 // How many older messages the "download" button in the status bar asks for at a time.
 const OLDER_BATCH = 1000;
@@ -433,7 +457,7 @@ function renderTree(){
     const open = !state.collapsed[a.id];
     let items = '';
     if (open){
-      const shown = f => MAIN_KINDS.has(f.kind) || a.id + '/' + f.id === state.folder || (COUNT_ALL.has(f.kind) && countOf(a.id + '/' + f.id).total > 0);
+      const shown = f => MAIN_KINDS.has(f.kind) || state.pinned.has(a.id + '/' + f.id) || a.id + '/' + f.id === state.folder || (COUNT_ALL.has(f.kind) && countOf(a.id + '/' + f.id).total > 0);
       const main = a.folders.filter(shown), rest = a.folders.filter(f => !shown(f)), more = !!state.more[a.id];
       items = '<ul>' + (more ? a.folders : main).map(f => folderButton(a, f)).join('');
       if (rest.length){
@@ -464,9 +488,39 @@ treeEl.addEventListener('click', e => {
   else if (e.target.closest('[data-act="new-folder"]')) startNaming('new');
   else if (e.target.closest('[data-act="backups"]')) openSettings('backup');
   else if (f) setFolder(f.dataset.folder);
-  else if (m){ state.more[m.dataset.more] = !state.more[m.dataset.more]; if (!state.more[m.dataset.more]) delete state.more[m.dataset.more]; persist(); renderTree(); }
+  else if (m) toggleMore(m.dataset.more);
   else if (a){ state.collapsed[a.dataset.acct] = !state.collapsed[a.dataset.acct]; renderTree(); }
 });
+// All of an account's folders, or the main ones and "N more".
+function toggleMore(acct){
+  if (state.more[acct]) delete state.more[acct]; else state.more[acct] = true;
+  persist(); renderTree();
+}
+// A folder kept in view (pinned) shows with the main ones, outside "more".
+function togglePin(key){
+  if (state.pinned.has(key)) state.pinned.delete(key); else state.pinned.add(key);
+  persist(); renderTree();
+  say(state.pinned.has(key) ? t('{folder} stays in view.', {folder:folderName(key)}) : t('{folder} goes back under “more”.', {folder:folderName(key)}), 3000);
+}
+// The accounts' order in the tree (and everywhere they are listed). The folders on this PC stay last.
+async function moveAccount(id, delta){
+  try { await invoke('move_account', {id, delta}); } catch (e){ say(tr(e), 8000); return; }
+  await loadTree();
+  renderTree(); renderStatus(); drawRows();
+  if (sdlg.open && setTab === 'accts' && accountView === 'home') renderAccountList();
+}
+// What a right-click (or the menu key) on an account offers.
+function accountMenu(id){
+  const list = servers(), i = list.findIndex(a => a.id === id);
+  if (i < 0) return [];
+  return [
+    {label:t('Move up'), key:'Alt+↑', disabled:i === 0, run:() => moveAccount(id, -1)},
+    {label:t('Move down'), key:'Alt+↓', disabled:i === list.length - 1, run:() => moveAccount(id, 1)},
+    {sep:true},
+    {label:state.more[id] ? t('Show fewer folders') : t('Show all folders'), run:() => toggleMore(id)},
+    {label:t('Account settings…'), run:() => { openSettings('accts'); editAccount(id); }},
+  ];
+}
 $('folder-select').addEventListener('change', e => setFolder(e.target.value));
 
 /* ---------- folders on this PC ---------- */
@@ -559,6 +613,8 @@ function folderMenu(key){
   const local = isLocal(key), own = local && f.kind === 'custom';
   const sections = [
     local ? [{label:t('New folder…'), run:() => startNaming('new')}] : [],
+    // Inbox and Sent are always in view; the folders on this PC too.
+    !local && !MAIN_KINDS.has(f.kind) ? [{label:t('Keep in view'), checked:state.pinned.has(key), run:() => togglePin(key)}] : [],
     own ? [{label:t('Rename…'), key:'F2', run:() => startNaming(key)}, {label:t('Delete folder'), disabled:countOf(key).total > 0, run:() => deleteFolder(key)}] : [],
     [...(countOf(key).unread ? [{label:t('Mark all as read'), key:'Shift+U', run:() => markFolderRead(key)}] : []),
       ...(local && f.kind !== 'trash' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
@@ -566,21 +622,32 @@ function folderMenu(key){
   ];
   return sections.filter(s => s.length).flatMap((s, i) => i ? [{sep:true}, ...s] : s);
 }
+// The menu for a folder or an account line in the tree.
+function treeMenu(el){
+  if (el.dataset.folder) return folderMenu(el.dataset.folder);
+  if (el.dataset.acct === LOCAL) return [{label:t('New folder…'), run:() => startNaming('new')}];
+  return el.dataset.acct ? accountMenu(el.dataset.acct) : [];
+}
 treeEl.addEventListener('contextmenu', e => {
   e.preventDefault();
-  const f = e.target.closest('[data-folder]'), g = e.target.closest(`[data-acct="${LOCAL}"]`);
-  const items = f ? folderMenu(f.dataset.folder) : g ? [{label:t('New folder…'), run:() => startNaming('new')}] : [];
-  if (items.length) openMenu(e.clientX, e.clientY, items, f || g);
+  const el = e.target.closest('[data-folder], [data-acct]');
+  const items = el ? treeMenu(el) : [];
+  if (items.length) openMenu(e.clientX, e.clientY, items, el);
 });
 treeEl.addEventListener('keydown', e => {
-  const f = e.target.closest?.('[data-folder]');
-  if (!f) return;
+  const el = e.target.closest?.('[data-folder], [data-acct]');
+  if (!el) return;
   if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)){
     e.preventDefault(); e.stopPropagation();
-    const r = f.getBoundingClientRect(), items = folderMenu(f.dataset.folder);
-    if (items.length) openMenu(r.left + 24, r.bottom, items, f);
-  } else if (e.key === 'F2' && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) === 'custom'){
-    e.preventDefault(); e.stopPropagation(); startNaming(f.dataset.folder);
+    const r = el.getBoundingClientRect(), items = treeMenu(el);
+    if (items.length) openMenu(r.left + 24, r.bottom, items, el);
+  } else if (e.key === 'F2' && el.dataset.folder && isLocal(el.dataset.folder) && kindOf(el.dataset.folder) === 'custom'){
+    e.preventDefault(); e.stopPropagation(); startNaming(el.dataset.folder);
+  } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && el.dataset.acct && el.dataset.acct !== LOCAL){
+    // Alt+↑ ↓ on an account: up or down in the tree, keeping the focus on it.
+    e.preventDefault(); e.stopPropagation();
+    const id = el.dataset.acct;
+    moveAccount(id, e.key === 'ArrowUp' ? -1 : 1).then(() => treeEl.querySelector(`[data-acct="${CSS.escape(id)}"]`)?.focus());
   }
 });
 
@@ -591,15 +658,18 @@ const menuEl = document.createElement('ul');
 menuEl.className = 'cmenu'; menuEl.setAttribute('role', 'menu'); menuEl.hidden = true;
 document.body.append(menuEl);
 let menuItems = [], menuFrom = null;
+// An item with `checked` (true or false) is a choice that is on or off, with a tick when on.
 function openMenu(x, y, items, from){
   menuItems = items; menuFrom = from;
+  const ticks = items.some(it => 'checked' in it);
   menuEl.innerHTML = items.map((it, i) => it.sep ? '<li class="msep" role="separator"></li>'
-    : `<li role="menuitem" tabindex="-1" data-i="${i}"${it.disabled ? ' aria-disabled="true"' : ''}><span>${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
+    : `<li role="${'checked' in it ? 'menuitemcheckbox' : 'menuitem'}" tabindex="-1" data-i="${i}"${'checked' in it ? ` aria-checked="${!!it.checked}"` : ''}${it.disabled ? ' aria-disabled="true"' : ''}>`
+      + `<span>${ticks ? `<i class="tick" aria-hidden="true">${it.checked ? '✓' : ''}</i>` : ''}${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
   menuEl.hidden = false;
   const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
   menuEl.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + 'px';
   menuEl.style.top = Math.max(4, Math.min(y, innerHeight - h - 4)) + 'px';
-  menuEl.querySelector('[role="menuitem"]:not([aria-disabled])')?.focus();
+  menuEl.querySelector('[data-i]:not([aria-disabled])')?.focus();
 }
 function closeMenu(refocus = true){
   if (menuEl.hidden) return;
@@ -612,9 +682,9 @@ function runMenu(li){
   closeMenu(false);
   it.run();
 }
-menuEl.addEventListener('click', e => runMenu(e.target.closest('[role="menuitem"]')));
+menuEl.addEventListener('click', e => runMenu(e.target.closest('[data-i]')));
 menuEl.addEventListener('keydown', e => {
-  const all = [...menuEl.querySelectorAll('[role="menuitem"]:not([aria-disabled])')], i = all.indexOf(document.activeElement);
+  const all = [...menuEl.querySelectorAll('[data-i]:not([aria-disabled])')], i = all.indexOf(document.activeElement);
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){ all[(i + (e.key === 'ArrowDown' ? 1 : -1) + all.length) % all.length]?.focus(); }
   else if (e.key === 'Home' || e.key === 'End'){ all[e.key === 'Home' ? 0 : all.length - 1]?.focus(); }
   else if (e.key === 'Enter' || e.key === ' '){ runMenu(document.activeElement); }
@@ -691,43 +761,240 @@ function reveal(pos){
   return true;
 }
 
-function rowHtml(m, sel){
-  // In all mail, Sent and Drafts say who they went to.
-  const out = isOut(m.f), who = out ? (allMail() ? t('To: {who}', {who:nameOf(m.to)}) : nameOf(m.to)) : m.from, tip = out ? m.to : `${m.from} <${m.email}>`;
+/* ---------- columns ---------- */
+// The columns fit the list's width. The icons, the date and the size are as wide as what they
+// show in this language and font, so a date is never cut; From (and Folder, in all mail) takes
+// a share of the rest, or the width it was dragged to, and Subject what is left. A narrow list
+// lets Size go first, then gives From less. Drag the edge before Subject (or before Folder) to
+// set a width, double-click it to fit the names on screen; the header's right-click menu has the
+// rest. Kept with the window's other sizes (telex-ui).
+const COL = {ic:50, pad:12, minFrom:80, minSubj:140, minWhere:90, narrow:640};
+const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+let measureCtx = null;
+function textWidth(text, font){
+  measureCtx ??= document.createElement('canvas').getContext('2d');
+  measureCtx.font = font;
+  return measureCtx.measureText(text).width;
+}
+// The widest date and size this language can show, measured once per language and date style.
+let measured = null;
+function measure(){
+  const key = I18n.lang() + colPref.dates;
+  if (measured?.key === key) return measured;
+  const data = `11.5px ${cssVar('--font-data')}`, head = `500 11.5px ${cssVar('--font-ui')}`, arrow = 14;
+  const late = new Date(2026, 11, 28, 23, 59);
+  const dates = colPref.dates === 'full' ? [dmy(late) + ' ' + hm(late)] : [hm(late), dmy(late), ...DOW.map(d => t(d) + ' ' + hm(late))];
+  const sizes = ['1023 KB', I18n.decimal(999.9) + ' MB', I18n.decimal(99.9) + ' GB'];
+  const widest = (list, font) => Math.max(...list.map(s => textWidth(s, font)));
+  // The faces load when first used; until then the canvas measures a fallback. Measure again then.
+  if (document.fonts && !(document.fonts.check(data) && document.fonts.check(head))){
+    Promise.all([document.fonts.load(data), document.fonts.load(head)])
+      .then(() => { if (measured?.key === key){ measured = null; colsDone = ''; fitColumns(); } }).catch(() => {});
+  }
+  measured = {key,
+    date:Math.ceil(Math.max(widest(dates, data), textWidth(t('Received'), head) + arrow) + COL.pad + 2),
+    size:Math.ceil(Math.max(widest(sizes, data), textWidth(t('Size'), head) + arrow) + COL.pad + 2)};
+  return measured;
+}
+let colCount = 5, colsDone = '';
+// Set the widths for the list as it is now: its width, all mail or a folder, the choices.
+function fitColumns(){
+  const w = listEl.clientWidth;
+  if (!w) return;
+  const where = allMail(), size = colPref.size && !where && w >= COL.narrow, m = measure();
+  const fixed = COL.ic + m.date + (size ? m.size : 0);
+  let flex = Math.max(0, w - fixed);
+  let whereW = 0;
+  if (where){
+    whereW = clamp(colPref.where ?? Math.round(flex * 0.2), COL.minWhere, Math.max(COL.minWhere, Math.round(flex * 0.4)));
+    flex -= whereW;
+  }
+  const fromAuto = clamp(Math.round(flex * 0.3), 120, 280);
+  const fromW = Math.max(Math.min(COL.minFrom, Math.round(flex * 0.4)), Math.min(colPref.from ?? fromAuto, flex - COL.minSubj));
+  const widths = {ic:COL.ic, from:fromW, where:whereW, date:m.date, size:m.size};
+  const done = JSON.stringify([widths, size, where]);
+  if (done === colsDone) return;
+  colsDone = done;
+  for (const [k, px] of Object.entries(widths)){
+    const th = listEl.querySelector('th.c-' + k);
+    if (th) th.style.width = px + 'px';
+  }
+  win.classList.toggle('nosize', !size);
+  const n = 4 + (where ? 1 : 0) + (size ? 1 : 0);
+  if (n !== colCount){ colCount = n; drawRows(); }
+}
+// A double-click on an edge: From as wide as the widest name on screen (Folder: the widest folder).
+function fitToNames(which){
+  const font = `600 12.5px ${cssVar('--font-list')}`;
+  const texts = list.rows.slice(Math.max(0, visibleRange()[0] - list.start - MARGIN)).slice(0, 200)
+    .map(m => which === 'where' ? folderName(m.f) : whoOf(m));
+  const px = Math.ceil(Math.max(0, ...texts.map(s => textWidth(s, font)))) + COL.pad + (which === 'where' ? 14 : 4);
+  colPref[which] = Math.max(which === 'where' ? COL.minWhere : COL.minFrom, px);
+  colsDone = ''; fitColumns(); persist();
+}
+function resetColumns(){
+  colPref.from = colPref.where = null;
+  colsDone = ''; fitColumns(); persist();
+  say(t('Columns fit the list again.'), 2500);
+}
+// Dragging an edge: the column before it (From) or after it (Folder) follows the pointer.
+const theadEl = listEl.querySelector('thead');
+theadEl.addEventListener('pointerdown', e => {
+  const g = e.target.closest('[data-grip]');
+  if (!g || e.button !== 0) return;
+  e.preventDefault();
+  const which = g.dataset.grip, th = listEl.querySelector('th.c-' + which), start = th.offsetWidth, x0 = e.clientX;
+  let moved = false; // a click (or a double-click's first) changes nothing
+  g.setPointerCapture(e.pointerId); g.classList.add('drag'); win.classList.add('resizing');
+  const mv = ev => {
+    if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+    moved = true;
+    colPref[which] = Math.max(40, start + (which === 'where' ? x0 - ev.clientX : ev.clientX - x0)); colsDone = ''; fitColumns();
+  };
+  const up = () => {
+    g.classList.remove('drag'); win.classList.remove('resizing');
+    g.removeEventListener('pointermove', mv); g.removeEventListener('pointerup', up); g.removeEventListener('pointercancel', up);
+    if (moved){ colPref[which] = th.offsetWidth; persist(); } // what fits, not where the pointer went
+  };
+  g.addEventListener('pointermove', mv); g.addEventListener('pointerup', up); g.addEventListener('pointercancel', up);
+});
+theadEl.addEventListener('dblclick', e => { const g = e.target.closest('[data-grip]'); if (g) fitToNames(g.dataset.grip); });
+theadEl.addEventListener('keydown', e => {
+  const g = e.target.closest('[data-grip]');
+  if (!g) return;
+  const which = g.dataset.grip, th = listEl.querySelector('th.c-' + which), sign = which === 'where' ? -1 : 1;
+  const d = e.key === 'ArrowLeft' ? -16 * sign : e.key === 'ArrowRight' ? 16 * sign : 0;
+  if (d){ colPref[which] = th.offsetWidth + d; colsDone = ''; fitColumns(); colPref[which] = th.offsetWidth; persist(); }
+  else if (e.key === 'Enter') fitToNames(which);
+  else return;
+  e.preventDefault(); e.stopPropagation();
+});
+// Right-click on the column headings: Size, the dates, and fitting the columns again.
+function columnMenu(){
+  const day = new Date(2026, 9, 7, 6, 12), old = new Date(2026, 8, 30, 6, 12);
+  const setDates = v => { colPref.dates = v; measured = null; colsDone = ''; persist(); fitColumns(); drawRows(); };
+  return [
+    {label:t('Short dates: {examples}', {examples:`${hm(day)}, ${t(DOW[day.getDay()])} ${hm(day)}, ${dmy(old)}`}), checked:colPref.dates === 'short', run:() => setDates('short')},
+    {label:t('Full dates: {example}', {example:`${dmy(old)} ${hm(old)}`}), checked:colPref.dates === 'full', run:() => setDates('full')},
+    {sep:true},
+    {label:t('Size column'), checked:colPref.size, disabled:allMail(), run:() => { colPref.size = !colPref.size; persist(); colsDone = ''; fitColumns(); }},
+    {sep:true},
+    {label:t('Fit columns to the list'), disabled:!colPref.from && !colPref.where, run:resetColumns},
+  ];
+}
+theadEl.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  openMenu(e.clientX, e.clientY, columnMenu(), e.target.closest('button, [data-grip]') ?? listEl);
+});
+document.fonts?.ready.then(() => { measured = null; colsDone = ''; fitColumns(); });
+
+// Who a row is from, or in Sent and Drafts who it went to (in all mail with "To:").
+function whoOf(m){
+  if (!isOut(m.f)) return m.from;
+  return allMail() ? t('To: {who}', {who:nameOf(m.to)}) : nameOf(m.to);
+}
+function rowHtml(m, sel, hl){
+  const out = isOut(m.f), tip = out ? m.to : `${m.from} <${m.email}>`;
   const on = m.id === sel || state.picked.has(m.id);
   const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel ' : '') + (state.picked.has(m.id) ? 'picked' : '');
+  // The dot and the flag are switches: a click marks read or unread, flags or unflags.
+  const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
+  const flag = `<b class="mk fl" title="${esc(m.flagged ? t('Remove the flag (F)') : t('Flag (F)'))}">${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : I.flagOff}</b>`;
   return `<tr data-id="${m.id}" class="${cls}" aria-selected="${on}">
-<td class="c-ic"><span class="ic"><i class="dot"></i>${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : '<i class="sp"></i>'}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
-<td class="c-from" title="${esc(tip)}">${esc(who)}</td>
-<td class="c-subj" title="${esc(m.subj)}">${esc(m.subj)}</td>
+<td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
+<td class="c-from" title="${esc(tip)}">${marked(whoOf(m), hl?.[out ? 'to' : 'from'])}</td>
+<td class="c-subj" title="${esc(m.subj)}">${marked(m.subj, hl?.subject)}</td>
 <td class="c-where" title="${esc(acctLabel(acctId(m.f)))} › ${esc(folderName(m.f))}">${adot(acctId(m.f))}${esc(folderName(m.f))}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
 }
-// Rows that span the visible columns: more would add an empty column to the table.
-const cols = () => [...listEl.querySelectorAll('thead th')].filter(th => th.offsetWidth > 0).length || 5;
+
+/* ---------- what the filter found, marked in the rows ---------- */
+// The words of the quick filter, folded (no case, no diacritics), for the cells they match:
+// plain words in From and Subject, from: (to: in Sent) in From, subject: in Subject.
+let hlFor = null;
+function hlTerms(){
+  const q = state.q.trim();
+  if (hlFor?.q === q) return hlFor.terms;
+  let terms = null;
+  if (q){
+    const words = [], from = [], to = [], subject = [];
+    for (const tok of q.match(/\S*"[^"]*"?|\S+/g) ?? []){
+      const i = tok.indexOf(':'), key = i > 0 ? tok.slice(0, i).toLowerCase() : '';
+      const val = fold((i > 0 ? tok.slice(i + 1) : tok).replace(/"/g, '').trim());
+      if (val.length < 2) continue;
+      if (!key) words.push(val);
+      else if (key === 'from') from.push(val);
+      else if (key === 'to') to.push(val);
+      else if (key === 'subject') subject.push(val);
+    }
+    terms = {from:[...words, ...from], to:[...words, ...to], subject:[...words, ...subject]};
+    if (!words.length && !from.length && !to.length && !subject.length) terms = null;
+  }
+  hlFor = {q, terms};
+  return terms;
+}
+// Text with the parts that match marked; diacritics and case don't matter ("lodz" marks "Łódź").
+function marked(text, words){
+  text = String(text ?? '');
+  if (!words?.length) return esc(text);
+  let folded = '';
+  const at = []; // where each folded character came from
+  for (let i = 0; i < text.length; i++){
+    const f = fold(text[i]);
+    for (let j = 0; j < f.length; j++){ folded += f[j]; at.push(i); }
+  }
+  const spans = [];
+  for (const w of words){
+    for (let k = folded.indexOf(w); k >= 0; k = folded.indexOf(w, k + w.length)){
+      spans.push([at[k], at[k + w.length - 1] + 1]);
+    }
+  }
+  if (!spans.length) return esc(text);
+  spans.sort((a, b) => a[0] - b[0]);
+  let html = '', pos = 0;
+  for (const [s, e] of spans){
+    if (e <= pos) continue;
+    const from = Math.max(s, pos);
+    html += esc(text.slice(pos, from)) + '<mark>' + esc(text.slice(from, e)) + '</mark>';
+    pos = e;
+  }
+  return html + esc(text.slice(pos));
+}
+
 const spacer = (px, n) => px > 0 ? `<tr class="pad" aria-hidden="true"><td colspan="${n}" style="height:${px}px"></td></tr>` : '';
-// Draw the rows on screen and a margin; ask for the pages that are missing.
-function drawRows(){
+// Draw the rows on screen and a margin; ask for the pages that are missing. While scrolling, the
+// rows drawn last are kept as long as they still cover the screen with a few to spare.
+let drawn = null; // {a, b, start, length}: the stretch drawn last
+function drawRows(scrolling = false){
+  const n = colCount;
   if (!list.total){
-    rowsEl.innerHTML = !ACCOUNTS.length || list.seq === 0 ? '' : `<tr class="empty"><td colspan="${cols()}">${state.q ? (allMail() ? t('No messages match “{q}” in any account. Press Esc to clear the filter.', {q:esc(state.q)}) : t('No messages match “{q}”. Press Esc to clear the filter.', {q:esc(state.q)})) : esc(t('This folder is empty.'))}</td></tr>`;
+    drawn = null;
+    rowsEl.innerHTML = !ACCOUNTS.length || list.seq === 0 ? '' : `<tr class="empty"><td colspan="${n}">${state.q ? (allMail() ? t('No messages match “{q}” in any account. Press Esc to clear the filter.', {q:esc(state.q)}) : t('No messages match “{q}”. Press Esc to clear the filter.', {q:esc(state.q)})) : esc(t('This folder is empty.'))}</td></tr>`;
     return;
   }
-  const [va, vb] = visibleRange(), a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN);
-  const s = list.start, e = s + list.rows.length, sel = state.sel[selKey()], n = cols();
+  const [va, vb] = visibleRange(), s = list.start, e = s + list.rows.length;
+  if (scrolling && drawn && drawn.start === s && drawn.length === list.rows.length
+      && (va >= drawn.a + 5 || drawn.a === 0) && (vb <= drawn.b - 5 || drawn.b === list.total)) return;
+  const a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN), sel = state.sel[selKey()], hl = hlTerms();
   let html = spacer(a * rowH, n);
-  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel) : `<tr class="ph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
+  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl) : `<tr class="ph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
   rowsEl.innerHTML = html + spacer((list.total - b) * rowH, n);
+  drawn = {a, b, start:s, length:list.rows.length};
   const r = rowsEl.querySelector('tr[data-id]'), h = r?.getBoundingClientRect().height;
   if (h && Math.abs(h - rowH) > 0.01){ // the density changed: keep the same rows on screen
     listEl.scrollTop = listEl.scrollTop * h / rowH; rowH = h; drawRows(); return;
   }
   fill(a, b);
 }
-let drawQueued = false;
-const drawSoon = () => { if (!drawQueued){ drawQueued = true; requestAnimationFrame(() => { drawQueued = false; drawRows(); }); } };
-listEl.addEventListener('scroll', drawSoon);
-new ResizeObserver(drawSoon).observe(listEl);
+let drawQueued = false, drawScroll = true;
+// Draw on the next frame; a scroll alone may keep what is drawn.
+const drawSoon = (scrolling = false) => {
+  drawScroll = drawQueued ? drawScroll && scrolling : scrolling;
+  if (!drawQueued){ drawQueued = true; requestAnimationFrame(() => { drawQueued = false; drawRows(drawScroll); }); }
+};
+listEl.addEventListener('scroll', () => drawSoon(true));
+new ResizeObserver(() => { fitColumns(); drawSoon(); }).observe(listEl);
 
 // Load what rows [a, b) need, one page at a time, then draw again.
 let filling = false;
@@ -843,12 +1110,70 @@ rowsEl.addEventListener('click', e => {
   const tr = e.target.closest('tr[data-id]');
   if (!tr) return;
   const id = Number(tr.dataset.id);
-  if (e.ctrlKey || e.metaKey) togglePick(id);
+  // The dot and the flag switch that one message, wherever the selection is.
+  const mk = !e.ctrlKey && !e.metaKey && !e.shiftKey && e.target.closest('.mk');
+  const m = mk && list.rows.find(r => r.id === id);
+  if (m){
+    if (mk.classList.contains('rd')) setUnread(m, !m.unread); else setFlagged(m, !m.flagged);
+  } else if (e.ctrlKey || e.metaKey) togglePick(id);
   else if (e.shiftKey) pickTo(id);
   else { unpick(); select(id); }
   listEl.focus({preventScroll:true});
 });
-rowsEl.addEventListener('dblclick', e => { const tr = e.target.closest('tr[data-id]'); if (tr) openWindow(Number(tr.dataset.id)); });
+rowsEl.addEventListener('dblclick', e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (tr && !e.target.closest('.mk')) openWindow(Number(tr.dataset.id));
+});
+// Right-click on a message (or the menu key in the list): what can be done with it, or with
+// all the selected ones, each with its key.
+function messageMenu(){
+  const m = current(), many = state.picked.size > 1;
+  if (!m && !many) return [];
+  const rows = many ? pickedRows() : [m];
+  const unread = many ? rows.length > 0 && !rows.some(r => r.unread) : !m.unread; // what U does
+  const flag = many ? !rows.length || rows.some(r => !r.flagged) : !m.flagged;
+  const trash = many ? !allMail() && kindOf(state.folder) === 'trash' : kindOf(m.f) === 'trash';
+  const sort = [
+    {label:many ? (unread ? t('Mark as unread|several') : t('Mark as read|several')) : unread ? t('Mark as unread') : t('Mark as read'), key:'U', run:toggleUnread},
+    {label:flag ? t('Flag|rule action') : t('Remove the flag'), key:'F', run:toggleFlag},
+    {label:t('Move to…'), key:'M', run:() => openPicker('move')},
+    {label:trash ? t('Delete for good') : t('Move to Trash'), key:'Del', run:del},
+  ];
+  if (many) return sort;
+  const out = isOut(m.f), edit = ['drafts', 'outbox'].includes(kindOf(m.f));
+  const to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0];
+  return [
+    {label:t('Open in its own window'), key:'Enter', run:() => openWindow(m.id)},
+    {sep:true},
+    ...(edit ? [{label:t('Edit'), key:'E', run:() => openCompose('edit')}] : []),
+    {label:t('Reply'), key:'R', run:() => openCompose('reply')},
+    {label:t('Reply all'), key:'Shift+R', run:() => openCompose('replyall')},
+    {label:t('Forward'), key:'Shift+F', run:() => openCompose('forward')},
+    {sep:true},
+    ...sort,
+    {sep:true},
+    {label:t('Show the conversation'), key:'T', run:toggleThread},
+    out ? {label:t('All mail to {name}', {name:nameOf(m.to)}), disabled:!to, run:() => filterAllMail('to:' + to)}
+      : {label:t('All mail from {name}', {name:m.from || m.email}), run:() => filterAllMail('from:' + m.email)},
+    {label:out ? t('New rule for mail to {name}', {name:nameOf(m.to)}) : t('New rule for mail from {name}', {name:m.from || m.email}),
+      run:() => { const r = ruleFrom(m); openRules().then(() => showRuleForm(null, r)); }},
+  ];
+}
+function openMessageMenu(x, y){
+  const items = messageMenu();
+  if (items.length) openMenu(x, y, items, listEl);
+}
+rowsEl.addEventListener('contextmenu', e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (!tr) return;
+  e.preventDefault();
+  const id = Number(tr.dataset.id);
+  // A message outside the selection becomes the selection; right-clicking doesn't read it.
+  if (!state.picked.has(id)){ if (unpick()) afterPick(); if (current()?.id !== id) select(id, true); }
+  listEl.focus({preventScroll:true});
+  openMessageMenu(e.clientX, e.clientY);
+});
+listEl.addEventListener('contextmenu', e => e.preventDefault()); // no browser menu between the rows either
 // A message in a window of its own, to read side by side or on another screen.
 function openWindow(id){
   if (id == null) return;
@@ -984,23 +1309,24 @@ function openMessage(id, folder){
   setFolder(folder).then(() => listEl.focus({preventScroll:true}));
 }
 
-// Mark as read after the message has been on screen for a moment, so arrowing past doesn't;
-// or at once, or only with U, as the settings say.
+// Mark as read after the message has been on screen for a moment (Settings › Reading says how
+// long), so arrowing past doesn't; or at once; or only when it is opened in its own window, or
+// marked by hand.
 let readTimer;
 function select(id, silent){
   state.sel[selKey()] = id;
   selRow = list.rows.find(r => r.id === id) ?? (selRow?.id === id ? selRow : null);
   clearTimeout(readTimer);
   const m = current(), how = pref().mark_read;
-  if (m && m.unread && !silent && how !== 'manual'){
+  if (m && m.unread && !silent && (how === 'moment' || how === 'at_once')){
     readTimer = setTimeout(() => {
       call('set_unread', {id:m.id, unread:false}).then(() => { changed(m, {unread:false}); reorder(); }).catch(() => {});
-    }, how === 'at_once' ? 0 : 600);
+    }, how === 'at_once' ? 0 : pref().read_delay ?? 600);
   }
   paintSelection();
   if (!state.compose) renderPreview();
 }
-// A message's read or flag state changed here: its row and the counts.
+// A message's read or flag state changed here: its row, the counts, the envelope above it.
 function changed(m, fields){
   if ('unread' in fields && fields.unread !== m.unread){
     const c = COUNTS[m.f] ??= {total:0, unread:0};
@@ -1008,6 +1334,7 @@ function changed(m, fields){
   }
   patch(m.id, fields);
   renderTree(); renderStatus(); drawRows();
+  if (m.id === current()?.id) paintReadButton();
 }
 // In the order by status, a changed message moves: once the core has the change, load again.
 const reorder = () => { if (state.sort.key === 'flag') loadView(); };
@@ -1029,6 +1356,53 @@ async function moveBy(delta){
   if (!row) return;
   select(row.id);
   if (reveal(to)) drawRows();
+}
+
+/* ---------- Space: read on, then the next unread ---------- */
+// Space pages down the message on screen; at its end it goes to the next unread message in the
+// list, wherever its page is (the core finds it). After the last one, it names the next folder
+// with unread mail, and Space again goes there. Shift+Space pages up, then goes to the previous
+// unread. Selecting it counts as reading it, as the settings say.
+let spaceOffer = null; // {key, at}: the folder a second Space opens
+const spaceFolders = () => ACCOUNTS.flatMap(a => a.folders.filter(f => !['spam', 'trash', 'outbox', 'drafts', 'sent'].includes(f.kind)).map(f => a.id + '/' + f.id));
+// The next folder after this one, in the tree's order and round again, with unread mail.
+function nextUnreadFolder(from){
+  const all = spaceFolders(), i = all.indexOf(from);
+  return [...all.slice(i + 1), ...all.slice(0, Math.max(0, i))].find(k => countOf(k).unread > 0) ?? null;
+}
+// Select an unread message the core found, loading its page.
+async function goToUnread(u){
+  const row = await rowAt(u.row);
+  if (row?.id !== u.id){ const p = await fetchPage({around:u.id}); if (p) merge(p); }
+  select(u.id);
+  const pos = posOf(u.id);
+  if (pos >= 0 && reveal(pos)) drawRows(); else drawRows();
+}
+async function space(back){
+  const p = previewEl, step = Math.max(40, p.clientHeight - 48);
+  if (current() && state.picked.size <= 1 && !state.compose){
+    if (!back && p.scrollTop + p.clientHeight < p.scrollHeight - 4){ p.scrollTop += step; return; }
+    if (back && p.scrollTop > 4){ p.scrollTop -= step; return; }
+  }
+  if (VIEWER || state.compose) return;
+  if (unpick()) paintSelection();
+  let u;
+  try { u = await invoke('next_unread', {view:viewArgs(), after:current()?.id ?? null, back}); } catch (e){ say(tr(e), 8000); return; }
+  if (u){ spaceOffer = null; await goToUnread(u); return; }
+  if (back){ say(t('No unread message above this one.'), 3000); return; }
+  if (allMail()){ say(t('No more unread messages here.'), 3000); return; }
+  const next = nextUnreadFolder(state.folder);
+  if (!next){ say(t('No unread mail in any folder.'), 3000); return; }
+  if (spaceOffer?.key !== next || Date.now() - spaceOffer.at > 10e3){
+    spaceOffer = {key:next, at:Date.now()};
+    say(t('No more unread in {folder}. Space goes to {next} ({n} unread).', {folder:placeName(state.folder), next:`${placeName(next)} · ${acctLabel(acctId(next))}`, n:num(countOf(next).unread)}), 10e3);
+    return;
+  }
+  spaceOffer = null;
+  await setFolder(next);
+  listEl.focus({preventScroll:true});
+  try { u = await invoke('next_unread', {view:viewArgs(), after:null, back:false}); } catch { return; }
+  if (u) await goToUnread(u);
 }
 
 /* ---------- picking several messages ---------- */
@@ -1243,6 +1617,15 @@ function headerHtml(m, controls){
   ${attsHtml(m.attachments)}
 </header>`;
 }
+// The envelope above a message marks it read or unread, like U; it shows what a click does.
+const readTip = m => m.unread ? t('Mark as read (U)') : t('Mark as unread (U)');
+const readButton = m => `<button type="button" class="pbtn" data-act="read" title="${esc(readTip(m))}" aria-label="${esc(readTip(m))}">${m.unread ? I.mailOpen : I.mail}</button>`;
+function paintReadButton(){
+  const b = previewEl.querySelector('[data-act="read"]'), m = current();
+  if (!b || !m) return;
+  b.innerHTML = m.unread ? I.mailOpen : I.mail;
+  b.title = readTip(m); b.setAttribute('aria-label', b.title);
+}
 let pvSeq = 0;
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
@@ -1280,7 +1663,7 @@ async function renderPreview(){
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${popout}${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
+${headerHtml(m, `${readButton(s)}${popout}${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -1324,6 +1707,7 @@ previewEl.addEventListener('click', async e => {
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
+  if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
@@ -1747,12 +2131,24 @@ function toggleFlag(){
     }).catch(() => {});
     return;
   }
-  const m = current(); if (!m) return;
-  const flagged = !m.flagged;
-  changed(m, {flagged}); if (!state.compose) renderPreview();
+  const m = current(); if (m) setFlagged(m, !m.flagged);
+}
+// One message flagged or not: F, the flag in its row, the menu.
+function setFlagged(m, flagged){
+  const shown = () => { if (!state.compose && m.id === current()?.id) renderPreview(); };
+  changed(m, {flagged}); shown();
   call('set_flagged', {id:m.id, flagged})
     .then(() => { say(flagged ? t('Flagged.') : t('Flag removed.'), 2000); reorder(); })
-    .catch(() => { changed(m, {flagged:!flagged}); if (!state.compose) renderPreview(); });
+    .catch(() => { changed(m, {flagged:!flagged}); shown(); });
+}
+// One message read or unread: U, the dot in its row, the envelope above it, the menu. Marked
+// unread by hand, it stays so while it is on screen.
+function setUnread(m, unread){
+  if (m.id === current()?.id) clearTimeout(readTimer);
+  return call('set_unread', {id:m.id, unread}).then(() => {
+    changed(m, {unread}); reorder();
+    say(unread ? t('Marked as unread.') : t('Marked as read.'), 2000);
+  }).catch(() => {});
 }
 function toggleUnread(){
   clearTimeout(readTimer);
@@ -1765,12 +2161,7 @@ function toggleUnread(){
     }).catch(() => {});
     return;
   }
-  const m = current(); if (!m) return;
-  const unread = !m.unread;
-  call('set_unread', {id:m.id, unread}).then(() => {
-    changed(m, {unread}); reorder();
-    say(unread ? t('Marked as unread.') : t('Marked as read.'), 2000);
-  }).catch(() => {});
+  const m = current(); if (m) setUnread(m, !m.unread);
 }
 // Shift+U: every message in the folder (or in the list, in all mail) read.
 async function markAllRead(){
@@ -2029,13 +2420,140 @@ function setFilter(text){
   loadView();
   if (state.q.trim()) searchTimer = setTimeout(() => { state.inText = true; loadView(); }, 150);
 }
-qEl.addEventListener('input', () => setFilter(qEl.value));
+qEl.addEventListener('input', () => { setFilter(qEl.value); qs.at = -1; suggest(); });
+
+/* ---------- search: suggestions under the box ---------- */
+// While the box has the focus it offers, for an empty box, the searches made before and the
+// operators; for the word being typed, the operators it could start and the people it could be
+// (from:, or to: in Sent and Drafts). ↓ ↑ choose, Enter or a click takes one. Enter with none
+// chosen (or ↓ with none to choose) goes to the results; Esc clears the search.
+const qPop = $('q-pop');
+const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
+const qs = {items:[], at:-1};
+// The word the caret is in: where it starts and ends, and the word.
+function wordAtCaret(){
+  const v = qEl.value, c = qEl.selectionStart ?? v.length;
+  let a = c, b = c;
+  while (a > 0 && !/\s/.test(v[a - 1])) a--;
+  while (b < v.length && !/\s/.test(v[b])) b++;
+  return [a, b, v.slice(a, b)];
+}
+function suggest(){
+  if (document.activeElement !== qEl || !ACCOUNTS.length){ closeSuggest(); return; }
+  const items = [], [, , word] = wordAtCaret(), low = word.toLowerCase();
+  if (!qEl.value.trim()) state.searches.forEach(text => items.push({kind:'recent', text}));
+  else if (word){
+    const i = low.indexOf(':'), key = i > 0 ? low.slice(0, i) : '';
+    if ((key || low.length >= 2) && !OPERATORS_ALL.includes(low)){
+      for (const op of OPERATORS_ALL) if (op.startsWith(low) && items.length < 4) items.push({kind:'op', text:op});
+    }
+    const who = fold((key ? word.slice(i + 1) : word).replace(/"/g, ''));
+    if ((!key || key === 'from' || key === 'to') && who.length >= 2 && RECIPS){
+      const op = key || (isOut(state.folder) && !allMail() ? 'to' : 'from');
+      for (const p of RECIPS){
+        if (items.length >= 8) break;
+        if (matchesTyped(p, who)) items.push({kind:'person', text:`${op}:${p.email}`, name:p.name, email:p.email, op});
+      }
+    }
+  }
+  qs.items = items; qs.at = Math.min(qs.at, items.length - 1);
+  const empty = !qEl.value.trim();
+  if (!items.length && !empty){ closeSuggest(); return; }
+  const row = (it, i) => {
+    const body = it.kind === 'recent' ? `${I.clock}<span class="nm">${esc(it.text)}</span>`
+      : it.kind === 'op' ? `${I.search}<span class="nm"><code>${esc(it.text)}</code></span><span class="em">${esc(opHint(it.text))}</span>`
+      : `${I.person}<span class="nm">${esc(it.name || it.email)}</span><span class="em">${esc(it.op === 'to' ? t('to {email}', {email:it.email}) : t('from {email}', {email:it.email}))}</span>`;
+    return `<li role="option" id="q-opt-${i}" data-i="${i}" aria-selected="${i === qs.at}">${body}</li>`;
+  };
+  qPop.innerHTML = (empty && items.length ? `<div class="qhead"><span>${esc(t('Recent searches'))}</span><button type="button" class="linkbtn" data-forget>${esc(t('Clear'))}</button></div>` : '')
+    + (items.length ? `<ul id="q-list" role="listbox" aria-label="${esc(t('Suggestions'))}">${items.map(row).join('')}</ul>` : '')
+    + (empty ? `<div class="qops"><span>${esc(t('Narrow it down:'))}</span>${OPERATORS_ALL.filter(o => o !== 'is:read' && o !== 'is:unflagged').map(o => `<button type="button" data-op="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : '')
+    + `<div class="qfoot"><span><kbd>Enter</kbd> ${esc(t('the results'))}</span><span><kbd>Tab</kbd> ${esc(t('this folder or all mail'))}</span><span><kbd>Esc</kbd> ${esc(t('clear'))}</span></div>`;
+  const r = qEl.closest('.search').getBoundingClientRect(), w = Math.min(innerWidth - 8, Math.max(r.width, 340));
+  qPop.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
+  qPop.style.top = (r.bottom + 3) + 'px';
+  qPop.style.width = w + 'px';
+  qPop.hidden = false;
+  qEl.setAttribute('aria-expanded', 'true');
+  qEl.setAttribute('aria-activedescendant', qs.at >= 0 ? 'q-opt-' + qs.at : '');
+}
+// What an operator does, in a few words.
+function opHint(op){
+  return {'from:':t('sender'), 'to:':t('recipient'), 'subject:':t('words in the subject'), 'is:unread':t('unread only'), 'is:read':t('read only'),
+    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
+    'before:':t('2026, 2026-09 or 15.09.2026'), 'larger:':t('size, e.g. 5m'), 'smaller:':t('size, e.g. 100k')}[op] ?? '';
+}
+function closeSuggest(){
+  if (qPop.hidden) return;
+  qPop.hidden = true; qs.items = []; qs.at = -1;
+  qEl.setAttribute('aria-expanded', 'false'); qEl.removeAttribute('aria-activedescendant');
+}
+// Put text where the word at the caret is (an operator, a person), and look again.
+function replaceWord(text){
+  const [a, b] = wordAtCaret(), v = qEl.value, tail = v.slice(b).replace(/^\s*/, '');
+  const head = v.slice(0, a) + text + (text.endsWith(':') ? '' : ' ');
+  qEl.value = head + tail;
+  qEl.setSelectionRange(head.length, head.length);
+  setFilter(qEl.value); qs.at = -1; suggest();
+}
+function takeQuery(i){
+  const it = qs.items[i];
+  if (!it) return;
+  if (it.kind === 'recent'){ qEl.value = it.text; setFilter(it.text); toResults(); }
+  else replaceWord(it.text);
+}
+// The search is what was wanted: keep it among the recent ones and go to the results.
+function rememberSearch(){
+  const q = state.q.trim();
+  if (q.length < 2) return;
+  state.searches = [q, ...state.searches.filter(s => s !== q)].slice(0, 8); persist();
+}
+async function toResults(){
+  rememberSearch(); closeSuggest();
+  listEl.focus({preventScroll:true});
+  if (!current() && list.total){ const row = await rowAt(0); if (row){ select(row.id); if (reveal(0)) drawRows(); } }
+}
+qEl.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    const n = qs.items.length;
+    if (!n || qPop.hidden){ if (e.key === 'ArrowDown' && list.total){ e.preventDefault(); toResults(); } return; }
+    e.preventDefault();
+    qs.at = e.key === 'ArrowDown' ? (qs.at + 1) % n : qs.at <= 0 ? n - 1 : qs.at - 1;
+    suggest();
+    $('q-opt-' + qs.at)?.scrollIntoView({block:'nearest'});
+  } else if (e.key === 'Enter' && !e.ctrlKey && !e.altKey){
+    e.preventDefault();
+    if (qs.at >= 0 && !qPop.hidden) takeQuery(qs.at); else toResults();
+  }
+});
+qEl.addEventListener('focus', () => { loadRecipients().then(suggest); suggest(); });
+qEl.addEventListener('click', suggest);
+qEl.addEventListener('blur', () => setTimeout(() => {
+  if (document.activeElement === qEl) return;
+  closeSuggest();
+  if (state.q.trim() && list.total) rememberSearch(); // the results were used
+}, 150));
+// Clicks in the box below keep the focus in the search box.
+qPop.addEventListener('mousedown', e => e.preventDefault());
+qPop.addEventListener('click', e => {
+  const li = e.target.closest('[data-i]'), op = e.target.closest('[data-op]');
+  if (li) takeQuery(Number(li.dataset.i));
+  else if (op){ // after what is there
+    const v = qEl.value.trimEnd();
+    qEl.value = v ? v + ' ' : '';
+    qEl.setSelectionRange(qEl.value.length, qEl.value.length);
+    replaceWord(op.dataset.op);
+  }
+  else if (e.target.closest('[data-forget]')){ state.searches = []; persist(); suggest(); }
+});
+addEventListener('resize', () => { if (!qPop.hidden) suggest(); });
 function paintScope(){
   const all = state.scope === 'all';
   win.classList.toggle('allmail', allMail());
   $('q').closest('.search').classList.toggle('active', !!state.q);
   $('q-scope').textContent = all ? t('All mail') : t('This folder');
   $('q-scope').setAttribute('aria-pressed', String(all));
+  fitColumns();
 }
 // This folder or all mail. Remembered; matters only while there is something to filter by.
 function toggleScope(){
@@ -2123,11 +2641,14 @@ $('w-lang').addEventListener('click', async e => {
 // Each account: who it is, where its servers are, how the last check went.
 function renderAccountList(){
   const real = ACCOUNTS.filter(a => a.imap), usage = Object.fromEntries((USAGE?.accounts ?? []).map(u => [u.account, u]));
-  $('a-list').innerHTML = real.length ? real.map(a => {
+  $('a-list').innerHTML = real.length ? real.map((a, i) => {
     const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = usage[a.id];
+    // Their order in the folder tree, when there is more than one.
+    const order = real.length < 2 ? '' : `<button type="button" class="btn icon" data-up="${esc(a.id)}" title="${esc(t('Move up'))}" aria-label="${esc(t('Move {email} up', {email:a.email}))}"${i ? '' : ' disabled'}>↑</button>`
+      + `<button type="button" class="btn icon" data-down="${esc(a.id)}" title="${esc(t('Move down'))}" aria-label="${esc(t('Move {email} down', {email:a.email}))}"${i < real.length - 1 ? '' : ' disabled'}>↓</button>`;
     const sync = u?.sync_error ? `<div class="st warn" title="${esc(u.sync_error)}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</div>`
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
-    return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="nm">${esc(a.name)}</div><div class="em" title="${esc(where)}">${esc(where)}</div>${sync}</div>`
+    return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="nm">${esc(a.name)}</div><div class="em" title="${esc(where)}">${esc(where)}</div>${sync}</div>${order}`
       + `<button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
   $('a-list-err').textContent = '';
@@ -2313,6 +2834,15 @@ async function connected(account, wasEditing){
   getMail({first:true});
 }
 $('a-list').addEventListener('click', async e => {
+  const up = e.target.closest('[data-up]'), down = e.target.closest('[data-down]');
+  if (up || down){
+    const id = (up ?? down).dataset[up ? 'up' : 'down'];
+    await moveAccount(id, up ? -1 : 1);
+    // The focus stays on the button that moved, or on its twin at either end.
+    const b = $('a-list').querySelector(`[data-${up ? 'up' : 'down'}="${CSS.escape(id)}"]`);
+    (b?.disabled ? $('a-list').querySelector(`[data-${up ? 'down' : 'up'}="${CSS.escape(id)}"]`) : b)?.focus();
+    return;
+  }
   const ed = e.target.closest('[data-edit]');
   if (ed){ editAccount(ed.dataset.edit); return; }
   const ids = e.target.closest('[data-ids]');
@@ -2589,7 +3119,14 @@ function renderSettings(keepFocus){
   ], s.language);
   $('s-every').innerHTML = CHECK_EVERY.map(n => `<option value="${n}"${n === s.check_every ? ' selected' : ''}>${esc(
     n === 0 ? t('Only when I click Get mail') : n === 60 ? t('Every hour') : tn(n, 'Every {n} minute', 'Every {n} minutes'))}</option>`).join('');
-  $('s-read').innerHTML = radios('mark_read', [['moment', esc(t('After a moment on screen'))], ['at_once', esc(t('As soon as I select them'))], ['manual', esc(t('Only when I press U'))]], s.mark_read);
+  // "A moment" takes how long from the list next to it; choosing a time also chooses this.
+  const delays = READ_DELAYS.map(ms => `<option value="${ms}"${ms === s.read_delay ? ' selected' : ''}>${esc(delayText(ms))}</option>`).join('');
+  $('s-read').innerHTML = radios('mark_read', [
+    ['at_once', esc(t('As soon as I select them'))],
+    ['moment', esc(t('After they have been on screen for')), `<select id="s-delay" class="sselect sinline" aria-label="${esc(t('How long on screen'))}">${delays}</select>`],
+    ['window', esc(t('When I open them in their own window'))],
+    ['manual', esc(t('Only when I mark them myself'))],
+  ], s.mark_read);
   $('s-view').innerHTML = radios('prefer_text', [['html', esc(t('Show the HTML'))], ['text', esc(t('Show the plain text'))]], s.prefer_text ? 'text' : 'html');
   $('s-paper').innerHTML = radios('mail_paper', [['theme', esc(t('On the theme’s dark paper'))], ['white', esc(t('On white, as sent'))]], s.mail_paper);
   $('s-format').innerHTML = radios('compose_format', [['plain', esc(t('Plain text'))], ['html', esc(t('HTML'))]], s.compose_format);
@@ -2598,7 +3135,8 @@ function renderSettings(keepFocus){
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   $('s-undo').innerHTML = UNDO_SEND.map(n => `<option value="${n}"${n === s.undo_send ? ' selected' : ''}>${esc(undoText(n))}</option>`).join('');
   const can = !!upd.build?.updatable;
-  $('s-updates').checked = s.updates === 'daily'; $('s-updates').disabled = !can;
+  $('s-updates').innerHTML = radios('updates', UPDATE_CHOICES.map(v => [v, esc(updatesText(v))]), s.updates === 'ask' ? '' : s.updates);
+  $('s-updates').querySelectorAll('input').forEach(i => { i.disabled = !can; });
   $('s-upd-none').hidden = can; $('s-check').hidden = !can;
   renderMove();
   paneOpened(setTab);
@@ -2620,15 +3158,20 @@ function paneOpened(tab){
 function syncSettings(){
   const s = pref();
   const want = {theme:s.theme, density:s.density, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every};
+    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
-  $('s-updates').checked = s.updates === 'daily';
+  $('s-delay').value = String(s.read_delay);
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   $('s-undo').value = String(s.undo_send);
   if ($('s-keep')) $('s-keep').value = String(s.backup_keep);
 }
+// When Telex looks for a newer version by itself.
+const UPDATE_CHOICES = ['start', 'daily', 'off'];
+const updatesText = v => ({start:t('When Telex starts, and once a day while it is open'), daily:t('Once a day'), off:t('Only when I click Check now or the version number')}[v] ?? v);
+// How long a message is on screen before it counts as read.
+const delayText = ms => ms === 600 ? t('a moment|on screen') : tn(ms / 1000, '{n} second|on screen', '{n} seconds|on screen');
 // How long sent mail waits so it can be taken back.
 const undoText = n => n === 0 ? t('Off: send at once') : tn(n, '{n} second', '{n} seconds');
 function openSettings(tab){
@@ -2664,6 +3207,7 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'text_size') changeSettings({text_size:Number(v)});
   else if (el.name === 'language') changeSettings({language:v});
   else if (el.name === 'mark_read') changeSettings({mark_read:v});
+  else if (el.id === 's-delay') changeSettings({mark_read:'moment', read_delay:Number(v)});
   else if (el.name === 'prefer_text') changeSettings({prefer_text:v === 'text'});
   else if (el.name === 'mail_paper'){ state.white.clear(); changeSettings({mail_paper:v}).then(() => { if (!state.compose) renderPreview(); }); }
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
@@ -2674,7 +3218,7 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-push') changeSettings({push_mail:el.checked});
   else if (el.id === 's-notify') changeSettings({notify:el.checked});
   else if (el.id === 's-undo') changeSettings({undo_send:Number(v)});
-  else if (el.id === 's-updates') changeSettings({updates:el.checked ? 'daily' : 'off'});
+  else if (el.name === 'updates') changeSettings({updates:v}).then(ok => ok && autoCheck(true));
   else if (el.name === 'backup_every') changeSettings({backup_every:v}).then(ok => { if (ok){ renderTree(); autoBackup(); } });
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
@@ -2692,7 +3236,7 @@ sdlg.addEventListener('close', () => {
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
-  mark_read:N_('Mark messages as read'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
+  mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
@@ -2704,9 +3248,10 @@ function settingValue(key, v){
     case 'density': return v === 'comfortable' ? t('Comfortable') : t('Compact');
     case 'text_size': return v + '%';
     case 'prefer_text': return v ? t('Show the plain text') : t('Show the HTML');
-    case 'mark_read': return {moment:t('After a moment on screen'), at_once:t('As soon as I select them'), manual:t('Only when I press U')}[v] ?? v;
+    case 'mark_read': return {moment:t('After a moment on screen'), at_once:t('As soon as I select them'), window:t('When I open them in their own window'), manual:t('Only when I mark them myself')}[v] ?? v;
+    case 'read_delay': return delayText(v);
     case 'check_every': return v === 0 ? t('Only when I click Get mail') : v === 60 ? t('Every hour') : tn(v, 'Every {n} minute', 'Every {n} minutes');
-    case 'updates': return {ask:t('Not decided yet'), daily:t('Once a day'), off:t('Never')}[v] ?? v;
+    case 'updates': return v === 'ask' ? t('Not decided yet') : updatesText(v);
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
@@ -3104,7 +3649,7 @@ function renderUpdates(){
   $('u-install').hidden = !found;
   if (found) $('u-install').textContent = t('Install {version} and restart', {version:found.version});
   $('u-install').disabled = $('u-check').disabled = upd.checking || upd.installing;
-  $('u-auto').checked = pref().updates === 'daily';
+  $('u-auto').checked = pref().updates === 'start' || pref().updates === 'daily';
   ['u-auto-row', 'u-note', 'u-check'].forEach(id => { $(id).hidden = !can; });
 }
 // quiet: the daily check, which speaks up only when there is an update.
@@ -3161,23 +3706,29 @@ function openUpdates(){
   if (!upd.found && !upd.installing) checkUpdate();
   $(upd.found ? 'u-install' : 'u-close').focus();
 }
-function autoCheck(){
-  if (pref().updates === 'daily' && Date.now() - state.updateChecked >= 864e5) checkUpdate({quiet:true});
+// "When Telex starts": once at start (unless a check answered in the last few minutes, as after
+// an update's restart), then like "once a day" while it stays open. Each check asks only for
+// the newest version's file; the answer shows as the chip in the status bar.
+const UPDATE_DAY = 864e5, UPDATE_AGAIN = 10 * 60e3;
+function autoCheck(starting = false){
+  const how = pref().updates, since = Date.now() - state.updateChecked;
+  if (how !== 'start' && how !== 'daily') return;
+  if (since >= UPDATE_DAY || (starting && how === 'start' && since >= UPDATE_AGAIN)) checkUpdate({quiet:true});
 }
 async function bootUpdates(){
   try { upd.build = await invoke('update_info'); } catch { return; }
   renderUpdates();
   if (!upd.build?.updatable) return;
-  setTimeout(autoCheck, 20e3); // after the first mail check
+  setTimeout(() => autoCheck(true), 8e3); // after the first mail check has started
   setInterval(autoCheck, 60 * 60e3);
 }
 $('st-ask').addEventListener('click', async e => {
   const b = e.target.closest('[data-ask]'); if (!b) return;
   if (!await changeSettings({updates:b.dataset.ask})) return;
-  if (pref().updates === 'daily'){ say(t('Telex will check for updates once a day.')); autoCheck(); }
+  if (pref().updates === 'start'){ say(t('Telex will check for updates when it starts and once a day.')); autoCheck(true); }
   else say(t('Telex won’t check for updates. Click the version number to check yourself.'), 7000);
 });
-$('u-auto').addEventListener('change', e => { changeSettings({updates:e.target.checked ? 'daily' : 'off'}); });
+$('u-auto').addEventListener('change', e => { changeSettings({updates:e.target.checked ? 'start' : 'off'}); });
 $('st-ver').addEventListener('click', openUpdates);
 $('st-update').addEventListener('click', openUpdates);
 $('u-check').addEventListener('click', () => checkUpdate());
@@ -3191,20 +3742,27 @@ udlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 // press. Keys are written "Shift+R"; a space separates keys that do the same or go together.
 const helpBtn = $('st-help'), helpPop = $('help-pop');
 const HELP_KEYS = [
-  [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
+  [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Space', N_('read on; at the end, the next unread message')],
+    ['Shift+Space', N_('back up; at the top, the previous unread')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
     ['H', N_('HTML or plain text')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')]]],
-  [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread')], ['Shift+U', N_('everything in the folder read')],
+  [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
     ['G', N_('go to a folder')], ['Z', N_('undo a delete or a move; take back mail just sent')]]],
   [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
     ['Ctrl+A', N_('the whole list')], ['Esc', N_('just the one message again')]]],
-  [N_('Find|help'), [['/', N_('quick filter')], ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
-  [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['? F1', N_('this help')]]],
+  [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
+    ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
+  [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
+    ['Alt+↑ ↓', N_('in the folder tree: an account up or down')], ['? F1', N_('this help')]]],
 ];
 const HELP_TIPS = [
+  N_('Right-click a message for everything you can do with it, each with its key.'),
+  N_('Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.'),
+  N_('Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Right-click the column headings for dates and the Size column.'),
+  N_('Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.'),
   N_('Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.'),
   N_('Folders on this PC keep mail only here, off the server. Right-click one to name it, save it as mbox or bring mail in.'),
   N_('Drop .eml or mbox files on a folder on this PC to bring that mail in.'),
@@ -3278,12 +3836,22 @@ function onKey(e){
   if (tg.closest && (tg.closest('input, textarea, select, [contenteditable="true"]') || tg.closest('.split'))) return;
   // Ctrl+A in the list takes every message; elsewhere it selects text as always.
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'a' && listEl.contains(tg)){ e.preventDefault(); pickAll(); return; }
+  // The menu key (or Shift+F10) in the list: the selected message's menu, at its row.
+  if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && listEl.contains(tg)){
+    e.preventDefault();
+    const row = rowsEl.querySelector('tr.sel') ?? rowsEl.querySelector('tr[data-id]'), r = (row ?? listEl).getBoundingClientRect();
+    openMessageMenu(r.left + 60, row ? r.bottom : r.top + 30);
+    return;
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // Space presses a focused button or link, as always.
+  if (e.key === ' ' && tg.closest?.('button, a[href], summary, label, [role="tab"], [role="option"], [data-i]')) return;
   const k = e.key, shift = e.shiftKey;
   if (k === 'ArrowDown') shift ? pickMove(1) : move(1);
   else if (k === 'ArrowUp') shift ? pickMove(-1) : move(-1);
   else if (k === 'Home') shift ? pickEnd(false) : move(-Infinity);
   else if (k === 'End') shift ? pickEnd(true) : move(Infinity);
+  else if (k === ' ') space(shift);
   else if (k === 'Delete') del();
   else if (k === 'Enter' && allMail()) openInFolder();
   else if (k === 'Enter' && listEl.contains(tg) && current()) openWindow(current().id);
