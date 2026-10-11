@@ -22,6 +22,7 @@ use chrono::{Local, TimeDelta};
 use futures_util::future::join_all;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::drafts::{self, DraftKind, DraftStart};
@@ -33,8 +34,8 @@ use telex_core::smtp::{self, Originals, SendError};
 use telex_core::tr;
 use telex_core::usage::Usage;
 use telex_core::{
-    Account, AccountSetup, DeleteOutcome, DeleteReport, FolderKind, FolderTree, Identity, ListView,
-    MailStore, Message, MessageId, OutgoingDraft, Page, PageAt, StoreError, UnreadAt,
+    Account, AccountSetup, DeleteReport, FolderKind, FolderTree, Identity, ListView, MailStore,
+    Message, MessageId, OutgoingDraft, Page, PageAt, StoreError, UnreadAt,
 };
 
 use crate::files::FilesState;
@@ -47,8 +48,9 @@ struct AppState {
     /// Telex is talking to the IMAP servers (a check or a push). Another one waits its
     /// turn instead of sending the same changes twice.
     busy: AtomicBool,
-    /// An Outbox is being sent. A second sender would send the same mail twice.
-    sending: AtomicBool,
+    /// An Outbox is being sent. A second sender would send the same mail twice, so senders
+    /// take turns; restoring a backup and installing an update only go when none is running.
+    sending: tokio::sync::Mutex<()>,
     /// A backup is being written, or the mail base restored or compacted.
     backing_up: AtomicBool,
     /// The backup last looked at in Settings › Backups: the only one Restore takes.
@@ -57,6 +59,11 @@ struct AppState {
 
 /// Errors cross the IPC bridge as plain, user-readable strings.
 type CmdResult<T> = Result<T, String>;
+
+/// A task that stopped (a thread that panicked, a lock held by one), in a sentence.
+pub(crate) fn failed(e: impl std::fmt::Display) -> String {
+    tr!("It didn't work: {e}", "Nie udało się: {e}")
+}
 
 fn with_store<T>(
     state: &AppState,
@@ -72,14 +79,23 @@ fn with_store<T>(
 }
 
 /// The user's mail base, or an empty one in memory until the first account creates the file.
-fn open_store(db_path: &Path) -> MailStore {
+/// A file that is there but doesn't open is left as it is, and the sentence says why.
+fn open_store(db_path: &Path) -> (MailStore, Option<String>) {
+    let mut problem = None;
     if db_path.exists() {
         match MailStore::open(db_path) {
-            Ok(store) => return store,
-            Err(e) => eprintln!("Telex: can't open {}: {e}", db_path.display()),
+            Ok(store) => return (store, None),
+            Err(e) => {
+                problem = Some(tr!(
+                    "Telex couldn't open the mail base {path}: {e}. It is left as it is; Telex starts without it.",
+                    "Telex nie mógł otworzyć bazy poczty {path}: {e}. Zostaje nietknięta; Telex startuje bez niej.",
+                    path = db_path.display()
+                ))
+            }
         }
     }
-    MailStore::in_memory().expect("an in-memory database always opens")
+    let empty = MailStore::in_memory().expect("an in-memory database always opens");
+    (empty, problem)
 }
 
 fn capitalize(s: &str) -> String {
@@ -91,14 +107,14 @@ fn capitalize(s: &str) -> String {
 }
 
 /// Accounts and their folders, with how many messages and unread ones each folder holds.
-#[tauri::command]
+#[tauri::command(async)]
 fn folder_tree(state: State<'_, AppState>) -> CmdResult<FolderTree> {
     with_store(&state, |s| s.folder_tree())
 }
 
 /// One page of a message list (a folder, or all mail) in the chosen order, with the
 /// quick filter. The window asks for the rows it is about to show.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_page(
     state: State<'_, AppState>,
     view: ListView,
@@ -108,33 +124,23 @@ fn list_page(
     with_store(&state, |s| s.page(&view, at, limit))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<Message> {
     with_store(&state, |s| s.get(id))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_unread(state: State<'_, AppState>, id: MessageId, unread: bool) -> CmdResult<()> {
     with_store(&state, |s| s.set_unread(id, unread))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_flagged(state: State<'_, AppState>, id: MessageId, flagged: bool) -> CmdResult<()> {
     with_store(&state, |s| s.set_flagged(id, flagged))
 }
 
-#[tauri::command]
-fn move_message(state: State<'_, AppState>, id: MessageId, folder: String) -> CmdResult<()> {
-    with_store(&state, |s| s.move_to(id, &folder))
-}
-
-#[tauri::command]
-fn delete_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<DeleteOutcome> {
-    with_store(&state, |s| s.delete(id))
-}
-
 /// Mark several messages read or unread. Returns how many changed.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_unread_many(
     state: State<'_, AppState>,
     ids: Vec<MessageId>,
@@ -144,7 +150,7 @@ fn set_unread_many(
 }
 
 /// Flag or unflag several messages. Returns how many changed.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_flagged_many(
     state: State<'_, AppState>,
     ids: Vec<MessageId>,
@@ -155,7 +161,7 @@ fn set_flagged_many(
 
 /// Move several messages to a folder of their account, all or none. Returns where each
 /// one was, for undo.
-#[tauri::command]
+#[tauri::command(async)]
 fn move_messages(
     state: State<'_, AppState>,
     ids: Vec<MessageId>,
@@ -165,25 +171,25 @@ fn move_messages(
 }
 
 /// Delete several messages: to Trash, or for good from Trash.
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_messages(state: State<'_, AppState>, ids: Vec<MessageId>) -> CmdResult<DeleteReport> {
     with_store(&state, |s| s.delete_many(&ids))
 }
 
 /// Mark every message in a folder read. Returns how many.
-#[tauri::command]
+#[tauri::command(async)]
 fn mark_folder_read(state: State<'_, AppState>, folder: String) -> CmdResult<usize> {
     with_store(&state, |s| s.mark_folder_read(&folder))
 }
 
 /// Use a server folder for sent mail (drafts, archive, spam, trash) from now on.
-#[tauri::command]
+#[tauri::command(async)]
 fn choose_folder(state: State<'_, AppState>, folder: String, kind: FolderKind) -> CmdResult<()> {
     with_store(&state, |s| s.choose_folder(&folder, kind))
 }
 
 /// The messages of a list between two (Shift selection), or all of it (Ctrl+A).
-#[tauri::command]
+#[tauri::command(async)]
 fn list_ids(
     state: State<'_, AppState>,
     view: ListView,
@@ -194,7 +200,7 @@ fn list_ids(
 }
 
 /// The next unread message of a list after one (before it with `back`): Space.
-#[tauri::command]
+#[tauri::command(async)]
 fn next_unread(
     state: State<'_, AppState>,
     view: ListView,
@@ -205,7 +211,7 @@ fn next_unread(
 }
 
 /// The people the user mails with, most likely first, for suggestions in To, Cc and Bcc.
-#[tauri::command]
+#[tauri::command(async)]
 fn recipients(state: State<'_, AppState>) -> CmdResult<Vec<Recipient>> {
     with_store(&state, |s| s.recipients())
 }
@@ -231,9 +237,16 @@ async fn save_outgoing(
     draft: OutgoingDraft,
 ) -> CmdResult<MessageId> {
     files.check(&draft.attachments)?;
+    let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
+    // The attached files are read with the store free: the window goes on meanwhile.
+    let composing = draft.clone();
+    let raw = tauri::async_runtime::spawn_blocking(move || {
+        smtp::compose_draft(&account, &composing, &originals, Local::now()).ok()
+    })
+    .await
+    .ok()
+    .flatten();
     with_store(&state, |s| {
-        let (account, originals) = draft_context(s, &draft)?;
-        let raw = smtp::compose_draft(&account, &draft, &originals, Local::now()).ok();
         s.save_outgoing(
             draft,
             raw.as_deref(),
@@ -245,14 +258,14 @@ async fn save_outgoing(
 
 /// Drop an autosaved draft for good (compose's Discard). Only drafts on this PC; true when
 /// one was removed.
-#[tauri::command]
+#[tauri::command(async)]
 fn discard_draft(state: State<'_, AppState>, id: MessageId) -> CmdResult<bool> {
     with_store(&state, |s| s.discard_draft(id))
 }
 
 /// The HTML of a draft or an unsent message, cleaned for the editor, or `null` when it
 /// was written as plain text.
-#[tauri::command]
+#[tauri::command(async)]
 fn draft_html(state: State<'_, AppState>, id: MessageId) -> CmdResult<Option<String>> {
     let raw = with_store(&state, |s| s.raw_of(id))?;
     Ok(raw
@@ -262,39 +275,33 @@ fn draft_html(state: State<'_, AppState>, id: MessageId) -> CmdResult<Option<Str
 }
 
 /// Compose switches from HTML to plain text: the text the plain version would have.
-#[tauri::command]
+#[tauri::command(async)]
 fn html_to_text(html: String) -> String {
     html::to_text(&html::compose_clean(&html))
 }
 
 /// Compose switches from plain text to HTML, or a reply opens in the HTML editor.
-#[tauri::command]
+#[tauri::command(async)]
 fn text_to_html(text: String) -> String {
     html::from_text(&text)
 }
 
 /// HTML pasted into the editor, cleaned to what Telex sends: no styles, scripts or images.
-#[tauri::command]
+#[tauri::command(async)]
 fn clean_html(html: String) -> String {
     html::compose_clean(&html)
 }
 
 /// What the mail takes and how it moves, for the Usage page and the status-bar meter.
-#[tauri::command]
+#[tauri::command(async)]
 fn usage(state: State<'_, AppState>) -> CmdResult<Usage> {
     with_store(&state, |s| s.usage(Local::now().date_naive()))
 }
 
 /// Senders whose images load without asking, for Settings.
-#[tauri::command]
+#[tauri::command(async)]
 fn trusted_senders(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
     with_store(&state, |s| s.trusted_senders())
-}
-
-/// Full-text search over every stored message, bodies included.
-#[tauri::command]
-fn search(state: State<'_, AppState>, query: String) -> CmdResult<Vec<MessageId>> {
-    with_store(&state, |s| s.search(&query))
 }
 
 #[derive(Debug, Serialize)]
@@ -322,38 +329,35 @@ async fn get_html(
     dark: Option<Palette>,
 ) -> CmdResult<Option<HtmlView>> {
     let paper = dark.map_or(Paper::Light, Paper::Dark);
-    let (raw, sender, trusted, auto) = with_store(&state, |s| {
-        let sender = s.get(id)?.from_email;
-        let trusted = s.is_sender_trusted(&sender)?;
-        Ok((s.raw_of(id)?, sender, trusted, s.auto_load_images(id)?))
-    })?;
+    let (raw, trust) = with_store(&state, |s| Ok((s.raw_of(id)?, s.image_trust(id)?)))?;
     let Some(raw) = raw else { return Ok(None) };
-    let Some(first) = html::render(&raw, &HashMap::new(), &paper) else {
-        return Ok(None);
-    };
-    let (rendered, loaded) = if load_images.unwrap_or(auto) && !first.remote.is_empty() {
-        let urls = first.remote.clone();
-        let images = tauri::async_runtime::spawn_blocking(move || {
-            html::fetch_images(&urls, &FetchLimits::default())
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+    let load = load_images.unwrap_or(trust.auto);
+    // Cleaning a large message, and fetching its images, is work for a thread of its own.
+    let rendered = tauri::async_runtime::spawn_blocking(move || {
+        let first = html::render(&raw, &HashMap::new(), &paper)?;
+        if !load || first.remote.is_empty() {
+            return Some((first, 0));
+        }
+        let images = html::fetch_images(&first.remote, &FetchLimits::default());
         let loaded = images.len();
-        (html::render(&raw, &images, &paper).unwrap_or(first), loaded)
-    } else {
-        (first, 0)
+        Some((html::render(&raw, &images, &paper).unwrap_or(first), loaded))
+    })
+    .await
+    .map_err(failed)?;
+    let Some((rendered, loaded)) = rendered else {
+        return Ok(None);
     };
     Ok(Some(HtmlView {
         document: rendered.document,
         blocked: rendered.blocked,
         loaded,
-        sender,
-        trusted,
+        sender: trust.sender,
+        trusted: trust.trusted,
     }))
 }
 
 /// Load a sender's remote images without asking from now on, or stop that.
-#[tauri::command]
+#[tauri::command(async)]
 fn trust_sender(state: State<'_, AppState>, email: String, trusted: bool) -> CmdResult<()> {
     with_store(&state, |s| s.set_sender_trusted(&email, trusted))
 }
@@ -361,7 +365,7 @@ fn trust_sender(state: State<'_, AppState>, email: String, trusted: bool) -> Cmd
 /// What the compose pane opens with: recipients, subject and text for a new message
 /// (from `account`), or a reply or forward of `of`, with the right identity's signature
 /// and templates.
-#[tauri::command]
+#[tauri::command(async)]
 fn start_draft(
     state: State<'_, AppState>,
     kind: DraftKind,
@@ -372,48 +376,48 @@ fn start_draft(
 }
 
 /// Add (id 0) or update an identity. Mistakes come back as sentences.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_identity(state: State<'_, AppState>, identity: Identity) -> CmdResult<Identity> {
     with_store(&state, |s| s.save_identity(&identity))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_identity(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
     with_store(&state, |s| s.delete_identity(id))
 }
 
 /// Every rule, in the order they run.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_rules(state: State<'_, AppState>) -> CmdResult<Vec<Rule>> {
     with_store(&state, |s| s.rules())
 }
 
 /// Add (id 0) or update a rule. Mistakes come back as sentences for the editor.
-#[tauri::command]
+#[tauri::command(async)]
 fn save_rule(state: State<'_, AppState>, rule: Rule) -> CmdResult<Rule> {
     with_store(&state, |s| s.save_rule(&rule))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_rule(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
     with_store(&state, |s| s.delete_rule(id))
 }
 
 /// Move a rule up (-1) or down (1).
-#[tauri::command]
+#[tauri::command(async)]
 fn move_rule(state: State<'_, AppState>, id: i64, delta: i64) -> CmdResult<()> {
     with_store(&state, |s| s.move_rule(id, delta))
 }
 
 /// Move an account up (-1) or down (1) in the folder tree.
-#[tauri::command]
+#[tauri::command(async)]
 fn move_account(state: State<'_, AppState>, id: String, delta: i64) -> CmdResult<()> {
     with_store(&state, |s| s.move_account(&id, delta))
 }
 
 /// Run the rules now on every message in a folder. Auto-replies don't run here: they
 /// answer new mail only.
-#[tauri::command]
+#[tauri::command(async)]
 fn run_rules(state: State<'_, AppState>, folder: String) -> CmdResult<RunReport> {
     with_store(&state, |s| {
         let ids: Vec<MessageId> = s.list(&folder)?.iter().map(|m| m.id).collect();
@@ -423,7 +427,7 @@ fn run_rules(state: State<'_, AppState>, folder: String) -> CmdResult<RunReport>
 
 /// What Telex's provider list knows about an address, without going online: for tips
 /// while the user types it.
-#[tauri::command]
+#[tauri::command(async)]
 fn known_provider(email: String) -> Option<Detected> {
     autoconfig::known(&email)
 }
@@ -472,7 +476,7 @@ async fn open_window(app: AppHandle, id: MessageId) -> CmdResult<()> {
 }
 
 /// Open a web link from a message in the default browser.
-#[tauri::command]
+#[tauri::command(async)]
 fn open_link(app: AppHandle, url: String) -> CmdResult<()> {
     let url = url.trim();
     let lower = url.to_ascii_lowercase();
@@ -541,12 +545,13 @@ async fn add_account(
 /// touched; an away reply Telex put on the server is taken off first, as nobody could later.
 #[tauri::command]
 async fn remove_account(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    if state.busy.load(Ordering::SeqCst) {
+    // No check may start on the account while it goes.
+    let Some(_busy) = BusyGuard::take(&state.busy) else {
         return Err(tr!(
             "Telex is talking to the mail server. Try again in a moment.",
             "Telex rozmawia z serwerem poczty. Spróbuj za chwilę."
         ));
-    }
+    };
     let (account, away) = with_store(&state, |s| Ok((s.account(&id)?.clone(), s.away(&id)?)))?;
     if away.place == telex_core::away::Place::Server {
         if let (Some(imap), Ok(password)) = (&account.imap, secrets::load_password(&account.email))
@@ -802,21 +807,7 @@ async fn send_message(
             queued,
             ..SendOutcome::default()
         };
-        // Another send may be running; it picks this one up if it is due by then. If not,
-        // try again shortly, for at most a minute; the next check sends it anyway.
-        for _ in 0..30 {
-            let due = with_store(&state, |s| {
-                s.has_outgoing(&account.id, Local::now().naive_local())
-            })
-            .unwrap_or(false);
-            if !due {
-                break;
-            }
-            if send_account_outbox(&state, &account, &mut done.sent, &mut done.errors).await {
-                break;
-            }
-            tokio::time::sleep(Duration::from_secs(2)).await;
-        }
+        send_account_outbox(&state, &account, &mut done.sent, &mut done.errors).await;
         let _ = app.emit("outbox-sent", done);
     });
     Ok(outcome)
@@ -824,28 +815,25 @@ async fn send_message(
 
 /// Take back a message still waiting out its moment in the Outbox. It stays there, held,
 /// for the user to edit (E) or drop.
-#[tauri::command]
+#[tauri::command(async)]
 fn hold_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<()> {
     with_store(&state, |s| s.hold_outgoing(id, Local::now().naive_local()))
 }
 
-/// Send what is due in the account's Outbox. If another send is running, it picks up
-/// new mail itself, so this one does nothing and returns false.
+/// Send what is due in the account's Outbox, after any send already running.
 async fn send_account_outbox(
     state: &AppState,
     account: &Account,
     sent: &mut Vec<String>,
     errors: &mut Vec<String>,
-) -> bool {
-    let Some(_sending) = BusyGuard::take(&state.sending) else {
-        return false;
-    };
+) {
+    let _sending = state.sending.lock().await;
     let has_mail = with_store(state, |s| {
         s.has_outgoing(&account.id, Local::now().naive_local())
     })
     .unwrap_or(false);
     if !has_mail {
-        return true;
+        return;
     }
     let mut problem = |e: &str| errors.push(format!("{}: {e}", account.name));
     let Some(settings) = &account.smtp else {
@@ -854,7 +842,7 @@ async fn send_account_outbox(
             "nie ustawiono serwera SMTP, więc wiadomości czekają w Skrzynce nadawczej. \
              Dodaj go w Ustawienia › Konta"
         ));
-        return true;
+        return;
     };
     let username = account
         .imap
@@ -864,14 +852,14 @@ async fn send_account_outbox(
         Ok(p) => p,
         Err(e) => {
             problem(&e);
-            return true;
+            return;
         }
     };
     let transport = match smtp::transport(settings, username, &password) {
         Ok(t) => t,
         Err(SendError::Refused(e) | SendError::Failed(e)) => {
             problem(&e);
-            return true;
+            return;
         }
     };
     match smtp::send_outbox(account, &transport, &state.store).await {
@@ -883,7 +871,6 @@ async fn send_account_outbox(
         }
         Err(e) => problem(&e.to_string()),
     }
-    true
 }
 
 /// Send queued changes (read state, flags, moves, deletes) to the servers now, without
@@ -895,7 +882,12 @@ async fn push_changes(state: State<'_, AppState>) -> CmdResult<SyncOutcome> {
         return Ok(SyncOutcome::busy());
     };
     let mut outcome = SyncOutcome::default();
-    let accounts = server_accounts(&state)?;
+    // Only accounts with queued changes: no password is read, and no keyring asked, for
+    // the others.
+    let accounts: Vec<Account> = server_accounts(&state)?
+        .into_iter()
+        .filter(|a| with_store(&state, |s| s.has_pending_changes(&a.id)).unwrap_or(true))
+        .collect();
     let results = join_all(accounts.iter().map(|account| async {
         match secrets::load_password(&account.email) {
             Ok(password) => imap::push_account(account, &password, &state.store)
@@ -942,11 +934,19 @@ pub fn run() {
             let db_path = dir.join("telex.db");
             app.manage(settings::SettingsState::load(dir.join("settings.json")));
             app.manage(spell::SpellState::start(&dir));
+            let (store, problem) = open_store(&db_path);
+            if let Some(problem) = problem {
+                app.dialog()
+                    .message(problem)
+                    .kind(MessageDialogKind::Error)
+                    .title("Telex")
+                    .show(|_| {});
+            }
             app.manage(AppState {
-                store: Mutex::new(open_store(&db_path)),
+                store: Mutex::new(store),
                 db_path,
                 busy: AtomicBool::new(false),
-                sending: AtomicBool::new(false),
+                sending: tokio::sync::Mutex::new(()),
                 backing_up: AtomicBool::new(false),
                 restorable: Mutex::new(None),
             });
@@ -973,8 +973,6 @@ pub fn run() {
             get_message,
             set_unread,
             set_flagged,
-            move_message,
-            delete_message,
             set_unread_many,
             set_flagged_many,
             move_messages,
@@ -989,7 +987,6 @@ pub fn run() {
             files::open_attachment,
             files::save_attachment,
             files::save_attachments,
-            files::show_saved,
             files::pick_files,
             backup::backup_state,
             backup::backup_now,
@@ -1023,7 +1020,6 @@ pub fn run() {
             clean_html,
             usage,
             trusted_senders,
-            search,
             add_account,
             remove_account,
             known_provider,

@@ -99,10 +99,8 @@ pub struct FoundFolder {
     place: Place,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 enum Place {
-    #[default]
-    Nowhere,
     /// An mbox file, a Maildir or MH folder.
     Path(PathBuf),
     /// A folder of an Outlook data file, by its node.
@@ -210,15 +208,18 @@ fn read_mail_folder(root: &Path, program: Program) -> Option<Source> {
         || root.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
     );
-    Some(Source {
-        path: root.display().to_string(),
-        program,
-        name,
-        accounts: Vec::new(),
-        folders,
-        filters: 0,
-        filter_files: Vec::new(),
-    })
+    Some(
+        Source {
+            path: root.display().to_string(),
+            program,
+            name,
+            accounts: Vec::new(),
+            folders,
+            filters: 0,
+            filter_files: Vec::new(),
+        }
+        .numbered(),
+    )
 }
 
 /// How many files and folders a scan looks at, at most: a folder picked by mistake (a whole
@@ -263,7 +264,9 @@ fn collect_mail_dirs(
             return;
         }
         *budget -= 1;
-        if matches!(name.as_str(), "cur" | "new" | "tmp") || name.parse::<u32>().is_ok() {
+        // Maildir's own folders, and MH's message files (a folder may well be called "2019").
+        if matches!(name.as_str(), "cur" | "new" | "tmp") || !is_dir && name.parse::<u32>().is_ok()
+        {
             continue;
         }
         if is_dir {
@@ -433,8 +436,15 @@ impl MailStore {
     /// The folder on this PC called `name`, made when there is none. Archive and Trash answer
     /// to their names in either language.
     pub fn local_folder_named(&mut self, name: &str) -> Result<String, StoreError> {
-        let name: String = name.chars().take(80).collect();
-        let wanted = name.trim().to_lowercase();
+        // As a folder's name is kept: spaces collapsed, at most 80 characters.
+        let name: String = name
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(80)
+            .collect();
+        let wanted = name.to_lowercase();
         if let Some(pc) = self.this_pc() {
             let same = |f: &&crate::model::Folder| {
                 f.kind != FolderKind::Outbox
@@ -489,7 +499,6 @@ pub fn import_mail(
                         .push(format!("{}: {e}", folder.name));
                 }
             }
-            Place::Nowhere => {}
         }
         done += importer.done;
         bytes += importer.bytes.max(folder.bytes);
@@ -597,11 +606,14 @@ pub(crate) mod tests {
         std::fs::write(mh.join("2"), mail("mh-dwa")).unwrap();
         std::fs::write(mh.join(".mh_sequences"), "unseen: 2\n").unwrap();
 
-        let source = read_mail_folder(&root, Program::Evolution)
-            .unwrap()
-            .numbered();
+        // A folder named by a number is a folder; MH's numbered files are messages.
+        std::fs::create_dir_all(root.join("2019").join("cur")).unwrap();
+        std::fs::write(root.join("2019").join("cur").join("9.host"), mail("rok")).unwrap();
+        let source = read_mail_folder(&root, Program::Evolution).unwrap();
         let names: Vec<&str> = source.folders.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, ["Inbox", "Archive / 2019", "claws"]);
+        assert_eq!(names, ["Inbox", "Archive / 2019", "2019", "claws"]);
+        let keys: Vec<&str> = source.folders.iter().map(|f| f.key.as_str()).collect();
+        assert_eq!(keys, ["f0", "f1", "f2", "f3"], "each its own key");
 
         let store = Mutex::new(MailStore::in_memory().unwrap());
         store
@@ -617,7 +629,7 @@ pub(crate) mod tests {
             .unwrap();
         let keys: Vec<String> = source.folders.iter().map(|f| f.key.clone()).collect();
         let report = import_mail(&store, &source, &keys, &|_| {}).unwrap();
-        assert_eq!(report.added, 6, "{report:?}");
+        assert_eq!(report.added, 7, "{report:?}");
         let s = store.lock().unwrap();
         let inbox = s.list("local/inbox").unwrap();
         let subject = |name: &str| inbox.iter().find(|m| m.subject == name).unwrap().clone();
@@ -638,7 +650,7 @@ pub(crate) mod tests {
         drop(s);
         // Again: nothing twice.
         let again = import_mail(&store, &source, &keys, &|_| {}).unwrap();
-        assert_eq!((again.added, again.already), (0, 6));
+        assert_eq!((again.added, again.already), (0, 7));
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -661,5 +673,10 @@ pub(crate) mod tests {
         assert_eq!(store.local_folder_named("Kosz").unwrap(), "local/trash");
         let made = store.local_folder_named("Faktury / 2026").unwrap();
         assert_eq!(store.local_folder_named("faktury / 2026").unwrap(), made);
+        assert_eq!(
+            store.local_folder_named("Faktury  /  2026 ").unwrap(),
+            made,
+            "spaces as kept"
+        );
     }
 }

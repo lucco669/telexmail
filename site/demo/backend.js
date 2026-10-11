@@ -383,7 +383,10 @@ function installTelexDemo(options) {
       if (m.out?.held) c.stuck = (c.stuck ?? 0) + 1; // taken back: it didn't go
     }
     for (const [key, n] of Object.entries(older)) if (n > 0 && folderOf(key)) (counts[key] ??= { total: 0, unread: 0 }).older = n;
-    return { accounts, counts, problems: {} };
+    // Each account's storage and last check, as usage.rs keeps them (the status-bar meter).
+    const quota = Object.fromEntries(Object.entries(data.quota || {}).filter(([, q]) => q));
+    const synced = Object.fromEntries(Object.entries(lastSync).filter(([, at]) => at));
+    return { accounts, counts, problems: {}, away: [], quota, synced };
   }
 
   /* ---------- changes to mail (store.rs) ---------- */
@@ -1248,9 +1251,7 @@ function installTelexDemo(options) {
       return null;
     },
     mark_folder_read: ({ folder }) => { needFolder(folder); return setMany(msgs.filter((m) => m.folder === folder).map((m) => m.id), 'unread', false); },
-    move_message: ({ id, folder }) => { moveMany([id], folder); },
     move_messages: ({ ids, folder }) => moveMany(ids, folder),
-    delete_message: ({ id }) => (deleteMany([id]).trashed.length ? 'moved_to_trash' : 'removed'),
     delete_messages: ({ ids }) => deleteMany(ids),
     get_html: getHtml,
     trusted_senders: () => [...trusted].sort((a, b) => a.localeCompare(b)),
@@ -1271,7 +1272,6 @@ function installTelexDemo(options) {
     clean_html: ({ html }) => cleanHtml(html),
     send_message: sendMessage,
     hold_message: holdMessage,
-    search: ({ query }) => listed({ filter: query, bodies: true }).map((m) => m.id).slice(0, 5000),
     check_mail: checkMail,
     push_changes: () => ({ new: [], new_in: null, sent: [], sorted: 0, errors: [], busy }),
     download_older: downloadOlder,
@@ -1318,7 +1318,6 @@ function installTelexDemo(options) {
     open_attachment: openAttachment,
     save_attachment: () => refuse('save'),
     save_attachments: () => refuse('save'),
-    show_saved: () => refuse('save'),
     export_settings: () => refuse('export'),
     show_export: () => refuse('export'),
     open_import: () => refuse('import'),

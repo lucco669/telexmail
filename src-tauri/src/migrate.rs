@@ -15,14 +15,10 @@ use telex_core::migrate::{self, Choice, Source};
 use telex_core::settings::PlanItem;
 use telex_core::{imap, tr, MailStore};
 
-use crate::{capitalize, secrets, watch, with_store, AppState, CmdResult};
+use crate::{capitalize, failed, secrets, watch, with_store, AppState, CmdResult};
 
 /// New accounts log in this many at a time to read their folders.
 const LOGINS_AT_ONCE: usize = 6;
-
-fn failed(e: impl std::fmt::Display) -> String {
-    tr!("It didn't work: {e}", "Nie udało się: {e}")
-}
 
 /// The sources found or picked this session: the only ones `move_in` reads, as only files
 /// the user chose can be attached.

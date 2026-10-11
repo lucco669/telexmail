@@ -80,6 +80,10 @@ pub struct Detected {
     pub unsupported: Option<Unsupported>,
     /// A page of the provider's that helps with the note, e.g. where app passwords are made.
     pub help: Option<String>,
+    /// The servers came from DNS (SRV records, or a guess that tried the MX hosts) and aren't
+    /// in the address's own domain: the wizard asks before it sends them the password, as
+    /// RFC 6186 says, since a forged DNS answer could have named them.
+    pub confirm: bool,
 }
 
 /// Which login name a provider expects.
@@ -608,6 +612,7 @@ impl Provider {
 
 /// Settings found without the provider list: no name, tips or reasons.
 fn plain(setup: AccountSetup, source: Source) -> Detected {
+    let confirm = matches!(source, Source::Srv | Source::Guess) && outside_domain(&setup);
     Detected {
         setup,
         provider: None,
@@ -615,7 +620,26 @@ fn plain(setup: AccountSetup, source: Source) -> Detected {
         note: None,
         unsupported: None,
         help: None,
+        confirm,
     }
+}
+
+/// A server that isn't the address's domain or a name under it.
+fn outside_domain(setup: &AccountSetup) -> bool {
+    let Some((_, domain)) = setup.email.rsplit_once('@') else {
+        return true;
+    };
+    let domain = domain.trim().to_ascii_lowercase();
+    let inside = |host: &str| {
+        let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+        host == domain || host.ends_with(&format!(".{domain}"))
+    };
+    let smtp = if setup.smtp_host.trim().is_empty() {
+        &setup.host
+    } else {
+        &setup.smtp_host
+    };
+    !(inside(&setup.host) && inside(smtp))
 }
 
 /// The provider list's settings for an address, without going online.
@@ -1437,6 +1461,13 @@ mod tests {
         };
         let found = from_srv("jan@studio.pl", &srv).unwrap();
         assert_eq!(found.source, Source::Srv);
+        assert!(!found.confirm, "servers in the address's own domain");
+        // A server elsewhere, named only by DNS: the wizard asks before the password goes.
+        let elsewhere = SrvRecords {
+            imaps: records(&[("mail.hosting-firma.com", 993)]),
+            ..srv.clone()
+        };
+        assert!(from_srv("jan@studio.pl", &elsewhere).unwrap().confirm);
         assert_eq!(
             (found.setup.host.as_str(), found.setup.port),
             ("imap.studio.pl", 993)

@@ -22,7 +22,7 @@ pub struct AwayView {
     why: Option<Why>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_away(state: State<'_, AppState>, account: String) -> CmdResult<Away> {
     with_store(&state, |s| s.away(&account))
 }

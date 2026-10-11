@@ -53,7 +53,7 @@ pub(crate) fn recolor_style(style: &str, to: &Target) -> String {
         .into_iter()
         .map(|decl| match decl.split_once(':') {
             Some((prop, value)) => match role_of(prop) {
-                Some(role) => format!("{prop}:{}", recolor_value(value, role, to)),
+                Some(role) => format!("{prop}:{}", recolor_value(value, role, to, 0)),
                 None => decl.to_owned(),
             },
             None => decl.to_owned(),
@@ -95,8 +95,12 @@ fn role_of(property: &str) -> Option<Role> {
     }
 }
 
+/// How deep functions inside functions are recolored; deeper ones are left as they are, so a
+/// value made to be deep can't exhaust the stack.
+const MAX_NESTING: u8 = 8;
+
 /// Replace each color in a CSS value, e.g. `1px solid #ccc` or `linear-gradient(#fff, red)`.
-fn recolor_value(value: &str, role: Role, to: &Target) -> String {
+fn recolor_value(value: &str, role: Role, to: &Target, depth: u8) -> String {
     let mut out = String::with_capacity(value.len());
     let mut rest = value;
     while let Some(c) = rest.chars().next() {
@@ -120,22 +124,27 @@ fn recolor_value(value: &str, role: Role, to: &Target) -> String {
             let after = &rest[len..];
             let lower = word.to_ascii_lowercase();
             if after.starts_with('(') {
-                let close = matching_paren(after).unwrap_or(after.len());
+                let closed = matching_paren(after);
+                let close = closed.unwrap_or(after.len());
                 let call = &rest[..len + close];
                 if matches!(lower.as_str(), "rgb" | "rgba" | "hsl" | "hsla") {
                     match parse_color(call) {
                         Some(rgba) => out.push_str(&css(recolor_rgba(rgba, role, to))),
                         None => out.push_str(call),
                     }
-                } else if lower == "url" {
-                    out.push_str(call); // an image, never recolored
+                } else if lower == "url" || depth >= MAX_NESTING {
+                    out.push_str(call); // an image, never recolored; or too deep
                 } else {
-                    // Another function, e.g. a gradient: recolor what is inside.
+                    // Another function, e.g. a gradient: recolor what is inside. One never
+                    // closed runs to the end of the value.
                     out.push_str(word);
                     out.push('(');
-                    let inner = &after[1..close.saturating_sub(1).max(1)];
-                    out.push_str(&recolor_value(inner, role, to));
-                    if close > 1 && after[..close].ends_with(')') {
+                    let inner = match closed {
+                        Some(c) => &after[1..c - 1],
+                        None => after.strip_prefix('(').unwrap_or(after),
+                    };
+                    out.push_str(&recolor_value(inner, role, to, depth + 1));
+                    if closed.is_some() {
                         out.push(')');
                     }
                 }
@@ -485,6 +494,17 @@ mod tests {
     /// Telex's Dark theme: its surface and its text.
     fn dark() -> Target {
         Target::new("#14171b", "#e2e6eb").unwrap()
+    }
+
+    #[test]
+    fn hostile_styles_are_survived() {
+        // A function never closed, ending in a letter that takes two bytes.
+        assert!(recolor_style("color: x(ą", &dark()).starts_with("color: x(ą"));
+        // Nesting made to exhaust the stack: deep levels are left as they are.
+        let deep = format!("background: {}#fff", "x(".repeat(20_000));
+        assert!(recolor_style(&deep, &dark()).ends_with("#fff"));
+        let shallow = recolor_style("background: x(y(#ffffff))", &dark());
+        assert!(!shallow.contains("#ffffff"), "{shallow}");
     }
 
     #[test]

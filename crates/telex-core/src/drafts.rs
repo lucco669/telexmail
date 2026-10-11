@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::mime::reply_to_of;
-use crate::model::{split_folder_key, Account, Attachment, Identity, Message, MessageId};
+use crate::model::{account_of, Account, Attachment, Identity, Message, MessageId};
 use crate::smtp::split_addresses;
 use crate::store::{MailStore, StoreError, LOCAL_ID};
 use crate::tr;
@@ -290,10 +290,6 @@ fn key(address: &str) -> String {
         _ => a,
     };
     inner.trim().to_ascii_lowercase()
-}
-
-fn account_of(folder_key: &str) -> &str {
-    split_folder_key(folder_key).map_or(folder_key, |(a, _)| a)
 }
 
 #[cfg(test)]

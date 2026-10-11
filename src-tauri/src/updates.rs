@@ -96,7 +96,7 @@ pub struct BuildInfo {
 }
 
 /// This build's version and whether it can update itself.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_info(app: AppHandle) -> BuildInfo {
     BuildInfo {
         version: app.package_info().version.to_string(),
@@ -195,7 +195,7 @@ pub async fn install_update(
     let Some(_busy) = BusyGuard::take(&state.busy) else {
         return Ok(InstallOutcome { busy: true });
     };
-    let Some(_sending) = BusyGuard::take(&state.sending) else {
+    let Ok(_sending) = state.sending.try_lock() else {
         return Ok(InstallOutcome { busy: true });
     };
     let known = found.0.lock().map_err(|_| stuck())?.clone();

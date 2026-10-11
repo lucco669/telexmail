@@ -11,7 +11,7 @@ use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
 use telex_core::i18n::{self, Lang};
-use telex_core::imap::{self, Watched};
+use telex_core::imap::{self, SyncError, Watched};
 use telex_core::{Account, FolderKind, MessageId};
 
 use crate::settings::SettingsState;
@@ -58,6 +58,9 @@ async fn watch(app: AppHandle, account: Account) {
             let started = Instant::now();
             match imap::watch_inbox(&settings, &password, &changed).await {
                 Ok(Watched::NoIdle) => return,
+                // A rejected password stays rejected: logging in again and again can get the
+                // address banned. Saving the account again restarts the watcher.
+                Err(SyncError::Login(_)) => return,
                 // A connection that held for a while was fine: start over with short pauses.
                 Err(_) if started.elapsed() > Duration::from_secs(300) => pause = first_pause,
                 Err(_) => {}

@@ -24,6 +24,10 @@ use crate::tr;
 pub const PORT: u16 = 4190;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+/// The longest line, and the largest string (a script), Telex takes from a server: far more
+/// than any real one, little enough that a hostile server can't fill the memory.
+const MAX_LINE: u64 = 64 * 1024;
+const MAX_LITERAL: usize = 1024 * 1024;
 /// The name of the script Telex makes when the server has none running.
 pub const OWN_SCRIPT: &str = "telex";
 const BEGIN: &str = "# Telex: away reply, begin. Telex writes and removes this part.";
@@ -170,11 +174,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
         let mut words = Vec::new();
         loop {
             let mut raw = Vec::new();
-            let n = timeout(COMMAND_TIMEOUT, self.stream.read_until(b'\n', &mut raw))
+            let mut limited = (&mut self.stream).take(MAX_LINE);
+            let n = timeout(COMMAND_TIMEOUT, limited.read_until(b'\n', &mut raw))
                 .await
                 .map_err(|_| lost())?
                 .map_err(|_| lost())?;
-            if n == 0 {
+            if n == 0 || (n as u64 == MAX_LINE && !raw.ends_with(b"\n")) {
                 return Err(lost());
             }
             let text = String::from_utf8_lossy(&raw);
@@ -215,6 +220,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Session<S> {
                 }
             }
             match literal_len {
+                Some(n) if n > MAX_LITERAL => return Err(lost()),
                 Some(n) => {
                     let mut data = vec![0; n];
                     timeout(COMMAND_TIMEOUT, self.stream.read_exact(&mut data))
@@ -508,7 +514,11 @@ fn after_requires(script: &str) -> usize {
         } else if rest.starts_with("/*") {
             at += rest.find("*/").map_or(rest.len(), |i| i + 2);
             end = at;
-        } else if rest.len() >= 7 && rest[..7].eq_ignore_ascii_case("require") {
+        } else if rest
+            .as_bytes()
+            .get(..7)
+            .is_some_and(|w| w.eq_ignore_ascii_case(b"require"))
+        {
             // Up to its ";", past strings that may hold one.
             let mut quoted = false;
             let mut escaped = false;
@@ -618,6 +628,9 @@ mod tests {
         assert!(!again.contains("2026-10-12"));
         // A script with nothing but Telex's part is empty without it.
         assert!(without_block(&with_block("", &block)).trim().is_empty());
+        // Text that isn't ASCII right where a command would start.
+        assert!(with_block("keep;#żółw", &block).contains(BEGIN));
+        assert!(with_block("żółw", &block).starts_with(BEGIN));
         // A semicolon inside a require's string doesn't end it.
         let odd = "require [\"a;b\"];\r\nkeep;\r\n";
         assert!(with_block(odd, &block).starts_with("require [\"a;b\"];\r\n# Telex"));
@@ -713,6 +726,20 @@ mod tests {
         tokio::spawn(fake_server(listener, scripts.clone()));
         let tcp = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
         Session::greet(tcp).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_server_announcing_a_huge_string_is_refused() {
+        let (client, mut server) = tokio::io::duplex(1024);
+        server
+            .write_all(b"\"IMPLEMENTATION\" {99999999999}\r\n")
+            .await
+            .unwrap();
+        assert!(Session::greet(client).await.is_err());
+        let (client, mut server) = tokio::io::duplex(256 * 1024);
+        let endless = vec![b'x'; 100 * 1024];
+        server.write_all(&endless).await.unwrap();
+        assert!(Session::greet(client).await.is_err(), "a line without end");
     }
 
     #[tokio::test]

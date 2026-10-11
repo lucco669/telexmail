@@ -935,6 +935,14 @@ pub fn download(dir: &Path, tag: &str) -> Result<(), String> {
 
 /// Remove a dictionary Telex fetched.
 pub fn remove(dir: &Path, tag: &str) -> Result<(), String> {
+    // A language tag names two files in the folder, and nothing outside it.
+    let plain = |part: &str| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric());
+    if tag.len() > 16 || !tag.split('-').all(plain) {
+        return Err(tr!(
+            "Telex has no dictionary for {tag}.",
+            "Telex nie ma słownika dla {tag}."
+        ));
+    }
     let stem = tag.replace('-', "_");
     for ext in ["aff", "dic"] {
         match std::fs::remove_file(dir.join(format!("{stem}.{ext}"))) {
@@ -1122,6 +1130,7 @@ mod tests {
         assert_eq!(h.knows("fr-FR", "chat"), None);
         // Removing one Telex fetched, and looking again.
         remove(&own, "de-DE").unwrap();
+        assert!(remove(&own, "../de-DE").is_err() && remove(&own, "de-DE/x").is_err());
         assert_eq!(h.knows("de-DE", "Katze"), Some(true), "still loaded");
         h.forget();
         assert_eq!(h.knows("de-DE", "Katze"), None);

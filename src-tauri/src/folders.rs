@@ -12,16 +12,16 @@ use telex_core::mailbox::{self, ImportProgress, ImportReport};
 use telex_core::{tr, StoreError};
 
 use crate::files::FilesState;
-use crate::{with_store, AppState, CmdResult};
+use crate::{failed, with_store, AppState, CmdResult};
 
 /// Make a folder on this PC. Returns its key.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn create_local_folder(state: State<'_, AppState>, name: String) -> CmdResult<String> {
     with_store(&state, |s| s.create_local_folder(&name))
 }
 
 /// Give a folder on this PC another name.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_local_folder(
     state: State<'_, AppState>,
     folder: String,
@@ -31,7 +31,7 @@ pub fn rename_local_folder(
 }
 
 /// Remove an empty folder on this PC. Returns how many rules lost their move to it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_local_folder(state: State<'_, AppState>, folder: String) -> CmdResult<usize> {
     with_store(&state, |s| s.delete_local_folder(&folder))
 }
@@ -48,10 +48,6 @@ pub struct FileWords {
     file_name: String,
 }
 
-fn failed(e: impl std::fmt::Display) -> String {
-    tr!("It didn't work: {e}", "Nie udało się: {e}")
-}
-
 /// Save a folder as an mbox file where the user picks. It is read on a connection of its
 /// own, so Telex keeps working meanwhile. The path written, or `null` when cancelled.
 #[tauri::command]
@@ -59,7 +55,6 @@ pub async fn export_folder(
     app: AppHandle,
     window: WebviewWindow,
     state: State<'_, AppState>,
-    files: State<'_, FilesState>,
     folder: String,
     words: FileWords,
 ) -> CmdResult<Option<String>> {
@@ -93,7 +88,6 @@ pub async fn export_folder(
         .await
         .map_err(failed)?
         .map_err(|e| e.to_string())?;
-    files.remember_saved(&dest);
     Ok(Some(dest.display().to_string()))
 }
 

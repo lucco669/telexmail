@@ -18,7 +18,7 @@ use telex_core::backup::{self, BackupFile, BackupInfo};
 use telex_core::{tr, MailStore};
 
 use crate::settings::SettingsState;
-use crate::{open_store, watch, with_store, AppState, BusyGuard, CmdResult};
+use crate::{failed, open_store, watch, with_store, AppState, BusyGuard, CmdResult};
 
 /// What Settings › Backups shows.
 #[derive(Debug, Serialize)]
@@ -57,11 +57,7 @@ fn busy_text() -> String {
     )
 }
 
-fn failed(e: impl std::fmt::Display) -> String {
-    tr!("It didn't work: {e}", "Nie udało się: {e}")
-}
-
-#[tauri::command]
+#[tauri::command(async)]
 pub fn backup_state(app: AppHandle, state: State<'_, AppState>) -> CmdResult<BackupState> {
     let (base_bytes, free_bytes, on_disk) = with_store(&state, |s| {
         let (pages, free, size) = s.page_counts()?;
@@ -244,7 +240,7 @@ pub async fn restore_backup(app: AppHandle, path: String) -> CmdResult<String> {
         let Some(_busy) = BusyGuard::take(&state.busy) else {
             return Err(busy_text());
         };
-        let Some(_sending) = BusyGuard::take(&state.sending) else {
+        let Ok(_sending) = state.sending.try_lock() else {
             return Err(busy_text());
         };
         let Some(_backing) = BusyGuard::take(&state.backing_up) else {
@@ -255,8 +251,10 @@ pub async fn restore_backup(app: AppHandle, path: String) -> CmdResult<String> {
         *store = MailStore::in_memory().map_err(|e| e.to_string())?;
         let result = backup::restore(&state.db_path, &from, Local::now().naive_local());
         // Whatever happened, open what is there now: the restored mail, or the old one.
-        *store = open_store(&state.db_path);
-        result.map_err(|e| e.to_string())
+        let (opened, problem) = open_store(&state.db_path);
+        *store = opened;
+        let aside = result.map_err(|e| e.to_string())?;
+        problem.map_or(Ok(aside), Err)
     })
     .await
     .map_err(failed)??;
@@ -282,7 +280,7 @@ pub async fn compact_base(app: AppHandle) -> CmdResult<(u64, u64)> {
 }
 
 /// Show the backup folder, or the mail base, in Explorer (or the file manager).
-#[tauri::command]
+#[tauri::command(async)]
 pub fn show_backup_place(app: AppHandle, state: State<'_, AppState>, base: bool) -> CmdResult<()> {
     let opened = if base {
         app.opener().reveal_item_in_dir(&state.db_path)

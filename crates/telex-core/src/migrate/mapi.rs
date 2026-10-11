@@ -6,6 +6,7 @@
 //! properties.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine;
 use chrono::{DateTime, Local, Utc};
@@ -335,9 +336,11 @@ impl Part {
         }
     }
 
-    fn multipart(kind: &str, parts: Vec<Part>, n: &mut u32) -> Self {
-        *n += 1;
-        let boundary = format!("=_telex_{n}_{:x}", parts.len() * 7919 + *n as usize);
+    fn multipart(kind: &str, parts: Vec<Part>) -> Self {
+        // Every boundary different, an attached message's too, and all of one length, so
+        // none starts another.
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let boundary = format!("=_telex_{:016x}", NEXT.fetch_add(1, Ordering::Relaxed));
         let mut body = Vec::new();
         for part in parts {
             body.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
@@ -352,13 +355,12 @@ impl Part {
         }
     }
 
-    fn file(a: &MapiAttachment, n: &mut u32) -> Self {
+    fn file(a: &MapiAttachment) -> Self {
         let p = &a.props;
         if let Some(inner) = &a.embedded {
             let name = p
                 .text(DISPLAY_NAME)
                 .unwrap_or_else(|| subject(&inner.props));
-            let _ = n;
             return Self {
                 headers: format!(
                     "Content-Type: message/rfc822\r\nContent-Disposition: attachment; filename=\"{}.eml\"\r\n",
@@ -425,7 +427,6 @@ pub fn to_rfc822(m: &MapiMessage) -> Vec<u8> {
         .text(BODY)
         .or_else(|| html.as_deref().map(crate::html::to_text))
         .unwrap_or_default();
-    let mut n = 0;
     let mut body = match &html {
         Some(html) => Part::multipart(
             "alternative",
@@ -433,7 +434,6 @@ pub fn to_rfc822(m: &MapiMessage) -> Vec<u8> {
                 Part::text("text/plain", &text),
                 Part::text("text/html", html),
             ],
-            &mut n,
         ),
         None => Part::text("text/plain", &text),
     };
@@ -448,13 +448,13 @@ pub fn to_rfc822(m: &MapiMessage) -> Vec<u8> {
         });
     if !inline.is_empty() {
         let mut parts = vec![body];
-        parts.extend(inline.into_iter().map(|a| Part::file(a, &mut n)));
-        body = Part::multipart("related", parts, &mut n);
+        parts.extend(inline.into_iter().map(Part::file));
+        body = Part::multipart("related", parts);
     }
     if !files.is_empty() {
         let mut parts = vec![body];
         for a in files {
-            let mut part = Part::file(a, &mut n);
+            let mut part = Part::file(a);
             // A file named in an inline Content-ID the HTML doesn't use is an attachment.
             part.headers = part.headers.replace(
                 "Content-Disposition: inline",
@@ -462,7 +462,7 @@ pub fn to_rfc822(m: &MapiMessage) -> Vec<u8> {
             );
             parts.push(part);
         }
-        body = Part::multipart("mixed", parts, &mut n);
+        body = Part::multipart("mixed", parts);
     }
     let mut raw = headers.into_bytes();
     raw.extend_from_slice(body.headers.as_bytes());

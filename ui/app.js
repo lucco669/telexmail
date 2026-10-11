@@ -11,6 +11,9 @@ const VIEWER = Number(new URLSearchParams(location.search).get('message')) || nu
 const tellMain = payload => window.__TAURI__?.event?.emitTo?.('main', 'viewer-did', payload ?? {});
 // Events about checks, sending and updates are the main window's business.
 const listenMain = (event, fn) => { if (!VIEWER) window.__TAURI__?.event?.listen(event, fn); };
+const ownLabel = () => window.__TAURI__?.window?.getCurrentWindow?.().label ?? 'main';
+// Events the core sends to one window (emit_to): without a target, every window would hear them.
+const listenHere = (event, fn) => window.__TAURI__?.event?.listen(event, fn, {target:ownLabel()});
 const I18n = window.TelexI18n;
 const {t, tn} = I18n;
 // Marks an English text for translation where it is defined; t() or tn() translates it where it is drawn.
@@ -65,7 +68,8 @@ const KIND_NAME = {inbox:N_('Inbox'), outbox:N_('Outbox'), drafts:N_('Drafts'), 
 let ACCOUNTS = [], ACCT = {}, COUNTS = {};
 let PROBLEMS = {}; // account id -> why its last check failed (kept by the core until one works)
 let AWAY = []; // the away replies that are on: [{account, place, starts, ends}]
-let USAGE = null; // the last answer of `usage`: quotas for the meter and the Usage tab
+let USAGE = null; // the last answer of `usage`, for the Usage tab
+let QUOTA = {}, SYNCED = {}; // account id -> its storage on the server; when its last check worked
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -87,7 +91,8 @@ async function loadTree(){
   COUNTS = t.counts;
   PROBLEMS = t.problems ?? {};
   AWAY = t.away ?? [];
-  INITIALS = initialsOf(ACCOUNTS.filter(a => a.imap));
+  QUOTA = t.quota ?? {}; SYNCED = t.synced ?? {};
+  INITIALS = initialsOf(servers());
 }
 // Two letters for each account, from its name ("Łukasz Szramuk" → ŁS, "Sales 750xl.com" → S7),
 // else its address; two accounts never share them while another pair is free.
@@ -108,7 +113,7 @@ function initialsOf(accounts){
 const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
-const CHANGES = new Set(['set_unread', 'set_flagged', 'move_message', 'delete_message', 'send_message', 'run_rules',
+const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'run_rules',
   'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read']);
 async function call(cmd, args){
   try {
@@ -136,8 +141,13 @@ async function pushNow(){
   refresh();
 }
 async function full(id){
-  if (!bodies.has(id)) bodies.set(id, await invoke('get_message', {id}));
-  return bodies.get(id);
+  return bodies.has(id) ? bodies.get(id) : keep(bodies, id, await invoke('get_message', {id}), 30);
+}
+// A cache that holds the last few: the oldest goes first.
+function keep(cache, key, value, most){
+  cache.set(key, value);
+  if (cache.size > most) cache.delete(cache.keys().next().value);
+  return value;
 }
 
 /* ---------- helpers ---------- */
@@ -326,7 +336,7 @@ async function changeSettings(changes){
   SETTINGS = next;
   applySettings();
   if (sdlg.open) SETTINGS.language === before ? syncSettings() : renderSettings(true);
-  window.__TAURI__?.event?.emit('settings-changed', null);
+  window.__TAURI__?.event?.emit('settings-changed', ownLabel());
   return true;
 }
 // After a language change: everything on screen again, in the new words.
@@ -462,15 +472,15 @@ $('st-folder').addEventListener('click', e => {
   if (e.target.closest('#st-older')) downloadOlder();
   else if (e.target.closest('#st-unread, #st-all')){ toggleUnreadOnly(); listEl.focus({preventScroll:true}); }
 });
-async function downloadOlder(){
-  const folder = state.folder, b = $('st-older');
-  if (!folder || b?.disabled) return;
+async function downloadOlder(folder = state.folder, again = false){
+  const b = $('st-older');
+  if (!folder || (b?.disabled && !again)) return;
   if (b) b.disabled = true;
   say(t('Downloading older messages…'), 0);
   let r;
   try { r = await invoke('download_older', {folder, limit:OLDER_BATCH}); }
   catch (e){ say(tr(e), 10000); if (b) b.disabled = false; return; }
-  if (r.busy){ setTimeout(downloadOlder, 2000); return; } // a check is running
+  if (r.busy){ setTimeout(() => downloadOlder(folder, true), 2000); return; } // a check is running: the same folder, in a moment
   await refresh();
   say(tn(r.new, '{n} older message downloaded.', '{n} older messages downloaded.', {n:num(r.new)}));
 }
@@ -478,7 +488,7 @@ async function downloadOlder(){
 /* ---------- usage meter ---------- */
 // The server's storage for the open folder's account, as a small bar in the status bar,
 // when the server reports a quota. A nearly full account also says so in the folder tree.
-const quotaOf = acct => USAGE?.accounts.find(u => u.account === acct)?.quota ?? null;
+const quotaOf = acct => QUOTA[acct] ?? null;
 const pctOf = q => Math.min(100, Math.round(q.used_kb / q.limit_kb * 100));
 const levelOf = pct => pct >= 95 ? 'full' : pct >= 80 ? 'warn' : 'ok';
 const quotaText = q => t('Server storage: {used} of {limit} ({pct}%)', {used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct:pctOf(q)});
@@ -495,10 +505,6 @@ function renderMeter(){
   m.title = t('{email} on the server: {used} of {limit} used ({pct}%), {free} free.', {email:ACCT[acct]?.email ?? '', used:fmtSize(q.used_kb), limit:fmtSize(q.limit_kb), pct, free})
     + ' ' + t('Click for usage.');
   m.setAttribute('aria-label', m.title);
-}
-async function loadUsage(){
-  try { USAGE = await invoke('usage'); } catch { return; }
-  renderMeter(); renderTree();
 }
 $('st-usage').addEventListener('click', () => openSettings('use'));
 
@@ -728,7 +734,7 @@ async function importInto(key, paths = null){
   if (r.already) lines.push(tn(r.already, '{n} was there already.', '{n} were there already.', {n:num(r.already)}));
   say([...lines, ...r.problems].join(' '), r.problems.length ? 15000 : 8000);
 }
-window.__TAURI__?.event?.listen('import-progress', ({payload: p}) => say(t('Reading mail from {file}: {n} so far…', {file:p.file, n:num(p.done)}), 0));
+listenHere('import-progress', ({payload: p}) => say(t('Reading mail from {file}: {n} so far…', {file:p.file, n:num(p.done)}), 0));
 // What a right-click (or the menu key) on a folder offers.
 function folderMenu(key){
   const f = folderOf(key);
@@ -1145,7 +1151,7 @@ function drawRows(scrolling = false){
       && (va >= drawn.a + 5 || drawn.a === 0) && (vb <= drawn.b - 5 || drawn.b === list.total)) return;
   const a = Math.max(0, va - MARGIN), b = Math.min(list.total, vb + MARGIN), sel = state.sel[selKey()], hl = hlTerms(), mixed = across();
   let html = spacer(a * rowH, n);
-  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl, mixed) : `<tr class="ph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
+  for (let i = a; i < b; i++) html += i >= s && i < e ? rowHtml(list.rows[i - s], sel, hl, mixed) : `<tr class="rowph" aria-hidden="true"><td colspan="${n}"></td></tr>`;
   rowsEl.innerHTML = html + spacer((list.total - b) * rowH, n);
   drawn = {a, b, start:s, length:list.rows.length};
   const r = rowsEl.querySelector('tr[data-id]'), h = r?.getBoundingClientRect().height;
@@ -1201,7 +1207,7 @@ async function rowAt(pos){
 // switch, a new order or filter. `top`: a different folder, so start at its top.
 async function loadView({top = false} = {}){
   if (VIEWER) return viewerShow();
-  const seq = ++list.seq, key = selKey();
+  const seq = ++list.seq, key = selKey(), before = selRow?.id;
   let id = state.sel[key], p;
   try { p = await fetchPage(id != null ? {around:id} : 'first'); }
   catch { try { p = await fetchPage('first'); } catch (e){ say(tr(e), 8000); return; } }
@@ -1216,7 +1222,8 @@ async function loadView({top = false} = {}){
   const pos = posOf(id);
   if (pos >= 0 && reveal(pos)) drawRows();
   renderStatus();
-  if (!state.compose) renderPreview();
+  // The message on screen stays as it is while typing a filter or sorting again.
+  if (!state.compose && (top || !selRow || selRow.id !== before || state.picked.size > 1)) renderPreview();
 }
 // After mail changed (a check, rules, sending, a push): new counts, and the open page again,
 // keeping the first row on screen where it was. `skip`: a message that just went away.
@@ -1246,7 +1253,12 @@ async function refresh({skip} = {}){
     if (!selRow && !state.q.trim()){ selRow = list.rows[0] ?? null; state.sel[selKey()] = selRow?.id; }
   }
   drawRows(); renderStatus();
-  if (selRow?.id !== before && !state.compose) renderPreview();
+  // A change may have written a note on any message (rules, a refused send): read them again.
+  const shown = selRow && bodies.get(selRow.id);
+  bodies.clear();
+  if (state.compose) return;
+  if (selRow?.id !== before) renderPreview();
+  else if (shown) full(shown.id).then(m => { if (m.note !== shown.note && selRow?.id === m.id) renderPreview(); }, () => {});
 }
 
 function renderHead(){
@@ -1653,11 +1665,26 @@ function bodyHtml(m){
   return m.body.split('\n').map(line => {
     const img = line.match(/^\[img:(.+)\]$/);
     if (img) return `<div class="imgph${loaded ? ' loaded' : ''}">${loaded ? esc(img[1]) : t('Blocked image: {name}', {name:esc(img[1])})}</div>`;
-    const q = line.startsWith('>');
-    let h = esc(q ? line.replace(/^> ?/, '') : line);
-    if (kindOf(m.folder) !== 'spam') h = h.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>');
-    return `<div class="ln${q ? ' q' : ''}">${h}</div>`;
+    const q = line.startsWith('>'), text = q ? line.replace(/^> ?/, '') : line;
+    return `<div class="ln${q ? ' q' : ''}">${kindOf(m.folder) === 'spam' ? esc(text) : linked(text)}</div>`;
   }).join('');
+}
+// Plain text with its web addresses as links. An address ends before a space, <, > or a
+// quote, and without the full stop or bracket that ends the sentence around it.
+function linked(text){
+  let out = '', at = 0;
+  for (const found of text.matchAll(/https?:\/\/[^\s<>"']+/gi)){
+    let url = found[0];
+    for (;;){
+      const last = url.at(-1);
+      if (last === ')' && url.split('(').length >= url.split(')').length) break; // its own: wiki/Foo_(bar)
+      if (!'.,;:!?)]}'.includes(last)) break;
+      url = url.slice(0, -1);
+    }
+    out += esc(text.slice(at, found.index)) + `<a href="${esc(url)}">${esc(url)}</a>`;
+    at = found.index + url.length;
+  }
+  return out + esc(text.slice(at));
 }
 // The HTML view of a message, cached per images setting and paper. load: true loads remote
 // images, false never does (only asks whether there is HTML), null lets the core decide
@@ -1666,15 +1693,16 @@ function bodyHtml(m){
 const htmlViews = new Map();
 async function htmlView(id, load, dark = null){
   const key = id + ':' + load + ':' + (dark ? Object.values(dark).join() : 'white');
-  if (!htmlViews.has(key)) htmlViews.set(key, await invoke('get_html', {id, loadImages:load, dark}));
-  return htmlViews.get(key);
+  // A few only: with its images loaded a view can be megabytes.
+  return htmlViews.has(key) ? htmlViews.get(key) : keep(htmlViews, key, await invoke('get_html', {id, loadImages:load, dark}), 8);
 }
 // Links never navigate inside Telex: web links open in the browser, mailto opens compose.
 function followLink(href, spam){
   const h = String(href || '').trim();
   if (spam){ say(t('Links are off in Spam. Move the message out of Spam to use them.')); return; }
   if (/^mailto:/i.test(h)){
-    const to = decodeURIComponent(h.slice(7).split('?')[0]);
+    const raw = h.slice(7).split('?')[0];
+    let to = raw; try { to = decodeURIComponent(raw); } catch {} // a stray % is taken as it is
     openCompose('new', {to});
   } else if (/^https?:\/\//i.test(h)){
     call('open_link', {url:h}).then(() => say(t('Opened in your browser.'), 2500)).catch(() => {});
@@ -1725,7 +1753,7 @@ function attsHtml(atts, writing = false){
   const tail = writing
     ? (kb > BIG_KB ? `<small class="attwarn">${esc(t('{size} in all: some servers refuse mail over 25 MB.', {size:fmtSize(kb)}))}</small>` : '')
     : atts.length > 1 ? `<button type="button" class="linkbtn" data-saveall>${esc(t('Save all…'))}</button>` : '';
-  return `<div class="atts"${writing ? ' id="c-atts"' : ''}>${chips}${tail}</div>`;
+  return `<div class="atts">${chips}${tail}</div>`;
 }
 // Open an attachment in its app. Programs and anything from Spam open on a second click.
 let armedAtt = null; // {id, index, at}
@@ -1836,7 +1864,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${readButton(s)}${popout}${paper}${views}${s.flagged ? `<span class="pill">${I.flag}${esc(t('Flagged'))}</span>` : ''}`)}
+${headerHtml(m, `${readButton(s)}${popout}${paper}${views}<span class="pill pflag"${s.flagged ? '' : ' hidden'}>${I.flag}${esc(t('Flagged'))}</span>`)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -2015,7 +2043,7 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
 // what was typed since the last comma; ↓ ↑ choose, Enter or Tab takes one, Esc closes.
 let RECIPS = null, recipsAsked = null;
 function loadRecipients(){
-  if (!recipsAsked) recipsAsked = invoke('recipients').then(r => { RECIPS = r; }).catch(() => { recipsAsked = null; });
+  if (!recipsAsked) recipsAsked = invoke('recipients').then(r => { RECIPS = r.map(withWords); }).catch(() => { recipsAsked = null; });
   return recipsAsked;
 }
 const forgetRecipients = () => { RECIPS = null; recipsAsked = null; };
@@ -2030,10 +2058,9 @@ function tokenStart(text){
   }
   return start;
 }
-function matchesTyped(p, typed){
-  const words = fold(p.name + ' ' + p.email.replace(/[@.]/g, ' ')).split(/\s+/);
-  return words.some(w => w.startsWith(typed)) || fold(p.email).startsWith(typed);
-}
+// Each person's words, folded once when the list comes: typing only compares.
+const withWords = p => ({...p, words:fold(p.name + ' ' + p.email.replace(/[@.]/g, ' ')).split(/\s+/), folded:fold(p.email)});
+const matchesTyped = (p, typed) => p.words.some(w => w.startsWith(typed)) || p.folded.startsWith(typed);
 const sugg = {input:null, list:[], at:0, el:null};
 function closeSuggestions(){
   sugg.el?.remove();
@@ -2131,14 +2158,14 @@ function dropSpot(x, y){
   const f = el.closest('[data-folder]');
   return {folder:f && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) !== 'trash' ? f : null};
 }
-window.__TAURI__?.event?.listen('files-over', ({payload}) => {
+listenHere('files-over', ({payload}) => {
   const f = payload ? dropSpot(payload[0], payload[1])?.folder ?? null : null;
   if (f === fileTarget) return;
   fileTarget?.classList.remove('dropok');
   f?.classList.add('dropok');
   fileTarget = f;
 });
-window.__TAURI__?.event?.listen('files-dropped', ({payload}) => {
+listenHere('files-dropped', ({payload}) => {
   fileTarget?.classList.remove('dropok'); fileTarget = null;
   if (document.querySelector('dialog[open]')) return; // not while a dialog is open
   const p = Array.isArray(payload) ? {files:payload} : payload; // the demo sends just the files
@@ -2224,7 +2251,7 @@ function wireSpelling(){
     el.addEventListener('keydown', e => spellKeys(el, e));
     if (el.id !== 'c-html'){
       // An input scrolls sideways with the caret, without a scroll event.
-      for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => syncLayer(el));
+      for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => scrollLayer(el));
       spellResize.observe(el);
     }
     scheduleSpelling(el, 0);
@@ -2232,6 +2259,11 @@ function wireSpelling(){
   spellNudge();
 }
 const respell = () => spellFields().forEach(el => scheduleSpelling(el, 0));
+// Compose closed: its suggestions go, and the editor's marks let go of its words.
+function leftCompose(){
+  closeSuggestions();
+  spellMarks?.clear();
+}
 function scheduleSpelling(el, ms = 400){
   const st = spellOf.get(el);
   if (!st) return;
@@ -2297,7 +2329,13 @@ function syncLayer(el){
   Object.assign(layer.style, {left:el.offsetLeft + el.clientLeft + 'px', top:el.offsetTop + el.clientTop + 'px',
     width:el.clientWidth + 'px', height:el.clientHeight + 'px', padding:cs.padding, font:cs.font, letterSpacing:cs.letterSpacing,
     lineHeight:cs.lineHeight, tabSize:cs.tabSize, textIndent:cs.textIndent});
-  layer.scrollTop = el.scrollTop; layer.scrollLeft = el.scrollLeft;
+  scrollLayer(el);
+}
+// While typing only the scroll follows, and only when there are lines to keep in place.
+function scrollLayer(el){
+  if (!spellOf.get(el)?.found.length) return;
+  const layer = el.parentElement?.querySelector('.spellmarks');
+  if (layer){ layer.scrollTop = el.scrollTop; layer.scrollLeft = el.scrollLeft; }
 }
 const within = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 // The misspelt word under the pointer, if there is one.
@@ -2317,7 +2355,7 @@ function spellMenuAt(el, e){
 async function openSpellMenu(el, m, x, y){
   let list = [];
   try { list = await invoke('spell_suggest', {word:m.word}); } catch {}
-  const items = list.length ? list.map(s => ({label:s, run:() => replaceWord(el, m, s)}))
+  const items = list.length ? list.map(s => ({label:s, run:() => fixMistake(el, m, s)}))
     : [{label:t('No suggestions'), disabled:true, run(){}}];
   items.push({sep:true},
     {label:t('Add “{word}” to the dictionary', {word:m.word}), run:() => addWord(el, m.word)},
@@ -2336,7 +2374,7 @@ function selectWord(el, m){
   el.setSelectionRange(m.s, m.s + m.l);
   return true;
 }
-function replaceWord(el, m, word){
+function fixMistake(el, m, word){
   // insertText keeps Ctrl+Z working, and the input event checks again.
   if (selectWord(el, m)) document.execCommand('insertText', false, word);
 }
@@ -2447,7 +2485,7 @@ function saveCompose(){
 async function discardCompose(){
   const c = readCompose();
   state.compose = null;
-  closeSuggestions();
+  leftCompose();
   renderPreview();
   listEl.focus();
   const autosaved = c.autosaved;
@@ -2483,7 +2521,7 @@ function readCompose(){
 async function closeCompose(){
   if (!await saveCompose()) return false;
   state.compose = null;
-  closeSuggestions();
+  leftCompose();
   renderPreview();
   await refresh();
   listEl.focus();
@@ -2512,7 +2550,7 @@ async function send(){
   try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c)}); c.done = true; return r; }); }
   catch { btn.disabled = false; label.textContent = t('Send'); return; } // e.g. a bad address: fix it and try again
   state.compose = null;
-  closeSuggestions();
+  leftCompose();
   forgetRecipients(); // someone new may be in it
   if (VIEWER){
     const sent = sentText(r.sent);
@@ -2572,11 +2610,12 @@ function toggleFlag(){
 }
 // One message flagged or not: F, the flag in its row, the menu.
 function setFlagged(m, flagged){
-  const shown = () => { if (!state.compose && m.id === current()?.id) renderPreview(); };
-  changed(m, {flagged}); shown();
+  // The pill above the message, without drawing the message again.
+  const shown = on => { const pill = m.id === current()?.id && previewEl.querySelector('.pflag'); if (pill) pill.hidden = !on; };
+  changed(m, {flagged}); shown(flagged);
   call('set_flagged', {id:m.id, flagged})
     .then(() => { say(flagged ? t('Flagged.') : t('Flag removed.'), 2000); reorder(); })
-    .catch(() => { changed(m, {flagged:!flagged}); shown(); });
+    .catch(() => { changed(m, {flagged:!flagged}); shown(!flagged); });
 }
 // One message read or unread: U, the dot in its row, the envelope above it, the menu. Marked
 // unread by hand, it stays so while it is on screen.
@@ -2790,7 +2829,7 @@ function leaveThread(){
 // account: only that account's Inbox, because IDLE said something changed there.
 let checkAgain = null; // asked for while a check was running; runs when it ends
 async function getMail({quiet = false, first = false, account = null} = {}){
-  const n = ACCOUNTS.filter(a => a.imap).length;
+  const n = servers().length;
   if (!n){ if (!quiet) openAccountDialog(); return; } // nothing to check yet
   const b = $('b-get');
   if (b.classList.contains('busy')){
@@ -2805,8 +2844,7 @@ async function getMail({quiet = false, first = false, account = null} = {}){
     if (r.busy){ setTimeout(() => getMail({quiet, first, account}), 2000); return; } // changes are being sent
     forgetRecipients();
     lastCheck = new Date();
-    await refresh();
-    loadUsage(); // the quota and how the sync went came with the check
+    await refresh(); // the quota and how the check went come with the tree
     const ids = r.new;
     let text = '';
     if (first) text = tn(ids.length, '{n} message downloaded.', '{n} messages downloaded.');
@@ -3101,9 +3139,9 @@ $('w-lang').addEventListener('click', async e => {
 });
 // Each account: who it is, where its servers are, how the last check went.
 function renderAccountList(){
-  const real = ACCOUNTS.filter(a => a.imap), usage = Object.fromEntries((USAGE?.accounts ?? []).map(u => [u.account, u]));
+  const real = servers();
   $('a-list').innerHTML = real.length ? real.map((a, i) => {
-    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = usage[a.id];
+    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = {sync_error:PROBLEMS[a.id], synced_at:SYNCED[a.id]};
     // Their order in the folder tree, when there is more than one.
     const order = real.length < 2 ? '' : `<button type="button" class="btn icon" data-up="${esc(a.id)}" title="${esc(t('Move up'))}" aria-label="${esc(t('Move {email} up', {email:a.email}))}"${i ? '' : ' disabled'}>↑</button>`
       + `<button type="button" class="btn icon" data-down="${esc(a.id)}" title="${esc(t('Move down'))}" aria-label="${esc(t('Move {email} down', {email:a.email}))}"${i < real.length - 1 ? '' : ' disabled'}>↓</button>`;
@@ -3172,6 +3210,12 @@ wForm.addEventListener('submit', async e => {
   if (d.unsupported){ showAccountView('start'); hint($('w-hint'), d); $('w-email').focus(); return; }
   finishStep('done', t('Found {servers}', {servers:serverNames(d.setup)}), SOURCE_TEXT[d.source]?.(d) ?? '');
   const setup = {...d.setup, name, email};
+  // Servers outside the address's domain that only DNS named: nothing is sent until the user
+  // has looked (a forged DNS answer could have named them).
+  if (d.confirm){
+    openForm({...setup, password}, '', d, t('Telex found {servers} through your domain’s DNS. They aren’t part of {domain}: check with your provider that they are its servers, then Connect.', {servers:serverNames(d.setup), domain}));
+    return;
+  }
   wizardBusy = 'login';
   $('w-stop').disabled = true; // the account is saved the moment the login works
   step(t('Logging in to {servers}', {servers:serverNames(d.setup)}));
@@ -3318,7 +3362,6 @@ $('a-list').addEventListener('click', async e => {
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = t('Remove it and its local mail'); return; }
   try { await invoke('remove_account', {id:b.dataset.remove}); } catch (err){ $('a-list-err').textContent = tr(err); return; }
   await refresh();
-  await loadUsage();
   renderAccountList();
   say(t('Account removed from Telex. The mail on the server is untouched.'));
 });
@@ -3747,7 +3790,6 @@ function renderSettings(keepFocus){
   $('s-updates').innerHTML = radios('updates', UPDATE_CHOICES.map(v => [v, esc(updatesText(v))]), s.updates === 'ask' ? '' : s.updates);
   $('s-updates').querySelectorAll('input').forEach(i => { i.disabled = !can; });
   $('s-upd-none').hidden = can; $('s-check').hidden = !can;
-  renderMove();
   paneOpened(setTab);
   if (again) sdlg.querySelector(again)?.focus();
 }
@@ -3912,15 +3954,15 @@ function renderMove(){
   if (moveIn.source){ renderSource(el); return; }
   if (!p){
     const c = move_.counts;
-    const n = (k, text) => c ? ` <small class="sdim">${esc(tn(c[k], text, text))}</small>` : '';
+    const n = (k, one, other) => c ? ` <small class="sdim">${esc(tn(c[k], one, other))}</small>` : '';
     if (!moveIn.sources) findPrograms().then(() => { if (sdlg.open && setTab === 'move' && !moveIn.source && !move_.plan) renderMove(); });
     el.innerHTML = movingSection() + `<h3 class="rh">${esc(t('Export'))}</h3>
 <p class="dnote">${esc(t('Save your settings to a file, to set up Telex on another PC or keep a copy. The file holds no passwords.'))}</p>
 <div class="sopts">
   <label class="sopt"><input type="checkbox" data-ex="settings" checked><span>${esc(t('Settings: theme, language, rows, mail checks'))}</span></label>
-  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules'))}</span>${n('rules', N_('{n} rule'))}</label>
-  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities and signatures'))}</span>${n('identities', N_('{n} identity'))}</label>
-  <label class="sopt"><input type="checkbox" data-ex="servers" checked><span>${esc(t('Account servers and user names'))}</span>${n('accounts', N_('{n} account'))}</label>
+  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules'))}</span>${n('rules', N_('{n} rule'), '{n} rules')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities and signatures'))}</span>${n('identities', N_('{n} identity'), '{n} identities')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="servers" checked><span>${esc(t('Account servers and user names'))}</span>${n('accounts', N_('{n} account'), '{n} accounts')}</label>
 </div>
 <div class="sbtns"><button class="btn primary" type="button" id="s-export">${esc(t('Export…'))}</button>
 ${move_.exported ? `<span class="sdone">${esc(t('Saved to {path}.', {path:move_.exported}))} <button type="button" class="linkbtn" id="s-show">${esc(t('Show in folder'))}</button></span>` : ''}</div>
@@ -3965,11 +4007,10 @@ ${r ? accounts : settings + planSection('rules', t('Rules'), p.rules) + planSect
 async function countThings(){
   let rules = [];
   try { rules = await invoke('list_rules'); } catch {}
-  const real = ACCOUNTS.filter(a => a.imap);
+  const real = servers();
   move_.counts = {rules:rules.length, identities:real.reduce((n, a) => n + (a.identities?.length ?? 0), 0), accounts:real.length};
-  if (sdlg.open && !move_.plan) renderMove();
+  if (sdlg.open && setTab === 'move' && !move_.plan) renderMove();
 }
-const dateStamp = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 function importError(e){
   if (e?.code === 'not_json' || e?.code === 'not_telex') return t('This isn’t a Telex settings file. Choose a file that Telex exported.');
   if (e?.code === 'unreadable') return t('Telex couldn’t read the file: {detail}', {detail:e.detail});
@@ -4007,7 +4048,7 @@ $('s-move').addEventListener('click', async e => {
     let path;
     try {
       path = await invoke('export_settings', {choice, words:{title:t('Export Telex settings'), filter:t('Telex settings'),
-        file_name:t('Telex settings {date}', {date:dateStamp(new Date())}) + '.json'}});
+        file_name:t('Telex settings {date}', {date:ymd(new Date())}) + '.json'}});
     } catch (err){ move_.error = tr(err); renderMove(); return; }
     if (!path) return; // cancelled
     move_.exported = path; renderMove();
@@ -4178,7 +4219,7 @@ async function bringIn(){
   if (r.accounts.some(a => !a.error)) getMail({quiet:true});
   say(t('Moved in from {program}.', {program:programName(s.program)}));
 }
-window.__TAURI__?.event?.listen('move-progress', ({payload: p}) => {
+listenHere('move-progress', ({payload: p}) => {
   if (!moveIn.running) return;
   moveIn.running = p;
   if (sdlg.open && setTab === 'move') renderMove();
@@ -4679,7 +4720,8 @@ function onKey(e){
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   // Space presses a focused button or link, as always.
   if (e.key === ' ' && tg.closest?.('button, a[href], summary, label, [role="tab"], [role="option"], [data-i]')) return;
-  const k = e.key, shift = e.shiftKey;
+  // A letter is the same key with Caps Lock on: only Shift changes what it does.
+  const shift = e.shiftKey, k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === 'ArrowDown') shift ? pickMove(1) : move(1);
   else if (k === 'ArrowUp') shift ? pickMove(-1) : move(-1);
   else if (k === 'Home') shift ? pickEnd(false) : move(-Infinity);
@@ -4688,19 +4730,17 @@ function onKey(e){
   else if (k === 'Delete'){ if (!e.repeat) del(); } // holding Del deletes one, not a run of them
   else if (k === 'Enter' && allMail()) openInFolder();
   else if (k === 'Enter' && listEl.contains(tg) && current()) openWindow(current().id);
-  else if (k === 'r' || k === 'R') openCompose(shift ? 'replyall' : 'reply');
-  else if (k === 'F' && shift) openCompose('forward');
-  else if (k === 'f') toggleFlag();
-  else if ((k === 'u' || k === 'U') && shift) markAllRead();
-  else if (k === 'u' || k === 'U') toggleUnread();
-  else if (k === 'n' || k === 'N') openCompose('new');
-  else if (k === 'e' || k === 'E') openCompose('edit');
-  else if (k === 'h' || k === 'H') setView(!pref().prefer_text);
-  else if (k === 'm' || k === 'M') openPicker('move');
-  else if (k === 'g' || k === 'G') openPicker('go');
-  else if (k === 't' || k === 'T') toggleThread();
-  else if (k === 'o' || k === 'O') toggleUnreadOnly();
-  else if (k === 'z' || k === 'Z') undo();
+  else if (k === 'r') openCompose(shift ? 'replyall' : 'reply');
+  else if (k === 'f') shift ? openCompose('forward') : toggleFlag();
+  else if (k === 'u') shift ? markAllRead() : toggleUnread();
+  else if (k === 'n') openCompose('new');
+  else if (k === 'e') openCompose('edit');
+  else if (k === 'h') setView(!pref().prefer_text);
+  else if (k === 'm') openPicker('move');
+  else if (k === 'g') openPicker('go');
+  else if (k === 't') toggleThread();
+  else if (k === 'o') toggleUnreadOnly();
+  else if (k === 'z') undo();
   else if (k === '/') qEl.focus();
   else if (k === '?') toggleHelp();
   else return;
@@ -4760,7 +4800,8 @@ async function bootViewer(){
   }
 }
 // Another window changed a setting (the look, H): this one follows.
-window.__TAURI__?.event?.listen('settings-changed', async () => {
+window.__TAURI__?.event?.listen('settings-changed', async ({payload: from}) => {
+  if (from === ownLabel()) return; // this window's own change
   try { const got = await invoke('get_settings'); if (got?.settings){ SETTINGS = got; applySettings(); } } catch {}
 });
 // Closing a window with a message being written keeps it as a draft.
@@ -4780,7 +4821,6 @@ async function boot(){
   paintScope();
   await setFolder(homeOf(ACCOUNTS[0]?.id));
   listEl.focus({preventScroll:true});
-  loadUsage(); // the status-bar meter, from what the last check saved
   sayRestored();
   loadBackups(); // whether the folders on this PC are backed up
   setTimeout(autoBackup, 60e3); setInterval(autoBackup, 60 * 60e3);

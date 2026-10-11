@@ -7,11 +7,13 @@
 //! changes. Auto-replies only answer new mail, and follow RFC 3834 so they never answer
 //! mailing lists, bulk mail, other robots or the same sender twice in a few days.
 
+use std::cell::OnceCell;
+
 use chrono::{DateTime, Local, TimeDelta};
 use serde::{Deserialize, Serialize};
 
 use crate::mime::auto_reply_blocker;
-use crate::model::{split_folder_key, Account, FolderKind, Message, MessageId, OutgoingDraft};
+use crate::model::{account_of, Account, FolderKind, Message, MessageId, OutgoingDraft};
 use crate::smtp::{self, Originals};
 use crate::store::{MailStore, StoreError, LOCAL_ID};
 use crate::tr;
@@ -186,7 +188,11 @@ impl Rule {
     }
 
     pub fn matches(&self, m: &Message) -> bool {
-        let mut results = self.conditions.iter().map(|c| c.matches(m));
+        self.matches_folded(&Folded::new(m))
+    }
+
+    fn matches_folded(&self, m: &Folded) -> bool {
+        let mut results = self.conditions.iter().map(|c| c.matches_folded(m));
         if self.match_all {
             results.all(|hit| hit)
         } else {
@@ -198,16 +204,16 @@ impl Rule {
 impl Condition {
     /// Case and diacritics don't matter: "faktura" finds "Fakturą".
     pub fn matches(&self, m: &Message) -> bool {
+        self.matches_folded(&Folded::new(m))
+    }
+
+    fn matches_folded(&self, m: &Folded) -> bool {
         let needle = fold(self.value.trim());
-        let candidates = self.candidates(m);
-        let mut hits = candidates.iter().map(|c| {
-            let c = fold(c);
-            match self.op {
-                Op::Contains | Op::NotContains => c.contains(&needle),
-                Op::Is => c == needle,
-                Op::StartsWith => c.starts_with(&needle),
-                Op::EndsWith => c.ends_with(&needle),
-            }
+        let mut hits = m.texts(self.field).map(|c| match self.op {
+            Op::Contains | Op::NotContains => c.contains(&needle),
+            Op::Is => c == needle,
+            Op::StartsWith => c.starts_with(&needle),
+            Op::EndsWith => c.ends_with(&needle),
         });
         if self.op == Op::NotContains {
             !hits.any(|hit| hit)
@@ -215,36 +221,64 @@ impl Condition {
             hits.any(|hit| hit)
         }
     }
+}
 
-    /// The texts a condition looks at. Addresses count by address and by name, so
-    /// "From is anna@x.pl" works as well as "From contains Kowalska".
-    fn candidates(&self, m: &Message) -> Vec<String> {
-        let from = || vec![m.from_email.clone(), m.from_name.clone()];
-        let to = || {
-            smtp::split_addresses(&format!("{}, {}", m.to, m.cc))
-                .into_iter()
-                .flat_map(|a| match a.split_once('<') {
-                    Some((name, rest)) => vec![
-                        rest.trim_end_matches('>').trim().to_owned(),
-                        name.trim().trim_matches('"').to_owned(),
-                    ],
-                    None => vec![a],
-                })
-                .collect::<Vec<_>>()
-        };
-        match self.field {
-            Field::From => from(),
-            Field::To => to(),
-            Field::Subject => vec![m.subject.clone()],
-            Field::Body => vec![m.body.clone()],
-            Field::Anywhere => {
-                let mut all = from();
-                all.extend(to());
-                all.push(m.subject.clone());
-                all.push(m.body.clone());
-                all
-            }
+/// A message's texts as conditions compare them, folded (`fold`) the first time a condition
+/// asks: a long body is folded once for all of a message's rules, not once per condition.
+struct Folded<'a> {
+    m: &'a Message,
+    from: OnceCell<[String; 2]>,
+    to: OnceCell<Vec<String>>,
+    subject: OnceCell<String>,
+    body: OnceCell<String>,
+}
+
+impl<'a> Folded<'a> {
+    fn new(m: &'a Message) -> Self {
+        Self {
+            m,
+            from: OnceCell::new(),
+            to: OnceCell::new(),
+            subject: OnceCell::new(),
+            body: OnceCell::new(),
         }
+    }
+
+    /// The texts a condition on `field` looks at. Addresses count by address and by name,
+    /// so "From is anna@x.pl" works as well as "From contains Kowalska".
+    fn texts(&self, field: Field) -> impl Iterator<Item = &str> {
+        let m = self.m;
+        let from = || {
+            self.from
+                .get_or_init(|| [fold(&m.from_email), fold(&m.from_name)])
+                .iter()
+        };
+        let to = || {
+            self.to
+                .get_or_init(|| {
+                    smtp::split_addresses(&format!("{}, {}", m.to, m.cc))
+                        .into_iter()
+                        .flat_map(|a| match a.split_once('<') {
+                            Some((name, rest)) => vec![
+                                fold(rest.trim_end_matches('>').trim()),
+                                fold(name.trim().trim_matches('"')),
+                            ],
+                            None => vec![fold(&a)],
+                        })
+                        .collect()
+                })
+                .iter()
+        };
+        let subject = || std::iter::once(self.subject.get_or_init(|| fold(&m.subject)));
+        let body = || std::iter::once(self.body.get_or_init(|| fold(&m.body)));
+        let texts: Box<dyn Iterator<Item = &String>> = match field {
+            Field::From => Box::new(from()),
+            Field::To => Box::new(to()),
+            Field::Subject => Box::new(subject()),
+            Field::Body => Box::new(body()),
+            Field::Anywhere => Box::new(from().chain(to()).chain(subject()).chain(body())),
+        };
+        texts.map(String::as_str)
     }
 }
 
@@ -313,13 +347,14 @@ pub fn run(
             continue; // gone meanwhile
         };
         let account = account_of(&message.folder).to_owned();
+        let folded = Folded::new(&message);
         let mut notes = Vec::new();
         let mut destination = None;
         for rule in rules
             .iter()
             .filter(|r| r.account.as_deref().is_none_or(|a| a == account))
         {
-            if !rule.matches(&message) {
+            if !rule.matches_folded(&folded) {
                 continue;
             }
             let name = &rule.name;
@@ -553,10 +588,6 @@ fn join_and(parts: &[String]) -> String {
             tr!("{rest} and {last}", "{rest} i {last}")
         }
     }
-}
-
-pub(crate) fn account_of(folder_key: &str) -> &str {
-    split_folder_key(folder_key).map_or(folder_key, |(a, _)| a)
 }
 
 /// A folder on this PC, which takes mail from every account.

@@ -390,6 +390,11 @@ pub fn split_folder_key(key: &str) -> Option<(&str, &str)> {
     key.split_once('/')
 }
 
+/// "firma/inbox" → "firma".
+pub fn account_of(folder_key: &str) -> &str {
+    split_folder_key(folder_key).map_or(folder_key, |(a, _)| a)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Attachment {
     pub name: String,

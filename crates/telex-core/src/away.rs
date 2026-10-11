@@ -9,7 +9,7 @@ use chrono::{DateTime, Local, NaiveDate, TimeDelta};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use crate::filters::{self, account_of, Replier};
+use crate::filters::{self, Replier};
 use crate::model::{Account, FolderKind, ImapSettings, MessageId};
 use crate::sieve::{self, SieveError, Vacation};
 use crate::store::{MailStore, StoreError};
@@ -238,19 +238,24 @@ pub struct Answered {
     pub problems: Vec<String>,
 }
 
-/// Answer new mail for the accounts whose away reply Telex sends. Mail the rules moved out of
-/// the Inbox is answered too, except in Spam and Trash.
-pub fn answer(store: &mut MailStore, ids: &[MessageId], now: DateTime<Local>) -> Answered {
+/// Answer the mail that just arrived for `account`, when its away reply is one Telex sends.
+/// Mail the rules moved out of the Inbox is answered too (to a folder on this PC as well),
+/// except in Spam and Trash.
+pub fn answer(
+    store: &mut MailStore,
+    account: &str,
+    ids: &[MessageId],
+    now: DateTime<Local>,
+) -> Answered {
     let mut done = Answered::default();
-    let today = now.date_naive();
+    let Ok(away) = store.away(account) else {
+        return done;
+    };
+    if away.place != Place::Telex || !away.answers_on(now.date_naive()) {
+        return done;
+    }
     for &id in ids {
         let Ok(m) = store.get(id) else { continue };
-        let Ok(away) = store.away(account_of(&m.folder)) else {
-            continue;
-        };
-        if away.place != Place::Telex || !away.answers_on(today) {
-            continue;
-        }
         if matches!(
             store.kind_of(&m.folder),
             Some(FolderKind::Trash | FolderKind::Spam)
@@ -331,8 +336,10 @@ pub async fn apply(
             (away, None)
         }
         Err(e) => {
-            if on_server {
-                let _ = remove(imap, password, &away).await;
+            // The old reply, if any, must come off before Telex answers instead; while it
+            // can't, it stays on the server and Telex keeps track of it.
+            if on_server && remove(imap, password, &away).await.is_err() {
+                return (away, Some(e));
             }
             away.place = Place::Telex;
             away.script = None;
@@ -438,25 +445,40 @@ mod tests {
 
         // Before the first day: nothing.
         let early = deliver(&mut store, &account, 1, "Anna <anna@x.pl>");
-        assert_eq!(answer(&mut store, &[early], when(11)).replied, 0);
+        assert_eq!(
+            answer(&mut store, &account.id, &[early], when(11)).replied,
+            0
+        );
         // While away: one reply, with its subject.
         let id = deliver(&mut store, &account, 2, "Anna <anna@x.pl>");
-        assert_eq!(answer(&mut store, &[id], when(13)).replied, 1);
+        assert_eq!(answer(&mut store, &account.id, &[id], when(13)).replied, 1);
         let replies = outbox(&store, &account);
         assert_eq!(replies[0].subject, "Urlop");
         assert!(replies[0].to.contains("anna@x.pl"));
         // The same person again two days later: not again.
         let again = deliver(&mut store, &account, 3, "anna@x.pl");
-        assert_eq!(answer(&mut store, &[again], when(15)).replied, 0);
+        assert_eq!(
+            answer(&mut store, &account.id, &[again], when(15)).replied,
+            0
+        );
         // A robot, or mail in Spam: never.
         let robot = deliver(&mut store, &account, 4, "noreply@bank.pl");
-        assert_eq!(answer(&mut store, &[robot], when(15)).replied, 0);
+        assert_eq!(
+            answer(&mut store, &account.id, &[robot], when(15)).replied,
+            0
+        );
         let spam = deliver(&mut store, &account, 5, "piotr@y.pl");
         store.move_to(spam, &account.folder_key("spam")).unwrap();
-        assert_eq!(answer(&mut store, &[spam], when(15)).replied, 0);
+        assert_eq!(
+            answer(&mut store, &account.id, &[spam], when(15)).replied,
+            0
+        );
         // After the last day: nothing.
         let late = deliver(&mut store, &account, 6, "piotr@y.pl");
-        assert_eq!(answer(&mut store, &[late], when(21)).replied, 0);
+        assert_eq!(
+            answer(&mut store, &account.id, &[late], when(21)).replied,
+            0
+        );
         // On the server: the server answers, not Telex.
         store
             .save_away(&Away {
@@ -466,7 +488,10 @@ mod tests {
             })
             .unwrap();
         let other = deliver(&mut store, &account, 7, "piotr@y.pl");
-        assert_eq!(answer(&mut store, &[other], when(14)).replied, 0);
+        assert_eq!(
+            answer(&mut store, &account.id, &[other], when(14)).replied,
+            0
+        );
         assert_eq!(outbox(&store, &account).len(), 1);
     }
 

@@ -839,6 +839,8 @@ const PL = {
   'Moved in from {program}.': 'Przeniesiono z programu {program}.',
   'Bring them all, with their mail': 'Przenieś je wszystkie razem z pocztą',
 
+  'Telex found {servers} through your domain’s DNS. They aren’t part of {domain}: check with your provider that they are its servers, then Connect.': 'Telex znalazł {servers} w DNS Twojej domeny. Nie należą do {domain}: sprawdź u swojego dostawcy, że to jego serwery, i dopiero wtedy kliknij Połącz.',
+
   // Away reply
   'Auto-reply is on': 'Autoodpowiedź jest włączona',
   'Auto-reply while you’re away': 'Automatyczna odpowiedź, gdy Cię nie ma',

@@ -290,6 +290,10 @@ pub struct FolderTree {
     pub problems: HashMap<String, String>,
     /// The away replies that are on.
     pub away: Vec<crate::away::AwayOn>,
+    /// Each account's storage on its server, when the server says, and its last good check:
+    /// for the status bar and Settings › Accounts, without working out the whole Usage tab.
+    pub quota: HashMap<String, crate::usage::Quota>,
+    pub synced: HashMap<String, chrono::NaiveDateTime>,
 }
 
 /// An unread message and where it is in its list: what Space goes to.
@@ -635,8 +639,39 @@ impl MailStore {
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
         let away = self.away_on()?;
+        let mut quota = HashMap::new();
+        let mut synced = HashMap::new();
+        let mut stmt = self.db.prepare_cached(
+            "SELECT id, quota_used_kb, quota_limit_kb, synced_at FROM accounts WHERE imap_host IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+                r.get::<_, Option<chrono::NaiveDateTime>>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, used, limit, at) = row?;
+            if let (Some(used), Some(limit)) = (used, limit) {
+                if limit > 0 {
+                    let kb = |n: i64| u64::try_from(n).unwrap_or_default();
+                    let q = crate::usage::Quota {
+                        used_kb: kb(used),
+                        limit_kb: kb(limit),
+                    };
+                    quota.insert(id.clone(), q);
+                }
+            }
+            if let Some(at) = at {
+                synced.insert(id, at);
+            }
+        }
         Ok(FolderTree {
             away,
+            quota,
+            synced,
             accounts: self.accounts().to_vec(),
             counts,
             problems,
@@ -667,7 +702,18 @@ impl MailStore {
         from: Option<MessageId>,
         to: Option<MessageId>,
     ) -> Result<Vec<MessageId>, StoreError> {
-        let ids = Query::new(self, view)?.ids(&self.db)?;
+        // A filtered list the window is paging through is worked out already.
+        let changes = self.db.total_changes();
+        let cached = self
+            .found
+            .borrow()
+            .as_ref()
+            .filter(|f| f.view == *view && f.changes == changes)
+            .map(|f| f.ids.clone());
+        let ids = match cached {
+            Some(ids) => ids,
+            None => Query::new(self, view)?.ids(&self.db)?,
+        };
         let place = |id: Option<MessageId>| id.and_then(|id| ids.iter().position(|&x| x == id));
         Ok(match (place(from), place(to)) {
             (Some(a), Some(b)) => ids[a.min(b)..=a.max(b)].to_vec(),

@@ -13,15 +13,20 @@
 
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
-use std::net::{IpAddr, ToSocketAddrs};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use ammonia::{Builder, UrlRelative};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use serde::Deserialize;
+use ureq::config::Config;
+use ureq::http::Uri;
+use ureq::unversioned::resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver};
+use ureq::unversioned::transport::{DefaultConnector, NextTimeout};
 
 use crate::colors::{self, Role, Target};
 use crate::mime::html_body;
@@ -414,39 +419,39 @@ pub fn to_text(html: &str) -> String {
 /// HTML for plain text: a line per `<div>`, blank lines kept, `>` quotes as blockquotes,
 /// web addresses as links. How a reply or a plain draft opens in the HTML editor.
 pub fn from_text(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
     let mut out = String::new();
-    let mut i = 0;
-    while i < lines.len() {
-        if lines[i].starts_with('>') {
-            let start = i;
-            while i < lines.len() && lines[i].starts_with('>') {
-                i += 1;
-            }
-            let inner: Vec<&str> = lines[start..i]
-                .iter()
-                .map(|l| {
-                    let l = &l[1..];
-                    l.strip_prefix(' ').unwrap_or(l)
-                })
-                .collect();
-            out.push_str("<blockquote>");
-            out.push_str(&from_text(&inner.join("\n")));
-            out.push_str("</blockquote>");
-        } else {
-            let line = lines[i];
-            if line.trim().is_empty() {
-                out.push_str("<div><br></div>");
-            } else {
-                out.push_str("<div>");
-                out.push_str(&linkify(&escape(line)));
-                out.push_str("</div>");
-            }
-            i += 1;
+    let mut open = 0;
+    for line in text.lines() {
+        // "> > text" is quoted twice; a space after each ">" belongs to the marker.
+        let (mut depth, mut rest) = (0, line);
+        while let Some(r) = rest.strip_prefix('>') {
+            depth += 1;
+            rest = r.strip_prefix(' ').unwrap_or(r);
         }
+        let depth = depth.min(MAX_QUOTE_DEPTH);
+        for _ in open..depth {
+            out.push_str("<blockquote>");
+        }
+        for _ in depth..open {
+            out.push_str("</blockquote>");
+        }
+        open = depth;
+        if rest.trim().is_empty() {
+            out.push_str("<div><br></div>");
+        } else {
+            out.push_str("<div>");
+            out.push_str(&linkify(&escape(rest)));
+            out.push_str("</div>");
+        }
+    }
+    for _ in 0..open {
+        out.push_str("</blockquote>");
     }
     out
 }
+
+/// Quotes deeper than this are shown at this depth, so a crafted reply can't nest without end.
+const MAX_QUOTE_DEPTH: usize = 20;
 
 fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -731,7 +736,10 @@ pub struct FetchLimits {
     pub max_images: usize,
     pub max_image_bytes: u64,
     pub max_total_bytes: u64,
+    /// For one image.
     pub timeout: Duration,
+    /// For all of them: what hasn't come by then is left out.
+    pub deadline: Duration,
     /// Allow addresses on this computer and the local network. Only tests do.
     pub allow_private: bool,
 }
@@ -743,10 +751,14 @@ impl Default for FetchLimits {
             max_image_bytes: 3 * 1024 * 1024,
             max_total_bytes: 15 * 1024 * 1024,
             timeout: Duration::from_secs(10),
+            deadline: Duration::from_secs(20),
             allow_private: false,
         }
     }
 }
+
+/// How many images download at once.
+const FETCHERS: usize = 4;
 
 /// Download the remote images of a message the user chose to see in full. Returns URL →
 /// data: URI for each one that arrived as an image within the limits. No cookies and no
@@ -759,34 +771,109 @@ pub fn fetch_images(urls: &[String], limits: &FetchLimits) -> HashMap<String, St
         .http_status_as_error(false)
         .user_agent("Mozilla/5.0")
         .build();
-    let agent = ureq::Agent::new_with_config(config);
-    let mut images = HashMap::new();
-    let mut total = 0;
-    for url in urls.iter().take(limits.max_images) {
-        if images.contains_key(url) {
-            continue;
+    let resolver = PublicOnly {
+        allow_private: limits.allow_private,
+    };
+    let agent = ureq::Agent::with_parts(config, DefaultConnector::new(), resolver);
+    let mut wanted: Vec<&String> = Vec::new();
+    for url in urls {
+        if wanted.len() == limits.max_images {
+            break;
         }
-        if let Some((mime, data)) = fetch_one(&agent, url, limits) {
-            total += data.len() as u64;
-            if total > limits.max_total_bytes {
-                break;
-            }
-            images.insert(url.clone(), data_uri(&mime, &data));
+        if !wanted.contains(&url) {
+            wanted.push(url);
         }
     }
-    images
+    let deadline = Instant::now() + limits.deadline;
+    let next = AtomicUsize::new(0);
+    let found = Mutex::new((HashMap::new(), 0u64));
+    let full = |found: &(HashMap<String, String>, u64)| found.1 > limits.max_total_bytes;
+    let lock = || found.lock().unwrap_or_else(PoisonError::into_inner);
+    std::thread::scope(|s| {
+        for _ in 0..FETCHERS.min(wanted.len()) {
+            s.spawn(|| {
+                while let Some(url) = wanted.get(next.fetch_add(1, Ordering::Relaxed)) {
+                    let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+                        break;
+                    };
+                    if full(&lock()) {
+                        break;
+                    }
+                    let Some((mime, data)) = fetch_one(&agent, url, limits.max_image_bytes, left)
+                    else {
+                        continue;
+                    };
+                    let uri = data_uri(&mime, &data);
+                    let mut found = lock();
+                    found.1 += data.len() as u64;
+                    if full(&found) {
+                        break;
+                    }
+                    found.0.insert((*url).clone(), uri);
+                }
+            });
+        }
+    });
+    found.into_inner().unwrap_or_else(PoisonError::into_inner).0
 }
 
-/// One image, following up to three redirects (each checked like the first URL).
-fn fetch_one(agent: &ureq::Agent, url: &str, limits: &FetchLimits) -> Option<(String, Vec<u8>)> {
+/// Looks host names up as ureq does and keeps only public addresses. So the address checked is
+/// the one connected to: a name can't give the check a public address and the connection the
+/// router's. A proxy set for the system (HTTPS_PROXY) is the user's own and may be nearby.
+#[derive(Debug)]
+struct PublicOnly {
+    allow_private: bool,
+}
+
+impl Resolver for PublicOnly {
+    fn resolve(
+        &self,
+        uri: &Uri,
+        config: &Config,
+        timeout: NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        let found = DefaultResolver::default().resolve(uri, config, timeout)?;
+        let proxy = config.proxy().is_some_and(|p| uri.host() == Some(p.host()));
+        if self.allow_private || proxy {
+            return Ok(found);
+        }
+        let mut public = self.empty();
+        for addr in found.iter().filter(|a| is_public(a.ip())) {
+            public.push(*addr);
+        }
+        if public.is_empty() {
+            return Err(ureq::Error::HostNotFound);
+        }
+        Ok(public)
+    }
+}
+
+/// One image, following up to three redirects (each checked like the first URL), within
+/// `left` of the time for all of them.
+fn fetch_one(
+    agent: &ureq::Agent,
+    url: &str,
+    max_bytes: u64,
+    left: Duration,
+) -> Option<(String, Vec<u8>)> {
     let mut url = url.to_owned();
+    let until = Instant::now() + left;
     for _ in 0..4 {
-        if !allowed_url(&url, limits.allow_private) {
+        if !allowed_url(&url) {
             return None;
         }
+        let left = until.checked_duration_since(Instant::now())?;
+        let timeout = agent
+            .config()
+            .timeouts()
+            .global
+            .map_or(left, |t| t.min(left));
         let mut response = agent
             .get(url.as_str())
             .header("Accept", "image/*")
+            .config()
+            .timeout_global(Some(timeout))
+            .build()
             .call()
             .ok()?;
         let status = response.status().as_u16();
@@ -806,7 +893,7 @@ fn fetch_one(agent: &ureq::Agent, url: &str, limits: &FetchLimits) -> Option<(St
         let data = response
             .body_mut()
             .with_config()
-            .limit(limits.max_image_bytes)
+            .limit(max_bytes)
             .read_to_vec()
             .ok()?;
         let mime = if declared.starts_with("image/") {
@@ -835,41 +922,18 @@ fn redirect_target(current: &str, location: &str) -> Option<String> {
     None
 }
 
-/// http(s) only, and every address the host name resolves to must be public.
-fn allowed_url(url: &str, allow_private: bool) -> bool {
+/// http(s) with a host. Where it may lead is `PublicOnly`'s to say.
+fn allowed_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    let (rest, default_port) = if let Some(r) = lower.strip_prefix("https://") {
-        (r, 443)
-    } else if let Some(r) = lower.strip_prefix("http://") {
-        (r, 80)
-    } else {
+    let Some(rest) = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("http://"))
+    else {
         return false;
     };
     let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    let host_port = authority.rsplit('@').next().unwrap_or_default();
-    let (host, port) = match host_port.strip_prefix('[') {
-        Some(v6) => match v6.split_once(']') {
-            Some((h, p)) => (h, p.strip_prefix(':').and_then(|p| p.parse().ok())),
-            None => return false,
-        },
-        None => match host_port.rsplit_once(':') {
-            Some((h, p)) => (h, p.parse().ok()),
-            None => (host_port, None),
-        },
-    };
-    if host.is_empty() {
-        return false;
-    }
-    if allow_private {
-        return true;
-    }
-    match (host, port.unwrap_or(default_port)).to_socket_addrs() {
-        Ok(addrs) => {
-            let addrs: Vec<_> = addrs.collect();
-            !addrs.is_empty() && addrs.iter().all(|a| is_public(a.ip()))
-        }
-        Err(_) => false,
-    }
+    let host = authority.rsplit('@').next().unwrap_or_default();
+    !host.is_empty() && !host.starts_with(':')
 }
 
 /// Not this computer, not the local network, not a reserved range.
@@ -921,6 +985,17 @@ fn sniff_image(data: &[u8]) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quotes_nest_without_end_but_show_at_most_twenty_deep() {
+        let html = from_text(&format!("{} deep", ">".repeat(5_000)));
+        assert_eq!(html.matches("<blockquote>").count(), MAX_QUOTE_DEPTH);
+        assert_eq!(html.matches("</blockquote>").count(), MAX_QUOTE_DEPTH);
+        assert_eq!(
+            from_text("Hi\n> one\n> > two\n> one again\nme"),
+            "<div>Hi</div><blockquote><div>one</div><blockquote><div>two</div></blockquote><div>one again</div></blockquote><div>me</div>"
+        );
+    }
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
 
@@ -1094,10 +1169,10 @@ iVBORw0KGgo=\r\n";
         }
         assert!(is_public("93.184.216.34".parse().unwrap()));
         assert!(is_public("2606:2800:220:1::".parse().unwrap()));
-        assert!(!allowed_url("http://127.0.0.1:8080/x.png", false));
-        assert!(!allowed_url("http://localhost/x.png", false));
-        assert!(!allowed_url("ftp://example.com/x.png", false));
-        assert!(allowed_url("http://127.0.0.1:8080/x.png", true));
+        assert!(!allowed_url("ftp://example.com/x.png"));
+        assert!(!allowed_url("http:///x.png"));
+        assert!(!allowed_url("http://:80/x.png"));
+        assert!(allowed_url("HTTPS://example.com/x.png"));
     }
 
     #[test]
@@ -1308,7 +1383,31 @@ iVBORw0KGgo=\r\n";
             "sniffed"
         );
 
-        // The same server is refused when private addresses aren't allowed.
+        // The same server is refused when private addresses aren't allowed, also by a name
+        // that leads there: what is connected to is what was checked.
         assert!(fetch_images(&urls, &FetchLimits::default()).is_empty());
+        let named = base.replace("127.0.0.1", "localhost") + "/logo.png";
+        assert!(fetch_images(&[named], &FetchLimits::default()).is_empty());
+    }
+
+    #[test]
+    fn slow_servers_get_one_deadline_for_all_images() {
+        // A server that takes connections and never answers.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let urls: Vec<String> = (0..12).map(|i| format!("{base}/{i}.png")).collect();
+        let limits = FetchLimits {
+            deadline: Duration::from_millis(300),
+            allow_private: true,
+            ..FetchLimits::default()
+        };
+        let started = Instant::now();
+        assert!(fetch_images(&urls, &limits).is_empty());
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+        drop(listener);
     }
 }

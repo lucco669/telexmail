@@ -152,15 +152,13 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}, away: [{account, place, starts, ends}]}` (empty folders left out; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed) |
+| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}, away: [{account, place, starts, ends}], quota: {"<account>": {used_kb, limit_kb}}, synced: {"<account>": time}}` (empty folders left out; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed; `quota` and `synced`: the server's storage and the last good check, for the status bar and Settings › Accounts) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
 | `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote) |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
-| `move_message`   | `id`, `folder`               | – (same account only)       |
-| `delete_message` | `id`                         | `moved_to_trash` / `removed`|
 | `set_unread_many`, `set_flagged_many` | `ids`, `unread` / `flagged` | how many changed (others are left alone) |
 | `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none; within an account, or to and from the folders on this PC (server mail moved there leaves the server; moved back, it is uploaded) |
 | `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` |
@@ -169,7 +167,6 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
 | `save_attachment`| `id`, `index`, `words`       | the path saved to, or null (cancelled); opens Save |
 | `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
-| `show_saved`     | –                            | – (the last saved attachment in Explorer) |
 | `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
 | `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
@@ -180,7 +177,6 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
 | `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
-| `search`         | `query`                      | ids matching subject, people or body (FTS5), best first, at most 5000 |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
 | `usage`          | –                            | `{accounts: [{account, quota, synced_at, sync_error, folders, flow, senders, largest, queued}], base_bytes, free_bytes, since}` |
@@ -196,7 +192,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
 | `delete_identity`| `id`                         | – (never the account's last one) |
 | `known_provider` | `email`                      | what the provider list knows (no network), or null |
-| `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help}` or null; emits `detect-progress` |
+| `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help, confirm}` or null; emits `detect-progress` (`confirm`: servers found through DNS outside the address's domain; the wizard asks before sending them the password, RFC 6186) |
 | `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
 | `remove_account` | `id`                         | – (local copies and saved password only; an away reply on the server is taken off first) |
 | `get_away`       | `account`                    | `{account, enabled, starts, ends, subject, body, days, place, script, created}` (off when never set) |
@@ -429,6 +425,17 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
     without a Date header gets the file's time. Reading mbox builds each message in one buffer
     and parses outside the store's lock (215 MB/s of Thunderbird mbox here; a 614 MB .pst of
     1,903 messages in 7 s).
+  - Cleanup and hardening: every plain command runs on the async pool (`#[tauri::command(async)]`,
+    never the window's thread); sending one Outbox at a time is a `tokio::sync::Mutex` (`sending`)
+    instead of a retry loop; saving a draft composes outside the store's lock and replaces the
+    old one in one transaction; a server folder that disappears keeps what only this PC had
+    (moved to Archive on this PC with a note); flags from the server update only what changed;
+    remote images as above; ManageSieve lines and literals have limits; deeply nested quotes and
+    hostile CSS can't exhaust the stack; risky attachments include OneNote, Excel add-ins,
+    search connectors and .mht; a mail base that won't open says so in a dialog instead of
+    starting empty silently. The window keeps the last 30 messages and 8 HTML views, draws the
+    open message again only when it changed, and folds suggestions once. The test-only sample
+    mailbox is compiled only into the tests.
 
 - New in 0.8.1 (no schema change):
   - Unread at the top of the tree (`UNREAD = "*/unread"` in app.js; the core gets `folder: null`
@@ -719,7 +726,9 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   Remote images and CSS backgrounds are left out and counted, unless the user loads them
   (per message, or always for a trusted sender outside Spam: `trusted_senders`, schema
   version 4). Then the core downloads them itself (`html::fetch_images`: http(s) only,
-  public IPs only, up to 40 images, 3 MB each, 15 MB total, 10 s, no cookies or Referer,
+  public IPs only, checked at connect (`PublicOnly`, ureq's resolver, so a name can't answer
+  one address to the check and another to the connection), up to 40 images, four at a time,
+  3 MB each, 15 MB total, 10 s each and 20 s in all, no cookies or Referer,
   generic User-Agent) and renders again with data: URIs. The document carries its own CSP
   (`default-src 'none'; img-src data:; style-src 'unsafe-inline'`). The UI shows it in an
   iframe with `sandbox="allow-same-origin"` (no scripts can run; same-origin only lets the

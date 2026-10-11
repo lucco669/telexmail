@@ -26,7 +26,7 @@ tauri-plugin-notification = "2.4.0"
 # Every account's check at the same time (join_all over borrowed state).
 futures-util = "0.3.34"
 # The pause before mail that can still be undone goes out, and between IDLE reconnects.
-tokio = { version = "1.53.2", features = ["time"] }
+tokio = { version = "1.53.2", features = ["time", "sync"] }
 # Updates from GitHub Releases. Without the zip feature: it only unpacks Tauri v1 bundles.
 tauri-plugin-updater = { version = "2.13.2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 

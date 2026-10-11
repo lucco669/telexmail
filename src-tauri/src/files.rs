@@ -18,11 +18,10 @@ use telex_core::{tr, Attachment, FolderKind, MessageId};
 
 use crate::{with_store, AppState, CmdResult};
 
-/// Files the user chose this session, and the last place attachments were saved to.
+/// Files the user chose this session.
 #[derive(Default)]
 pub struct FilesState {
     picked: Mutex<HashSet<PathBuf>>,
-    saved: Mutex<Option<PathBuf>>,
 }
 
 impl FilesState {
@@ -54,13 +53,6 @@ impl FilesState {
                     "Upuść plik „{name}” jeszcze raz: Telex czyta tylko pliki wybrane w nim."
                 ))
             }
-        }
-    }
-
-    /// The file "Show in folder" shows: the last attachment or folder saved.
-    pub fn remember_saved(&self, path: &Path) {
-        if let Ok(mut saved) = self.saved.lock() {
-            *saved = Some(path.to_path_buf());
         }
     }
 
@@ -104,7 +96,7 @@ pub enum Opening {
 /// Open an attachment in the app Windows (or Linux) uses for its kind. It is written to a
 /// folder of Telex's under the system's temporary folder first, marked as coming from the
 /// internet. Files that can run code, and anything in Spam, wait for `sure`.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_attachment(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -155,7 +147,6 @@ pub async fn save_attachment(
     app: AppHandle,
     window: WebviewWindow,
     state: State<'_, AppState>,
-    files: State<'_, FilesState>,
     id: MessageId,
     index: usize,
     words: DialogWords,
@@ -180,7 +171,6 @@ pub async fn save_attachment(
             "Nie udało się zapisać {shown}: {e}."
         )
     })?;
-    *files.saved.lock().map_err(|_| poisoned())? = Some(path.clone());
     Ok(Some(path.display().to_string()))
 }
 
@@ -191,7 +181,6 @@ pub async fn save_attachments(
     app: AppHandle,
     window: WebviewWindow,
     state: State<'_, AppState>,
-    files: State<'_, FilesState>,
     id: MessageId,
     words: DialogWords,
 ) -> CmdResult<Option<String>> {
@@ -207,32 +196,16 @@ pub async fn save_attachments(
     let Some(dir) = picked(rx).await else {
         return Ok(None);
     };
-    let mut last = None;
     for file in &all {
-        last = Some(attachments::write_file(&dir, file, false).map_err(|e| {
+        attachments::write_file(&dir, file, false).map_err(|e| {
             let name = &file.name;
             tr!(
                 "Couldn't save \"{name}\": {e}.",
                 "Nie udało się zapisać pliku „{name}”: {e}."
             )
-        })?);
+        })?;
     }
-    *files.saved.lock().map_err(|_| poisoned())? = last;
     Ok(Some(dir.display().to_string()))
-}
-
-/// Show the last saved attachment in Explorer (or the file manager).
-#[tauri::command]
-pub fn show_saved(app: AppHandle, files: State<'_, FilesState>) -> CmdResult<()> {
-    let Some(path) = files.saved.lock().map_err(|_| poisoned())?.clone() else {
-        return Ok(());
-    };
-    app.opener().reveal_item_in_dir(&path).map_err(|e| {
-        tr!(
-            "Couldn't open the folder: {e}",
-            "Nie udało się otworzyć folderu: {e}"
-        )
-    })
 }
 
 /// Choose files to attach. Empty when cancelled.

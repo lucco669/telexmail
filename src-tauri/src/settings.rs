@@ -10,7 +10,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, State, WebviewWindow};
-use tauri_plugin_dialog::{DialogExt, FilePath};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use telex_core::i18n::{self, Lang};
 use telex_core::settings::{
@@ -110,14 +110,14 @@ pub struct SettingsView {
     fresh: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_settings(settings: State<'_, SettingsState>) -> CmdResult<SettingsView> {
     Ok(settings.view(settings.current()?))
 }
 
 /// Change some settings and save them. `changes` holds only the ones that change; a value
 /// this version doesn't know leaves that setting as it was.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_settings(
     app: AppHandle,
     settings: State<'_, SettingsState>,
@@ -167,7 +167,7 @@ pub async fn export_settings(
         .save_file(move |path| {
             let _ = tx.send(path);
         });
-    let Some(path) = picked(rx).await else {
+    let Some(path) = crate::files::picked(rx).await else {
         return Ok(None);
     };
     let shown = path.display().to_string();
@@ -181,17 +181,8 @@ pub async fn export_settings(
     Ok(Some(shown))
 }
 
-/// Waits for the dialog without holding up the async runtime.
-async fn picked(rx: mpsc::Receiver<Option<FilePath>>) -> Option<PathBuf> {
-    tauri::async_runtime::spawn_blocking(move || rx.recv().ok().flatten())
-        .await
-        .ok()
-        .flatten()
-        .and_then(|p| p.into_path().ok())
-}
-
 /// Show the last exported file in Explorer.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn show_export(app: AppHandle, settings: State<'_, SettingsState>) -> CmdResult<()> {
     let Some(path) = lock(&settings.exported)?.clone() else {
         return Ok(());
@@ -223,7 +214,7 @@ pub async fn open_import(
         .pick_file(move |path| {
             let _ = tx.send(path);
         });
-    let Some(path) = picked(rx).await else {
+    let Some(path) = crate::files::picked(rx).await else {
         return Ok(None);
     };
     let text =
@@ -245,7 +236,7 @@ pub struct ImportOutcome {
 
 /// Import the ticked parts of the file from `open_import`. It is matched again first, in case
 /// rules or accounts changed meanwhile.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn apply_import(
     app: AppHandle,
     store: State<'_, AppState>,

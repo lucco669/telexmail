@@ -393,7 +393,12 @@ pub async fn sync_all<T: ImapStream>(
         report.answered = run.replied;
         report.refused.extend(run.problems);
         // The away reply, where Telex sends it, after the rules have filed the mail.
-        let away = crate::away::answer(&mut *lock(store)?, &downloaded.arrived, Local::now());
+        let away = crate::away::answer(
+            &mut *lock(store)?,
+            &account.id,
+            &downloaded.arrived,
+            Local::now(),
+        );
         report.answered += away.replied;
         report.refused.extend(away.problems);
     }
@@ -653,10 +658,7 @@ async fn push_queued_after<T: ImapStream>(
             Err(ImapError::No(_)) => continue,
             Err(e) => return Err(e.into()),
         }
-        let query = format!("HEADER Message-ID {}", quote(&format!("<{mid}>")));
-        let found = timeout(COMMAND_TIMEOUT, session.uid_search(query))
-            .await
-            .map_err(|_| SyncError::Timeout)??;
+        let found = find_by_message_id(session, mid).await?;
         let known = lock(store)?.local_uids(&change.folder)?;
         match found.into_iter().filter(|u| !known.contains(u)).max() {
             Some(uid) => change.uid = Some(uid),
@@ -794,10 +796,7 @@ async fn push_queued_after<T: ImapStream>(
         {
             continue;
         }
-        let query = format!("HEADER Message-ID {}", quote(&format!("<{mid}>")));
-        let found = timeout(COMMAND_TIMEOUT, session.uid_search(query))
-            .await
-            .map_err(|_| SyncError::Timeout)??;
+        let found = find_by_message_id(session, &mid).await?;
         let known = lock(store)?.local_uids(&key)?;
         if let Some(uid) = found.into_iter().filter(|u| !known.contains(u)).max() {
             lock(store)?.set_server_uid(id, &key, uid)?;
@@ -808,17 +807,22 @@ async fn push_queued_after<T: ImapStream>(
 
 // ---- Connection ----
 
+/// One TLS setup for every connection, so its session cache lets a server resume a session
+/// instead of a full handshake on each check.
 pub(crate) fn tls_connector() -> TlsConnector {
-    let roots = RootCertStore {
-        roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-    };
-    let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-    let config = ClientConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
-        .expect("the ring provider supports TLS 1.2 and 1.3")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-    TlsConnector::from(Arc::new(config))
+    static CONFIG: std::sync::LazyLock<Arc<ClientConfig>> = std::sync::LazyLock::new(|| {
+        let roots = RootCertStore {
+            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+        };
+        let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+        let config = ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .expect("the ring provider supports TLS 1.2 and 1.3")
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        Arc::new(config)
+    });
+    TlsConnector::from(CONFIG.clone())
 }
 
 /// Connect to the server, encrypted from the first byte (SSL/TLS) or after STARTTLS, read
@@ -1296,10 +1300,36 @@ fn remote_name(account: &Account, folder_key: &str) -> Option<String> {
         .and_then(|f| f.remote.clone())
 }
 
-/// An IMAP quoted string. Folder names come from the server's own LIST, so they hold no
-/// line breaks; quotes and backslashes are escaped.
+/// An IMAP quoted string: quotes and backslashes escaped. Line breaks and NULs can't be in
+/// one at all, so they are left out (folder names from the server's LIST have none).
 fn quote(s: &str) -> String {
+    let s: String = s
+        .chars()
+        .filter(|c| !matches!(c, '\r' | '\n' | '\0'))
+        .collect();
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// The UIDs in the selected folder of the message with this Message-ID. An id that isn't
+/// plain printable ASCII isn't searched for (no server would match it, and some answer BAD);
+/// a server that refuses the search counts as not finding it, so one odd message can't stop
+/// an account's sync.
+async fn find_by_message_id<T: ImapStream>(
+    session: &mut Session<T>,
+    mid: &str,
+) -> Result<HashSet<u32>, SyncError> {
+    if mid.is_empty() || !mid.bytes().all(|b| (0x21..0x7f).contains(&b)) {
+        return Ok(HashSet::new());
+    }
+    let query = format!("HEADER Message-ID {}", quote(&format!("<{mid}>")));
+    match timeout(COMMAND_TIMEOUT, session.uid_search(query))
+        .await
+        .map_err(|_| SyncError::Timeout)?
+    {
+        Ok(found) => Ok(found),
+        Err(ImapError::No(_) | ImapError::Bad(_)) => Ok(HashSet::new()),
+        Err(e) => Err(e.into()),
+    }
 }
 
 // ---- Pure helpers (unit-tested) ----

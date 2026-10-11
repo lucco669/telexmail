@@ -31,6 +31,8 @@ use crate::tr;
 /// How many messages go into the mail base in one transaction while importing. The store is
 /// free for the window between them.
 const IMPORT_BATCH: usize = 200;
+/// A batch is stored sooner when its messages reach this size, so big mail isn't all in memory.
+const IMPORT_BATCH_BYTES: usize = 32 * 1024 * 1024;
 /// Bytes read from a file at a time: big mbox files go faster in large pieces.
 const READ_BUFFER: usize = 1 << 20;
 
@@ -73,8 +75,14 @@ pub struct ImportProgress {
 }
 
 impl MailStore {
-    /// Write a folder's messages, oldest first, as mbox. Returns how many.
-    pub fn export_mbox(&self, folder: &str, out: &mut dyn Write) -> Result<usize, StoreError> {
+    /// Write a folder's messages, oldest first, as mbox. Returns how many. (The app writes
+    /// a file on a connection of its own: `export_folder`.)
+    #[cfg(test)]
+    pub(crate) fn export_mbox(
+        &self,
+        folder: &str,
+        out: &mut dyn Write,
+    ) -> Result<usize, StoreError> {
         write_mbox(&self.db, folder, out)
     }
 
@@ -430,7 +438,10 @@ fn read_emlx(
     let length = std::str::from_utf8(&bytes[..start])
         .ok()
         .and_then(|l| l.trim().parse::<usize>().ok());
-    let Some(end) = length.map(|n| start + n).filter(|&end| end <= bytes.len()) else {
+    let Some(end) = length
+        .and_then(|n| start.checked_add(n))
+        .filter(|&end| end <= bytes.len())
+    else {
         return read_file(path, each); // not an .emlx after all
     };
     let plist = String::from_utf8_lossy(&bytes[end..]);
@@ -560,6 +571,7 @@ pub(crate) struct Importer<'a> {
     folder: String,
     known: HashSet<String>,
     batch: Vec<FileMessage>,
+    batch_bytes: usize,
     progress: &'a (dyn Fn(ImportProgress) + Send + Sync),
     file: String,
     pub report: ImportReport,
@@ -584,6 +596,7 @@ impl<'a> Importer<'a> {
             folder: folder.to_owned(),
             known,
             batch: Vec::with_capacity(IMPORT_BATCH),
+            batch_bytes: 0,
             progress,
             file: String::new(),
             report: ImportReport::default(),
@@ -609,8 +622,9 @@ impl<'a> Importer<'a> {
     }
 
     pub fn add(&mut self, m: FileMessage) -> Result<(), StoreError> {
+        self.batch_bytes += m.raw.len();
         self.batch.push(m);
-        if self.batch.len() >= IMPORT_BATCH {
+        if self.batch.len() >= IMPORT_BATCH || self.batch_bytes >= IMPORT_BATCH_BYTES {
             self.flush()?;
         }
         Ok(())
@@ -621,6 +635,7 @@ impl<'a> Importer<'a> {
             return Ok(());
         }
         let batch = std::mem::take(&mut self.batch);
+        self.batch_bytes = 0;
         let parsed: Vec<Message> = batch
             .iter()
             .map(|m| {
@@ -847,6 +862,20 @@ mod tests {
                 .count(),
             "every line ends in CRLF, as IMAP wants it"
         );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn an_emlx_whose_length_is_absurd_is_read_as_mail() {
+        let path = temp("huge.emlx");
+        std::fs::write(&path, "18446744073709551615\nSubject: x\n\nbody\n").unwrap();
+        let mut n = 0;
+        read_path(&path, &mut |_| {
+            n += 1;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(n, 1);
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
