@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { features } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import s from './Features.module.css';

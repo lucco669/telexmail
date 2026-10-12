@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { CtaBand } from '@/components/CtaBand';
 import { Compat, DownloadChoice, LookupNote, ReleaseStatus } from '@/components/DownloadChoice';
 import { PageHeader } from '@/components/PageHeader';

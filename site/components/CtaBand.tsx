@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { pages } from '@/lib/pages';
 import s from './CtaBand.module.css';
 

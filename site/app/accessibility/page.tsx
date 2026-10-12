@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { CtaBand } from '@/components/CtaBand';
 import { PageHeader } from '@/components/PageHeader';
 import { pages } from '@/lib/pages';

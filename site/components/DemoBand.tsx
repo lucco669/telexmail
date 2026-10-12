@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { screens } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { DemoFirst } from './DemoFirst';

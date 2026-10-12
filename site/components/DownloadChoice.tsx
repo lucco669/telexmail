@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { compat } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { allReleasesPage, latestReleasePage, megabytes, type Release } from '@/lib/release';

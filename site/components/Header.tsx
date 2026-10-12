@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { nav, pages } from '@/lib/pages';
 import { Logo } from './Logo';
 import { MobileMenu } from './MobileMenu';

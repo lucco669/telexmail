@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { useId, useRef, useState } from 'react';
 import { homeScreens as screens, screens as allScreens } from '@/lib/content';
 import { pages } from '@/lib/pages';

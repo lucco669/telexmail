@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next';
 import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Sans_Condensed } from 'next/font/google';
 import { Footer } from '@/components/Footer';
 import { Header } from '@/components/Header';
+import { PageNavigation } from '@/components/PageNavigation';
 import { site } from '@/lib/site';
 import { THEME_SCRIPT } from '@/lib/theme-script';
 import './globals.css';
@@ -66,7 +67,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     // suppressHydrationWarning: the theme script may set data-theme before React loads.
-    <html lang="en" className={`${sans.variable} ${cond.variable} ${mono.variable}`} suppressHydrationWarning>
+    <html lang="en" data-scroll-behavior="smooth" className={`${sans.variable} ${cond.variable} ${mono.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
@@ -74,9 +75,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a className="skip" href="#content">
           Skip to content
         </a>
-        <Header />
-        <main id="content">{children}</main>
-        <Footer />
+        <PageNavigation>
+          <Header />
+          <main id="content">{children}</main>
+          <Footer />
+        </PageNavigation>
         {/* Vercel Web Analytics: page views without cookies (see the privacy page). */}
         <Analytics />
       </body>

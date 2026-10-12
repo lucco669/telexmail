@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import type { PageInfo } from '@/lib/pages';
 import { breadcrumbLd } from '@/lib/seo';
 import { JsonLd } from './JsonLd';

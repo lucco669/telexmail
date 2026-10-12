@@ -1,5 +1,5 @@
 import Image from 'next/image';
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { HistoryTimeline, MessageJourney, PaperTapeLab } from '@/components/HistoryLab';
 import { JsonLd } from '@/components/JsonLd';
 import { PrintButton } from '@/components/PrintButton';

@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { usePathname } from 'next/navigation';
 import type { PageInfo } from '@/lib/pages';
 

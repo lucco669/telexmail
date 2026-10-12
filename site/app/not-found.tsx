@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 
 export const metadata: Metadata = { title: 'Page not found', robots: { index: false }, alternates: { canonical: null } };
 

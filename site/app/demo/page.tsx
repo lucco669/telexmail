@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { CtaBand } from '@/components/CtaBand';
 import { DemoFirst } from '@/components/DemoFirst';
 import { DemoFrame } from '@/components/DemoFrame';

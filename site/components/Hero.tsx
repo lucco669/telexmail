@@ -1,4 +1,4 @@
-import Link from 'next/link';
+import { PageLink as Link } from '@/components/PageNavigation';
 import { facts, hero, NEXT, nextTeaser, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
