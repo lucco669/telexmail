@@ -109,4 +109,4 @@ export async function getLatestRelease(): Promise<Release | null> {
   return (await getReleases())[0] ?? null;
 }
 
-export const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+export const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MiB`;

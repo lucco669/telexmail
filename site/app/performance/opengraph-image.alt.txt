@@ -1,0 +1,1 @@
+Telex performance with 100,000 messages: 128 MiB whole-app idle ram; 0.48 s inbox ready; 270 ms full-text search. Measured on one Windows PC.

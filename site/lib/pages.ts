@@ -53,6 +53,14 @@ export const pages = {
     ogTitle: 'One key per action.',
     ogScreen: 'reply',
   },
+  performance: {
+    path: '/performance',
+    label: 'Performance',
+    title: 'Performance: small footprint, measured speed',
+    description: 'Telex with 100,000 messages: real desktop startup, search, navigation and whole-app memory measurements, with comparison data and a repeatable method.',
+    ogTitle: 'Light on your PC. Quick through your inbox.',
+    ogScreen: 'filter',
+  },
   screenshots: {
     path: '/screenshots',
     label: 'Screenshots',
@@ -137,12 +145,12 @@ export const pages = {
   },
 } satisfies Record<string, PageInfo>;
 
-export const nav: PageInfo[] = [pages.features, pages.demo, pages.keyboard, pages.accessibility, pages.changelog, pages.roadmap, pages.faq, { ...pages.history, label: 'History' }];
+export const nav: PageInfo[] = [pages.features, pages.demo, pages.performance, pages.keyboard, pages.accessibility, pages.changelog, pages.roadmap, pages.faq, { ...pages.history, label: 'History' }];
 
 export type FooterLink = { path: string; label: string };
 
 export const footerGroups: { title: string; items: FooterLink[] }[] = [
-  { title: 'Product', items: [pages.features, pages.demo, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
+  { title: 'Product', items: [pages.features, pages.demo, pages.performance, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
   { title: 'Project', items: [pages.changelog, pages.roadmap, pages.faq, pages.about, pages.history] },
   { title: 'Legal', items: [pages.privacy, { path: '/privacy#cookies', label: 'Cookies' }] },
 ];

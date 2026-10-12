@@ -32,7 +32,7 @@ export const features = [
   },
   {
     title: 'Light on your PC',
-    text: 'A Rust core in the web view your system already has. No Electron, no bundled browser, an installer of about 4 MB.',
+    text: 'A small Windows download and a Rust mail core. The list loads a page at a time, keeping large mailboxes responsive. Startup, search and whole-app memory are measured with 100,000 messages.',
   },
   {
     title: 'Fluent in Polish',

@@ -1,0 +1,37 @@
+.section { padding-block: 56px; border-bottom: 1px solid var(--line); }
+.intro { max-width: 80ch; color: var(--muted); margin: 16px 0 28px; }
+.comparison { margin-top: 24px; padding: 24px; border-left: 3px solid var(--accent); background: var(--panel); }
+.comparison strong { display: block; font: 500 clamp(24px, 3vw, 36px)/1.2 var(--font-cond); }
+.comparison span { display: block; margin-top: 10px; color: var(--muted); font-size: 14px; }
+.design { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+.design h3 { margin: 0 0 10px; font-size: 19px; }
+.design p { color: var(--muted); font-size: 15px; }
+.scroll { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 15px; text-align: left; }
+.table caption { text-align: left; color: var(--muted); font-size: 13px; padding-bottom: 12px; }
+.table th, .table td { padding: 15px 18px 15px 0; border-block: 1px solid var(--line); vertical-align: top; }
+.table thead th { color: var(--muted); font: 500 12px/1.5 var(--font-mono); }
+.table tbody th { font-weight: 500; min-width: 260px; }
+.table td { font: 14px/1.7 var(--font-mono); white-space: nowrap; }
+.table td:first-of-type { color: var(--accent); font-weight: 600; }
+.table small { display: block; color: var(--muted); font-size: 12px; font-weight: 400; margin-top: 4px; }
+.note { margin-top: 20px; max-width: 90ch; color: var(--muted); font-size: 13px; }
+.bars { list-style: none; padding: 0; margin: 28px 0 36px; max-width: 800px; }
+.bars li + li { margin-top: 24px; }
+.barLabel { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.barLabel small { color: var(--muted); margin-left: 8px; font: 12px/1.5 var(--font-mono); }
+.barLabel strong { font: 500 20px/1 var(--font-mono); }
+.track { background: var(--line-soft); height: 16px; }
+.telexBar { height: 100%; background: var(--accent); }
+.otherBar { height: 100%; background: var(--muted); }
+.method { margin: 24px 0 0; border-top: 1px solid var(--line); }
+.method > div { display: grid; grid-template-columns: 180px 1fr; gap: 24px; padding-block: 22px; border-bottom: 1px solid var(--line); }
+.method dt { font-weight: 600; }
+.method dd { margin: 0; color: var(--muted); max-width: 80ch; }
+.sources { display: flex; gap: 12px 28px; flex-wrap: wrap; margin-top: 28px; font-size: 14px; }
+@media (max-width: 640px) {
+  .design { grid-template-columns: 1fr; }
+  .section { padding-block: 36px; }
+  .method > div { grid-template-columns: 1fr; gap: 6px; }
+  .barLabel small { display: block; margin: 4px 0 0; }
+}

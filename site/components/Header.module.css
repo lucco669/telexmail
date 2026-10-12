@@ -16,6 +16,7 @@
   font-size: 14.5px;
   font-weight: 500;
   text-decoration: none;
+  white-space: nowrap;
 }
 .link:hover { color: var(--fg); background: var(--panel); }
 .link[aria-current='page'] { color: var(--fg); background: var(--panel); }
@@ -68,12 +69,12 @@
 @media (min-width: 560px) {
   .theme { display: inline-flex; }
 }
-@media (min-width: 1100px) {
+@media (min-width: 1200px) {
   .nav { display: flex; }
   .menuBtn { display: none; }
 }
-/* Keep the eight page links readable; narrower screens use the existing menu. */
-@media (min-width: 1100px) and (max-width: 1199px) {
+/* Keep the nine page links on one line; narrower screens use the existing menu. */
+@media (min-width: 1200px) and (max-width: 1279px) {
   .nav { margin-right: 4px; }
   .link { padding: 7px 8px; font-size: 14px; }
 }

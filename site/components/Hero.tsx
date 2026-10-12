@@ -59,7 +59,7 @@ export function Hero({ release, unknown = false }: { release: Release | null; un
         </div>
         <div className={s.side}>
           <p className={s.lead}>
-            Telex is a compact, fast email client for Windows and Linux. Dense lists, one key for every action, and all
+            Light on your PC. Quick through your inbox. Telex is an email client for Windows and Linux, with dense lists, one key for every action, and all
             your mail on your own disk, searchable offline.
           </p>
           <div className={s.actions}>

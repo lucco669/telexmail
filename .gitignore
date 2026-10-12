@@ -20,3 +20,6 @@ Thumbs.db
 
 # Claude Code: local worktrees and settings
 /.claude/
+
+# Generated benchmark mailboxes, isolated app profiles and raw measurements.
+/.bench/

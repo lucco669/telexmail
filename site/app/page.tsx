@@ -4,6 +4,7 @@ import { Features } from '@/components/Features';
 import { Hero } from '@/components/Hero';
 import { JsonLd } from '@/components/JsonLd';
 import { Keyboard } from '@/components/Keyboard';
+import { Performance } from '@/components/Performance';
 import { Roadmap } from '@/components/Roadmap';
 import { Screens } from '@/components/Screens';
 import { WhatsNew } from '@/components/WhatsNew';
@@ -22,6 +23,7 @@ export default async function Home() {
     <>
       <JsonLd items={[organizationLd(), websiteLd(), appLd(release)]} />
       <Hero release={release} unknown={unknown} />
+      <Performance release={release} />
       <Features />
       <Keyboard release={release} />
       <DemoBand />

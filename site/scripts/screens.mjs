@@ -257,6 +257,37 @@ if (!only.length || only.includes('og') || ogTargets.length) {
   for (const p of Object.values(pages)) {
     if (ogTargets.length && !only.includes('og') && !ogTargets.includes(p.path)) continue;
     const dir = join(here, '../app', p.path === '/' ? '' : p.path.slice(1));
+    if (p.path === '/performance') {
+      // A data card shares the measured figures without presenting a demo mailbox as a benchmark.
+      const result = JSON.parse(readFileSync(join(here, '../public/benchmarks/windows-100k.json'), 'utf8'));
+      const search = Math.max(...Object.entries(result.metrics).filter(([name]) => name.startsWith('search:')).map(([, metric]) => metric.median));
+      const facts = [
+        [64, `${Math.round(result.resources.privateRamMiB.median)} MiB`, 'Whole-app idle RAM', 'Private RAM · all processes'],
+        [460, `${(result.warmStartupMs.median / 1000).toFixed(2)} s`, 'Inbox ready', 'Median repeat launch'],
+        [856, `${Math.round(search)} ms`, 'Full-text search', 'Slowest median of 3 queries'],
+      ];
+      const date = new Intl.DateTimeFormat('en-GB', {day:'numeric', month:'long', year:'numeric', timeZone:'Europe/Warsaw'}).format(new Date(result.measuredAt));
+      const mark = readFileSync(join(repo, 'brand/telex-mark.svg'), 'utf8').replace('<svg ', '<svg x="64" y="40" width="44" height="44" ');
+      const card = Buffer.from(`<svg width="1200" height="630" xmlns="http://www.w3.org/2000/svg">
+        <rect width="1200" height="630" fill="#fff"/>
+        <rect y="346" width="1200" height="284" fill="#f3f5f8"/>
+        ${mark}
+        <g font-family="Arial, sans-serif">
+          <text x="124" y="76" font-size="36" font-weight="bold" fill="#1a1e23">Telex</text>
+          <text x="64" y="161" font-size="15" letter-spacing="2" fill="#2453a6">PERFORMANCE · 100,000 MESSAGES</text>
+          <text x="64" y="238" font-size="66" font-weight="bold" fill="#1a1e23">Small footprint.</text>
+          <text x="64" y="306" font-size="66" font-weight="bold" fill="#1a1e23">Measured speed.</text>
+          ${facts.map(([x, value, label, note]) => `<text x="${x}" y="444" font-size="58" font-weight="bold" fill="#2453a6">${value}</text>
+            <text x="${x}" y="489" font-size="24" font-weight="bold" fill="#1a1e23">${label}</text>
+            <text x="${x}" y="526" font-size="17" fill="#59636e">${note}</text>`).join('')}
+          <text x="64" y="590" font-size="17" fill="#59636e">Windows · Telex ${result.version} benchmark build · ${date} · one PC</text>
+        </g>
+      </svg>`);
+      await sharp(card).png().toFile(join(dir, 'opengraph-image.png'));
+      writeFileSync(join(dir, 'opengraph-image.alt.txt'), `Telex performance with 100,000 messages: ${facts.map(([, value, label]) => `${value} ${label.toLowerCase()}`).join('; ')}. Measured on one Windows PC.`);
+      console.log('app/performance/opengraph-image.png');
+      continue;
+    }
     if (p.ogImage) {
       // Editorial pages use their own imagery, rather than a product screenshot.
       const art = await sharp(join(here, '../public', p.ogImage.slice(1)))

@@ -104,3 +104,11 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 - `docs`: [releasing](docs/releasing.md) a version, and the [storage plan](docs/storage.md).
 
 See [CLAUDE.md](CLAUDE.md) for design principles, architecture and the roadmap.
+
+## Performance measurements
+
+`npm run benchmark` measures a release build with an isolated, synthetic 100,000-message
+mailbox: desktop startup, folder changes, reading, search, and the full process tree's
+idle memory and CPU. The same messages export for comparison with other mail clients.
+See [the method and commands](docs/performance.md) before running it. Verified figures
+feed the site's performance page; production mail and app profiles are kept separate.

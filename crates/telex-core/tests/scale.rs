@@ -6,6 +6,7 @@
 //!
 //! TELEX_SCALE_DB=<path> keeps the mail base in that file and reuses it on the next run.
 //! TELEX_SCALE_V6=<path> also times upgrading a version 6 mail base (on a copy).
+//! TELEX_SCALE_EXPORT=<directory> exports the same messages as mbox for other clients.
 //! The numbers are recorded in docs/storage.md.
 
 use std::path::{Path, PathBuf};
@@ -562,6 +563,32 @@ fn remove_db(path: &Path) {
 #[ignore = "builds a 100,000-message mail base; run with --release -- --ignored --nocapture"]
 fn hundred_thousand_messages() {
     let (path, keep) = scale_db();
+    if let Some(dir) = std::env::var_os("TELEX_SCALE_EXPORT").map(PathBuf::from) {
+        std::fs::create_dir_all(&dir).unwrap();
+        let export_store = MailStore::open(&path).unwrap();
+        let tree = export_store.folder_tree().unwrap();
+        let mut folders = Vec::new();
+        for (key, counts) in &tree.counts {
+            if counts.total == 0 {
+                continue;
+            }
+            let file = format!("{}.mbox", key.replace('/', "--"));
+            let exported =
+                telex_core::mailbox::export_folder(&path, key, &dir.join(&file)).unwrap();
+            assert_eq!(exported, counts.total);
+            folders.push(serde_json::json!({"key": key, "file": file, "messages": exported}));
+        }
+        folders.sort_by(|a, b| a["key"].as_str().cmp(&b["key"].as_str()));
+        std::fs::write(
+            dir.join("fixture.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schema": 1, "id": "telex-scale-100k-v1", "seed": "7e1ec0de20261010",
+                "messages": 100_000, "accounts": 3, "folders": folders,
+                "description": "Synthetic messages, plain text and HTML, about 10% with attachments."
+            })).unwrap(),
+        ).unwrap();
+        println!("exported the shared mailbox to {}", dir.display());
+    }
     let inbox = "twojastudio/inbox";
     println!();
 

@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "measuredAt": "2026-10-12T17:22:38.6216725+00:00",
+  "application": "Telex",
+  "version": "0.9.1",
+  "build": "release; isolated app identity; UI timing hooks; network checks disabled",
+  "fixtureId": "telex-scale-100k-v1",
+  "messages": 100000,
+  "scenario": "offline-inbox-idle-100k",
+  "hardware": {
+    "os": "Microsoft Windows 11 Pro",
+    "build": "26200",
+    "cpu": "Intel(R) Core(TM) i9-14900KS",
+    "ramBytes": 51242610688
+  },
+  "firstLaunchMs": 591,
+  "warmStartupMs": {
+    "samples": 4,
+    "min": 458,
+    "median": 484.5,
+    "p95": 485,
+    "max": 485
+  },
+  "metrics": {
+    "folder-switch": {
+      "samples": 105,
+      "min": 18.09999999962747,
+      "median": 24.90000000037253,
+      "p95": 41.40000000037253,
+      "max": 46.5
+    },
+    "open-message": {
+      "samples": 105,
+      "min": 13.699999999254942,
+      "median": 20.799999998882413,
+      "p95": 34.600000001490116,
+      "max": 40.80000000074506
+    },
+    "jump-to-end": {
+      "samples": 55,
+      "min": 19.799999998882413,
+      "median": 27.899999998509884,
+      "p95": 43.90000000037253,
+      "max": 45.5
+    },
+    "search:kowalska": {
+      "samples": 35,
+      "min": 205.40000000037253,
+      "median": 214,
+      "p95": 224.69999999925494,
+      "max": 225.7999999988824,
+      "matches": 12329
+    },
+    "search:żółwia": {
+      "samples": 35,
+      "min": 198.2999999988824,
+      "median": 210.19999999925494,
+      "p95": 218.7000000011176,
+      "max": 220.2999999988824,
+      "matches": 892
+    },
+    "search:faktura wrzesień": {
+      "samples": 35,
+      "min": 248.80000000074506,
+      "median": 269.8999999985099,
+      "p95": 301.2000000011176,
+      "max": 307.90000000037253,
+      "matches": 66318
+    }
+  },
+  "resources": {
+    "privateRamMiB": {
+      "samples": 99,
+      "min": 121.9140625,
+      "median": 128.37109375,
+      "p95": 130.03125,
+      "max": 134.46875
+    },
+    "privateCommitMiB": {
+      "samples": 99,
+      "min": 296.078125,
+      "median": 303.078125,
+      "p95": 313.9765625,
+      "max": 314.234375
+    },
+    "cpuPercent": 0,
+    "cpuSeconds": 0,
+    "durationSeconds": 126.09603310000003,
+    "processNames": [
+      "msedgewebview2.exe",
+      "telex-benchmark.exe"
+    ],
+    "foregroundFraction": 0,
+    "visibleFraction": 1,
+    "runs": 5,
+    "totalSamples": 114,
+    "windowSizes": [
+      "1294x837"
+    ],
+    "sampleSelection": "visible, unminimized background samples only"
+  },
+  "comparisons": [
+    {
+      "application": "Thunderbird",
+      "version": "157.0.1",
+      "measuredAt": "2026-10-12T17:37:51.8873422+00:00",
+      "notes": "Local Folders; 100000 full messages; verified index; offline; unthreaded table; newest message in plain text; five idle windows in one fresh launch",
+      "resources": {
+        "privateRamMiB": {
+          "samples": 90,
+          "min": 297.01171875,
+          "median": 297.28125,
+          "p95": 297.546875,
+          "max": 298.41015625
+        },
+        "privateCommitMiB": {
+          "samples": 90,
+          "min": 616.25,
+          "median": 616.52734375,
+          "p95": 617.203125,
+          "max": 617.71875
+        },
+        "cpuPercent": 0,
+        "cpuSeconds": 0,
+        "durationSeconds": 115.65262219999995,
+        "processNames": [
+          "thunderbird.exe",
+          "crashhelper.exe"
+        ],
+        "foregroundFraction": 0,
+        "visibleFraction": 1,
+        "runs": 4,
+        "totalSamples": 115,
+        "windowSizes": [
+          "1293x837"
+        ],
+        "sampleSelection": "visible, unminimized background samples only"
+      }
+    }
+  ],
+  "coreBuild": {
+    "messages": 100000,
+    "seconds": 14.9,
+    "batchMessages": 1000,
+    "includes": "synthetic message generation, storing full messages and maintaining the full-text index",
+    "excludes": "network transfer and MIME parsing; not a desktop import or a competitor indexing comparison"
+  }
+}
