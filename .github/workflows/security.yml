@@ -1,0 +1,63 @@
+name: Security checks
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  # Refresh advisories even when our source and lockfiles have not changed.
+  schedule:
+    - cron: '37 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Security checks (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # Scan all fetched Git history, not just the last commit.
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+
+      - name: Install the pinned dependency auditor
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: Install the checksum-verified secret scanner
+        run: node scripts/security/install-gitleaks.mjs
+
+      # No npm dependency installation is needed: the runner uses Node's built-in modules.
+      # npm audit reads both lockfiles, including development dependencies.
+      - name: Run scans and security regression tests
+        run: npm run security
+
+      - name: Preserve the evidence, including failed checks
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: security-evidence-${{ matrix.os }}
+          path: .bench/security/
+          if-no-files-found: warn
+          retention-days: 90

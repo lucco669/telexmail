@@ -105,6 +105,15 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 
 See [CLAUDE.md](CLAUDE.md) for design principles, architecture and the roadmap.
 
+## Privacy and security evidence
+
+The website's `/security` page links protections to source, tests and actual CI results, and
+documents current limits. [docs/security.md](docs/security.md) explains the automated Rust/npm
+dependency audits, secret scans and security regression checks, including how to repeat them.
+These run on Windows and Linux, on source changes and weekly advisory refreshes. Findings and
+tool failures remain visible; a successful check applies only to its tested source and scope.
+Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
+
 ## Performance measurements
 
 `npm run benchmark` measures a release build with an isolated, synthetic 100,000-message

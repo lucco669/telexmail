@@ -29,6 +29,9 @@ export function Download({ release, unknown = false }: { release: Release | null
             <Link className="more" href={pages.download.path}>
               Install steps and all versions
             </Link>
+            <Link className="more" href={pages.security.path}>
+              Privacy & security evidence
+            </Link>
           </p>
         </div>
 

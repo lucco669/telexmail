@@ -350,7 +350,7 @@ export const notYet = [
   'HTML mail keeps its inline styling, but style sheets inside a message (<style> blocks) are dropped for now.',
   'Drafts stay on your PC; they aren’t saved to the server’s Drafts folder yet.',
   'HTML compose has no images or colors yet, and signatures are plain text.',
-  'There is no Mac version, and the Windows installer isn’t code-signed yet, so SmartScreen warns once.',
+  'There is no Mac version, and the Windows installer isn’t code-signed yet, so SmartScreen may warn when you install.',
 ];
 
 // `match` lists the KeyboardEvent combinations that light the row up in the keyboard table. `shift`
@@ -1004,7 +1004,7 @@ export const roadmap: Step[] = [
     title: 'Updates',
     text: 'Telex checks GitHub for a new version when it starts and once a day, if you allow it, or when you click its version number, and installs it with one click and a restart. Updates must carry Telex’s signature.',
     status: 'done',
-    notYet: 'A code-signed installer, so Windows SmartScreen stops warning.',
+    notYet: 'A code-signed installer with a verified publisher identity. SmartScreen reputation may still take time.',
   },
   {
     title: 'Settings, themes and Polish',

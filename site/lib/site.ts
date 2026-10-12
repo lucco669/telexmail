@@ -25,6 +25,8 @@ export const site = {
   url: siteUrl(),
   // Shown on the privacy page as the address for questions about personal data.
   contact: process.env.NEXT_PUBLIC_CONTACT_EMAIL ?? 'admin@telexmail.app',
+  // Security evidence always points to the source repository, even if downloads move elsewhere.
+  sourceRepo: 'lucco669/telexmail',
   // GitHub repository whose releases hold the installers. It must be public for visitors to download.
   releasesRepo: process.env.TELEX_RELEASES_REPO ?? 'lucco669/telexmail',
 };

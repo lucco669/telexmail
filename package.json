@@ -11,7 +11,10 @@
     "set-version": "node scripts/set-version.mjs",
     "benchmark": "node scripts/benchmark/run.mjs",
     "benchmark:publish": "node scripts/benchmark/summarize.mjs",
-    "benchmark:test": "node --test scripts/benchmark/summarize.test.mjs"
+    "benchmark:test": "node --test scripts/benchmark/summarize.test.mjs",
+    "security": "node scripts/security/run.mjs",
+    "security:test": "node --test scripts/security/guards.test.mjs scripts/security/reports.test.mjs",
+    "security:tools": "node scripts/security/install-gitleaks.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.12.1"

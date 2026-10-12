@@ -134,13 +134,22 @@ export const pages = {
     ogScreen: 'inbox',
     ogImage: '/history/teleprinter.webp',
   },
+  security: {
+    path: '/security',
+    label: 'Privacy & security',
+    title: 'Privacy & security: protections and evidence',
+    description:
+      'Inspect Telex’s security protections, network access, automated check results and current limits, with links to source and tests.',
+    ogTitle: 'Privacy & security. Evidence you can inspect.',
+    ogScreen: 'images',
+  },
   privacy: {
     path: '/privacy',
     label: 'Privacy',
-    title: 'Privacy: no account, no telemetry',
+    title: 'Privacy: what the app and website store and send',
     description:
-      'What the Telex app and this website store and send: no account, no telemetry, no cookies, no trackers. Your mail stays on your computer.',
-    ogTitle: 'Nothing about you leaves your PC.',
+      'Where Telex stores mail and passwords, when it contacts mail providers and GitHub, and how this website uses cookieless visitor statistics.',
+    ogTitle: 'What stays on your PC. What goes online.',
     ogScreen: 'images',
   },
 } satisfies Record<string, PageInfo>;
@@ -151,6 +160,6 @@ export type FooterLink = { path: string; label: string };
 
 export const footerGroups: { title: string; items: FooterLink[] }[] = [
   { title: 'Product', items: [pages.features, pages.demo, pages.performance, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
-  { title: 'Project', items: [pages.changelog, pages.roadmap, pages.faq, pages.about, pages.history] },
+  { title: 'Project', items: [pages.changelog, pages.roadmap, pages.faq, pages.security, pages.about, pages.history] },
   { title: 'Legal', items: [pages.privacy, { path: '/privacy#cookies', label: 'Cookies' }] },
 ];

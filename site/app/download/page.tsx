@@ -56,6 +56,11 @@ export default async function DownloadPage() {
             Try it in your browser first
           </Link>
         </p>
+        <p className={s.alts}>
+          <Link className="more" href={pages.security.path}>
+            Privacy & security: protections, check results and current limits
+          </Link>
+        </p>
       </section>
 
       <div className={`container ${s.layout}`}>

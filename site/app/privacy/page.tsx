@@ -8,7 +8,7 @@ import s from './page.module.css';
 export const metadata = pageMetadata(pages.privacy);
 
 // Change this date whenever the text below changes.
-const UPDATED = '11 October 2026';
+const UPDATED = '12 October 2026';
 
 export default function PrivacyPage() {
   return (
@@ -16,16 +16,18 @@ export default function PrivacyPage() {
       <PageHeader
         page={pages.privacy}
         title="Privacy."
-        lead="The short version: the Telex app has no account, no telemetry and no Telex server, and this website has no cookies or trackers, only cookieless page counts."
-      />
+        lead="Where Telex keeps your mail and passwords, when the app goes online, and what this website counts."
+      >
+        <Link className="btn" href={pages.security.path}>Privacy & security evidence</Link>
+      </PageHeader>
       <div className={`container ${s.layout}`}>
         <aside className={s.summary}>
           <p className={s.updated}>Last updated {UPDATED}</p>
           <ul>
             <li>Your mail stays on your PC and your mail server</li>
-            <li>The app talks to your mail servers, and to image servers only when you ask</li>
-            <li>Update checks only if you allow them: one file from GitHub, nothing about you</li>
-            <li>No cookies or trackers on this site, only cookieless page counts</li>
+            <li>Mail, account discovery, images, dictionaries and updates have different network uses</li>
+            <li>Update checks contact GitHub only if allowed by your setting or started manually</li>
+            <li>This site uses cookieless Vercel Web Analytics for page counts</li>
             <li>The live demo runs in your browser: nothing you do there is sent</li>
           </ul>
         </aside>
@@ -36,7 +38,13 @@ export default function PrivacyPage() {
             The messages it downloads (in full, so you can read and search them offline), your folders and your account
             settings. All of it is in one file: <code>%APPDATA%\app.telexmail.desktop\telex.db</code>. Your choices in
             Settings (theme, language and the like) are in <code>settings.json</code> next to it. Passwords are kept
-            apart from both, in Windows Credential Manager under “Telex”.
+            apart from both, in Windows Credential Manager under “Telex”, or a Secret Service keyring on Linux.
+          </p>
+          <p>
+            Telex does not encrypt the local mail database or its backups. Settings, exports and saved attachments
+            are also ordinary files, protected by your operating system and storage. On Linux the app’s data is in{' '}
+            <code>~/.local/share/app.telexmail.desktop/</code>. See the{' '}
+            <Link href={`${pages.security.path}#limits`}>current security limits</Link>.
           </p>
           <p>
             From version 0.5, an attachment you open is written to a Telex folder among your temporary files, marked
@@ -62,13 +70,18 @@ export default function PrivacyPage() {
             <code>autoconfig.</code> and <code>/.well-known/</code> addresses, with your email address so a provider
             can answer for it), reads your domain’s DNS records, and tries the usual server names such as{' '}
             <code>mail.</code> and <code>imap.</code> your domain. All of that goes to DNS and to servers of your own
-            domain or its mail provider, never to a lookup service run by anyone else.
+            domain or its mail provider; HTTPS redirects from a setup URL may lead to another server.
           </p>
           <p>
             And, only when you choose to load a message’s remote images (once, or always for a sender you trust, never
             automatically in Spam), the servers those images come from. Telex downloads them itself, without cookies or
             a referrer, and refuses addresses on your local network; the window that shows the message never goes
             online. Links you click open in your default browser.
+          </p>
+          <p>
+            Downloading a spelling dictionary, when you choose to do so, requests LibreOffice’s dictionary files
+            from GitHub at a fixed commit. Telex checks each file against its recorded SHA-256 hash. Setting a
+            server-side away reply contacts your provider’s ManageSieve service with STARTTLS before login.
           </p>
           <h3 id="updates">Update checks</h3>
           <p>
@@ -106,7 +119,7 @@ export default function PrivacyPage() {
           </p>
           <h3>What it doesn’t do</h3>
           <ul>
-            <li>No usage statistics, crash reports or telemetry of any kind.</li>
+            <li>The desktop app has no usage-analytics or crash-report upload feature.</li>
             <li>No account to create, and no cloud service.</li>
             <li>
               No remote images until you choose to load them, so senders can’t use them to see when you read their
@@ -116,21 +129,23 @@ export default function PrivacyPage() {
           </ul>
           <h3>Removing your data</h3>
           <p>
-            Removing an account in Telex deletes its local copies and its saved password; the mail on your server stays
-            where it is. To remove everything, uninstall Telex and delete the <code>telex.db</code> file above.
+            Removing an account in Telex deletes its local copies and requests deletion of its saved password; the mail on your server stays
+            where it is. Backups and files you exported or saved separately remain. After uninstalling, remove the
+            app’s data folder, any separate backups and exports, and remaining “Telex” credentials from your system’s
+            credential store if you want those copies gone. File deletion is not a promise of secure erasure.
           </p>
 
           <h2>This website</h2>
-          <h3 id="cookies">No cookies, ads or trackers</h3>
+          <h3 id="cookies">Cookies and ads</h3>
           <p>
-            This site sets no cookies and runs no ads, tracking pixels or third-party scripts, so there is no cookie
-            banner to click away. Its fonts are served from this site, not from a font service.
+            This site has no advertising integration. Its visitor statistics use cookieless Vercel Web Analytics,
+            described below. Its fonts are served from this site, not from a font service.
           </p>
           <h3>Visitor statistics</h3>
           <p>
             To know which pages are read, the site uses Vercel Web Analytics. It counts page views, the page you came
-            from, and your country, browser and device type. It sets no cookies, doesn’t follow you to other sites and
-            doesn’t identify you; the script comes from this site itself. See{' '}
+            from, and your country, browser and device type. It uses no cookies; the analytics script is served
+            through this site. See{' '}
             <a href="https://vercel.com/docs/analytics/privacy-policy">how Vercel Web Analytics handles data</a>.
           </p>
           <h3>Hosting</h3>
