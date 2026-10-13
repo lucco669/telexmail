@@ -109,7 +109,10 @@ Then wait for the **Release** workflow, check the draft release on GitHub and pu
    file). The message is shown in Telex's update dialog and as the release text on GitHub.
    Editing the release text on GitHub later doesn't change what Telex shows: that is fixed in
    latest.json when it is built.
-4. The **Release** workflow (Actions tab) checks that the tag matches the version in every file,
+4. The **Release** workflow (Actions tab) first waits for the reusable security workflow:
+   dependency and secret scans, the verified GLib backport and optimized Linux regression,
+   hostile-mail tests in Windows WebView2 and Linux WebKitGTK, and bounded MIME/HTML/PST fuzzing.
+   Any failure stops the draft and signing jobs. It then checks that the tag matches the version in every file,
    makes a **draft** release "Telex 0.2.0", checks that the private key, its password and the
    public key belong together, then builds, signs, and uploads into that draft:
    `Telex_0.2.0_x64-setup.exe` and `.exe.sig`, `Telex_0.2.0_x64_en-US.msi` and `.msi.sig`,

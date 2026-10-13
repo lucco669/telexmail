@@ -20,7 +20,7 @@ permissions and does not use a scanner service token or upload source to a secre
 | npm audit | Root and site lockfiles, including development dependencies | Any reported vulnerability fails. npm receives the dependency inventory to perform the audit. |
 | Gitleaks history | All fetched Git history (`--all`) | Findings fail. The workflow checks out full history. |
 | Gitleaks current source | Git-tracked and non-ignored files, including local modifications | Findings fail. Generated/ignored build and profile files are outside this scope. |
-| Security guards | Desktop CSP, mail-frame sandbox and Tauri plugin capabilities | Unexpected permissions or loosened policies fail. These are static configuration checks. |
+| Security guards | Desktop CSP, mail-frame sandbox, Tauri plugin capabilities and link-destination display | Unexpected permissions or loosened policies fail. Configuration checks are static; link-display tests exercise misleading URLs and hidden characters locally. |
 | Core unit tests | `cargo test -p telex-core --locked --lib` | Test failures fail. This includes HTML rendering, remote images, attachments and password-export tests. Ignored live-server tests are not run. |
 
 Missing tools, malformed reports and audit-service failures produce `error`, rather than a pass.
@@ -72,19 +72,22 @@ they are not a mailbox or an app profile.
 Read the GitHub run's summary for its outcome and advisories. The JSON artifact provides the
 full recorded evidence; downloading it may require GitHub sign-in. The website links to runs,
 rather than copying an undated result or assuming the newest one passed. These checks are
-separate from the release workflow; a failed check does not automatically stop release publication.
-Review the result for the release's exact commit before publishing. Branch protection and any
-release gates are repository settings/workflow changes, not guarantees made by this page.
+also called by the release workflow. The draft and installer jobs depend on the complete
+security workflow: failed scans, source verification, native webview tests or fuzzing stop
+the release before a draft is created or installers are signed. Review the results for the
+release's exact commit before publishing; a passing run describes only its tested scope.
 
 ## Findings from 12 October 2026
 
 - The initial scan found RUSTSEC-2021-0157 in ammonia 4.2.1. This change upgrades the sanitizer
   to 4.2.3, a patched version. This is a source change; it does not patch already installed releases.
-- RUSTSEC-2024-0429 remains in glib 0.18.5, reached through Tauri's Linux dependency graph.
+- RUSTSEC-2024-0429 affected glib 0.18.5, reached through Tauri's Linux dependency graph.
   The advisory describes unsound `VariantStrIter` methods and lists glib >=0.20.0 as patched.
   A direct version bump is incompatible with the GTK 0.18 dependency family used by Tauri.
-  Reachability in Telex has not been established. The strict audit fails until this is resolved;
-  do not silently ignore it or describe the dependency audit as clean.
+  Telex now vendors the original crate with the upstream mutable-pointer fix backported.
+  The complete source inventory and file hashes are checked, and an optimized Linux test
+  exercises all affected iterator operations. Local path dependencies are outside RustSec's
+  registry matching; the additional checks are required. See [the backport evidence](security-backport.md).
 - RUSTSEC-2024-0370 reports proc-macro-error 1.0.4 as unmaintained, also through Linux
   dependencies. This remains a visible maintenance warning.
 
@@ -92,3 +95,22 @@ The current mail database, backups and exported mail are not encrypted by Telex.
 passwords are stored separately by the operating system's credential service. Windows publisher
 code signing is not configured; updater signatures are a different mechanism. No independent
 security audit, installer antivirus assessment or reproducible-build evidence is included here.
+
+## Native webview and parser tests
+
+`scripts/security/prepare-webview.mjs` creates an isolated app identity and synthetic mailbox.
+`build-webview.mjs` builds the actual Tauri application with the production CSP and IPC layer.
+`run-webview.ps1` tests Windows WebView2; `run-webview.sh` tests Linux WebKitGTK under Xvfb
+with software compositing. No webview security protection is disabled.
+Seven hostile messages render on light and dark paper: scripts, event handlers, navigation,
+forms, remote images, executable URL schemes, CSS injection and parser-confusion markup.
+The tests check preserved readable content, removed active elements, blocked images, absence
+of parent-window mutation, and unchanged message flags. A separate raw-script fixture checks
+the sandbox independently of the sanitizer. Test code and the mailbox remain in ignored `.bench/`;
+they are never included in installers and never read an existing mail profile.
+
+`fuzz/` contains coverage-guided libFuzzer targets for MIME/HTML and the complete PST import
+path. CI uses nightly Rust and cargo-fuzz 0.13.2, synthetic email and valid PST seeds, and runs
+each target for 60 seconds, with a five-second per-input timeout, 512 MiB RSS limit and 1 MiB
+maximum mutated input. Crashes, timeouts and memory-limit failures fail the release gate and
+retain their reproducers. This bounded run is a regression check, not proof that all inputs are safe.

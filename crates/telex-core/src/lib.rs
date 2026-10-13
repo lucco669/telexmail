@@ -23,8 +23,10 @@ pub mod migrate;
 pub mod mime;
 pub mod model;
 pub mod recipients;
+pub mod risk;
 #[cfg(test)]
 pub(crate) mod sample;
+pub mod saved_searches;
 pub mod settings;
 pub mod sieve;
 pub mod smtp;

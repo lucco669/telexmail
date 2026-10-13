@@ -461,6 +461,18 @@ pub struct MessageSummary {
     pub unread: bool,
     pub flagged: bool,
     pub has_attachments: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<ThreadRow>,
+}
+
+/// Presentation of a message in a grouped folder list; actions still target its own id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct ThreadRow {
+    pub id: MessageId,
+    pub head: MessageId,
+    pub count: usize,
+    pub unread: usize,
+    pub child: bool,
 }
 
 impl From<&Message> for MessageSummary {
@@ -477,6 +489,7 @@ impl From<&Message> for MessageSummary {
             unread: m.unread,
             flagged: m.flagged,
             has_attachments: !m.attachments.is_empty(),
+            thread: None,
         }
     }
 }

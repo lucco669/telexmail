@@ -52,6 +52,7 @@ const scenes = {
   unread: { run: `ui.folder('*/unread'); await ui.wait(150); ui.list.focus();` },
   // T on the shop reply: the enquiry in Clients, the estimate in Sent, the answer in the Outbox.
   thread: { run: `ui.row('Re: Online shop estimate'); await ui.wait(50); ui.list.focus(); ui.key('t'); await ui.wait(200);` },
+  threads: { settings: { threaded: true }, run: `ui.folder('studio/sent'); await ui.wait(150); ui.click('#rows .thread-toggle'); await ui.wait(150); ui.row('Online shop estimate'); await ui.wait(150);` },
   // A new message with two files, Bcc open, and the suggestions for a second recipient.
   attach: {
     run: `ui.key('n'); await ui.wait(150); ui.click('[data-act="bcc"]'); await ui.wait(200);
@@ -77,7 +78,15 @@ const scenes = {
   // The message pane dragged taller, so more of the newsletter shows.
   images: { run: `ui.pane(40); ui.row('View Transitions'); await ui.wait(300);` },
   rules: { run: `ui.click('#b-rules'); await ui.wait(100); ui.click('#r-list [data-r="edit"]'); await ui.wait(50);` },
+  'saved-searches': { run: `await ui.type('has:file'); await ui.wait(250); ui.click('#q-save'); await ui.wait(100); ui.fill('ss-name', 'Files to review'); ui.fill('ss-scope', ''); document.getElementById('ss-form').requestSubmit(); await ui.wait(150); ui.click('#ss-close'); ui.click('[data-search="1"]'); await ui.wait(250);` },
+  'rule-preview': { run: `ui.click('#b-rules'); await ui.wait(100); ui.click('#r-new'); ui.fill('r-name', 'File PDF invoices');
+    const field = document.querySelector('#r-conds select[data-k="field"]'); field.value = 'attachment_name'; field.dispatchEvent(new Event('input', {bubbles:true}));
+    const op = document.querySelector('#r-conds select[data-k="op"]'); op.value = 'ends_with'; op.dispatchEvent(new Event('input', {bubbles:true}));
+    const value = document.querySelector('#r-conds input[data-k="value"]'); value.value = '.pdf'; value.dispatchEvent(new Event('input', {bubbles:true}));
+    const action = document.querySelector('#r-acts select[data-k="type"]'); action.value = 'copy'; action.dispatchEvent(new Event('input', {bubbles:true}));
+    ui.click('#r-preview'); await ui.wait(250);` },
   spam: { run: `ui.folder('studio/spam'); await ui.wait(50); ui.row('Rank #1'); await ui.wait(100);` },
+  links: { run: `ui.pane(25); ui.folder('studio/spam'); await ui.wait(100); ui.row('Your music subscription needs attention'); await ui.wait(150); ui.click('[data-act="links"]'); await ui.wait(50);` },
   identities: {
     run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
     ui.click('#i-list [data-id="2"] [data-i="edit"]'); await ui.wait(50);`,

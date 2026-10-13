@@ -23,6 +23,7 @@ const places = [
   { file: 'Cargo.toml', re: /(\[workspace\.package\][^[]*?^version\s*=\s*")([^"]*)(")/m },
   { file: 'Cargo.lock', re: /(^name = "telex"\r?\nversion = ")([^"]*)(")/m },
   { file: 'Cargo.lock', re: /(^name = "telex-core"\r?\nversion = ")([^"]*)(")/m },
+  { file: 'fuzz/Cargo.lock', re: /(^name = "telex-core"\r?\nversion = ")([^"]*)(")/m },
 ];
 
 const read = (file) => readFileSync(join(root, file), 'utf8');

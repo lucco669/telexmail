@@ -1,9 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["crates/telex-core", "src-tauri"]
+members = ["crates/telex-core", "crates/telex-security", "src-tauri"]
+exclude = ["vendor/glib", "fuzz"]
+
+# GTK 0.18 requires GLib 0.18. Keep its API and backport the upstream iterator fix.
+[patch.crates-io]
+glib = { path = "vendor/glib" }
 
 [workspace.package]
-version = "0.9.1"
+version = "0.9.5"
 edition = "2021"
 rust-version = "1.90"
 

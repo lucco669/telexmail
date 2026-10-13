@@ -693,6 +693,29 @@
       "body": "Dear website owner,\n\nwe GUARANTEE the #1 spot on Google in 7 days, or your money back!!!\n\nGuaranteed traffic from 50,000 visitors a month. Order now: http://seo-wizard24.biz/order\n\nThis offer ends tonight."
     },
     {
+      "only": ["links"],
+      "folder": "studio/spam",
+      "from_name": "Sporify Billing",
+      "from_email": "billing@music-account.example",
+      "to": "sam@lindenstudio.com",
+      "cc": "",
+      "subject": "Your music subscription needs attention",
+      "risk": { "score": 99, "limited": false, "signals": [
+        { "kind": "sender_brand_mismatch", "points": 25, "claimed": "Spotify", "actual": "music-account.example" },
+        { "kind": "misleading_userinfo", "points": 65, "claimed": "spotify.com", "actual": "billing.example" },
+        { "kind": "sensitive_request", "points": 20, "claimed": "", "actual": "" }
+      ] },
+      "date": "2026-10-10T07:10:00",
+      "size_kb": 9,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [],
+      "body": "Your subscription is on hold.\n\nUpdate your payment details: https://spotify.com@billing.example/renew?ref=mail&token=demo-only\n\nHelp: https://spоtify.example/help\n\nSynthetic message for the link-inspector demonstration.",
+      "html": "<div style=\"max-width:560px;margin:0 auto;padding:18px\"><h2>Sporify Billing</h2><p>Your subscription is on hold. Update your payment details to keep listening.</p><p><a href=\"https://spotify.com@billing.example/renew?ref=mail&amp;token=demo-only\" title=\"Official account page\" style=\"display:inline-block;padding:9px 16px;background:#2453a6;color:#ffffff;text-decoration:none;border-radius:4px\">Update payment details</a></p><p><a href=\"https://spоtify.example/help\">Help with your account</a></p><p>Synthetic message for the link-inspector demonstration.</p></div>"
+    },
+    {
       "folder": "studio/spam",
       "from_name": "Parcel Delivery Service",
       "from_email": "noreply@parcel-track-info.top",

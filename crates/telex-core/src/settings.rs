@@ -53,9 +53,11 @@ pub const BACKUP_KEEP: &[u16] = &[3, 5, 10, 20];
 const KEYS: &[&str] = &[
     "theme",
     "language",
+    "toolbar_style",
     "density",
     "account_mark",
     "unread_style",
+    "threaded",
     "font",
     "text_size",
     "prefer_text",
@@ -82,11 +84,17 @@ pub struct Settings {
     pub theme: String,
     /// "auto" follows Windows' display language; otherwise one of [`LANGUAGES`].
     pub language: String,
+    /// How the top toolbar shows its actions. Older settings keep the classic layout.
+    #[serde(default)]
+    pub toolbar_style: ToolbarStyle,
     pub density: Density,
     /// How each account's color shows, once there is more than one.
     pub account_mark: AccountMark,
     /// How unread mail stands out from read mail in the message list.
     pub unread_style: UnreadStyle,
+    /// Group related messages in folder lists. Off until the user enables it.
+    #[serde(default)]
+    pub threaded: bool,
     /// The faces the window is written in.
     pub font: Font,
     /// Percent, one of [`TEXT_SIZES`].
@@ -174,6 +182,18 @@ pub enum ReplyFormat {
     Same,
     Plain,
     Html,
+}
+
+/// How actions are shown in the top toolbar.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolbarStyle {
+    #[default]
+    Classic,
+    Icons,
+    Large,
+    Below,
+    Text,
 }
 
 /// Row height in the lists: 20 px, or 26 px for people who want air.
@@ -264,9 +284,11 @@ impl Default for Settings {
         Self {
             theme: "system".into(),
             language: "auto".into(),
+            toolbar_style: ToolbarStyle::Classic,
             density: Density::Compact,
             account_mark: AccountMark::Rail,
             unread_style: UnreadStyle::Quiet,
+            threaded: false,
             font: Font::Plex,
             text_size: 100,
             prefer_text: false,
@@ -635,6 +657,16 @@ enum ActionEntry {
         #[serde(default, skip_serializing_if = "is_false")]
         this_pc: bool,
     },
+    Copy {
+        folder: String,
+        #[serde(default)]
+        folder_id: String,
+        #[serde(default, skip_serializing_if = "is_false")]
+        this_pc: bool,
+    },
+    Forward {
+        to: String,
+    },
     MarkRead,
     Flag,
     Delete,
@@ -663,7 +695,7 @@ fn rule_entry(rule: &Rule, accounts: &[Account]) -> RuleEntry {
         .actions
         .iter()
         .map(|action| match action {
-            Action::Move { folder } => {
+            Action::Move { folder } | Action::Copy { folder } => {
                 let (owner, folder_id) = split_folder_key(folder).unwrap_or(("", folder.as_str()));
                 let this_pc = owner == LOCAL_ID;
                 let name = if this_pc {
@@ -673,12 +705,21 @@ fn rule_entry(rule: &Rule, accounts: &[Account]) -> RuleEntry {
                 }
                 .and_then(|a| a.folders.iter().find(|f| f.id == folder_id))
                 .map_or(folder_id, |f| f.name.as_str());
-                ActionEntry::Move {
-                    folder: name.to_owned(),
-                    folder_id: folder_id.to_owned(),
-                    this_pc,
+                if matches!(action, Action::Copy { .. }) {
+                    ActionEntry::Copy {
+                        folder: name.to_owned(),
+                        folder_id: folder_id.to_owned(),
+                        this_pc,
+                    }
+                } else {
+                    ActionEntry::Move {
+                        folder: name.to_owned(),
+                        folder_id: folder_id.to_owned(),
+                        this_pc,
+                    }
                 }
             }
+            Action::Forward { to } => ActionEntry::Forward { to: to.clone() },
             Action::MarkRead => ActionEntry::MarkRead,
             Action::Flag => ActionEntry::Flag,
             Action::Delete => ActionEntry::Delete,
@@ -1131,6 +1172,11 @@ pub fn plan_rules(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<(S
                     folder,
                     folder_id,
                     this_pc,
+                }
+                | ActionEntry::Copy {
+                    folder,
+                    folder_id,
+                    this_pc,
                 } => {
                     let owner = if *this_pc { store.this_pc() } else { account };
                     let found = owner.and_then(|a| {
@@ -1141,13 +1187,20 @@ pub fn plan_rules(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<(S
                             .map(|f| a.folder_key(&f.id))
                     });
                     match found {
-                        Some(key) => Action::Move { folder: key },
+                        Some(key) => {
+                            if matches!(action, ActionEntry::Copy { .. }) {
+                                Action::Copy { folder: key }
+                            } else {
+                                Action::Move { folder: key }
+                            }
+                        }
                         None => {
                             missing = Some(folder.clone());
                             break;
                         }
                     }
                 }
+                ActionEntry::Forward { to } => Action::Forward { to: to.clone() },
                 ActionEntry::MarkRead => Action::MarkRead,
                 ActionEntry::Flag => Action::Flag,
                 ActionEntry::Delete => Action::Delete,
@@ -1271,6 +1324,7 @@ mod tests {
             account: Some(account.id.clone()),
             match_all: true,
             conditions: vec![Condition {
+                header: None,
                 field: Field::Subject,
                 op: Op::Contains,
                 value: "faktura".into(),
@@ -1334,7 +1388,9 @@ mod tests {
         assert_eq!(s.mail_paper, MailPaper::Theme);
         assert_eq!(s.account_mark, AccountMark::Rail);
         assert_eq!(s.unread_style, UnreadStyle::Quiet);
+        assert!(!s.threaded);
         assert_eq!(s.font, Font::Plex);
+        assert_eq!(s.toolbar_style, ToolbarStyle::Classic);
         assert_eq!(s.compose_format, ComposeFormat::Plain);
         assert_eq!(s.reply_format, ReplyFormat::Same);
         assert!(s.ask_subject && s.spell_check);
@@ -1375,6 +1431,60 @@ mod tests {
     }
 
     #[test]
+    fn toolbar_styles_survive_saving_and_report_import_changes() {
+        let base = Settings::default();
+        for (value, style) in [
+            ("classic", ToolbarStyle::Classic),
+            ("icons", ToolbarStyle::Icons),
+            ("large", ToolbarStyle::Large),
+            ("below", ToolbarStyle::Below),
+            ("text", ToolbarStyle::Text),
+        ] {
+            let (next, ignored) = base.merged(&serde_json::json!({"toolbar_style": value}));
+            assert!(ignored.is_empty());
+            assert_eq!(next.toolbar_style, style);
+            let saved = serde_json::to_string(&next).unwrap();
+            assert_eq!(serde_json::from_str::<Settings>(&saved).unwrap(), next);
+            let changes = base.changes_to(&next);
+            if style == ToolbarStyle::Classic {
+                assert!(changes.is_empty());
+            } else {
+                assert_eq!(changes.len(), 1);
+                assert_eq!(changes[0].key, "toolbar_style");
+                assert_eq!(changes[0].to, serde_json::json!(value));
+            }
+            let (kept, ignored) =
+                next.merged(&serde_json::json!({"toolbar_style": "future_style"}));
+            assert_eq!(ignored, ["toolbar_style"]);
+            assert_eq!(kept.toolbar_style, style);
+        }
+        let mut older = serde_json::to_value(&base).unwrap();
+        older.as_object_mut().unwrap().remove("toolbar_style");
+        assert_eq!(
+            serde_json::from_value::<Settings>(older)
+                .unwrap()
+                .toolbar_style,
+            ToolbarStyle::Classic
+        );
+    }
+
+    #[test]
+    fn threading_is_optional_and_reports_import_changes() {
+        let base = Settings::default();
+        assert!(!base.threaded);
+        let (next, ignored) = base.merged(&serde_json::json!({"threaded": true}));
+        assert!(ignored.is_empty());
+        assert!(next.threaded);
+        let changes = base.changes_to(&next);
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].key, "threaded");
+        assert_eq!(changes[0].to, serde_json::json!(true));
+        let (kept, ignored) = next.merged(&serde_json::json!({"threaded": "yes"}));
+        assert_eq!(ignored, ["threaded"]);
+        assert!(kept.threaded);
+    }
+
+    #[test]
     fn settings_file_round_trips_and_survives_damage() {
         let dir = std::env::temp_dir().join(format!("telex-settings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1387,6 +1497,7 @@ mod tests {
 
         let mine = Settings {
             theme: "paper".into(),
+            threaded: true,
             check_every: 30,
             mark_read: MarkRead::Manual,
             ..Settings::default()
@@ -1481,6 +1592,56 @@ mod tests {
         let (settings, report) = import.apply(&mut store, EVERYTHING);
         assert_eq!(settings, None);
         assert_eq!(report, ImportReport::default());
+    }
+
+    #[test]
+    fn header_attachment_copy_and_forward_rules_travel_to_another_pc() {
+        let (mut old, account) = store_with("anna@firma.pl", "faktury");
+        let mut rule = invoices_rule(&account, "faktury");
+        rule.conditions = vec![
+            Condition {
+                field: Field::Header,
+                header: Some("List-Id".into()),
+                op: Op::Exists,
+                value: String::new(),
+            },
+            Condition {
+                field: Field::AttachmentType,
+                header: None,
+                op: Op::Is,
+                value: "application/pdf".into(),
+            },
+        ];
+        rule.actions = vec![
+            Action::Copy {
+                folder: account.folder_key("faktury"),
+            },
+            Action::Forward {
+                to: "archive@example.com".into(),
+            },
+        ];
+        old.save_rule(&rule).unwrap();
+        let text = export(&old, &Settings::default(), ALL, "0.9.5", now()).unwrap();
+        let (mut new, here) = store_with("Anna@Firma.pl", "invoices-here");
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert_eq!(import.plan.rules[0].status, Status::Add);
+        let (_, report) = import.apply(&mut new, EVERYTHING);
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        let rules = new.rules().unwrap();
+        assert_eq!(rules[0].conditions, rule.conditions);
+        assert_eq!(
+            rules[0].actions,
+            [
+                Action::Copy {
+                    folder: here.folder_key("invoices-here")
+                },
+                Action::Forward {
+                    to: "archive@example.com".into()
+                }
+            ]
+        );
+        let again = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert_eq!(again.plan.rules[0].status, Status::Same);
     }
 
     #[test]
@@ -1631,10 +1792,10 @@ mod tests {
             "format": "telex-settings", "version": 7, "app": "1.4.0",
             "settings": {"theme": "aurora", "density": "comfortable"},
             "rules": [
-                {"name": "Robots", "conditions": [{"field": "header", "op": "is", "value": "x"}],
+                {"name": "Robots", "conditions": [{"field": "future_field", "op": "is", "value": "x"}],
                  "actions": [{"type": "flag"}]},
                 {"name": "Klient", "conditions": [{"field": "from", "op": "contains", "value": "klient.pl"}],
-                 "actions": [{"type": "forward", "to": "x@y.pl"}]},
+                 "actions": [{"type": "future_action", "to": "x@y.pl"}]},
                 {"name": "Wszędzie", "conditions": [{"field": "subject", "op": "contains", "value": "pilne"}],
                  "actions": [{"type": "flag"}]}
             ]

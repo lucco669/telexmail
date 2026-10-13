@@ -1,7 +1,7 @@
 {
   "name": "telexmail",
   "private": true,
-  "version": "0.9.1",
+  "version": "0.9.5",
   "description": "Telex: a compact, keyboard-driven email client for Windows and Linux, built with Rust and Tauri",
   "scripts": {
     "dev": "tauri dev",
@@ -13,7 +13,7 @@
     "benchmark:publish": "node scripts/benchmark/summarize.mjs",
     "benchmark:test": "node --test scripts/benchmark/summarize.test.mjs",
     "security": "node scripts/security/run.mjs",
-    "security:test": "node --test scripts/security/guards.test.mjs scripts/security/reports.test.mjs",
+    "security:test": "node --test scripts/security/guards.test.mjs scripts/security/reports.test.mjs scripts/security/release.test.mjs",
     "security:tools": "node scripts/security/install-gitleaks.mjs"
   },
   "devDependencies": {

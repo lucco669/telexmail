@@ -9,6 +9,7 @@ on:
   schedule:
     - cron: '37 5 * * 1'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -53,6 +54,30 @@ jobs:
       - name: Run scans and security regression tests
         run: npm run security
 
+      - name: Linux webview test libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev xvfb xdotool
+
+      - name: GLib iterator regression with compiler optimizations
+        if: runner.os == 'Linux'
+        run: cargo test -p telex-security --release --locked --test glib_regression
+
+      - name: Prepare isolated hostile-mail webview fixtures
+        run: node scripts/security/prepare-webview.mjs
+
+      - name: Build the isolated native webview test application
+        run: node scripts/security/build-webview.mjs
+
+      - name: Hostile mail in Windows WebView2
+        if: runner.os == 'Windows'
+        run: ./scripts/security/run-webview.ps1
+
+      - name: Hostile mail in Linux WebKitGTK
+        if: runner.os == 'Linux'
+        run: xvfb-run -a bash scripts/security/run-webview.sh
+
       - name: Preserve the evidence, including failed checks
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -61,3 +86,44 @@ jobs:
           path: .bench/security/
           if-no-files-found: warn
           retention-days: 90
+
+  fuzz:
+    name: MIME, HTML and PST fuzzing
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # nightly for libFuzzer instrumentation
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - run: cargo install cargo-fuzz --locked --version 0.13.2
+      - name: Parser fixture libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev clang
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: 22
+      - name: Verify the fuzz targets test the application’s parser dependencies
+        run: node scripts/security/verify-fuzz-lock.mjs
+      - name: Generate parser corpus
+        run: |
+          cargo run -p telex-security --locked -- fixture .bench/fuzz-fixtures
+          mkdir -p fuzz/corpus/mime_html fuzz/corpus/pst_import
+          cp .bench/fuzz-fixtures/*.eml fuzz/corpus/mime_html/
+          cargo run -p telex-security --locked -- pst-seed fuzz/corpus/pst_import/valid.pst
+      - name: Coverage-guided MIME and HTML fuzzing with resource limits
+        run: cargo fuzz run mime_html -- -seed=132026 -max_total_time=60 -timeout=5 -rss_limit_mb=512 -max_len=1048576
+      - name: Coverage-guided PST import fuzzing with resource limits
+        if: success() || failure()
+        run: cargo fuzz run pst_import -- -seed=132026 -max_total_time=60 -timeout=5 -rss_limit_mb=512 -max_len=1048576
+      - name: Preserve crash, timeout and out-of-memory reproducers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: parser-fuzz-reproducers
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

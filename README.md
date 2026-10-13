@@ -9,7 +9,10 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > password login) both ways: a local, searchable mail base, with reading, flagging, moving and deleting mirrored to
 > the server. It sends over SMTP (SSL/TLS or STARTTLS) through an Outbox that retries, and
 > keeps a copy in Sent on the server. HTML mail shows in a sandbox where no script can run,
-> with remote images blocked until you allow them. Rules sort, flag and answer new mail and
+> with remote images blocked until you allow them. Link destinations show on hover or keyboard
+> focus, with a list and copy actions even in Spam. An offline engine check shows an advisory
+> scam-risk score and the specific warning signs. Saved searches keep live queries in the folder list.
+> Rules match headers and attachments, sort, flag, copy and forward new mail, preview their matches and
 > leave a note saying why. Each account can have several identities, each with its own
 > signature and reply templates. You write in plain text or, when it helps, in HTML (which goes
 > out with a plain-text copy), and in a dark theme HTML mail takes the theme's colors. A Usage
@@ -19,7 +22,8 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > page at a time, so a mail base of 100,000 messages opens and scrolls as quickly as a small
 > one, and search looks in one folder or in all your mail, suggesting people, operators and
 > recent searches. Space reads on to the next unread message, and Settings › Reading decides
-> when mail counts as read (or leaves it to you). The interface speaks English
+> when mail counts as read (or leaves it to you). Optional threads, off by default in Settings ›
+> Reading, group related mail into a row with a count and an arrow to expand it. The interface speaks English
 > and Polish, down to its error messages, comes in eight themes that all meet WCAG 2.2 AA contrast (two at AAA)
 > and six fonts, lets unread mail stand out the way you like, and its
 > settings, rules and identities export to one file for another PC. Folders on this PC keep mail
@@ -72,7 +76,7 @@ run it.
 
 Pushing a tag such as `v0.2.0` runs the **Release** workflow: it builds the Windows installers and
 the Linux AppImage and `.deb`, signed for the updater, and a `latest.json` for both, and puts them
-in a draft GitHub release. Publishing the draft makes
+in a draft GitHub release after the security gate passes. Publishing the draft makes
 the update visible to every Telex that checks. Set the version first with
 `npm run set-version -- 0.2.0`. The whole process, the one-time key setup and exactly what an
 update check sends are in [docs/releasing.md](docs/releasing.md).
@@ -92,6 +96,7 @@ update check sends are in [docs/releasing.md](docs/releasing.md).
 | H | HTML / plain text view | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | M / G | move to / go to a folder | E | edit a draft or unsent message |
 | T | the conversation | O | only unread |
+| ← / → | collapse / expand a thread (when enabled) | | |
 | Shift+U | mark the folder read | F7 | the next spelling mistake (compose) |
 | F2 | rename a folder on this PC | ? / F1 | every key |
 
@@ -110,7 +115,9 @@ See [CLAUDE.md](CLAUDE.md) for design principles, architecture and the roadmap.
 The website's `/security` page links protections to source, tests and actual CI results, and
 documents current limits. [docs/security.md](docs/security.md) explains the automated Rust/npm
 dependency audits, secret scans and security regression checks, including how to repeat them.
-These run on Windows and Linux, on source changes and weekly advisory refreshes. Findings and
+These run on Windows and Linux, on source changes and weekly advisory refreshes. Releases also require
+hostile-email checks in both native webviews, an optimized GLib regression and MIME/HTML/PST fuzzing.
+The compatible Linux fix is documented in [docs/security-backport.md](docs/security-backport.md). Findings and
 tool failures remain visible; a successful check applies only to its tested source and scope.
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 

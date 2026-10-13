@@ -29,7 +29,7 @@ jobs:
       # Every theme meets its WCAG 2.2 contrast level, and every text has its Polish.
       - run: node scripts/check-contrast.mjs
       - run: node scripts/check-i18n.mjs
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt -p telex-core -p telex -p telex-security -- --check
       - run: cargo clippy -p telex-core --all-targets -- -D warnings
       - run: cargo test -p telex-core
 

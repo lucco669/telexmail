@@ -33,6 +33,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/010_local_folders.sql"),
     include_str!("migrations/011_folder_choices.sql"),
     include_str!("migrations/012_away.sql"),
+    include_str!("migrations/013_saved_searches_and_rule_actions.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -265,6 +266,7 @@ pub struct MailStore {
     incoming: Vec<Message>,
     /// The last filtered list the UI paged through (see `list`).
     pub(crate) found: RefCell<Option<list::Found>>,
+    pub(crate) grouped: RefCell<Option<list::Grouped>>,
     /// The last conversation worked out: for which message, at which `total_changes`.
     pub(crate) thread: RefCell<Option<(MessageId, u64, Vec<MessageId>)>>,
 }
@@ -305,6 +307,7 @@ impl MailStore {
             #[cfg(test)]
             incoming: Vec::new(),
             found: RefCell::new(None),
+            grouped: RefCell::new(None),
             thread: RefCell::new(None),
         })
     }
@@ -399,6 +402,27 @@ impl MailStore {
         stmt.query_row([id as i64], message_from_row)
             .optional()?
             .ok_or(StoreError::UnknownMessage(id))
+    }
+
+    /// The opened message with an offline, advisory risk score. No mail or flags change.
+    pub fn inspect_message(
+        &self,
+        id: MessageId,
+    ) -> Result<crate::risk::InspectedMessage, StoreError> {
+        let message = self.get(id)?;
+        let risk = if self
+            .kind_of(&message.folder)
+            .is_some_and(FolderKind::is_outgoing)
+        {
+            crate::risk::Report::default()
+        } else {
+            let raw: Option<Vec<u8>> = self.db.query_row(
+                "SELECT CASE WHEN length(raw) <= ?2 THEN raw END FROM message_content WHERE id = ?1",
+                params![id as i64, crate::risk::MAX_RAW as i64], |r| r.get(0),
+            ).optional()?.flatten();
+            crate::risk::analyse(&message, raw.as_deref())
+        };
+        Ok(crate::risk::InspectedMessage { message, risk })
     }
 
     /// One row of the message list.
@@ -883,6 +907,93 @@ impl MailStore {
             )
             .optional()?
             .flatten())
+    }
+
+    /// Copy and remember this rule action in one transaction. The original stays put.
+    pub fn rule_copy(
+        &mut self,
+        rule: i64,
+        id: MessageId,
+        folder: &str,
+    ) -> Result<bool, StoreError> {
+        let message = self.get(id)?;
+        if message.folder == folder {
+            return Ok(false);
+        }
+        let owner = self.check_folder(folder)?.to_owned();
+        if self.kind_of(folder) == Some(FolderKind::Outbox) {
+            return Err(StoreError::Invalid(crate::tr!(
+                "A rule cannot copy into the Outbox.",
+                "Reguła nie może kopiować do kolejki wysyłania."
+            )));
+        }
+        let raw = self.raw_of(id)?;
+        let on_server = self.folder(folder).is_some_and(|f| f.remote.is_some());
+        if on_server && raw.is_none() {
+            return Err(StoreError::Invalid(crate::tr!(
+                "The original message is needed to copy it to a server.",
+                "Kopiowanie na serwer wymaga oryginalnej wiadomości."
+            )));
+        }
+        let action = format!("copy:{folder}");
+        let tx = self.db.transaction()?;
+        let recorded = tx.execute(
+            "INSERT OR IGNORE INTO rule_actions_done (rule,message,action) VALUES (?1,?2,?3)",
+            params![rule, id as i64, action],
+        )?;
+        if recorded == 0 {
+            return Ok(false);
+        }
+        let copy = insert_message(&tx, folder, None, &message, None, raw.as_deref())?;
+        if on_server {
+            from_this_pc(&tx, copy, folder, &owner, true)?;
+        }
+        tx.commit()?;
+        Ok(true)
+    }
+
+    pub fn rule_action_done(
+        &self,
+        rule: i64,
+        id: MessageId,
+        action: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(self.db.query_row("SELECT EXISTS(SELECT 1 FROM rule_actions_done WHERE rule=?1 AND message=?2 AND action=?3)", params![rule,id as i64,action], |r| r.get(0))?)
+    }
+
+    pub fn queue_rule_forward(
+        &mut self,
+        rule: i64,
+        original: MessageId,
+        action: &str,
+        account: &str,
+        composed: &crate::smtp::Composed,
+    ) -> Result<bool, StoreError> {
+        let outbox = self.folder_key_of_kind(account, FolderKind::Outbox)?;
+        let env_to = serde_json::to_string(&composed.env_to)
+            .map_err(|e| StoreError::Database(e.to_string()))?;
+        let tx = self.db.transaction()?;
+        if tx.execute(
+            "INSERT OR IGNORE INTO rule_actions_done (rule,message,action) VALUES (?1,?2,?3)",
+            params![rule, original as i64, action],
+        )? == 0
+        {
+            return Ok(false);
+        }
+        let id = insert_message(
+            &tx,
+            &outbox,
+            None,
+            &composed.message,
+            None,
+            Some(&composed.raw),
+        )?;
+        tx.execute(
+            "INSERT INTO outbox (message,account,env_from,env_to) VALUES (?1,?2,?3,?4)",
+            params![id as i64, account, composed.env_from, env_to],
+        )?;
+        tx.commit()?;
+        Ok(true)
     }
 
     // ---- Remote images ----
@@ -1572,7 +1683,7 @@ impl MailStore {
         self.reload_accounts()
     }
 
-    /// Remove an empty folder on this PC, and the rules' moves to it with it: a rule that
+    /// Remove an empty folder on this PC, and the rules' moves/copies to it with it: a rule that
     /// would have nothing left to do goes too. Returns how many rules changed.
     pub fn delete_local_folder(&mut self, key: &str) -> Result<usize, StoreError> {
         let folder = self.own_local_folder(key)?;
@@ -1592,7 +1703,7 @@ impl MailStore {
         for mut rule in self.rules()? {
             let before = rule.actions.len();
             rule.actions
-                .retain(|a| !matches!(a, Action::Move { folder } if folder == key));
+                .retain(|a| !matches!(a, Action::Move { folder } | Action::Copy { folder } if folder == key));
             if rule.actions.len() == before {
                 continue;
             }
@@ -2394,6 +2505,7 @@ pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> 
         unread: r.get(8)?,
         flagged: r.get(9)?,
         has_attachments: r.get(10)?,
+        thread: None,
     })
 }
 

@@ -16,7 +16,7 @@ use rusqlite::types::Value;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Account, FolderKind, MessageId, MessageSummary};
+use crate::model::{Account, FolderKind, MessageId, MessageSummary, ThreadRow};
 use crate::store::{fts_query, summary_from_row, MailStore, StoreError, LOCAL_ID, SUMMARY_COLUMNS};
 
 /// The list's columns that it can be sorted by.
@@ -35,7 +35,7 @@ pub enum SortKey {
 }
 
 /// Which messages a list shows, and in what order.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListView {
     /// A folder key ("firma/inbox"), `"*/drafts"` for that kind of folder in every account
     /// (see [`every_kind`]), or `None` for all mail: every folder of every account except
@@ -66,6 +66,11 @@ pub struct ListView {
     /// while the list is open, so a message doesn't vanish from under the reader.
     #[serde(default)]
     pub keep: Vec<MessageId>,
+    /// Collapse related messages into one row, with the given groups expanded.
+    #[serde(default)]
+    pub grouped: bool,
+    #[serde(default)]
+    pub expanded: Vec<MessageId>,
 }
 
 /// The quick filter, read: plain words, and operators. Unknown operators and values that
@@ -259,6 +264,9 @@ pub struct Page {
     /// Position of the first row in the list.
     pub start: usize,
     pub rows: Vec<MessageSummary>,
+    /// Visible representative when Around targeted a collapsed message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focus: Option<MessageId>,
 }
 
 /// How many messages a folder holds.
@@ -302,6 +310,9 @@ pub struct UnreadAt {
     pub id: MessageId,
     /// Its row in the list, counted from 0.
     pub row: usize,
+    /// Expand this group before selecting a hidden unread message.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<MessageId>,
 }
 
 /// The largest page the UI can ask for.
@@ -316,6 +327,41 @@ pub(crate) struct Found {
     changes: u64,
     ids: Vec<MessageId>,
     at: HashMap<MessageId, usize>,
+}
+
+/// Only ids and unread flags are cached; bodies and summaries stay paged in SQLite.
+#[derive(Debug)]
+pub(crate) struct Grouped {
+    view: ListView,
+    changes: u64,
+    groups: Vec<Vec<MessageId>>,
+    /// The oldest stored id of the full component, even when it is in another folder.
+    keys: Vec<MessageId>,
+    unread: HashSet<MessageId>,
+}
+
+impl Grouped {
+    fn rows(&self, expanded: &[MessageId]) -> Vec<(MessageId, Option<ThreadRow>)> {
+        let expanded: HashSet<_> = expanded.iter().copied().collect();
+        let mut rows = Vec::new();
+        for (group, &id) in self.groups.iter().zip(&self.keys) {
+            let unread = group.iter().filter(|id| self.unread.contains(id)).count();
+            for (i, &message) in group.iter().enumerate() {
+                if i > 0 && !expanded.contains(&id) {
+                    break;
+                }
+                let meta = (group.len() > 1).then_some(ThreadRow {
+                    id,
+                    head: group[0],
+                    count: group.len(),
+                    unread,
+                    child: i > 0,
+                });
+                rows.push((message, meta));
+            }
+        }
+        rows
+    }
 }
 
 /// The kind of folder a view of every account shows ("*/drafts": every Drafts, "*/outbox"),
@@ -686,6 +732,9 @@ impl MailStore {
     pub fn page(&self, view: &ListView, at: PageAt, limit: usize) -> Result<Page, StoreError> {
         let limit = limit.clamp(1, MAX_PAGE);
         let q = Query::new(self, view)?;
+        if view.grouped {
+            return self.grouped_page(&q, view, at, limit);
+        }
         if view.filter.trim().is_empty() && view.thread.is_none() && !view.unread {
             self.keyset_page(&q, at, limit)
         } else {
@@ -702,6 +751,17 @@ impl MailStore {
         from: Option<MessageId>,
         to: Option<MessageId>,
     ) -> Result<Vec<MessageId>, StoreError> {
+        if view.grouped && from.is_some() && to.is_some() {
+            let q = Query::new(self, view)?;
+            self.cache_groups(&q, view)?;
+            let cache = self.grouped.borrow();
+            let rows = cache.as_ref().expect("cached groups").rows(&view.expanded);
+            let a = rows.iter().position(|r| Some(r.0) == from);
+            let b = rows.iter().position(|r| Some(r.0) == to);
+            if let (Some(a), Some(b)) = (a, b) {
+                return Ok(rows[a.min(b)..=a.max(b)].iter().map(|r| r.0).collect());
+            }
+        }
         // A filtered list the window is paging through is worked out already.
         let changes = self.db.total_changes();
         let cached = self
@@ -731,6 +791,36 @@ impl MailStore {
         back: bool,
     ) -> Result<Option<UnreadAt>, StoreError> {
         let q = Query::new(self, view)?;
+        if view.grouped {
+            self.cache_groups(&q, view)?;
+            let cache = self.grouped.borrow();
+            let cache = cache.as_ref().expect("cached groups");
+            // Walk every message, including collapsed ones, in the grouped list's order.
+            let all: Vec<_> = cache.groups.iter().flatten().copied().collect();
+            let pos = after.and_then(|id| all.iter().position(|&x| x == id));
+            let way: Box<dyn Iterator<Item = &MessageId>> = if back {
+                Box::new(all[..pos.unwrap_or(all.len())].iter().rev())
+            } else {
+                Box::new(all[pos.map_or(0, |i| i + 1)..].iter())
+            };
+            let Some(&id) = way.into_iter().find(|id| cache.unread.contains(id)) else {
+                return Ok(None);
+            };
+            let (group_index, group) = cache
+                .groups
+                .iter()
+                .enumerate()
+                .find(|(_, g)| g.contains(&id))
+                .expect("group member");
+            let thread = (group.len() > 1).then_some(cache.keys[group_index]);
+            let rows = cache.rows(&view.expanded);
+            let row = rows
+                .iter()
+                .position(|r| r.0 == id)
+                .or_else(|| rows.iter().position(|r| r.0 == group[0]))
+                .unwrap();
+            return Ok(Some(UnreadAt { id, row, thread }));
+        }
         let mut unread = q.clone();
         unread.filter.push_str(" AND unread = 1");
         let order = if back { q.reversed() } else { q.order.clone() };
@@ -743,7 +833,11 @@ impl MailStore {
         };
         let keys = q.keys(&self.db, found.id)?;
         let row = q.count(&self.db, keys)?;
-        Ok(Some(UnreadAt { id: found.id, row }))
+        Ok(Some(UnreadAt {
+            id: found.id,
+            row,
+            thread: None,
+        }))
     }
 
     /// Every message of the conversation `id` is in: the messages it answers and those
@@ -823,6 +917,178 @@ impl MailStore {
         Ok(ids)
     }
 
+    /// Connect real reply headers, including shared ancestors that aren't downloaded.
+    /// Equal subjects alone never join messages. Each account has its own graph.
+    fn cache_groups(&self, q: &Query, view: &ListView) -> Result<(), StoreError> {
+        let mut base = view.clone();
+        base.expanded.clear();
+        let changes = self.db.total_changes();
+        if self
+            .grouped
+            .borrow()
+            .as_ref()
+            .is_some_and(|c| c.view == base && c.changes == changes)
+        {
+            return Ok(());
+        }
+        let ids = q.ids(&self.db)?;
+        fn root(parents: &mut [usize], mut i: usize) -> usize {
+            while parents[i] != i {
+                parents[i] = parents[parents[i]];
+                i = parents[i];
+            }
+            i
+        }
+        let mut links: HashMap<(String, String), usize> = HashMap::new();
+        let mut unread = HashSet::new();
+        // A reply moved to Sent must still connect the messages left in the Inbox.
+        // Read headers across the account, then show only members of the requested view.
+        let folder = view.folder.as_deref().unwrap_or_default();
+        let account = if folder.starts_with("*/") || view.thread.is_some() {
+            ""
+        } else {
+            folder.split('/').next().unwrap_or_default()
+        };
+        let mut stmt = self.db.prepare_cached(&format!(
+            "SELECT id, folder, COALESCE(message_id, ''), refs, unread FROM messages
+             WHERE (folder NOT IN {} OR folder = ?1)
+               AND (?2 = '' OR (folder >= ?2 || '/' AND folder < ?2 || '0'))",
+            folders_of_kind("'spam', 'trash'")
+        ))?;
+        let rows = stmt
+            .query_map(params![folder, account], |r| {
+                Ok((
+                    r.get::<_, i64>(0)? as MessageId,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, bool>(4)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let positions: HashMap<_, _> = rows.iter().enumerate().map(|(i, r)| (r.0, i)).collect();
+        let mut parents: Vec<usize> = (0..rows.len()).collect();
+        for (i, (id, folder, mid, refs, is_unread)) in rows.iter().enumerate() {
+            if *is_unread {
+                unread.insert(*id);
+            }
+            let account = folder.split('/').next().unwrap_or_default();
+            for key in std::iter::once(mid.as_str())
+                .chain(refs.split_whitespace())
+                .filter(|k| !k.is_empty())
+            {
+                let key = (account.to_owned(), key.to_owned());
+                if let Some(&j) = links.get(&key) {
+                    let a = root(&mut parents, i);
+                    let b = root(&mut parents, j);
+                    // Always link to the smaller root, keeping the trees shallow.
+                    parents[a.max(b)] = a.min(b);
+                } else {
+                    links.insert(key, i);
+                }
+            }
+        }
+        let mut groups: Vec<Vec<MessageId>> = Vec::new();
+        let mut keys = Vec::new();
+        let mut component_keys = HashMap::new();
+        for (i, row) in rows.iter().enumerate() {
+            let r = root(&mut parents, i);
+            component_keys
+                .entry(r)
+                .and_modify(|id: &mut MessageId| *id = (*id).min(row.0))
+                .or_insert(row.0);
+        }
+        let mut groups_at = HashMap::new();
+        for (i, &id) in ids.iter().enumerate() {
+            // A conversation can include its starting message even in Spam or Trash.
+            let r = positions
+                .get(&id)
+                .map(|&i| root(&mut parents, i))
+                .unwrap_or(rows.len() + i);
+            let at = *groups_at.entry(r).or_insert_with(|| {
+                groups.push(Vec::new());
+                keys.push(component_keys.get(&r).copied().unwrap_or(id));
+                groups.len() - 1
+            });
+            groups[at].push(id);
+        }
+        *self.grouped.borrow_mut() = Some(Grouped {
+            view: base,
+            changes,
+            groups,
+            keys,
+            unread,
+        });
+        Ok(())
+    }
+
+    fn grouped_page(
+        &self,
+        q: &Query,
+        view: &ListView,
+        at: PageAt,
+        limit: usize,
+    ) -> Result<Page, StoreError> {
+        self.cache_groups(q, view)?;
+        let cache = self.grouped.borrow();
+        let cache = cache.as_ref().expect("cached groups");
+        let entries = cache.rows(&view.expanded);
+        let total = entries.len();
+        let place = |id| {
+            entries
+                .iter()
+                .position(|r| r.0 == id)
+                .ok_or(StoreError::UnknownMessage(id))
+        };
+        let (start, end) = match at {
+            PageAt::First => (0, limit),
+            PageAt::Last => (total.saturating_sub(limit), total),
+            PageAt::After(id) => {
+                let i = place(id)? + 1;
+                (i, i + limit)
+            }
+            PageAt::Before(id) => {
+                let i = place(id)?;
+                (i.saturating_sub(limit), i)
+            }
+            PageAt::Around(id) => {
+                let pos = place(id).ok().or_else(|| {
+                    cache
+                        .groups
+                        .iter()
+                        .find(|g| g.contains(&id))
+                        .and_then(|g| place(g[0]).ok())
+                });
+                let i = pos.map_or(0, |i| i.saturating_sub(limit / 2));
+                (i, i + limit)
+            }
+            PageAt::Row(n) => {
+                let i = n.min(total.saturating_sub(limit));
+                (i, i + limit)
+            }
+        };
+        let end = end.min(total);
+        let start = start.min(end);
+        let entries = &entries[start..end];
+        let ids: Vec<_> = entries.iter().map(|r| r.0).collect();
+        let mut rows = self.summaries(&ids)?;
+        for (row, entry) in rows.iter_mut().zip(entries) {
+            row.thread = entry.1;
+        }
+        let focus = match at {
+            PageAt::Around(id) if place(id).is_err() => {
+                cache.groups.iter().find(|g| g.contains(&id)).map(|g| g[0])
+            }
+            _ => None,
+        };
+        Ok(Page {
+            total,
+            start,
+            rows,
+            focus,
+        })
+    }
+
     fn keyset_page(&self, q: &Query, at: PageAt, limit: usize) -> Result<Page, StoreError> {
         let db = &self.db;
         let total = q.count(db, None)?;
@@ -862,7 +1128,12 @@ impl MailStore {
             (None, Some(first)) => q.count(db, Some(keys(first.id)?))?,
             (None, None) => total,
         };
-        Ok(Page { total, start, rows })
+        Ok(Page {
+            total,
+            start,
+            rows,
+            focus: None,
+        })
     }
 
     /// A page of a filtered list, from the matches worked out by the last call for the same
@@ -923,6 +1194,7 @@ impl MailStore {
             total,
             start,
             rows: self.summaries(&found.ids[start..end])?,
+            focus: None,
         })
     }
 
@@ -1391,6 +1663,7 @@ mod tests {
                 let at = |i: usize| UnreadAt {
                     id: rows[i].id,
                     row: i,
+                    thread: None,
                 };
                 let next =
                     |after: Option<MessageId>, back| store.next_unread(&view, after, back).unwrap();
@@ -1532,6 +1805,206 @@ mod tests {
         // A message without any links is a conversation of one.
         let lone = store.list("studio/trash").unwrap()[0].id;
         assert!(store.conversation(lone).unwrap().contains(&lone));
+    }
+
+    #[test]
+    fn grouped_folders_page_and_reveal_hidden_unread_messages() {
+        let mut store = store(12);
+        let plain = ListView {
+            folder: Some("studio/inbox".into()),
+            ..Default::default()
+        };
+        let original = store.page(&plain, PageAt::First, 100).unwrap();
+        assert!(original.rows.iter().all(|m| m.thread.is_none()));
+        let view = ListView {
+            grouped: true,
+            ..plain.clone()
+        };
+        let collapsed = store.page(&view, PageAt::First, 3).unwrap();
+        assert_eq!(collapsed.total, 1);
+        let head = collapsed.rows[0].id;
+        let th = collapsed.rows[0].thread.unwrap();
+        assert_eq!(
+            (th.head, th.count, th.unread, th.child),
+            (head, 12, 4, false)
+        );
+        assert!(
+            !collapsed.rows[0].unread,
+            "the row's own read state stays separate"
+        );
+        let hidden = original.rows.iter().find(|m| m.unread).unwrap().id;
+        assert_eq!(
+            store.next_unread(&view, Some(head), false).unwrap(),
+            Some(UnreadAt {
+                id: hidden,
+                row: 0,
+                thread: Some(th.id)
+            })
+        );
+        let around = store.page(&view, PageAt::Around(hidden), 3).unwrap();
+        assert_eq!(around.focus, Some(head));
+        assert_eq!(
+            store.ids_between(&view, Some(head), Some(head)).unwrap(),
+            vec![head]
+        );
+        assert_eq!(store.ids_between(&view, None, None).unwrap().len(), 12);
+
+        let expanded = ListView {
+            expanded: vec![th.id],
+            ..view.clone()
+        };
+        let mut got = Vec::new();
+        let mut at = PageAt::First;
+        loop {
+            let page = store.page(&expanded, at, 3).unwrap();
+            assert_eq!(page.total, 12);
+            if page.rows.is_empty() {
+                break;
+            }
+            at = PageAt::After(page.rows.last().unwrap().id);
+            got.extend(page.rows);
+        }
+        assert_eq!(ids(&got), ids(&original.rows));
+        assert!(got.iter().skip(1).all(|m| m.thread.unwrap().child));
+        let before = store.page(&expanded, PageAt::Before(got[6].id), 3).unwrap();
+        assert_eq!(ids(&before.rows), ids(&got[3..6]));
+        let last = store.page(&expanded, PageAt::Last, 3).unwrap();
+        assert_eq!((last.start, ids(&last.rows)), (9, ids(&got[9..])));
+        assert_eq!(store.page(&expanded, PageAt::Row(5), 3).unwrap().start, 5);
+        assert_eq!(
+            store
+                .next_unread(&expanded, Some(head), false)
+                .unwrap()
+                .unwrap()
+                .row,
+            2
+        );
+        assert_eq!(
+            store
+                .ids_between(&expanded, Some(got[1].id), Some(got[4].id))
+                .unwrap(),
+            ids(&got[1..5])
+        );
+
+        store.set_unread(hidden, false).unwrap();
+        assert_eq!(
+            store.page(&view, PageAt::First, 3).unwrap().rows[0]
+                .thread
+                .unwrap()
+                .unread,
+            3
+        );
+        store.move_to(hidden, "studio/sent").unwrap();
+        assert_eq!(
+            store.page(&view, PageAt::First, 3).unwrap().rows[0]
+                .thread
+                .unwrap()
+                .count,
+            11
+        );
+        store.move_to(th.id, "studio/sent").unwrap();
+        let kept_open = store.page(&expanded, PageAt::First, 100).unwrap();
+        assert_eq!(
+            kept_open.total, 10,
+            "moving the first message keeps the group expanded"
+        );
+        assert!(kept_open.rows.iter().all(|m| m.thread.unwrap().id == th.id));
+        let ascending = ListView {
+            ascending: true,
+            ..view
+        };
+        let reversed = store.page(&ascending, PageAt::First, 3).unwrap();
+        assert_eq!(
+            reversed.rows[0].thread.unwrap().id,
+            th.id,
+            "expansion id survives sorting"
+        );
+        assert_ne!(reversed.rows[0].id, head);
+    }
+
+    #[test]
+    fn grouped_folders_use_reply_links_and_survive_missing_parents_and_cycles() {
+        let store = store(9);
+        let view = ListView {
+            folder: Some("studio/inbox".into()),
+            grouped: true,
+            ..Default::default()
+        };
+        let inbox = ids(&store
+            .page(
+                &ListView {
+                    grouped: false,
+                    ..view.clone()
+                },
+                PageAt::First,
+                100,
+            )
+            .unwrap()
+            .rows);
+        store
+            .db
+            .execute(
+                "UPDATE messages SET subject = 'Same', message_id = NULL, refs = ''",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            store.page(&view, PageAt::First, 100).unwrap().total,
+            9,
+            "a subject is not a thread"
+        );
+        for (id, mid, refs) in [
+            (inbox[0], "root@x", ""),
+            (inbox[1], "reply@x", "root@x"),
+            (inbox[2], "a@x", "missing@x"),
+            (inbox[3], "b@x", "missing@x"),
+            (inbox[4], "cycle-a@x", "cycle-b@x"),
+            (inbox[5], "cycle-b@x", "cycle-a@x"),
+            (inbox[6], "root@x", ""),
+        ] {
+            store
+                .db
+                .execute(
+                    "UPDATE messages SET message_id = ?1, refs = ?2 WHERE id = ?3",
+                    params![mid, refs, id as i64],
+                )
+                .unwrap();
+        }
+        let page = store.page(&view, PageAt::First, 100).unwrap();
+        assert_eq!(page.total, 5);
+        assert_eq!(
+            page.rows
+                .iter()
+                .map(|m| m.thread.map_or(1, |t| t.count))
+                .collect::<Vec<_>>(),
+            vec![3, 2, 2, 1, 1]
+        );
+        let all = ListView {
+            folder: None,
+            ..view.clone()
+        };
+        let before = store.page(&all, PageAt::First, 100).unwrap().total;
+        let elsewhere = store.list("studio/sent").unwrap()[0].id;
+        store.db.execute("UPDATE messages SET folder = 'other/inbox', message_id = 'root@x', refs = '' WHERE id = ?1", [elsewhere as i64]).unwrap();
+        assert_eq!(
+            store.page(&all, PageAt::First, 100).unwrap().total,
+            before,
+            "accounts have separate reply graphs"
+        );
+        assert_eq!(
+            store
+                .page(
+                    &ListView {
+                        folder: Some("studio/spam".into()),
+                        ..view
+                    },
+                    PageAt::First,
+                    100
+                )
+                .unwrap()
+                .total,
+            9
+        );
     }
 
     #[test]

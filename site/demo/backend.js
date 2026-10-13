@@ -77,8 +77,8 @@ function installTelexDemo(options) {
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
-    density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
-    mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
+    toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
+    threaded: false, mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
     updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
   const SLIPS = {
@@ -146,6 +146,8 @@ function installTelexDemo(options) {
   const accounts = empty ? [] : clone(data.accounts);
   for (const a of accounts) if (a.imap && !a.imap.security) a.imap.security = 'tls';
   let rules = clone(data.rules || []);
+  let savedSearches = [];
+  const copiedActions = new Set();
   const trusted = new Set((data.trusted || []).map((e) => e.toLowerCase()));
   const older = empty ? {} : { ...(data.older || {}) };
   const incoming = live && !empty ? clone(data.incoming || []) : [];
@@ -161,7 +163,7 @@ function installTelexDemo(options) {
     bcc: m.bcc || '', subject: m.subject || '', date: m.date, size_kb: Math.max(1, m.size_kb || 1), unread: !!m.unread,
     flagged: !!m.flagged, remote_images: !!m.remote_images, note: (startLang === 'pl' && m.note_pl) || m.note || null,
     attachments: (m.attachments || []).map((a) => ({ name: a.name, size_kb: a.size_kb })), body: m.body || '', html: m.html || null,
-    thread: m.thread || null, reply_to_line: m.reply_to || null, out: null, ...extra,
+    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, out: null, ...extra,
   });
   const msgs = picked.map((m) => message({ ...m, date: shiftDate(m.date), body: shiftText(m.body || '') }));
   const byId = (id) => msgs.find((m) => m.id === id);
@@ -356,28 +358,61 @@ function installTelexDemo(options) {
       || (sort === 'date' ? (a.id - b.id) * (desc ? -1 : 1) : cmp(b.date, a.date) || b.id - a.id));
   }
   // Space: the first unread message after one in the list's order (before it with back).
+  function groupedRows(view, all = listed(view), expandAll = false) {
+    if (!view.grouped) return all;
+    const groups = new Map(), expanded = new Set(view.expanded ?? []);
+    for (const m of all) {
+      const key = acctId(m.folder) + '/' + (m.thread ? 't:' + m.thread : 'm:' + m.id);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(m);
+    }
+    return [...groups.values()].flatMap((group) => {
+      const related = group[0].thread ? msgs.filter(m => m.thread === group[0].thread
+        && acctId(m.folder) === acctId(group[0].folder)
+        && (!['spam', 'trash'].includes(kindOf(m.folder)) || m.folder === view.folder)) : group;
+      const id = related.reduce((id, m) => Math.min(id, m.id), group[0].id), head = group[0].id;
+      const unread = group.filter(m => m.unread).length;
+      return (expandAll || expanded.has(id) ? group : group.slice(0, 1)).map((m, i) => ({...m,
+        thread_row: group.length > 1 ? {id, head, count: group.length, unread, child: i > 0} : null,
+      }));
+    });
+  }
   function nextUnread({ view, after, back }) {
-    const all = listed(view), i = after == null ? -1 : all.findIndex((m) => m.id === after);
+    const all = groupedRows(view, listed(view), true), i = after == null ? -1 : all.findIndex((m) => m.id === after);
     const rows = all.map((m, row) => ({ m, row }));
     const way = back ? rows.slice(0, i < 0 ? all.length : i).reverse() : rows.slice(i + 1);
     const hit = way.find(({ m }) => m.unread);
-    return hit ? { id: hit.m.id, row: hit.row } : null;
+    if (!hit) return null;
+    if (!view.grouped) return {id: hit.m.id, row: hit.row};
+    const visible = groupedRows(view), th = hit.m.thread_row;
+    let row = visible.findIndex(m => m.id === hit.m.id);
+    if (row < 0) row = visible.findIndex(m => m.id === th.head);
+    return {id: hit.m.id, row, thread: th?.id ?? null};
   }
   function listPage({ view, at, limit }) {
     const n = Math.min(500, Math.max(1, Number(limit) || 100));
-    const all = listed(view), total = all.length;
+    const original = listed(view), all = groupedRows(view, original), total = all.length;
     const place = (id) => { const i = all.findIndex((m) => m.id === id); return i < 0 ? fail('message {id} does not exist', 'wiadomość {id} nie istnieje', { id }) : i; };
     let start = 0, end = n;
     if (at === 'last') { start = Math.max(0, total - n); end = total; }
     else if (at && at.after != null) { start = place(at.after) + 1; end = start + n; }
     else if (at && at.before != null) { end = place(at.before); start = Math.max(0, end - n); }
-    else if (at && at.around != null) { const i = all.findIndex((m) => m.id === at.around); start = i < 0 ? 0 : Math.max(0, i - (n >> 1)); end = start + n; }
+    else if (at && at.around != null) {
+      let i = all.findIndex((m) => m.id === at.around);
+      if (i < 0 && view.grouped) {
+        const hidden = groupedRows(view, original, true).find(m => m.id === at.around);
+        i = all.findIndex(m => m.id === hidden?.thread_row?.head);
+      }
+      start = i < 0 ? 0 : Math.max(0, i - (n >> 1)); end = start + n;
+    }
     else if (at && at.row != null) { start = Math.min(Number(at.row) || 0, Math.max(0, total - n)); end = start + n; }
     end = Math.min(end, total); start = Math.min(start, end);
-    return { total, start, rows: all.slice(start, end).map(summary) };
+    const focus = at?.around != null && !all.some(m => m.id === at.around)
+      ? groupedRows(view, original, true).find(m => m.id === at.around)?.thread_row?.head : null;
+    return { total, start, focus, rows: all.slice(start, end).map(m => ({...summary(m), thread:m.thread_row ?? null})) };
   }
   function listIds({ view, from, to }) {
-    const ids = listed(view).map((m) => m.id), a = ids.indexOf(from), b = ids.indexOf(to);
+    const ids = (from != null && to != null ? groupedRows(view) : listed(view)).map((m) => m.id), a = ids.indexOf(from), b = ids.indexOf(to);
     return from != null && to != null && a >= 0 && b >= 0 ? ids.slice(Math.min(a, b), Math.max(a, b) + 1) : ids;
   }
   function folderTree() {
@@ -841,16 +876,21 @@ function installTelexDemo(options) {
   function checkRule(r) {
     if (!String(r.name || '').trim()) fail('Give the rule a name.', 'Nadaj regule nazwę.');
     if (!r.conditions?.length) fail('Add at least one condition.', 'Dodaj co najmniej jeden warunek.');
-    if (r.conditions.some((c) => !String(c.value || '').trim())) fail('Every condition needs some text to look for.', 'Każdy warunek potrzebuje szukanego tekstu.');
+    if (r.conditions.some((c) => !['exists','not_exists'].includes(c.op) && !String(c.value || '').trim())) fail('Every condition needs some text to look for.', 'Każdy warunek potrzebuje szukanego tekstu.');
+    if (r.conditions.some(c => c.field === 'header' && !/^[A-Za-z0-9-]{1,78}$/.test(c.header || ''))) fail('Enter a header name, such as List-Id or X-Priority.', 'Wpisz nazwę nagłówka, np. List-Id lub X-Priority.');
     if (!r.actions?.length) fail('Add at least one action.', 'Dodaj co najmniej jedno działanie.');
     const a = r.account ? account(r.account) ?? fail('That account no longer exists.', 'Tego konta już nie ma.') : null;
     if (r.actions.filter((x) => x.type === 'move' || x.type === 'delete').length > 1) {
       fail('A rule can move a message to one place only.', 'Reguła może przenieść wiadomość tylko w jedno miejsce.');
     }
     for (const x of r.actions) {
-      if (x.type === 'move') {
-        if (!a) fail("To move mail, pick the rule's account.", 'Żeby przenosić pocztę, wybierz konto reguły.');
-        if (!a.folders.some((f) => `${a.id}/${f.id}` === x.folder)) fail('Pick the folder to move to.', 'Wybierz folder, do którego przenieść.');
+      if (x.type === 'move' || x.type === 'copy') {
+        if (acctId(x.folder) !== LOCAL && !a) fail("To move mail, pick the rule's account.", 'Żeby przenosić pocztę, wybierz konto reguły.');
+        if (!folderOf(x.folder)) fail('Pick the folder to move to.', 'Wybierz folder, do którego przenieść.');
+      } else if (x.type === 'forward') {
+        if (!a) fail('To forward mail, pick the sending account.', 'Żeby przekazywać pocztę, wybierz konto nadawcy.');
+        const targets=splitAddresses(x.to || '');
+        if (!targets.length || targets.length>20 || targets.some(to=>!validMailbox(to) || to.toLowerCase().includes(a.email.toLowerCase()))) fail('Forward to 1–20 addresses other than this account’s own addresses.', 'Przekazuj na 1–20 adresów innych niż adresy tego konta.');
       } else if (x.type === 'auto_reply') {
         if (!a) fail('To answer mail, pick the account that answers.', 'Żeby odpowiadać na pocztę, wybierz konto, które odpowiada.');
         if (!String(x.body || '').trim()) fail('Write the text of the automatic reply.', 'Napisz treść automatycznej odpowiedzi.');
@@ -866,7 +906,13 @@ function installTelexDemo(options) {
     return { from, to, subject: [m.subject], body: [m.body], anywhere: [...from, ...to, m.subject, m.body] }[field] ?? [];
   }
   function conditionMatches(c, m) {
-    const needle = fold(String(c.value).trim()), all = candidates(c.field, m).map(fold);
+    let values = candidates(c.field,m);
+    if (c.field === 'header') values = Object.entries(m.headers || {}).filter(([name]) => name.toLowerCase() === (c.header || '').toLowerCase()).flatMap(([,value]) => Array.isArray(value) ? value : [String(value)]);
+    if (c.field === 'attachment_name') values = m.attachments.map(a=>a.name);
+    if (c.field === 'attachment_type') values = m.attachments.map(a=>a.content_type || ({pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'}[a.name.split('.').pop().toLowerCase()] || 'application/octet-stream'));
+    if (c.op === 'exists') return values.length > 0;
+    if (c.op === 'not_exists') return values.length === 0;
+    const needle = fold(String(c.value).trim()), all = values.map(fold);
     const hit = (s) => (c.op === 'is' ? s === needle : c.op === 'starts_with' ? s.startsWith(needle) : c.op === 'ends_with' ? s.endsWith(needle) : s.includes(needle));
     return c.op === 'not_contains' ? !all.some(hit) : all.some(hit);
   }
@@ -895,7 +941,7 @@ function installTelexDemo(options) {
   }
   // Run the enabled rules, top to bottom, on these messages; each one they change gets a note.
   function runRules(ids, arrival) {
-    const report = { matched: 0, moved: 0, replied: 0, problems: [] };
+    const report = { matched: 0, moved: 0, replied: 0, copied:0, forwarded:0, problems: [] };
     const enabled = rules.filter((r) => r.enabled);
     for (const id of ids) {
       const m = byId(id);
@@ -910,13 +956,20 @@ function installTelexDemo(options) {
           else if (x.type === 'flag' && !was.flagged) { m.flagged = true; did.push(tr('flagged it', 'oznaczyła ją flagą')); }
           else if (x.type === 'move' && x.folder !== was.folder) {
             const f = folderOf(x.folder);
-            if (f && acctId(x.folder) === acct) {
+            if (f && (acctId(x.folder) === acct || acctId(x.folder) === LOCAL)) {
               did.push(tr('moved it to {to}', 'przeniosła ją do folderu {pl_to}', { to: f.name, pl_to: PL_KIND[f.kind] ?? f.name }));
               dest = { folder: x.folder };
             } else {
               report.problems.push(tr('rule "{name}" moves mail to a folder that no longer exists',
                 'reguła „{name}” przenosi pocztę do folderu, którego już nie ma', { name }));
             }
+          } else if (x.type === 'copy' && x.folder !== was.folder && !copiedActions.has(`${rule.id}/${id}/${x.folder}`)) {
+            needFolder(x.folder); copiedActions.add(`${rule.id}/${id}/${x.folder}`);
+            msgs.push({...clone(m),id:nextId++,folder:x.folder}); report.copied++;
+            did.push(tr('copied it to {to}', 'skopiowała ją do folderu {to}',{to:folderOf(x.folder).name}));
+          } else if (x.type === 'forward' && arrival) {
+            // Demo has no outgoing servers; show the reason instead of claiming a send.
+            report.problems.push(tr('The demo cannot forward real mail.', 'Demo nie może przekazywać prawdziwej poczty.'));
           } else if (x.type === 'delete' && kindOf(was.folder) !== 'trash') { did.push(tr('moved it to Trash', 'przeniosła ją do Kosza')); dest = { trash: true }; }
           else if (x.type === 'auto_reply' && arrival && autoReply(rule, m, x.body)) { did.push(tr('answered it', 'odpowiedziała na nią')); report.replied++; }
         }
@@ -934,7 +987,7 @@ function installTelexDemo(options) {
   function saveRule({ rule: r }) {
     checkRule(r);
     const clean = { id: r.id | 0, name: String(r.name).trim(), enabled: r.enabled !== false, account: r.account || null, match_all: r.match_all !== false,
-      conditions: r.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value })), actions: r.actions.map((x) => ({ ...x })), stop: !!r.stop };
+      conditions: r.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value, ...(c.field === 'header' ? {header:c.header} : {}) })), actions: r.actions.map((x) => ({ ...x })), stop: !!r.stop };
     if (!clean.id) { clean.id = rules.reduce((n, x) => Math.max(n, x.id), 0) + 1; rules.push(clean); }
     else {
       const i = rules.findIndex((x) => x.id === clean.id);
@@ -1150,12 +1203,12 @@ function installTelexDemo(options) {
 
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
-    theme: THEMES, language: ['auto', 'en', 'pl'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
+    theme: THEMES, language: ['auto', 'en', 'pl'], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20],
   };
-  const SWITCHES = ['prefer_text', 'push_mail', 'notify', 'ask_subject', 'spell_check'];
+  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'spell_check'];
   const settingsView = () => ({ settings: { ...settings }, language: lang(), offer: null, fresh: false });
   function updateSettings({ changes }) {
     for (const [k, v] of Object.entries(changes || {})) {
@@ -1242,7 +1295,7 @@ function installTelexDemo(options) {
       const m = need(id);
       return { id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, cc: m.cc,
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
-        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body };
+        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk };
     },
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
@@ -1282,6 +1335,23 @@ function installTelexDemo(options) {
     push_changes: () => ({ new: [], new_in: null, sent: [], sorted: 0, errors: [], busy }),
     download_older: downloadOlder,
     list_rules: () => rules,
+    list_saved_searches: () => savedSearches.slice().sort((a,b)=>a.name.localeCompare(b.name)),
+    save_search: ({search}) => {
+      const clean=clone(search); clean.name=String(clean.name||'').trim(); clean.view.filter=String(clean.view.filter||'').trim();
+      if (!clean.name || clean.name.length>80) fail('Give the saved search a name of 1–80 characters.', 'Nadaj zapisanemu wyszukiwaniu nazwę od 1 do 80 znaków.');
+      if (!clean.view.filter) fail('Enter a search before saving it.', 'Wpisz wyszukiwanie, zanim je zapiszesz.');
+      if (savedSearches.some(s=>s.id!==clean.id && s.name.toLowerCase()===clean.name.toLowerCase())) fail('A saved search already has that name.', 'Zapisane wyszukiwanie ma już taką nazwę.');
+      if (clean.view.folder) needFolder(clean.view.folder);
+      clean.view.keep=[];clean.view.expanded=[];clean.view.grouped=false;
+      if (!clean.id) clean.id=Math.max(0,...savedSearches.map(s=>s.id))+1;
+      savedSearches=savedSearches.filter(s=>s.id!==clean.id).concat(clean);return clean;
+    },
+    delete_search: ({id}) => {savedSearches=savedSearches.filter(s=>s.id!==id);},
+    preview_rule: ({rule,view}) => {
+      checkRule(rule);
+      const rows=listed({...view,grouped:false,keep:[]}).filter(m=>!rule.account||acctId(m.folder)===rule.account), matches=rows.filter(m=>ruleMatches(rule,m));
+      return {checked:rows.length,matched:matches.length,samples:matches.slice(0,50).map(m=>({id:m.id,subject:m.subject,from:m.from_email,conditions:rule.conditions.map(c=>conditionMatches(c,m))})),actions:rule.actions,new_mail_only:rule.actions.some(a=>['auto_reply','forward'].includes(a.type))};
+    },
     save_rule: saveRule,
     delete_rule: ({ id }) => { rules = rules.filter((r) => r.id !== id); },
     move_rule: moveRule,

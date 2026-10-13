@@ -79,6 +79,33 @@ pub fn compose_auto_reply(
     build(account, draft, originals, now, Purpose::AutoReply)
 }
 
+pub fn recipient_emails(to: &str) -> Result<Vec<String>, String> {
+    if to.contains(['\r', '\n']) {
+        return Err(tr!(
+            "Enter valid recipient addresses.",
+            "Wpisz poprawne adresy odbiorców."
+        ));
+    }
+    split_addresses(to)
+        .iter()
+        .map(|address| {
+            address
+                .parse::<Mailbox>()
+                .map(|m| m.email.to_string())
+                .map_err(|e| unbuildable(&e))
+        })
+        .collect()
+}
+
+pub fn compose_auto_forward(
+    account: &Account,
+    draft: &OutgoingDraft,
+    originals: &Originals,
+    now: DateTime<Local>,
+) -> Result<Composed, String> {
+    build(account, draft, originals, now, Purpose::AutoForward)
+}
+
 /// A draft as a whole message, to keep with the draft: its HTML and the forwarded files
 /// stay with it until it is edited again. Unlike [`compose`], recipients may be missing
 /// or half typed; the ones that aren't addresses yet are left out of the headers (the
@@ -97,6 +124,7 @@ pub fn compose_draft(
 enum Purpose {
     Send,
     AutoReply,
+    AutoForward,
     Draft,
 }
 
@@ -242,12 +270,18 @@ fn build(
     }
     .map_err(|e| unbuildable(&e))?;
     let mut email = email;
-    if purpose == Purpose::AutoReply {
+    if matches!(purpose, Purpose::AutoReply | Purpose::AutoForward) {
         let name =
             HeaderName::new_from_ascii("Auto-Submitted".to_owned()).expect("a valid header name");
-        email
-            .headers_mut()
-            .insert_raw(HeaderValue::new(name, "auto-replied".to_owned()));
+        email.headers_mut().insert_raw(HeaderValue::new(
+            name,
+            if purpose == Purpose::AutoForward {
+                "auto-generated"
+            } else {
+                "auto-replied"
+            }
+            .to_owned(),
+        ));
     }
 
     let raw = email.formatted();

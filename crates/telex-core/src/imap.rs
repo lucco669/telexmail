@@ -2763,6 +2763,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             account: None,
             match_all: true,
             conditions: vec![Condition {
+                header: None,
                 field: Field::From,
                 op: Op::Contains,
                 value: "kowalska".into(),
@@ -2787,6 +2788,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             name: "Faktury".into(),
             account: Some(account.id.clone()),
             conditions: vec![Condition {
+                header: None,
                 field: Field::Subject,
                 op: Op::StartsWith,
                 value: "faktura".into(),

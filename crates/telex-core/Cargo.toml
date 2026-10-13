@@ -19,6 +19,12 @@ webpki-roots = "1.0.9"
 futures-util = "0.3.34"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "webpki-roots"] }
 ammonia = "4.2.3"
+html5ever = "0.40.1"
+url = "2.5"
+idna = "1.1"
+# An embedded suffix list for domain comparisons, including co.uk and hosting tenants.
+# This is not a reputation service and makes no network requests.
+psl = "2.1"
 ureq = "3.4.2"
 base64 = "0.22"
 # Moving in from Outlook: its data files (.pst), read with Microsoft's reader of the MS-PST

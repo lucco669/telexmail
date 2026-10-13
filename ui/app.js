@@ -83,6 +83,7 @@ function parseDate(s){
 const fromSummary = s => ({
   id:s.id, f:s.folder, from:s.from_name, email:s.from_email, to:s.to, subj:s.subject,
   date:parseDate(s.date), kb:s.size_kb, unread:s.unread, flagged:s.flagged, hasAtt:s.has_attachments,
+  thread:s.thread ?? null,
 });
 // Accounts, folders and how many messages each folder holds (the core counts them).
 async function loadTree(){
@@ -94,6 +95,7 @@ async function loadTree(){
   AWAY = t.away ?? [];
   QUOTA = t.quota ?? {}; SYNCED = t.synced ?? {};
   INITIALS = initialsOf(servers());
+  try { SAVED_SEARCHES = await invoke('list_saved_searches'); } catch { SAVED_SEARCHES = []; }
 }
 // Two letters for each account, from its name ("Łukasz Szramuk" → ŁS, "Sales 750xl.com" → S7),
 // else its address; two accounts never share them while another pair is free.
@@ -233,6 +235,7 @@ const store = {
 /* ---------- state ---------- */
 const saved = store.get();
 const state = {
+  savedSearch:null,
   folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', inText:false,
   scope: saved.scope === 'all' ? 'all' : 'folder', // the quick filter looks in this folder or in all mail
   more: saved.more && typeof saved.more === 'object' ? saved.more : {}, // accounts showing all their folders
@@ -240,6 +243,7 @@ const state = {
   undo:null, // what Z takes back (set with setUndo): {kind:'move', items:[{id, from}]} after a delete or move; {kind:'send', id, until}; {kind:'discard', compose}
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
   thread:null, // {id, subject}: the list shows this message's conversation
+  expanded:new Set(), // expanded thread ids in this folder
   unread:false, // the list shows only unread mail (O); Unread in the tree always does
   kept:new Set(), // read while an unread list was open: it keeps them until it is left
   recent: Array.isArray(saved.recent) ? saved.recent.slice(0, 8) : [], // folders last moved to or opened with M and G
@@ -281,6 +285,13 @@ const THEMES = ['system', 'light', 'dark', 'paper', 'heather', 'fjord', 'phospho
 const THEME_NAMES = {system:N_('Match Windows'), light:N_('Light'), dark:N_('Dark'), paper:N_('Paper'), heather:N_('Heather'), fjord:N_('Fjord'),
   phosphor:N_('Phosphor'), 'contrast-light':N_('High contrast light'), 'contrast-dark':N_('High contrast dark')};
 const LANG_NAMES = {en:'English', pl:'Polski'}; // each in itself, never translated
+const TOOLBAR_STYLES = [
+  ['classic', N_('Classic|toolbar'), N_('Icons beside labels; adapts to the window.')],
+  ['icons', N_('Icons only'), N_('Small buttons, more room for your mail.')],
+  ['large', N_('Large icons'), N_('Bigger buttons, easy to see and click.')],
+  ['below', N_('Labels below'), N_('Large icons with every action named.')],
+  ['text', N_('Text only'), N_('Clear labels without icons.')],
+];
 const TEXT_SIZES = [90, 100, 110, 125, 150, 175, 200];
 const CHECK_EVERY = [5, 10, 15, 30, 60, 0];
 const UNDO_SEND = [0, 5, 10, 20, 30];
@@ -290,13 +301,14 @@ const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light')
 // Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
-  settings:{theme:'system', language:'auto', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
-    push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
+  settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
+    threaded:false, push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
     spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
 let zoomed = 100;
+let threadSetting = false;
 // The colors HTML mail gets on dark paper: the theme's own (themes.css), or null for white.
 function darkPaper(id){
   const theme = document.documentElement.dataset.theme;
@@ -306,9 +318,15 @@ function darkPaper(id){
 }
 function applySettings(){
   const s = pref(), theme = document.documentElement.dataset.theme;
+  if (threadSetting !== !!s.threaded){
+    threadSetting = !!s.threaded;
+    state.expanded.clear(); unpick();
+    if (!VIEWER && list.seq) loadView();
+  }
   document.documentElement.dataset.theme = shownTheme(s.theme);
   document.documentElement.dataset.mark = s.account_mark;
   document.documentElement.dataset.unread = s.unread_style;
+  document.documentElement.dataset.toolbar = s.toolbar_style || 'classic';
   if (document.documentElement.dataset.font !== s.font){
     document.documentElement.dataset.font = s.font;
     measured = null; colsDone = ''; fitColumns(); // the dates' width is the new face's
@@ -325,7 +343,7 @@ function applySettings(){
   scheduleChecks();
   if (SETTINGS.language !== I18n.lang()){ I18n.setLang(SETTINGS.language); relabel(); }
   renderUpdates();
-  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font})); } catch {}
+  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font, toolbar:s.toolbar_style})); } catch {}
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
 // Saved at once; the window follows. Resolves to true when it worked.
@@ -383,13 +401,26 @@ function stepTextSize(dir){
 const TOOLBAR = [['b-get','get',N_('Get mail')],['b-new','neu',N_('New|message')],['b-reply','reply',N_('Reply')],['b-replyall','replyall',N_('Reply all')],
   ['b-forward','forward',N_('Forward')],['b-flag','flag',N_('Flag')],['b-delete','trash',N_('Delete')],['b-rules','rules',N_('Rules')],['b-settings','sliders',N_('Settings')]];
 function paintToolbar(){
-  TOOLBAR.forEach(([id, ic, label]) => { $(id).innerHTML = I[ic] + `<span class="lbl">${esc(t(label))}</span>`; });
+  TOOLBAR.forEach(([id, ic, label]) => {
+    const b = $(id);
+    b.innerHTML = I[ic] + `<span class="lbl">${esc(t(label))}</span>`;
+    b.setAttribute('aria-label', b.title || t(label));
+  });
   $('search-ic').innerHTML = I.search;
 }
 function paintDensity(){
   win.dataset.density = pref().density;
   $('b-density').innerHTML = I.rows + `<span class="lbl">${esc(pref().density === 'compact' ? t('Compact') : t('Comfortable'))}</span>`;
+  $('b-density').setAttribute('aria-label', t('Switch row density') + ': ' + t(pref().density === 'compact' ? 'Compact' : 'Comfortable'));
 }
+// A vertical mouse wheel can reach the rest of the actions on narrow windows.
+$('toolbar-actions').addEventListener('wheel', e => {
+  const actions = e.currentTarget;
+  if (e.ctrlKey || e.shiftKey || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
+  const before = actions.scrollLeft;
+  actions.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 24 : e.deltaMode === 2 ? actions.clientWidth : 1);
+  if (actions.scrollLeft !== before) e.preventDefault();
+}, {passive:false});
 
 /* ---------- status ---------- */
 let stTimer, lastCheck = null, lastTitle = '';
@@ -529,7 +560,7 @@ function folderButton(a, f){
   return foldButton(key, f.kind, own, twin);
 }
 function foldButton(key, kind, own = '', twin = false){
-  const c = countOf(key), all = COUNT_ALL.has(kind), on = key === state.folder;
+  const c = countOf(key), all = COUNT_ALL.has(kind), on = key === state.folder && !state.savedSearch;
   const n = all ? c.total : c.unread;
   // The Outbox says what didn't go, in the warning colors, before what waits its turn.
   const cnt = c.stuck ? `<span class="qchip" data-level="full" title="${esc(tn(c.stuck, '{n} not sent', '{n} not sent', {n:num(c.stuck)}) + ' · ' + t('Not sent: open the message to see why.'))}">${num(c.stuck)}</span>`
@@ -577,7 +608,7 @@ function renderTree(){
   if (typing) state.naming.value = typing.value;
   const caret = typing ? [typing.selectionStart, typing.selectionEnd] : null;
   // Unread mail of every folder first, under a hairline: what to read, wherever rules put it.
-  treeEl.innerHTML = (ACCOUNTS.length ? `<ul class="unreadg">${foldButton(UNREAD, 'unread')}</ul>` : '') + ACCOUNTS.map(a => {
+  treeEl.innerHTML = savedSearchGroup() + (ACCOUNTS.length ? `<ul class="unreadg">${foldButton(UNREAD, 'unread')}</ul>` : '') + ACCOUNTS.map(a => {
     if (a.id === LOCAL) return localGroup(a);
     const open = !state.collapsed[a.id], key = f => a.id + '/' + f.id;
     let items = '';
@@ -613,6 +644,9 @@ function renderTree(){
     + (unsent.length ? `<optgroup label="${esc(t('Not sent yet'))}">${unsent.map(option).join('')}</optgroup>` : '');
 }
 treeEl.addEventListener('click', e => {
+  const search = e.target.closest('[data-search]');
+  if (search){ openSavedSearch(Number(search.dataset.search)); return; }
+  if (e.target.closest('[data-act="saved-searches"]')){ openSavedSearches(); return; }
   const f = e.target.closest('[data-folder]'), a = e.target.closest('[data-acct]'), m = e.target.closest('[data-more]');
   if (e.target.closest('[data-act="add-account"]')) openAccountDialog();
   else if (e.target.closest('[data-act="new-folder"]')) startNaming('new');
@@ -830,9 +864,10 @@ document.addEventListener('pointerdown', e => { if (!menuEl.hidden && !menuEl.co
 addEventListener('blur', () => closeMenu(false));
 
 function setFolder(key){
+  state.savedSearch = null;
   if (key === UNREAD && state.folder !== UNREAD) state.unreadFrom = state.folder; // where O goes back to
   state.folder = key; state.q = ''; qEl.value = ''; state.inText = false; state.thread = null;
-  state.unread = false; state.kept.clear();
+  state.unread = false; state.kept.clear(); state.expanded.clear();
   unpick();
   paintUnreadOnly();
   paintScope(); renderTree(); renderStatus();
@@ -883,8 +918,11 @@ const across = () => allMail() || isEvery(state.folder);
 const selKey = () => state.thread ? '#' : allMail() ? '*' : state.folder;
 // An unread list: Unread in the tree, or a folder with O. A conversation shows all of itself.
 const unreadOnly = () => !state.thread && (state.folder === UNREAD || state.unread);
+const grouped = () => !!pref().threaded && !state.thread && !state.savedSearch && !state.q.trim() && !unreadOnly()
+  && !isEvery(state.folder) && !['drafts', 'outbox'].includes(kindOf(state.folder));
 const viewArgs = () => ({folder:allMail() || state.folder === UNREAD ? null : state.folder, sort:state.sort.key, ascending:state.sort.dir > 0,
-  filter:state.q, bodies:state.inText, thread:state.thread?.id ?? null, unread:unreadOnly(), keep:unreadOnly() ? [...state.kept] : []});
+  filter:state.q, bodies:state.inText, thread:state.thread?.id ?? null, unread:unreadOnly(), keep:unreadOnly() ? [...state.kept] : [],
+  grouped:grouped(), expanded:grouped() ? [...state.expanded] : []});
 // Whether a message belongs in the list on screen.
 const inView = f => allMail() || f === state.folder || state.folder === UNREAD || (isEvery(state.folder) && kindOf(f) === kindOf(state.folder));
 const current = () => selRow && selRow.id === state.sel[selKey()] && inView(selRow.f) ? selRow : null;
@@ -901,7 +939,7 @@ async function fetchPage(at, limit = PAGE){
   const args = viewArgs(), key = JSON.stringify(args);
   const p = await invoke('list_page', {view:args, at, limit});
   if (key !== JSON.stringify(viewArgs())) return null;
-  return {total:p.total, start:p.start, rows:p.rows.map(fromSummary)};
+  return {total:p.total, start:p.start, rows:p.rows.map(fromSummary), focus:p.focus};
 }
 // Put a page in the list: after or before the loaded stretch when it fits there, else instead of it.
 function merge(p, how = 'replace'){
@@ -1088,8 +1126,13 @@ function whereOf(m, accounts){
 function rowHtml(m, sel, hl, accounts){
   const out = isOut(m.f), tip = out ? m.to : `${m.from} <${m.email}>`;
   const on = m.id === sel || state.picked.has(m.id), acct = acctId(m.f);
-  const cls = (m.unread ? 'unread ' : '') + (m.id === sel ? 'sel ' : '') + (state.picked.has(m.id) ? 'picked ' : '')
+  const th = m.thread, head = th && !th.child, expanded = th && state.expanded.has(th.id);
+  const cls = (m.unread ? 'unread ' : '') + (th?.child ? 'thread-child ' : head && th.unread ? 'thread-new ' : '') + (m.id === sel ? 'sel ' : '') + (state.picked.has(m.id) ? 'picked ' : '')
     + (acct !== LOCAL ? 'acc ' + acolor(acct) : '');
+  const count = head ? tn(th.count, '{n} message', '{n} messages') + (th.unread ? ', ' + tn(th.unread, '{n} unread', '{n} unread') : '') : '';
+  const toggleLabel = t(expanded ? N_('Collapse thread') : N_('Expand thread'));
+  const toggle = head ? `<button type="button" class="thread-toggle" data-thread="${th.id}" aria-expanded="${expanded}" aria-label="${esc(toggleLabel)}" title="${esc(toggleLabel)}">${expanded ? '▾' : '▸'}</button>` : '<span class="thread-slot" aria-hidden="true"></span>';
+  const subject = grouped() ? `<span class="thread-subject">${toggle}<span class="subject-text">${marked(m.subj, hl?.subject)}</span>${head ? `<span class="thread-count" title="${esc(count)}" aria-label="${esc(count)}">${num(th.count)}</span>` : ''}</span>` : marked(m.subj, hl?.subject);
   const [where, whose] = whereOf(m, accounts);
   // The dot and the flag are switches: a click marks read or unread, flags or unflags.
   const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
@@ -1097,7 +1140,7 @@ function rowHtml(m, sel, hl, accounts){
   return `<tr data-id="${m.id}" class="${cls}" aria-selected="${on}">
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${marked(whoOf(m), hl?.[out ? 'to' : 'from'])}</td>
-<td class="c-subj" title="${esc(m.subj)}">${marked(m.subj, hl?.subject)}</td>
+<td class="c-subj" title="${esc(m.subj)}">${subject}</td>
 <td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(whose ? where + ' · ' + whose : where)}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
@@ -1238,6 +1281,7 @@ async function loadView({top = false} = {}){
   if (!p || seq !== list.seq) return;
   merge(p);
   // Like before: a folder opens on its first message; a filter leaves the selection alone.
+  if (p.focus != null && !list.rows.some(r => r.id === id)) id = state.sel[key] = p.focus;
   if (!list.rows.some(r => r.id === id) && (!state.q.trim() || key === '*')) id = state.sel[key] = list.rows[0]?.id;
   selRow = list.rows.find(r => r.id === id) ?? (state.q.trim() ? selRow : null);
   renderHead();
@@ -1271,6 +1315,10 @@ async function refresh({skip} = {}){
   const was = anchor ? posOf(anchor.id) : -1;
   merge(p);
   const now = anchor ? posOf(anchor.id) : -1;
+  if (grouped() && selRow?.thread && !state.expanded.has(selRow.thread.id)){
+    const head = list.rows.find(r => r.thread?.id === selRow.thread.id && !r.thread.child);
+    if (head){ selRow = head; state.sel[selKey()] = head.id; }
+  }
   if (was >= 0 && now >= 0) listEl.scrollTop += (now - was) * rowH;
   if (!current()){ // the selection is gone: the first row, as when mail arrives in an empty folder
     selRow = list.rows.find(r => r.id === state.sel[selKey()]) ?? null;
@@ -1314,6 +1362,13 @@ function paintSelection(){
 }
 // Change fields of a message wherever the list keeps it.
 function patch(id, fields){
+  if (typeof fields.unread === 'boolean'){
+    const old = list.rows.find(r => r.id === id) ?? (selRow?.id === id ? selRow : null);
+    if (old?.thread && old.unread !== fields.unread){
+      const group = old.thread.id, delta = fields.unread ? 1 : -1;
+      for (const r of list.rows) if (r.thread?.id === group) r.thread.unread = Math.max(0, r.thread.unread + delta);
+    }
+  }
   for (const r of list.rows) if (r.id === id) Object.assign(r, fields);
   if (selRow?.id === id) Object.assign(selRow, fields);
 }
@@ -1321,6 +1376,9 @@ rowsEl.addEventListener('click', e => {
   const tr = e.target.closest('tr[data-id]');
   if (!tr) return;
   const id = Number(tr.dataset.id);
+  if (e.target.closest('[data-thread]')){
+    toggleGroup(list.rows.find(r => r.id === id)); return;
+  }
   // The dot and the flag switch that one message, wherever the selection is.
   const mk = !e.ctrlKey && !e.metaKey && !e.shiftKey && e.target.closest('.mk');
   const m = mk && list.rows.find(r => r.id === id);
@@ -1333,7 +1391,7 @@ rowsEl.addEventListener('click', e => {
 });
 rowsEl.addEventListener('dblclick', e => {
   const tr = e.target.closest('tr[data-id]');
-  if (tr && !e.target.closest('.mk')) openWindow(Number(tr.dataset.id));
+  if (tr && !e.target.closest('.mk, [data-thread]')) openWindow(Number(tr.dataset.id));
 });
 // Right-click on a message (or the menu key in the list): what can be done with it, or with
 // all the selected ones, each with its key.
@@ -1460,6 +1518,7 @@ function dragScroll(){
   if (step){ treeEl.scrollTop += step; d.scroll = requestAnimationFrame(dragScroll); } else d.scroll = 0;
 }
 rowsEl.addEventListener('pointerdown', e => {
+  if (e.target.closest('[data-thread]')) return;
   const tr = e.target.closest('tr[data-id]');
   if (!tr || e.button !== 0 || e.pointerType === 'touch') return;
   drag = {pointer:e.pointerId, x0:e.clientX, y0:e.clientY, x:e.clientX, y:e.clientY, row:Number(tr.dataset.id), started:false};
@@ -1584,8 +1643,17 @@ function nextUnreadFolder(from){
 }
 // Select an unread message the core found, loading its page.
 async function goToUnread(u){
-  const row = await rowAt(u.row);
-  if (row?.id !== u.id){ const p = await fetchPage({around:u.id}); if (p) merge(p); }
+  if (grouped()){
+    if (u.thread != null) state.expanded.add(u.thread);
+    const p = await fetchPage({around:u.id});
+    if (!p) return;
+    merge(p);
+    // Expansion changes the scroll height. Draw it before revealing the hidden message.
+    drawRows();
+  } else {
+    const row = await rowAt(u.row);
+    if (row?.id !== u.id){ const p = await fetchPage({around:u.id}); if (p) merge(p); }
+  }
   select(u.id);
   const pos = posOf(u.id);
   if (pos >= 0 && reveal(pos)) drawRows(); else drawRows();
@@ -1697,7 +1765,7 @@ function bodyHtml(m){
     const img = line.match(/^\[img:(.+)\]$/);
     if (img) return `<div class="imgph${loaded ? ' loaded' : ''}">${loaded ? esc(img[1]) : t('Blocked image: {name}', {name:esc(img[1])})}</div>`;
     const q = line.startsWith('>'), text = q ? line.replace(/^> ?/, '') : line;
-    return `<div class="ln${q ? ' q' : ''}">${kindOf(m.folder) === 'spam' ? esc(text) : linked(text)}</div>`;
+    return `<div class="ln${q ? ' q' : ''}">${linked(text)}</div>`;
   }).join('');
 }
 // Plain text with its web addresses as links. An address ends before a space, <, > or a
@@ -1729,7 +1797,9 @@ async function htmlView(id, load, dark = null){
 }
 // Links never navigate inside Telex: web links open in the browser, mailto opens compose.
 function followLink(href, spam){
-  const h = String(href || '').trim();
+  const info = window.TelexLinks.inspect(href);
+  if (!info) return;
+  const h = info.href;
   if (spam){ say(t('Links are off in Spam. Move the message out of Spam to use them.')); return; }
   if (/^mailto:/i.test(h)){
     const raw = h.slice(7).split('?')[0];
@@ -1739,12 +1809,124 @@ function followLink(href, spam){
     call('open_link', {url:h}).then(() => say(t('Opened in your browser.'), 2500)).catch(() => {});
   }
 }
+// Kept in the app's UI, outside the sender's document. No link is fetched to inspect it.
+let previewLinks = [], activeLink = null;
+const linkLabel = a => window.TelexLinks.visible((a.textContent || a.querySelector('img')?.alt || '').trim().replace(/\s+/g, ' '));
+function linkCard(info, label, index){
+  return `<div class="linkcard"><div class="linkdest"><span>${esc(info.web ? t('Destination') : t('Email address'))}</span> <bdi>${esc(info.destination)}</bdi></div>`
+    + (label ? `<div class="linklabel">${esc(label)}</div>` : '')
+    + `<div class="linkaddress"><textarea rows="2" readonly spellcheck="false" dir="ltr" aria-label="${esc(t('Link address'))}">${esc(info.display)}</textarea><button type="button" class="btn" data-copy-link="${index}">${esc(t('Copy link'))}</button></div>`
+    + (info.credentials ? `<div class="linknote">${esc(t('This address contains a login name. The destination is {host}.', {host:info.destination}))}</div>` : '')
+    + (info.hidden ? `<div class="linknote">${esc(t('Hidden characters are shown as escape codes. Copy link keeps the original address.'))}</div>` : '') + '</div>';
+}
+function collectPreviewLinks(root, spam){
+  const seen = new Set();
+  previewLinks = []; activeLink = null;
+  root.querySelectorAll('a[href]').forEach(a => {
+    const info = window.TelexLinks.inspect(a.getAttribute('href'));
+    if (!info) return;
+    a.title = info.display; // replace any title supplied by the sender
+    if (spam) a.setAttribute('aria-disabled', 'true');
+    if (seen.has(info.href)) return;
+    seen.add(info.href); previewLinks.push({info, label:linkLabel(a)});
+  });
+  const bar = previewEl.querySelector('.mail-links');
+  if (!bar) return;
+  bar.hidden = !previewLinks.length;
+  bar.querySelector('[data-act="links"]').textContent = tn(previewLinks.length, '{n} link', '{n} links');
+  bar.querySelector('.linkhint').textContent = spam ? t('Links are blocked in Spam. You can inspect and copy them.') : t('Hover or focus a link to see its destination.');
+  bar.querySelector('.linklist').replaceChildren(); // build the destination list only when opened
+}
+function showLink(a){
+  const info = window.TelexLinks.inspect(a.getAttribute('href'));
+  if (!info) return;
+  const card = previewEl.querySelector('.linkpeek');
+  if (!card || !previewEl.querySelector('.linklist')?.hidden || (activeLink?.anchor === a && !card.hidden)) return;
+  activeLink = {info, anchor:a};
+  card.innerHTML = `<button type="button" class="linkclose pbtn" data-act="hide-link" title="${esc(t('Hide link preview'))}" aria-label="${esc(t('Hide link preview'))}">×</button>` + linkCard(info, '', 'active'); card.hidden = false;
+  positionLinkPeek();
+}
+// Keep the inspector in the opposite half of the pane from the link being examined, so
+// revealing its address never covers the button under the pointer or shifts the email.
+function positionLinkPeek(){
+  const card = previewEl.querySelector('.linkpeek'), a = activeLink?.anchor;
+  if (!card || card.hidden || !a?.isConnected) return;
+  const pane = previewEl.getBoundingClientRect(), r = a.getBoundingClientRect();
+  const frame = a.ownerDocument.defaultView?.frameElement;
+  const top = r.top + (frame ? frame.getBoundingClientRect().top : 0);
+  card.style.left = pane.left + 'px'; card.style.width = previewEl.clientWidth + 'px';
+  card.style.maxHeight = Math.min(180, pane.height / 2) + 'px';
+  const above = top > pane.top + pane.height / 2;
+  card.style.top = above ? pane.top + 'px' : 'auto';
+  card.style.bottom = above ? 'auto' : Math.max(0, innerHeight - pane.bottom) + 'px';
+}
+previewEl.addEventListener('scroll', positionLinkPeek, {passive:true});
+new ResizeObserver(positionLinkPeek).observe(previewEl);
+async function copyLink(info){
+  if (!info) return;
+  try { await navigator.clipboard.writeText(info.href); }
+  catch {
+    // WebView clipboard support differs between platforms. Keep a native copy fallback.
+    const from = document.activeElement, field = document.createElement('textarea');
+    field.value = info.href; field.readOnly = true; field.className = 'copyfield';
+    document.body.append(field); field.select();
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch {}
+    field.remove(); from?.focus?.({preventScroll:true});
+    if (!copied){
+      const index = previewLinks.findIndex(link => link.info.href === info.href);
+      const list = previewEl.querySelector('.linklist');
+      const field = list && !list.hidden && index >= 0 ? list.querySelectorAll('textarea')[index] : previewEl.querySelector('.linkpeek textarea');
+      field?.focus(); field?.select();
+      say(t('Select the link address and press Ctrl+C to copy it.'), 6000); return;
+    }
+  }
+  say(t('Link address copied.'), 2500);
+}
+function linkMenu(e, a, frame = null){
+  const info = window.TelexLinks.inspect(a.getAttribute('href'));
+  if (!info) return;
+  e.preventDefault(); showLink(a);
+  const offset = frame?.getBoundingClientRect() ?? {left:0, top:0};
+  const r = a.getBoundingClientRect();
+  const x = offset.left + (e.clientX || r.left), y = offset.top + (e.clientY || r.bottom);
+  openMenu(x, y, [
+    {label:t('Copy link address'), run:() => copyLink(info)},
+    {label:t('Show all links'), run:() => toggleLinkList(true)},
+  ], a);
+}
+function toggleLinkList(open){
+  const bar = previewEl.querySelector('.mail-links'), list = bar?.querySelector('.linklist');
+  if (!list) return;
+  list.hidden = open === undefined ? !list.hidden : !open;
+  if (!list.hidden && !list.childElementCount) list.innerHTML = previewLinks.map(({info, label}, i) => linkCard(info, label, i)).join('');
+  bar.querySelector('[data-act="links"]').setAttribute('aria-expanded', String(!list.hidden));
+  if (!list.hidden) previewEl.querySelector('.linkpeek').hidden = true;
+  activeLink = null;
+}
+function bindPreviewLinks(root, frame = null){
+  root.addEventListener('pointerover', e => { const a = e.target.closest?.('a[href]'); if (a) showLink(a); });
+  root.addEventListener('focusin', e => { const a = e.target.closest?.('a[href]'); if (a) showLink(a); });
+  root.addEventListener('contextmenu', e => { const a = e.target.closest?.('a[href]'); if (a) linkMenu(e, a, frame); });
+  root.addEventListener('keydown', e => {
+    const a = e.target.closest?.('a[href]');
+    if (a && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))){ e.stopPropagation(); linkMenu(e, a, frame); }
+  });
+  // Middle-click must not bypass the app's link policy or open a tab in the mail frame.
+  root.addEventListener('auxclick', e => { if (e.target.closest?.('a[href]')) e.preventDefault(); });
+  root.addEventListener('pointerdown', e => {
+    if (e.button === 1 && e.target.closest?.('a[href]')) e.preventDefault();
+    if (!menuEl.hidden) closeMenu(false);
+  });
+}
 // The frame shows the core's inert document: no scripts may run in it (sandbox without
 // allow-scripts). allow-same-origin only lets this page size it and catch link clicks.
 function mountFrame(frame, documentHtml, spam){
   frame.addEventListener('load', () => {
     const d = frame.contentDocument;
-    if (!d) return;
+    if (!d || !frame.isConnected) return;
+    collectPreviewLinks(d, spam);
+    bindPreviewLinks(d, frame);
     const fit = () => { frame.style.height = d.documentElement.scrollHeight + 'px'; };
     fit();
     new ResizeObserver(fit).observe(d.documentElement);
@@ -1855,8 +2037,38 @@ function paintReadButton(){
   b.title = readTip(m); b.setAttribute('aria-label', b.title);
 }
 let pvSeq = 0;
+function riskHtml(m){
+  const r = m.risk;
+  if (!r || isOut(m.folder)) return '';
+  const score = Math.max(0, Math.min(99, Number(r.score) || 0));
+  const level = score >= 70 ? 'high' : score >= 40 ? 'elevated' : score ? 'low' : 'none';
+  const label = score >= 70 ? t('High scam risk') : score >= 40 ? t('Suspicious') : score ? t('Some warning signs') : r.limited ? t('Check incomplete') : t('No obvious warning signs');
+  const reasons = {
+    sender_brand_mismatch:s => t('The sender claims to be {claimed}, but uses an unlisted domain ({actual}).', s),
+    sender_lookalike:s => t('The sender domain {actual} resembles {claimed}, but is outside its listed domains.', s),
+    link_lookalike:s => t('A link domain {actual} resembles {claimed}, but is outside its listed domains.', s),
+    misleading_userinfo:s => t('A link puts {claimed} before @; its actual destination is {actual}.', s),
+    link_text_mismatch:s => t('Link text names {claimed}, but the address points to {actual}. Tracking links can also do this.', s),
+    hidden_characters:s => t('Invisible or text-direction characters appear in a sender or link address ({actual}).', s),
+    offsite_account_action:s => t('An account or payment button claiming {claimed} points to an unlisted domain ({actual}).', s),
+    reply_to_mismatch:s => t('Replies go to {actual}, a different domain from the sender ({claimed}).', s),
+    sensitive_request:() => t('The message also asks for account access or payment details.'),
+  };
+  const signals = (r.signals || []).filter(s => reasons[s.kind]).slice().sort((a, b) => b.points - a.points);
+  return `<details class="risk-panel" data-level="${level}"${score >= 70 ? ' open' : ''}><summary><b>${esc(t('Risk {score}/100', {score}))}</b><span>${esc(label)}</span><small>${esc(t('Local check'))}</small></summary>`
+    + `<div class="risk-details">${signals.length ? `<ul>${signals.map(s => {
+      const evidence = {claimed:window.TelexLinks.visible(s.claimed || ''), actual:window.TelexLinks.visible(s.actual || '')};
+      return `<li><span>${esc(reasons[s.kind](evidence))}</span><b>+${Number(s.points) || 0}</b></li>`;
+    }).join('')}</ul>` : ''}<p>${esc(t('This is a heuristic risk score, not a measured probability. A low score does not establish safety.'))}</p>`
+    + `<p>${esc(t('Checked locally without opening links. Authentication, redirects and reputation are not verified.'))}</p>`
+    + (r.limited ? `<p>${esc(t('Some content was unavailable or exceeded the check limits.'))}</p>` : '') + '</div></details>';
+}
+previewEl.addEventListener('keydown', e => {
+  if (e.target.closest?.('.risk-panel') && ['Enter', ' '].includes(e.key)) e.stopPropagation();
+});
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
+  previewLinks = []; activeLink = null; closeMenu(false);
   if (!ACCOUNTS.length){
     // Another mail program on this PC: everything can come from there in one go.
     if (!moveIn.sources) findPrograms().then(() => { if (!ACCOUNTS.length) renderPreview(); });
@@ -1896,11 +2108,18 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
 ${headerHtml(m, `${readButton(s)}${popout}${paper}${views}<span class="pill pflag"${s.flagged ? '' : ' hidden'}>${I.flag}${esc(t('Flagged'))}</span>`)}
+${riskHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
+<section class="mail-links" hidden aria-label="${esc(t('Message links'))}"><div class="linktools"><button type="button" class="linkbtn" data-act="links" aria-expanded="false" aria-controls="message-link-list"></button><span class="linkhint"></span></div><div class="linklist" id="message-link-list" hidden></div></section>
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
+<div class="linkpeek" hidden aria-label="${esc(t('Link address'))}"></div>
 </article>`;
   if (asHtml) mountFrame(previewEl.querySelector('.hframe'), hv.document, spam);
+  else {
+    const body = previewEl.querySelector('.pbody');
+    collectPreviewLinks(body, spam); bindPreviewLinks(body);
+  }
   previewEl.scrollTop = 0;
 }
 async function setView(text){
@@ -1909,6 +2128,8 @@ async function setView(text){
   say(text ? t('Showing plain text. Press H for HTML.') : t('Showing HTML. Press H for plain text.'), 2500);
 }
 previewEl.addEventListener('click', async e => {
+  const copy = e.target.closest('[data-copy-link]');
+  if (copy){ copyLink(copy.dataset.copyLink === 'active' ? activeLink?.info : previewLinks[Number(copy.dataset.copyLink)]?.info); return; }
   const link = e.target.closest('.pbody a[href]');
   if (link){ e.preventDefault(); const s = current(); followLink(link.getAttribute('href'), s && (kindOf(s.f) === 'spam')); return; }
   const view = e.target.closest('[data-view]');
@@ -1924,6 +2145,8 @@ previewEl.addEventListener('click', async e => {
   const off = e.target.closest('[data-unattach]');
   if (off && state.compose){ state.compose.attachments.splice(Number(off.dataset.unattach), 1); renderComposeAtts(); return; }
   if (!act) return;
+  if (act.dataset.act === 'links'){ toggleLinkList(); return; }
+  if (act.dataset.act === 'hide-link'){ previewEl.querySelector('.linkpeek').hidden = true; activeLink = null; return; }
   const m = current();
   if (act.dataset.act === 'images' && m){
     state.images.add(m.id); say(t('Loading images…'), 0);
@@ -2863,6 +3086,19 @@ $('pk-list').addEventListener('click', e => { const li = e.target.closest('[data
 pdlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 
 /* ---------- conversations: T ---------- */
+let groupBusy = false;
+async function toggleGroup(m, open){
+  if (!grouped() || !m?.thread || groupBusy) return;
+  const th = m.thread, on = open ?? !state.expanded.has(th.id);
+  if (on === state.expanded.has(th.id)) return;
+  groupBusy = true;
+  const selected = current(), collapsingSelected = !on && selected?.thread?.id === th.id && selected.thread.child;
+  on ? state.expanded.add(th.id) : state.expanded.delete(th.id);
+  if (collapsingSelected) state.sel[selKey()] = th.head;
+  unpick();
+  try { await loadView(); }
+  finally { groupBusy = false; listEl.focus({preventScroll:true}); }
+}
 // The selected message with everything it answers and everything that answers it, from every
 // folder of its account (not Spam or Trash). T or Esc goes back to the folder.
 function toggleThread(){
@@ -2959,6 +3195,7 @@ $('b-settings').addEventListener('click', () => openSettings());
 // moment later (the core's full-text index). In all mail it looks in every account.
 let searchTimer;
 function setFilter(text){
+  state.savedSearch = null;
   state.q = text; state.inText = false;
   if (state.thread && text.trim()) state.thread = null; // the filter looks in the folder or all mail again
   unpick();
@@ -3100,6 +3337,7 @@ function paintScope(){
   $('q').closest('.search').classList.toggle('active', !!state.q);
   $('q-scope').textContent = all ? t('All mail') : t('This folder');
   $('q-scope').setAttribute('aria-pressed', String(all));
+  $('q-save').disabled = !state.q.trim();
   fitColumns();
 }
 // This folder or all mail. Remembered; matters only while there is something to filter by.
@@ -3608,12 +3846,80 @@ $('i-back').addEventListener('click', showIdentityList);
 $('i-close').addEventListener('click', () => showAccountView('home'));
 
 /* ---------- rules ---------- */
+/* Saved searches use the same list queries as the search box, stored by the core. */
+let SAVED_SEARCHES = [], editingSearch = null;
+function savedSearchGroup(){
+  if (!ACCOUNTS.length) return '';
+  return `<div class="agrp saved-searches"><button type="button" class="acct" data-act="saved-searches">${I.search}<span>${esc(t('Saved searches'))}</span></button><ul>`
+    + SAVED_SEARCHES.map(s => `<li><button type="button" class="fold${state.savedSearch === s.id ? ' sel' : ''}" data-search="${s.id}" title="${esc(s.view.filter)}"${state.savedSearch === s.id ? ' aria-current="page"' : ''}>${I.search}<span>${esc(s.name)}</span></button></li>`).join('') + '</ul></div>';
+}
+async function openSavedSearch(id){
+  const search = SAVED_SEARCHES.find(s => s.id === id);
+  if (!search) return;
+  const v = search.view;
+  if (v.folder && !folderOf(v.folder)){ say(t('The folder for this saved search no longer exists.'), 7000); return; }
+  state.savedSearch = id;
+  state.folder = v.folder ?? (folderOf(state.folder) ? state.folder : homeOf(ACCOUNTS[0]?.id));
+  state.scope = v.folder ? 'folder' : 'all';
+  state.q = v.filter; qEl.value = v.filter; state.inText = v.bodies;
+  state.thread = null; state.unread = v.unread; state.kept.clear(); state.expanded.clear(); unpick();
+  state.sort = {key:v.sort,dir:v.ascending ? 1 : -1};
+  paintUnreadOnly(); paintScope(); renderTree(); renderStatus();
+  await loadView({top:true}); listEl.focus({preventScroll:true});
+}
+function showSavedSearchList(){
+  $('ss-form').hidden = true; $('ss-list').hidden = false; $('ss-new').hidden = false;
+  $('ss-error').textContent = '';
+  $('ss-list').innerHTML = SAVED_SEARCHES.length ? SAVED_SEARCHES.map(s => `<div class="rrule" data-id="${s.id}"><div class="rtext"><b>${esc(s.name)}</b><div class="rsum">${esc(s.view.filter)} · ${esc(s.view.folder ? placeName(s.view.folder) : t('All mail'))}</div></div><button type="button" class="btn" data-ss="open">${esc(t('Open'))}</button><button type="button" class="btn" data-ss="edit">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-ss="delete">${esc(t('Delete'))}</button></div>`).join('') : `<p class="dnote">${esc(t('Save a search to open it again from the folder list.'))}</p>`;
+}
+function editSavedSearch(existing = null){
+  editingSearch = existing ? structuredClone(existing) : {id:0,name:'',view:{...viewArgs(),filter:state.q || 'is:unread',bodies:true,thread:null,keep:[],expanded:[],grouped:false}};
+  const v = editingSearch.view;
+  $('ss-name').value = editingSearch.name; $('ss-query').value = v.filter;
+  $('ss-bodies').checked = v.bodies; $('ss-unread').checked = v.unread;
+  const folder = v.folder ?? (state.folder === UNREAD ? null : state.folder);
+  $('ss-scope').innerHTML = `<option value="">${esc(t('All mail'))}</option>` + (folder ? `<option value="${esc(folder)}">${esc(placeName(folder))}</option>` : '');
+  $('ss-scope').value = v.folder ?? '';
+  $('ss-list').hidden = true; $('ss-form').hidden = false; $('ss-new').hidden = true; $('ss-error').textContent = '';
+  $('ss-name').focus();
+}
+async function openSavedSearches(create = false){
+  closeSuggest();
+  try { SAVED_SEARCHES = await invoke('list_saved_searches'); } catch (e){ say(tr(e),7000); return; }
+  $('search-dlg').showModal();
+  if (create) editSavedSearch(); else showSavedSearchList();
+}
+$('q-save').addEventListener('click', () => openSavedSearches(true));
+$('ss-new').addEventListener('click', () => editSavedSearch());
+$('ss-back').addEventListener('click', showSavedSearchList);
+$('ss-close').addEventListener('click', () => $('search-dlg').close());
+$('search-dlg').addEventListener('close', () => listEl.focus({preventScroll:true}));
+$('ss-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const search = {...editingSearch,name:$('ss-name').value,view:{...editingSearch.view,filter:$('ss-query').value,folder:$('ss-scope').value || null,bodies:$('ss-bodies').checked,unread:$('ss-unread').checked}};
+  try { await invoke('save_search',{search}); SAVED_SEARCHES = await invoke('list_saved_searches'); }
+  catch (error){ $('ss-error').textContent = tr(error); return; }
+  renderTree(); showSavedSearchList();
+});
+$('ss-list').addEventListener('click', async e => {
+  const button = e.target.closest('[data-ss]'), row = e.target.closest('[data-id]');
+  if (!button || !row) return;
+  const search = SAVED_SEARCHES.find(s => s.id === Number(row.dataset.id)); if (!search) return;
+  if (button.dataset.ss === 'edit'){ editSavedSearch(search); return; }
+  if (button.dataset.ss === 'open'){ $('search-dlg').close(); await openSavedSearch(search.id); return; }
+  if (button.dataset.armed !== '1'){ button.dataset.armed = '1'; button.textContent = t('Delete it'); return; }
+  try { await invoke('delete_search',{id:search.id}); SAVED_SEARCHES = await invoke('list_saved_searches'); }
+  catch (error){ $('ss-error').textContent = tr(error); return; }
+  if (state.savedSearch === search.id) state.savedSearch = null;
+  renderTree(); showSavedSearchList();
+});
+
 const rdlg = $('rules-dlg');
 let RULES = [], rule = null; // rule: the one being edited
 // Labels are English keys, translated where they are drawn.
-const FIELDS = [['from', N_('From')], ['to', N_('To or Cc')], ['subject', N_('Subject')], ['body', N_('Text|rule field')], ['anywhere', N_('Anywhere')]];
-const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contain')], ['is', N_('is')], ['starts_with', N_('starts with')], ['ends_with', N_('ends with')]];
-const ACTIONS = [['move', N_('Move to folder')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
+const FIELDS = [['from', N_('From')], ['to', N_('To or Cc')], ['subject', N_('Subject')], ['body', N_('Text|rule field')], ['anywhere', N_('Anywhere')], ['header', N_('Header')], ['attachment_name', N_('Attachment name')], ['attachment_type', N_('Attachment type')]];
+const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contain')], ['is', N_('is')], ['starts_with', N_('starts with')], ['ends_with', N_('ends with')], ['exists', N_('exists')], ['not_exists', N_('does not exist')]];
+const ACTIONS = [['move', N_('Move to folder')], ['copy', N_('Copy to folder')], ['forward', N_('Forward automatically')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
 const labelOf = (list, v) => { const l = list.find(([k]) => k === v)?.[1]; return l ? t(l) : v; };
 const options = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(t(l))}</option>`).join('');
 // Folders a rule can move mail to: its account's own but the Outbox, by their names on the
@@ -3626,12 +3932,13 @@ const folderOptions = (list, v) => [...new Set(list.map(x => x[2]))].map(g => `<
   + list.filter(x => x[2] === g).map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('') + '</optgroup>').join('');
 
 function ruleSummary(r){
-  const conds = r.conditions.map(c => t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field), op:labelOf(OPS, c.op), value:c.value}))
+  const conds = r.conditions.map(c => ['exists','not_exists'].includes(c.op) ? `${labelOf(FIELDS,c.field)}${c.header ? ' ' + c.header : ''} ${labelOf(OPS,c.op)}` : t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field) + (c.header ? ' ' + c.header : ''), op:labelOf(OPS, c.op), value:c.value}))
     .join(r.match_all ? t(' and ') : t(' or '));
-  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
+  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : a.type === 'copy' ? t('copy to {folder}', {folder:placeName(a.folder)}) : a.type === 'forward' ? t('forward to {to}',{to:a.to}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
   return t('If {conds}: {acts}.', {conds, acts}) + (r.account ? ' ' + t('{name} only.', {name:ACCT[r.account]?.email ?? r.account}) : '') + (r.stop ? ' ' + t('Then stop.') : '');
 }
 async function openRules(){
+  closeSuggest();
   rdlg.showModal();
   await showRuleList();
 }
@@ -3660,6 +3967,7 @@ function ruleFrom(m){
     actions:[kindOf(m.f) === 'custom' ? {type:'move', folder:m.f} : {type:'flag'}], stop:false};
 }
 function showRuleForm(existing, start = null){
+  $('r-preview-result').hidden = true;
   const firstAccount = servers()[0]?.id ?? null;
   rule = existing ? structuredClone(existing) : start ?? {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
     conditions:[{field:'from', op:'contains', value:''}], actions:[{type:'flag'}], stop:false};
@@ -3675,18 +3983,20 @@ function showRuleForm(existing, start = null){
 function renderConditions(){
   $('r-conds').innerHTML = rule.conditions.map((c, i) => `<div class="rrow" data-i="${i}">
 <select data-k="field" aria-label="${esc(t('Where'))}">${options(FIELDS, c.field)}</select><select data-k="op" aria-label="${esc(t('How'))}">${options(OPS, c.op)}</select>
-<input data-k="value" value="${esc(c.value)}" placeholder="${esc(t('text to look for'))}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Text to look for'))}">
+<div class="rvalue">${c.field === 'header' ? `<input data-k="header" value="${esc(c.header ?? '')}" placeholder="List-Id" aria-label="${esc(t('Header name'))}" autocomplete="off" spellcheck="false">` : ''}${['exists','not_exists'].includes(c.op) ? '' : `<input data-k="value" value="${esc(c.value)}" placeholder="${esc(t('text to look for'))}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Text to look for'))}">`}</div>
 <button type="button" class="btn icon" data-x="${i}" title="${esc(t('Remove this condition'))}" aria-label="${esc(t('Remove condition'))}">×</button></div>`).join('');
 }
 function renderActions(){
   $('r-acts').innerHTML = rule.actions.map((a, i) => {
     let param = '<span class="none"></span>';
-    if (a.type === 'move'){
+    if (a.type === 'move' || a.type === 'copy'){
       const targets = moveTargets(rule.account);
       param = targets.length ? `<select data-k="folder" aria-label="${esc(t('Folder'))}">${folderOptions(targets, a.folder)}</select>`
         : `<span class="none">${esc(t('Pick the rule’s account to choose a folder.'))}</span>`;
     } else if (a.type === 'auto_reply'){
       param = `<textarea data-k="body" aria-label="${esc(t('Reply text'))}" placeholder="${esc(t('Hello, I’m away until 20 October.'))}">${esc(a.body || '')}</textarea>`;
+    } else if (a.type === 'forward'){
+      param = `<input data-k="to" value="${esc(a.to ?? '')}" aria-label="${esc(t('Forward to'))}" placeholder="${esc(t('Recipient addresses'))}" autocomplete="off" spellcheck="false">`;
     }
     return `<div class="rrow act" data-i="${i}"><select data-k="type" aria-label="${esc(t('Action'))}">${options(ACTIONS, a.type)}</select>${param}
 <button type="button" class="btn icon" data-x="${i}" title="${esc(t('Remove this action'))}" aria-label="${esc(t('Remove action'))}">×</button></div>`;
@@ -3694,16 +4004,22 @@ function renderActions(){
 }
 // A new or changed action gets sensible defaults: a folder to move to, empty reply text.
 function fixAction(a){
-  if (a.type === 'move'){
+  if (a.type === 'move' || a.type === 'copy'){
     const targets = moveTargets(rule.account);
     if (!targets.some(([k]) => k === a.folder)) a.folder = (targets.find(([k]) => folderOf(k)?.kind === 'custom') ?? targets[0])?.[0] ?? '';
   } else delete a.folder;
   if (a.type === 'auto_reply') a.body = a.body ?? ''; else delete a.body;
+  if (a.type === 'forward') a.to = a.to ?? ''; else delete a.to;
   return a;
 }
 $('r-conds').addEventListener('input', e => {
   const row = e.target.closest('[data-i]'); if (!row) return;
   rule.conditions[row.dataset.i][e.target.dataset.k] = e.target.value;
+  if (['field','op'].includes(e.target.dataset.k)){
+    const c = rule.conditions[row.dataset.i];
+    if (c.field === 'header') c.header ??= ''; else delete c.header;
+    renderConditions();
+  }
 });
 $('r-acts').addEventListener('input', e => {
   const row = e.target.closest('[data-i]'); if (!row) return;
@@ -3733,6 +4049,23 @@ $('r-form').addEventListener('submit', async e => {
   await showRuleList();
 });
 $('r-back').addEventListener('click', showRuleList);
+const readRuleForm = () => Object.assign(rule, {name:$('r-name').value,match_all:$('r-match').value === 'all',stop:$('r-stop').checked});
+$('r-form').addEventListener('input', () => { $('r-preview-result').hidden = true; });
+$('r-preview').addEventListener('click', async () => {
+  readRuleForm();
+  const snapshot = JSON.stringify(rule), button = $('r-preview'); button.disabled = true;
+  let report;
+  try { report = await invoke('preview_rule',{rule,view:{...viewArgs(),grouped:false,expanded:[]}}); }
+  catch (error){ $('r-form-err').textContent = tr(error); button.disabled = false; return; }
+  button.disabled = false; readRuleForm();
+  if (snapshot !== JSON.stringify(rule)) return;
+  $('r-form-err').textContent = '';
+  $('r-preview-result').innerHTML = `<h3 class="rh">${esc(t('Preview: {matched} of {checked} messages match.',{matched:num(report.matched),checked:num(report.checked)}))}</h3><p class="dnote">${esc(t('No messages were changed or sent.'))} ${esc(ruleSummary(rule))}</p>`
+    + (report.new_mail_only ? `<p class="dnote">${esc(t('Automatic replies and forwards run only on new arrivals, never on Run now.'))}</p>` : '')
+    + `<ul class="preview-matches">${report.samples.map(m => `<li><b>${esc(m.subject)}</b> · ${esc(m.from)}<span class="dnote">${esc(t('Condition matches: {matches}',{matches:m.conditions.map((hit,i) => (i+1) + (hit ? ' ✓' : ' ×')).join(' · ')}))}</span></li>`).join('')}</ul>`
+    + (report.matched > report.samples.length ? `<p class="dnote">${esc(t('Showing the first {n} matches.',{n:report.samples.length}))}</p>` : '');
+  $('r-preview-result').hidden = false;
+});
 $('r-new').addEventListener('click', () => showRuleForm(null));
 $('r-from').addEventListener('click', () => { const m = current(); if (m) showRuleForm(null, ruleFrom(m)); });
 $('r-close').addEventListener('click', () => rdlg.close());
@@ -3815,6 +4148,12 @@ function fontCards(){
     + `<span class="fprev" data-font="${id}" aria-hidden="true"><b>Ag Żółć</b><span class="fl">Anna Kowalska · Faktura 10/2026</span><span class="fd">09:30 · 14 KB</span></span>`
     + `<span class="tname">${esc(fontName(id))}</span></label>`).join('');
 }
+function toolbarCards(){
+  const sample = (icon, label) => `<span class="navsample">${I[icon]}<span class="lbl">${esc(t(label))}</span></span>`;
+  return TOOLBAR_STYLES.map(([id, name, description]) => `<label class="tcard"><input type="radio" name="toolbar_style" value="${id}"${(pref().toolbar_style || 'classic') === id ? ' checked' : ''}>`
+    + `<span class="navprev" data-style="${id}" aria-hidden="true">${sample('neu', 'New|message')}${sample('reply', 'Reply')}</span>`
+    + `<span class="tname">${esc(t(name))}</span><span class="navdesc">${esc(t(description))}</span></label>`).join('');
+}
 function renderSettings(keepFocus){
   const focused = keepFocus && document.activeElement?.closest?.('#set-dlg') ? document.activeElement : null;
   const again = focused && (focused.name ? `[name="${focused.name}"][value="${focused.value}"]` : focused.id ? '#' + focused.id : null);
@@ -3825,6 +4164,7 @@ function renderSettings(keepFocus){
     $(b.getAttribute('aria-controls')).hidden = !on;
   });
   const s = pref();
+  $('s-toolbar').innerHTML = toolbarCards();
   $('s-themes').innerHTML = themeCards();
   // The level comes from the theme itself (--wcag in themes.css), so it can't drift.
   $('s-themes').querySelectorAll('.tlvl').forEach(el => {
@@ -3860,6 +4200,7 @@ function renderSettings(keepFocus){
   $('s-reply').innerHTML = radios('reply_format', [['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))], ['html', esc(t('Always HTML'))]], s.reply_format);
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
+  $('s-threaded').checked = !!s.threaded;
   $('s-undo').innerHTML = UNDO_SEND.map(n => `<option value="${n}"${n === s.undo_send ? ' selected' : ''}>${esc(undoText(n))}</option>`).join('');
   const can = !!upd.build?.updatable;
   $('s-updates').innerHTML = radios('updates', UPDATE_CHOICES.map(v => [v, esc(updatesText(v))]), s.updates === 'ask' ? '' : s.updates);
@@ -3886,13 +4227,14 @@ function paneOpened(tab){
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
-  const want = {theme:s.theme, density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
+  const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
     mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-delay').value = String(s.read_delay);
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
+  $('s-threaded').checked = !!s.threaded;
   $('s-undo').value = String(s.undo_send);
   if ($('s-keep')) $('s-keep').value = String(s.backup_keep);
 }
@@ -3933,6 +4275,7 @@ $('s-tabs').addEventListener('keydown', e => {
 sdlg.addEventListener('change', e => {
   const el = e.target, v = el.value;
   if (el.name === 'theme') changeSettings({theme:v});
+  else if (el.name === 'toolbar_style') changeSettings({toolbar_style:v});
   else if (el.name === 'density') changeSettings({density:v});
   else if (el.name === 'account_mark') changeSettings({account_mark:v});
   else if (el.name === 'unread_style') changeSettings({unread_style:v});
@@ -3942,6 +4285,7 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'text_size') changeSettings({text_size:Number(v)});
   else if (el.name === 'language') changeSettings({language:v});
   else if (el.name === 'mark_read') changeSettings({mark_read:v});
+  else if (el.id === 's-threaded') changeSettings({threaded:el.checked});
   else if (el.id === 's-delay') changeSettings({mark_read:'moment', read_delay:Number(v)});
   else if (el.name === 'prefer_text') changeSettings({prefer_text:v === 'text'});
   else if (el.name === 'mail_paper'){ state.white.clear(); changeSettings({mail_paper:v}).then(() => { if (!state.compose) renderPreview(); }); }
@@ -3973,8 +4317,8 @@ sdlg.addEventListener('close', () => {
 
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
-const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
-  mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
+const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
+  threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
@@ -3984,6 +4328,7 @@ function settingValue(key, v){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
     case 'language': return v === 'auto' ? t('Automatic, as in Windows') : LANG_NAMES[v] ?? v;
     case 'density': return v === 'comfortable' ? t('Comfortable') : t('Compact');
+    case 'toolbar_style': return TOOLBAR_STYLES.find(([id]) => id === v) ? t(TOOLBAR_STYLES.find(([id]) => id === v)[1]) : v;
     case 'account_mark': return MARKS.find(([id]) => id === v) ? t(MARKS.find(([id]) => id === v)[1]) : v;
     case 'unread_style': return UNREAD_STYLES.find(([id]) => id === v) ? t(UNREAD_STYLES.find(([id]) => id === v)[1]) : v;
     case 'font': return fontName(v);
@@ -3996,7 +4341,7 @@ function settingValue(key, v){
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
-    case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
+    case 'threaded': case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
     case 'undo_send': return undoText(v);
     case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
     case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
@@ -4696,7 +5041,7 @@ const helpBtn = $('st-help'), helpPop = $('help-pop');
 const HELP_KEYS = [
   [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Space', N_('read on; at the end, the next unread message')],
     ['Shift+Space', N_('back up; at the top, the previous unread')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
-    ['H', N_('HTML or plain text')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
+    ['H', N_('HTML or plain text')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['← / →', N_('collapse or expand a thread (when enabled)')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or right-click it')]]],
@@ -4779,6 +5124,10 @@ function onKey(e){
   if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
     if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
+    const linkpeek = previewEl.querySelector('.linkpeek'), linklist = previewEl.querySelector('.linklist');
+    if ((linkpeek && !linkpeek.hidden) || (linklist && !linklist.hidden)){
+      e.preventDefault(); linkpeek.hidden = true; toggleLinkList(false); return;
+    }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
     if (unpick()){ e.preventDefault(); afterPick(); return; }
@@ -4790,6 +5139,7 @@ function onKey(e){
   if (tg === qEl && e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.altKey && qEl.value.trim()){ e.preventDefault(); toggleScope(); return; }
   if (tg.closest && (tg.closest('input, textarea, select, [contenteditable="true"]') || tg.closest('.split'))) return;
   // Ctrl+A in the list takes every message; elsewhere it selects text as always.
+  if (e.key === 'Enter' && tg.closest?.('[data-thread]')) return;
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'a' && listEl.contains(tg)){ e.preventDefault(); pickAll(); return; }
   // The menu key (or Shift+F10) in the list: the selected message's menu, at its row.
   if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && listEl.contains(tg)){
@@ -4805,6 +5155,7 @@ function onKey(e){
   const shift = e.shiftKey, k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
   if (k === 'ArrowDown') shift ? pickMove(1) : move(1);
   else if (k === 'ArrowUp') shift ? pickMove(-1) : move(-1);
+  else if ((k === 'ArrowRight' || k === 'ArrowLeft') && !shift && listEl.contains(tg) && grouped()) toggleGroup(current(), k === 'ArrowRight');
   else if (k === 'Home') shift ? pickEnd(false) : move(-Infinity);
   else if (k === 'End') shift ? pickEnd(true) : move(Infinity);
   else if (k === ' ') space(shift);

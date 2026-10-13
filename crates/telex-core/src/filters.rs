@@ -8,6 +8,7 @@
 //! mailing lists, bulk mail, other robots or the same sender twice in a few days.
 
 use std::cell::OnceCell;
+use std::collections::HashMap;
 
 use chrono::{DateTime, Local, TimeDelta};
 use serde::{Deserialize, Serialize};
@@ -50,6 +51,9 @@ pub struct Condition {
     pub field: Field,
     pub op: Op,
     pub value: String,
+    /// For Header conditions only; old rules omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +67,9 @@ pub enum Field {
     Body,
     /// Any of the above.
     Anywhere,
+    Header,
+    AttachmentName,
+    AttachmentType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +80,8 @@ pub enum Op {
     Is,
     StartsWith,
     EndsWith,
+    Exists,
+    NotExists,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +90,13 @@ pub enum Action {
     /// Move to this folder ("account/folder") of the rule's account.
     Move {
         folder: String,
+    },
+    Copy {
+        folder: String,
+    },
+    /// New arrivals only, once per original message and recipient list.
+    Forward {
+        to: String,
     },
     MarkRead,
     Flag,
@@ -104,11 +120,38 @@ impl Rule {
                 "Dodaj co najmniej jeden warunek."
             ));
         }
-        if self.conditions.iter().any(|c| c.value.trim().is_empty()) {
+        if self
+            .conditions
+            .iter()
+            .any(|c| c.value.trim().is_empty() && !matches!(c.op, Op::Exists | Op::NotExists))
+        {
             return Err(tr!(
                 "Every condition needs some text to look for.",
                 "Każdy warunek potrzebuje szukanego tekstu."
             ));
+        }
+        if self.conditions.len() > 64
+            || self.actions.len() > 32
+            || self.conditions.iter().any(|c| c.value.len() > 4096)
+        {
+            return Err(tr!(
+                "Keep a rule within 64 conditions, 32 actions and 4 KB per condition.",
+                "Reguła może mieć do 64 warunków, 32 działań i 4 KB tekstu na warunek."
+            ));
+        }
+        for condition in &self.conditions {
+            if condition.field == Field::Header
+                && !condition.header.as_deref().is_some_and(|h| {
+                    !h.is_empty()
+                        && h.len() <= 78
+                        && h.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                })
+            {
+                return Err(tr!(
+                    "Enter a header name, such as List-Id or X-Priority.",
+                    "Wpisz nazwę nagłówka, np. List-Id lub X-Priority."
+                ));
+            }
         }
         if self.actions.is_empty() {
             return Err(tr!(
@@ -138,7 +181,7 @@ impl Rule {
             match action {
                 // A folder on this PC takes mail from any account; a server folder only from
                 // its own.
-                Action::Move { folder } if is_local(folder) => {
+                Action::Move { folder } | Action::Copy { folder } if is_local(folder) => {
                     let here = accounts.iter().find(|a| a.id == LOCAL_ID);
                     if !here
                         .is_some_and(|a| a.folders.iter().any(|f| &a.folder_key(&f.id) == folder))
@@ -149,7 +192,7 @@ impl Rule {
                         ));
                     }
                 }
-                Action::Move { folder } => {
+                Action::Move { folder } | Action::Copy { folder } => {
                     let account = account.ok_or_else(|| {
                         tr!(
                             "To move mail, pick the rule's account.",
@@ -164,6 +207,36 @@ impl Rule {
                         return Err(tr!(
                             "Pick the folder to move to.",
                             "Wybierz folder, do którego przenieść."
+                        ));
+                    }
+                }
+                Action::Forward { to } => {
+                    let account = account.ok_or_else(|| {
+                        tr!(
+                            "To forward mail, pick the sending account.",
+                            "Żeby przekazywać pocztę, wybierz konto nadawcy."
+                        )
+                    })?;
+                    let targets = smtp::recipient_emails(to)?;
+                    if targets.is_empty()
+                        || targets.len() > 20
+                        || targets.iter().any(|target| {
+                            target.eq_ignore_ascii_case(&account.email)
+                                || account
+                                    .identities
+                                    .iter()
+                                    .any(|i| target.eq_ignore_ascii_case(&i.email))
+                        })
+                    {
+                        return Err(tr!(
+                            "Forward to 1–20 addresses other than this account’s own addresses.",
+                            "Przekazuj na 1–20 adresów innych niż adresy tego konta."
+                        ));
+                    }
+                    if account.smtp.is_none() {
+                        return Err(tr!(
+                            "Set up SMTP for the forwarding account first.",
+                            "Najpierw ustaw SMTP dla konta przekazującego."
                         ));
                     }
                 }
@@ -190,6 +263,9 @@ impl Rule {
     pub fn matches(&self, m: &Message) -> bool {
         self.matches_folded(&Folded::new(m))
     }
+    pub fn matches_raw(&self, m: &Message, raw: Option<&[u8]>) -> bool {
+        self.matches_folded(&Folded::with_raw(m, raw))
+    }
 
     fn matches_folded(&self, m: &Folded) -> bool {
         let mut results = self.conditions.iter().map(|c| c.matches_folded(m));
@@ -209,11 +285,27 @@ impl Condition {
 
     fn matches_folded(&self, m: &Folded) -> bool {
         let needle = fold(self.value.trim());
-        let mut hits = m.texts(self.field).map(|c| match self.op {
+        let values = m.texts(self.field, self.header.as_deref());
+        let present = if matches!(
+            self.field,
+            Field::Header | Field::AttachmentName | Field::AttachmentType
+        ) {
+            !values.is_empty()
+        } else {
+            values.iter().any(|c| !c.is_empty())
+        };
+        if self.op == Op::Exists {
+            return present;
+        }
+        if self.op == Op::NotExists {
+            return !present;
+        }
+        let mut hits = values.into_iter().map(|c| match self.op {
             Op::Contains | Op::NotContains => c.contains(&needle),
             Op::Is => c == needle,
             Op::StartsWith => c.starts_with(&needle),
             Op::EndsWith => c.ends_with(&needle),
+            Op::Exists | Op::NotExists => unreachable!(),
         });
         if self.op == Op::NotContains {
             !hits.any(|hit| hit)
@@ -231,22 +323,33 @@ struct Folded<'a> {
     to: OnceCell<Vec<String>>,
     subject: OnceCell<String>,
     body: OnceCell<String>,
+    raw: Option<&'a [u8]>,
+    headers: OnceCell<HashMap<String, Vec<String>>>,
+    attachments: OnceCell<Vec<String>>,
+    attachment_types: OnceCell<Vec<String>>,
 }
 
 impl<'a> Folded<'a> {
     fn new(m: &'a Message) -> Self {
+        Self::with_raw(m, None)
+    }
+    fn with_raw(m: &'a Message, raw: Option<&'a [u8]>) -> Self {
         Self {
             m,
             from: OnceCell::new(),
             to: OnceCell::new(),
             subject: OnceCell::new(),
             body: OnceCell::new(),
+            raw,
+            headers: OnceCell::new(),
+            attachments: OnceCell::new(),
+            attachment_types: OnceCell::new(),
         }
     }
 
     /// The texts a condition on `field` looks at. Addresses count by address and by name,
     /// so "From is anna@x.pl" works as well as "From contains Kowalska".
-    fn texts(&self, field: Field) -> impl Iterator<Item = &str> {
+    fn texts(&self, field: Field, header: Option<&str>) -> Vec<&str> {
         let m = self.m;
         let from = || {
             self.from
@@ -277,8 +380,77 @@ impl<'a> Folded<'a> {
             Field::Subject => Box::new(subject()),
             Field::Body => Box::new(body()),
             Field::Anywhere => Box::new(from().chain(to()).chain(subject()).chain(body())),
+            Field::Header => {
+                let headers = self.headers.get_or_init(|| {
+                    let mut values: HashMap<String, Vec<String>> = HashMap::new();
+                    if let Some(raw) = self.raw {
+                        if let Some(parsed) =
+                            mail_parser::MessageParser::default().parse_headers(raw)
+                        {
+                            for h in parsed.headers() {
+                                let text =
+                                    h.value.as_text().map(str::to_owned).unwrap_or_else(|| {
+                                        String::from_utf8_lossy(
+                                            raw.get(h.offset_start as usize..h.offset_end as usize)
+                                                .unwrap_or_default(),
+                                        )
+                                        .replace("\r\n", " ")
+                                        .replace('\n', " ")
+                                    });
+                                values
+                                    .entry(h.name.as_str().to_ascii_lowercase())
+                                    .or_default()
+                                    .push(fold(text.trim()));
+                            }
+                        }
+                    }
+                    values
+                });
+                Box::new(
+                    headers
+                        .get(&header.unwrap_or_default().to_ascii_lowercase())
+                        .into_iter()
+                        .flatten(),
+                )
+            }
+            Field::AttachmentName => Box::new(
+                self.attachments
+                    .get_or_init(|| m.attachments.iter().map(|a| fold(&a.name)).collect())
+                    .iter(),
+            ),
+            Field::AttachmentType => Box::new(
+                self.attachment_types
+                    .get_or_init(|| {
+                        self.raw
+                            .and_then(|raw| mail_parser::MessageParser::default().parse(raw))
+                            .map(|p| {
+                                p.attachments()
+                                    .map(|a| {
+                                        use mail_parser::MimeHeaders;
+                                        a.content_type()
+                                            .map(|c| {
+                                                format!(
+                                                    "{}/{}",
+                                                    c.ctype(),
+                                                    c.subtype().unwrap_or("octet-stream")
+                                                )
+                                            })
+                                            .unwrap_or_else(|| "application/octet-stream".into())
+                                            .to_ascii_lowercase()
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_else(|| {
+                                m.attachments
+                                    .iter()
+                                    .map(|a| crate::mime::content_type_for(&a.name).to_owned())
+                                    .collect()
+                            })
+                    })
+                    .iter(),
+            ),
         };
-        texts.map(String::as_str)
+        texts.map(String::as_str).collect()
     }
 }
 
@@ -321,6 +493,8 @@ pub struct RunReport {
     pub matched: usize,
     pub moved: usize,
     pub replied: usize,
+    pub copied: usize,
+    pub forwarded: usize,
     pub problems: Vec<String>,
 }
 
@@ -347,7 +521,13 @@ pub fn run(
             continue; // gone meanwhile
         };
         let account = account_of(&message.folder).to_owned();
-        let folded = Folded::new(&message);
+        let needs_raw = rules.iter().any(|r| {
+            r.conditions
+                .iter()
+                .any(|c| matches!(c.field, Field::Header | Field::AttachmentType))
+        });
+        let raw = if needs_raw { store.raw_of(id)? } else { None };
+        let folded = Folded::with_raw(&message, raw.as_deref());
         let mut notes = Vec::new();
         let mut destination = None;
         for rule in rules
@@ -399,6 +579,30 @@ pub fn run(
                         }
                     }
                     Action::Move { .. } => {}
+                    Action::Copy { folder } => match store.rule_copy(rule.id, id, folder) {
+                        Ok(true) => {
+                            report.copied += 1;
+                            let to = store.folder_name(folder).unwrap_or_else(|| folder.clone());
+                            did.push(tr!("copied it to {to}", "skopiowała ją do folderu {to}"));
+                        }
+                        Ok(false) => {}
+                        Err(e) => report.problems.push(e.to_string()),
+                    },
+                    Action::Forward { to } if trigger == Trigger::Arrival => {
+                        match forward(store, rule, &message, to, now) {
+                            Ok(true) => {
+                                report.forwarded += 1;
+                                report.replied += 1;
+                                did.push(tr!(
+                                    "queued a forward to {to}",
+                                    "dodała przekazanie do {to} do kolejki"
+                                ));
+                            }
+                            Ok(false) => {}
+                            Err(e) => report.problems.push(e),
+                        }
+                    }
+                    Action::Forward { .. } => {}
                     Action::Delete => {
                         if store.kind_of(&message.folder) != Some(FolderKind::Trash) {
                             did.push(tr!("moved it to Trash", "przeniosła ją do Kosza"));
@@ -457,6 +661,175 @@ pub fn run(
 pub(crate) enum Replier<'a> {
     Rule(i64),
     Away(&'a str),
+}
+
+fn forward(
+    store: &mut MailStore,
+    rule: &Rule,
+    message: &Message,
+    to: &str,
+    now: DateTime<Local>,
+) -> Result<bool, String> {
+    let account = store
+        .account(rule.account.as_deref().unwrap_or_default())
+        .map_err(|e| e.to_string())?
+        .clone();
+    if store.kind_of(&message.folder) == Some(FolderKind::Spam)
+        || message.from_email.eq_ignore_ascii_case(&account.email)
+        || account
+            .identities
+            .iter()
+            .any(|i| message.from_email.eq_ignore_ascii_case(&i.email))
+    {
+        return Ok(false);
+    }
+    let raw = store
+        .raw_of(message.id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| {
+            tr!(
+                "The original message is needed to forward it.",
+                "Przekazanie wymaga oryginalnej wiadomości."
+            )
+        })?;
+    let parsed = mail_parser::MessageParser::default().parse_headers(&raw);
+    if parsed.as_ref().is_some_and(|p| {
+        p.headers().iter().any(|h| {
+            h.name.as_str().eq_ignore_ascii_case("auto-submitted")
+                && h.value
+                    .as_text()
+                    .is_none_or(|v| !v.trim().eq_ignore_ascii_case("no"))
+        })
+    }) {
+        return Ok(false);
+    }
+    let mut targets = smtp::recipient_emails(to)?;
+    targets.iter_mut().for_each(|a| a.make_ascii_lowercase());
+    targets.sort();
+    targets.dedup();
+    let action = format!("forward:{}", targets.join(","));
+    if store
+        .rule_action_done(rule.id, message.id, &action)
+        .map_err(|e| e.to_string())?
+    {
+        return Ok(false);
+    }
+    let start = crate::drafts::start(
+        store,
+        crate::drafts::DraftKind::Forward,
+        Some(message.id),
+        &account.id,
+    )
+    .map_err(|e| e.to_string())?;
+    let draft = OutgoingDraft {
+        account: account.id.clone(),
+        to: to.to_owned(),
+        subject: start.subject,
+        body: start.body,
+        forward_of: Some(message.id),
+        identity: Some(start.identity),
+        ..OutgoingDraft::default()
+    };
+    let composed = smtp::compose_auto_forward(
+        &account,
+        &draft,
+        &Originals {
+            forwarded: Some(raw),
+            replied: None,
+        },
+        now,
+    )?;
+    store
+        .queue_rule_forward(rule.id, message.id, &action, &account.id, &composed)
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Serialize)]
+pub struct RulePreview {
+    pub checked: usize,
+    pub matched: usize,
+    pub samples: Vec<PreviewMessage>,
+    pub actions: Vec<Action>,
+    pub new_mail_only: bool,
+}
+#[derive(Debug, Serialize)]
+pub struct PreviewMessage {
+    pub id: MessageId,
+    pub subject: String,
+    pub from: String,
+    pub conditions: Vec<bool>,
+}
+
+/// Preview an unsaved rule against current search/folder results. No writes, sends or
+/// remote image loads. A limited sample accompanies the complete matching count.
+pub fn preview(
+    store: &MailStore,
+    rule: &Rule,
+    view: &crate::ListView,
+) -> Result<RulePreview, StoreError> {
+    rule.check(store.accounts()).map_err(StoreError::Invalid)?;
+    let mut view = view.clone();
+    view.grouped = false;
+    view.expanded.clear();
+    view.keep.clear();
+    let mut report = RulePreview {
+        checked: 0,
+        matched: 0,
+        samples: Vec::new(),
+        actions: rule.actions.clone(),
+        new_mail_only: rule
+            .actions
+            .iter()
+            .any(|a| matches!(a, Action::Forward { .. } | Action::AutoReply { .. })),
+    };
+    let mut at = 0;
+    loop {
+        let page = store.page(&view, crate::PageAt::Row(at), 200)?;
+        if page.rows.is_empty() {
+            break;
+        }
+        at += page.rows.len();
+        for summary in page.rows {
+            let m = store.get(summary.id)?;
+            if rule
+                .account
+                .as_deref()
+                .is_some_and(|a| a != account_of(&m.folder))
+            {
+                continue;
+            }
+            report.checked += 1;
+            let raw = if rule
+                .conditions
+                .iter()
+                .any(|c| matches!(c.field, Field::Header | Field::AttachmentType))
+            {
+                store.raw_of(m.id)?
+            } else {
+                None
+            };
+            let folded = Folded::with_raw(&m, raw.as_deref());
+            if rule.matches_folded(&folded) {
+                report.matched += 1;
+                if report.samples.len() < 50 {
+                    report.samples.push(PreviewMessage {
+                        id: m.id,
+                        subject: m.subject.clone(),
+                        from: m.from_email.clone(),
+                        conditions: rule
+                            .conditions
+                            .iter()
+                            .map(|c| c.matches_folded(&folded))
+                            .collect(),
+                    });
+                }
+            }
+        }
+        if at >= page.total {
+            break;
+        }
+    }
+    Ok(report)
 }
 
 /// Queue an automatic answer, unless RFC 3834 or common sense says not to: not to lists, bulk
@@ -609,6 +982,7 @@ mod tests {
 
     fn cond(field: Field, op: Op, value: &str) -> Condition {
         Condition {
+            header: None,
             field,
             op,
             value: value.into(),
@@ -985,6 +1359,169 @@ mod tests {
 
     fn outbox(store: &MailStore, account: &Account) -> usize {
         store.list(&account.folder_key("outbox")).unwrap().len()
+    }
+
+    #[test]
+    fn headers_attachments_and_presence_use_original_mime() {
+        let raw = b"From: a@x.pl\r\nX-Project: first\r\nX-Project: second\r\nX-Empty:\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nHi\r\n--x\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=invoice.PDF\r\n\r\n%PDF\r\n--x--\r\n";
+        let m = crate::mime::parse_message(raw, "firma/inbox", None);
+        let mut c = cond(Field::Header, Op::Contains, "second");
+        c.header = Some("x-project".into());
+        let mut r = rule("headers", Some("firma"), vec![c], vec![Action::Flag]);
+        assert!(r.matches_raw(&m, Some(raw)));
+        assert!(
+            !r.matches(&m),
+            "Headers cannot match without the original message"
+        );
+        r.conditions[0].op = Op::Exists;
+        r.conditions[0].header = Some("X-Empty".into());
+        assert!(r.matches_raw(&m, Some(raw)), "An empty header still exists");
+        r.conditions = vec![
+            cond(Field::AttachmentName, Op::EndsWith, ".pdf"),
+            cond(Field::AttachmentType, Op::Is, "application/pdf"),
+        ];
+        assert!(r.matches_raw(&m, Some(raw)));
+        r.conditions = vec![cond(Field::AttachmentName, Op::NotExists, "")];
+        assert!(!r.matches(&m));
+        r.conditions[0].op = Op::Exists;
+        assert!(r.matches(&m));
+        r.conditions[0].field = Field::Header;
+        r.conditions[0].header = Some("X-Evil\r\nBcc".into());
+        assert!(r.check(&accounts()).is_err());
+    }
+
+    #[test]
+    fn preview_leaves_flags_folders_notes_rules_and_outbox_untouched() {
+        let (mut store, account, r) = holiday_store();
+        let id = deliver(&mut store, &account, 1, "From: Anna <anna@x.pl>\r\n");
+        let before = store.get(id).unwrap();
+        let rules_before = store.rules().unwrap();
+        let mut r = r;
+        r.actions = vec![
+            Action::Flag,
+            Action::Copy {
+                folder: "local/archive".into(),
+            },
+            Action::Forward {
+                to: "other@x.pl".into(),
+            },
+        ];
+        let report = preview(
+            &store,
+            &r,
+            &crate::ListView {
+                folder: Some(account.folder_key("inbox")),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(report.matched, 1);
+        assert_eq!(report.samples[0].conditions, [true]);
+        assert!(report.new_mail_only);
+        assert_eq!(store.get(id).unwrap(), before);
+        assert_eq!(store.rules().unwrap(), rules_before);
+        assert_eq!(outbox(&store, &account), 0);
+        assert!(store.list("local/archive").unwrap().is_empty());
+    }
+
+    #[test]
+    fn copies_preserve_original_and_queue_a_server_upload_only_once() {
+        let (mut store, account, old) = holiday_store();
+        store.delete_rule(old.id).unwrap();
+        let id = deliver(&mut store, &account, 1, "From: Anna <anna@x.pl>\r\n");
+        let r = rule(
+            "Copy",
+            Some(&account.id),
+            vec![cond(Field::To, Op::Contains, "biuro@")],
+            vec![
+                Action::Copy {
+                    folder: "local/archive".into(),
+                },
+                Action::Copy {
+                    folder: account.folder_key("sent"),
+                },
+            ],
+        );
+        store.save_rule(&r).unwrap();
+        let report = run(&mut store, &[id], Trigger::OnDemand, when(10)).unwrap();
+        assert_eq!(report.copied, 2);
+        assert_eq!(store.get(id).unwrap().folder, account.folder_key("inbox"));
+        let copies = store.list("local/archive").unwrap();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(
+            store.raw_of(copies[0].id).unwrap(),
+            store.raw_of(id).unwrap()
+        );
+        assert!(store
+            .pending_changes(&account.id)
+            .unwrap()
+            .iter()
+            .any(|c| matches!(c.kind, crate::store::ChangeKind::Append { .. })));
+        assert_eq!(
+            run(&mut store, &[id], Trigger::OnDemand, when(10))
+                .unwrap()
+                .copied,
+            0
+        );
+        assert_eq!(store.list("local/archive").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn forwards_are_once_only_marked_automatic_and_never_replay_old_mail() {
+        let (mut store, account, old) = holiday_store();
+        store.delete_rule(old.id).unwrap();
+        let id = deliver(&mut store, &account, 1, "From: Anna <anna@x.pl>\r\n");
+        let mut r = rule(
+            "Forward",
+            Some(&account.id),
+            vec![cond(Field::To, Op::Contains, "biuro@")],
+            vec![Action::Forward {
+                to: "archive@x.pl".into(),
+            }],
+        );
+        store.save_rule(&r).unwrap();
+        assert_eq!(
+            run(&mut store, &[id], Trigger::OnDemand, when(10))
+                .unwrap()
+                .forwarded,
+            0
+        );
+        assert_eq!(
+            run(&mut store, &[id], Trigger::Arrival, when(10))
+                .unwrap()
+                .forwarded,
+            1
+        );
+        assert_eq!(outbox(&store, &account), 1);
+        let sent = store.list(&account.folder_key("outbox")).unwrap();
+        let raw = String::from_utf8(store.raw_of(sent[0].id).unwrap().unwrap()).unwrap();
+        assert!(raw.contains("Auto-Submitted: auto-generated"));
+        assert_eq!(
+            run(&mut store, &[id], Trigger::Arrival, when(10))
+                .unwrap()
+                .forwarded,
+            0
+        );
+        let robot = deliver(
+            &mut store,
+            &account,
+            2,
+            "From: bot@x.pl\r\nAuto-Submitted: auto-generated\r\n",
+        );
+        assert_eq!(
+            run(&mut store, &[robot], Trigger::Arrival, when(10))
+                .unwrap()
+                .forwarded,
+            0
+        );
+        r.actions = vec![Action::Forward {
+            to: account.email.clone(),
+        }];
+        assert!(r.check(store.accounts()).is_err());
+        r.actions = vec![Action::Forward {
+            to: "victim@x.pl\r\nBcc: spy@x.pl".into(),
+        }];
+        assert!(r.check(store.accounts()).is_err());
     }
 
     #[test]

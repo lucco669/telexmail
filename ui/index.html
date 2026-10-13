@@ -15,6 +15,7 @@
 <div class="win" id="win" data-density="compact">
 
   <div class="toolbar" role="toolbar" aria-label="Mail actions" data-i18n>
+    <div class="toolbar-actions" id="toolbar-actions">
     <select id="folder-select" aria-label="Folder" data-i18n></select>
     <button class="tb key" id="b-get" type="button" title="Check all accounts for new mail" data-i18n></button>
     <span class="sep"></span>
@@ -28,11 +29,13 @@
     <span class="sep"></span>
     <button class="tb" id="b-rules" type="button" title="Rules that sort, flag and answer mail" data-i18n></button>
     <button class="tb" id="b-density" type="button" title="Switch row density" data-i18n></button>
+    </div>
     <button class="tb" id="b-settings" type="button" title="Settings: accounts, theme, language, writing, usage (Ctrl+,)" data-i18n></button>
     <label class="search" for="q">
       <span id="search-ic" aria-hidden="true"></span>
       <input id="q" type="search" placeholder="Search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="q-list" autocomplete="off" spellcheck="false" title="Words, or from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k" data-i18n>
       <button type="button" class="scope" id="q-scope" aria-pressed="false" title="Look in this folder or in all mail (Tab)" data-i18n>This folder</button>
+      <button type="button" class="scope" id="q-save" title="Save this search" aria-label="Save this search" data-i18n>Save</button>
       <kbd>/</kbd>
     </label>
   </div>
@@ -102,6 +105,11 @@
     </div>
     <div class="setpanes">
       <section class="spane" role="tabpanel" id="s-pane-look" aria-labelledby="s-tab-look">
+        <fieldset class="sgroup">
+          <legend data-i18n>Toolbar</legend>
+          <div class="themes toolbar-styles" id="s-toolbar"></div>
+          <p class="dnote snote" data-i18n>Changes apply right away. Hover over a button for its action and keyboard shortcut.</p>
+        </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Theme</legend>
           <div class="themes" id="s-themes"></div>
@@ -279,6 +287,11 @@
       </section>
       <section class="spane" role="tabpanel" id="s-pane-read" aria-labelledby="s-tab-read" hidden>
         <fieldset class="sgroup">
+          <legend data-i18n>Threads</legend>
+          <label class="sopt"><input type="checkbox" id="s-threaded"><span data-i18n>Group related messages into threads</span></label>
+          <p class="dnote snote" data-i18n>One row per thread in a folder. Expand with the arrow or →; collapse with ←. Search and unread-only lists show individual messages. Actions apply to the selected message.</p>
+        </fieldset>
+        <fieldset class="sgroup">
           <legend data-i18n>Mark messages as read</legend>
           <div class="sopts" id="s-read"></div>
           <p class="dnote snote" data-i18n>By hand: U, a click on the dot at the start of a row, the envelope above a message, or the menu on a right-click. Each marks read or unread.</p>
@@ -396,14 +409,34 @@
     <button type="button" class="linkbtn radd" id="r-add-act" data-i18n>+ Action</button>
     <label class="rcheck"><input type="checkbox" id="r-stop"> <span data-i18n>Don’t run later rules on mail this rule matches</span></label>
     <p class="derr" id="r-form-err" role="alert"></p>
+    <section id="r-preview-result" class="rpreview" aria-live="polite" hidden></section>
     <div class="cbar">
       <button class="btn primary" type="submit" data-i18n>Save rule</button>
+      <button class="btn" type="button" id="r-preview" data-i18n>Preview matches</button>
       <button class="btn" type="button" id="r-back" data-i18n>Back to the list</button>
     </div>
   </form>
 </dialog>
 
 <!-- M moves the selected messages, G opens a folder: type part of its name. -->
+<dialog class="dlg wide" id="search-dlg" aria-labelledby="ss-title">
+  <h2 class="dtitle" id="ss-title" data-i18n>Saved searches</h2>
+  <div id="ss-list" class="rlist"></div>
+  <form id="ss-form" hidden>
+    <div class="cf df">
+      <label for="ss-name" data-i18n>Name</label><input id="ss-name" maxlength="80" required autocomplete="off">
+      <label for="ss-query" data-i18n>Search</label><input id="ss-query" maxlength="4096" required autocomplete="off" spellcheck="false">
+      <label for="ss-scope" data-i18n>Where</label><select id="ss-scope"></select>
+    </div>
+    <label class="rcheck"><input type="checkbox" id="ss-bodies" checked> <span data-i18n>Search message text too</span></label>
+    <label class="rcheck"><input type="checkbox" id="ss-unread"> <span data-i18n>Only unread</span></label>
+    <p class="dnote" data-i18n>Results update as mail arrives or changes. Saving a search does not move mail.</p>
+    <div class="cbar"><button class="btn primary" type="submit" data-i18n>Save search</button><button class="btn" type="button" id="ss-back" data-i18n>Back to the list</button></div>
+  </form>
+  <p class="derr" id="ss-error" role="alert"></p>
+  <div class="cbar"><button class="btn" type="button" id="ss-new" data-i18n>New saved search</button><button class="btn" type="button" id="ss-close"><span data-i18n>Close</span> <kbd>Esc</kbd></button></div>
+</dialog>
+
 <dialog class="dlg pick" id="pick-dlg" aria-labelledby="pk-title">
   <h2 class="dtitle" id="pk-title">Go to folder</h2>
   <div class="pkbox"><input id="pk-q" role="combobox" aria-expanded="true" aria-controls="pk-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Type part of a folder’s name" aria-label="Folder name" data-i18n></div>
@@ -412,6 +445,7 @@
 </dialog>
 
 <script src="i18n.js"></script>
+<script src="links.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

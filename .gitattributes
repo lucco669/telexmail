@@ -1,0 +1,3 @@
+# Backport verification hashes the exact published crate bytes, on every platform.
+vendor/glib/** -text
+*.sh text eol=lf

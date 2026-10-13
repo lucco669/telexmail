@@ -9,6 +9,32 @@ fn now() -> NaiveDateTime {
         .unwrap()
 }
 
+#[test]
+fn opened_message_risk_does_not_change_mail_or_flags() {
+    let (mut store, account) = store_with_server_account();
+    let raw = b"From: Sporify Billing <billing@music-account.example>\r\nSubject: Update payment details\r\nContent-Type: text/html\r\n\r\n<a href='https://spotify.com@billing.example/pay'>Update payment details</a>";
+    let message = crate::mime::parse_message(raw, "", None);
+    let id = store
+        .add_synced(
+            &account.folder_key("inbox"),
+            &[SyncedMessage {
+                uid: 9876,
+                message,
+                raw: raw.to_vec(),
+            }],
+        )
+        .unwrap()[0];
+    let before = store.get(id).unwrap();
+    let report = store.inspect_message(id).unwrap();
+    assert!(report.risk.score >= 70);
+    assert_eq!(report.message, before);
+    assert_eq!(store.get(id).unwrap(), before);
+    assert_eq!(store.raw_of(id).unwrap().as_deref(), Some(raw.as_slice()));
+    let json = serde_json::to_value(report).unwrap();
+    assert_eq!(json["id"], id);
+    assert!(json["risk"]["score"].as_u64().unwrap() >= 70);
+}
+
 fn draft(account: &str) -> OutgoingDraft {
     OutgoingDraft {
         account: account.into(),
@@ -788,6 +814,7 @@ fn folders_on_this_pc_are_made_renamed_and_removed() {
         account: None,
         match_all: true,
         conditions: vec![crate::filters::Condition {
+            header: None,
             field: crate::filters::Field::From,
             op: crate::filters::Op::Contains,
             value: "anna".into(),
@@ -802,7 +829,16 @@ fn folders_on_this_pc_are_made_renamed_and_removed() {
         .save_rule(&rule("Tylko", vec![to_key.clone()]))
         .unwrap();
     store
-        .save_rule(&rule("I flaga", vec![to_key, Action::Flag]))
+        .save_rule(&rule(
+            "I flaga",
+            vec![
+                to_key,
+                Action::Copy {
+                    folder: key.clone(),
+                },
+                Action::Flag,
+            ],
+        ))
         .unwrap();
     assert_eq!(store.delete_local_folder(&key).unwrap(), 2);
     let rules = store.rules().unwrap();

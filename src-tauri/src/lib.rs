@@ -35,7 +35,7 @@ use telex_core::tr;
 use telex_core::usage::Usage;
 use telex_core::{
     Account, AccountSetup, DeleteReport, FolderKind, FolderTree, Identity, ListView, MailStore,
-    Message, MessageId, OutgoingDraft, Page, PageAt, StoreError, UnreadAt,
+    MessageId, OutgoingDraft, Page, PageAt, StoreError, UnreadAt,
 };
 
 use crate::files::FilesState;
@@ -125,8 +125,11 @@ fn list_page(
 }
 
 #[tauri::command(async)]
-fn get_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<Message> {
-    with_store(&state, |s| s.get(id))
+fn get_message(
+    state: State<'_, AppState>,
+    id: MessageId,
+) -> CmdResult<telex_core::risk::InspectedMessage> {
+    with_store(&state, |s| s.inspect_message(id))
 }
 
 #[tauri::command(async)]
@@ -396,6 +399,35 @@ fn list_rules(state: State<'_, AppState>) -> CmdResult<Vec<Rule>> {
 #[tauri::command(async)]
 fn save_rule(state: State<'_, AppState>, rule: Rule) -> CmdResult<Rule> {
     with_store(&state, |s| s.save_rule(&rule))
+}
+
+#[tauri::command(async)]
+fn preview_rule(
+    state: State<'_, AppState>,
+    rule: Rule,
+    view: telex_core::ListView,
+) -> CmdResult<telex_core::filters::RulePreview> {
+    with_store(&state, |s| filters::preview(s, &rule, &view))
+}
+
+#[tauri::command(async)]
+fn list_saved_searches(
+    state: State<'_, AppState>,
+) -> CmdResult<Vec<telex_core::saved_searches::SavedSearch>> {
+    with_store(&state, |s| s.saved_searches())
+}
+
+#[tauri::command(async)]
+fn save_search(
+    state: State<'_, AppState>,
+    search: telex_core::saved_searches::SavedSearch,
+) -> CmdResult<telex_core::saved_searches::SavedSearch> {
+    with_store(&state, |s| s.save_search(&search))
+}
+
+#[tauri::command(async)]
+fn delete_search(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
+    with_store(&state, |s| s.delete_search(id))
 }
 
 #[tauri::command(async)]
@@ -1042,6 +1074,10 @@ pub fn run() {
             open_window,
             list_rules,
             save_rule,
+            preview_rule,
+            list_saved_searches,
+            save_search,
+            delete_search,
             delete_rule,
             move_rule,
             move_account,

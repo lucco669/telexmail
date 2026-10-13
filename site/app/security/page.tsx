@@ -167,10 +167,11 @@ export default function SecurityPage() {
                 <span className={s.inlineEvidence}> <a href={source('crates/telex-core/src/store.rs')}>Storage code</a> · <a href={source('crates/telex-core/src/backup.rs')}>Backup code</a></span></li>
               <li><b>Windows publisher signing is not configured.</b> Updater signatures verify Telex updates, but do not give the installer a Windows-verified publisher identity.
                 <span className={s.inlineEvidence}> <a href={source('src-tauri/tauri.conf.json')}>Installer configuration</a></span></li>
-              <li><b>A Linux dependency soundness advisory remains open.</b> The lockfile contains glib 0.18.5 through Tauri’s Linux dependencies.
-                <a href="https://rustsec.org/advisories/RUSTSEC-2024-0429.html"> RUSTSEC-2024-0429</a> concerns its VariantStrIter implementation.
-                Our strict dependency check reports this as a failure; reachability in Telex has not been established.
-                <span className={s.inlineEvidence}> <a href={source('Cargo.lock')}>Dependency lockfile</a></span></li>
+              <li><b>The Linux GLib iterator fix is backported.</b> Tauri’s GTK dependency family needs GLib 0.18, so Telex uses its original 0.18.5 source with the upstream fix for
+                <a href="https://rustsec.org/advisories/RUSTSEC-2024-0429.html"> RUSTSEC-2024-0429</a> applied.
+                Every vendored source file is checksum-verified and an optimized Linux test exercises the affected operations.
+                Registry dependency scans exclude local path dependencies; these additional checks are required.
+                <span className={s.inlineEvidence}> <a href={source('docs/security-backport.md')}>Backport evidence</a> · <a href={source('crates/telex-security/tests/glib_regression.rs')}>Regression test</a></span></li>
               <li><b>A dependency maintenance warning remains open.</b> The Linux dependency graph also includes the unmaintained proc-macro-error 1.0.4.
                 <a href="https://rustsec.org/advisories/RUSTSEC-2024-0370.html"> Advisory and replacement guidance</a>.</li>
               <li><b>No independent security audit is published here.</b> Automated scans and tests have a limited scope and can miss problems.

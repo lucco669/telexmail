@@ -303,7 +303,7 @@ cargo test -p telex-core -- --ignored   # also checks TLS against a real server 
 cargo test -p telex-core --release --test scale -- --ignored --nocapture   # 100k-message benchmark
 cargo clippy -p telex-core --all-targets -- -D warnings
 cargo clippy -p telex --all-targets -- -D warnings
-cargo fmt --all
+cargo fmt -p telex-core -p telex -p telex-security
 node scripts/check-contrast.mjs   # every theme meets its WCAG level (after changing a color)
 node scripts/check-i18n.mjs       # every text has its Polish (after changing a text)
 ```
@@ -386,7 +386,16 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
-## Current state (v0.9.1: roadmap steps 1, 1b, 2, 3, 4, 6, 7 without code signing, storage phase 1, settings, HTML compose, usage, Linux, attachments, Bcc, suggestions, several messages at once, M/G/T, IDLE, older mail, undo send, filter operators, STARTTLS, folders on this PC, backups, Space for the next unread, read rules, search suggestions, autosaved drafts, checks at once, the right Sent, account colors, Unread, fonts, moving in, spelling, away replies, unread styles)
+## Current state (v0.9.5: saved searches, richer rules and previews, optional threads, toolbar layouts, link inspection and local scam-risk checks, and all earlier features below)
+
+- Schema 13 stores saved list queries and duplicate protection for copy/forward rule actions.
+  Rules match named headers and attachment names/types; previews count all matches without
+  changing or sending mail. Copy preserves the original; automatic forwarding is arrival-only.
+- Settings › Reading offers expandable thread rows (off by default). Appearance offers five
+  toolbar layouts. Link inspection and Rust scam-risk reasons stay local; scores are advisory.
+- Linux GLib 0.18.5 uses the verified upstream iterator backport in `vendor/glib`.
+  `crates/telex-security` and `fuzz` exercise hostile mail in both native webviews, optimized
+  GLib iterators, MIME/HTML and PST imports. The complete security workflow gates releases.
 
 - New in 0.9.1 (no schema change):
   - Unread mail stands out (`unread_style`, Settings › Appearance › Unread mail, cards drawn as
@@ -843,8 +852,8 @@ then daily like `daily`),
    HTML compose is done (see Current state); not yet: images and colors in it, HTML
    signatures, quoting a reply's original HTML instead of its text.
 4. ~~**Filters ("Sorting Office").**~~ Done; see Current state, with a rule started from a
-   message in 0.5.0. Not yet: regular expressions, conditions on headers and attachments,
-   actions that copy or forward, rules that run on a schedule.
+   message in 0.5.0. Headers and attachment conditions, copy/forward actions, rule previews and
+   saved searches in 0.9.5. Not yet: regular expressions and rules that run on a schedule.
 5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP). Waiting
    for the owner to register OAuth clients with Google (Cloud project; Gmail's scope is
    restricted, so unverified apps stay in testing mode) and Microsoft (Entra app that allows

@@ -7,10 +7,10 @@
  * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
  * no redeploy. After the release, set NEXT to the version after it.
  */
-export const NEXT = '0.9.1';
+export const NEXT = '0.9.5';
 
 /** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
-export const nextTeaser = 'Unread at a glance, account colors on every list, a sixth font.';
+export const nextTeaser = 'Saved searches, stronger rules, threads and local scam checks.';
 
 /** The six points on the home page: short, the features page has the detail. */
 export const features = [
@@ -102,9 +102,9 @@ export const featureRows: FeatureRow[] = [
       { text: 'Unread at the top of the folders: the unread mail of every folder and account in one list; what you read stays until you leave', since: '0.8.1' },
       { text: 'O, or the dot above the list, shows only the unread mail of a folder', since: '0.8.1' },
       { text: 'In lists that mix accounts, every row carries its account’s color', since: '0.8.1' },
-      { text: 'Unread mail stands out: read mail goes quieter, or unread takes the accent color', since: NEXT },
-      { text: 'With several accounts every list wears its account’s color, and all-mail search names the account next to the folder', since: NEXT },
-      { text: 'Dates, the Size column and fitting the columns in Settings › Appearance too', since: NEXT },
+      { text: 'Unread mail stands out: read mail goes quieter, or unread takes the accent color', since: '0.9.1' },
+      { text: 'With several accounts every list wears its account’s color, and all-mail search names the account next to the folder', since: '0.9.1' },
+      { text: 'Dates, the Size column and fitting the columns in Settings › Appearance too', since: '0.9.1' },
     ],
   },
   {
@@ -144,6 +144,7 @@ export const featureRows: FeatureRow[] = [
       'Followed by Message-ID, In-Reply-To and References, however deep',
       'Across the account’s folders, leaving out Spam and Trash',
       'Enter opens a message in its own folder',
+      { text: 'Optional threads in Settings › Reading group related messages into expandable rows, with counts and ←/→ controls', since: NEXT },
     ],
   },
   {
@@ -190,7 +191,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Drafts save themselves while you write; New or Reply in the middle of a message puts it in Drafts first', since: '0.7.2' },
       { text: 'Discard can be undone: Z or the Undo button brings the message back', since: '0.7.2' },
       { text: 'Spelling in your languages, Polish and English together: right-click a word or press F7 for suggestions', since: '0.9.0' },
-      { text: 'The languages spelling checks show at the end of the compose bar, and a click there changes them', since: NEXT },
+      { text: 'The languages spelling checks show at the end of the compose bar, and a click there changes them', since: '0.9.1' },
     ],
   },
   {
@@ -280,6 +281,7 @@ export const featureRows: FeatureRow[] = [
       'Esc clears the filter and puts you back in the list',
       { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: '0.7.1' },
       { text: 'What matched is marked in the list', since: '0.7.1' },
+      { text: 'Save a query and its scope under a name, then open its live results from the folder list', since: NEXT },
     ],
   },
   {
@@ -317,6 +319,9 @@ export const featureRows: FeatureRow[] = [
       'Conditions on From, To or Cc, subject, text or anywhere',
       'Move, mark read, flag, move to Trash or answer automatically',
       'Run on arrival, or on any folder when you ask',
+      { text: 'Match any named header, attachment filename or attachment type, including presence and absence', since: NEXT },
+      { text: 'Copy to another folder; forward new mail automatically with duplicate and loop protection', since: NEXT },
+      { text: 'Preview a rule on the current list: total matches, sample messages and condition results, without changing or sending mail', since: NEXT },
       { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
       { text: 'An away reply per account, kept on your server where it can be, so it answers while Telex is closed', since: '0.9.0' },
@@ -333,13 +338,14 @@ export const featureRows: FeatureRow[] = [
       'English or Polish, as in Windows or as you pick, down to the error messages',
       'Accounts, identities and servers in the same window',
       { text: 'Each account’s color as a line down its folders, a dot, its initials or a tint', since: '0.8.0' },
-      { text: 'Six fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, Atkinson Hyperlegible for low vision, and the light Source Sans', since: NEXT },
-      { text: 'Unread mail your way: read mail quieter, unread in color, or bold only', since: NEXT },
+      { text: 'Six fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, Atkinson Hyperlegible for low vision, and the light Source Sans', since: '0.9.1' },
+      { text: 'Unread mail your way: read mail quieter, unread in color, or bold only', since: '0.9.1' },
       { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
       { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
       'Export settings, rules, identities and servers to a file, never passwords',
       'Import shows what would change, part by part, before anything does',
+      { text: 'Five toolbar layouts: Classic, Icons only, Large icons, Labels below and Text only', since: NEXT },
     ],
   },
 ];
@@ -465,6 +471,22 @@ export const hero: Screen = {
 };
 
 export const screens: Screen[] = [
+  {
+    id: 'saved-searches', label: 'Saved searches', title: 'All mail – Telex',
+    caption: 'Save a query and its scope, then open current results from the folder list. Edit and delete searches in one place.', since: NEXT,
+  },
+  {
+    id: 'rule-preview', label: 'Rule preview', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Attachment and header conditions, copy and forward actions, and a preview of matches before changing or sending anything.', since: NEXT,
+  },
+  {
+    id: 'links', label: 'Link inspection', title: 'Spam · sam@lindenstudio.com – Telex',
+    caption: 'Actual destinations and local scam-risk reasons for suspicious mail. The advisory score is not a calibrated probability.', since: NEXT,
+  },
+  {
+    id: 'threads', label: 'Threads', title: 'Sent · sam@lindenstudio.com – Telex',
+    caption: 'Optional expandable conversation rows with message counts. Settings › Reading turns them on.', since: NEXT,
+  },
   {
     id: 'reply',
     label: 'Reply',
@@ -728,6 +750,26 @@ export type Version = {
 export const versions: Version[] = [
   {
     version: NEXT,
+    title: 'Saved searches, stronger rules and security checks before every release',
+    date: '2026-10-13',
+    summary: 'Keep searches in the folder list, preview richer rules, group conversations when you want to, and inspect suspicious links with an offline scam-risk check.',
+    points: [
+      'Saved searches: save a query, its scope and list options under a name; open it from the folder list against your current mail. Edit or delete it from Saved searches.',
+      'Rules can match named headers, attachment filenames and MIME types, including presence or absence. Copy keeps the original; automatic forwarding runs only on new mail and guards against duplicate sends and robot loops. Rule previews show the full match count and sample condition results without changing or sending mail. New rule actions travel with settings exports.',
+      'Optional threads in Settings › Reading, off by default: compact rows with message counts, expandable with the chevron or ←/→. Space reaches hidden unread messages, and message bodies stay paged.',
+      'Inspect real link destinations on hover or keyboard focus, list and copy them even in Spam. A local Rust check shows an advisory scam-risk score and explains sender mismatches, brand lookalikes, disguised links and other warning signs. It stays offline; the score is not a calibrated probability.',
+      'Five toolbar layouts in Settings › Appearance: Classic, Icons only, Large icons, Labels below and Text only. They apply immediately and persist; Search and Settings stay accessible in narrow windows.',
+      'The patched ammonia 4.2.3 sanitizer reaches released builds. Linux uses a checksum-verified GLib 0.18.5 backport of the upstream iterator fix, tested with compiler optimizations. Release builds now wait for dependency and secret scans, security regressions, hostile-email tests in Windows WebView2 and Linux WebKitGTK, and resource-limited MIME/HTML/PST fuzzing.',
+    ],
+    upgrade: 'The mail base adds saved searches and rule-action history (schema 13). Back up the mail base before updating; older versions cannot open it afterwards. The remaining proc-macro-error audit finding is an unmaintained dependency warning.',
+    highlights: [
+      { title: 'Saved searches', text: 'Keep useful queries in the folder list. Results follow your current mail.' },
+      { title: 'Preview stronger rules', text: 'Headers, attachments, copy and forward, with a preview before you run a rule.' },
+      { title: 'Inspect suspicious mail', text: 'Actual link destinations and offline scam-risk reasons, including in Spam.' },
+    ],
+  },
+  {
+    version: '0.9.1',
     title: 'Unread at a glance, account colors on every list, a sixth font',
     date: '2026-10-11',
     summary: 'New mail stands out from what you’ve read, every list wears its account’s color, search says whose mail it found, and the list’s options sit in Settings.',
@@ -992,7 +1034,7 @@ export const roadmap: Step[] = [
     title: 'Filters',
     text: 'A Sorting Office: rules that sort, flag, move and auto-reply, run on arrival or on demand, each leaving a note on the message.',
     status: 'done',
-    notYet: 'Regular expressions, conditions on headers and attachments, rules that copy, forward or run on a schedule.',
+    notYet: 'Regular expressions and rules that run on a schedule.',
   },
   {
     title: 'Templates and identities',

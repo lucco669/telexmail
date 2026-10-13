@@ -103,8 +103,10 @@ check('secrets-source', 'gitleaks dir --redact=100 <source snapshot>', localTool
   ['dir', ...leakArgs, snapshot], root, secretsResult);
 
 const testResult = (stdout, exitCode) => ({ status: exitCode === 0 ? 'passed' : 'failed' });
-check('security-guards', 'node --test scripts/security/guards.test.mjs scripts/security/reports.test.mjs', process.execPath,
-  ['--test', 'scripts/security/guards.test.mjs', 'scripts/security/reports.test.mjs'], root, testResult, true);
+check('glib-backport', 'node scripts/security/verify-glib.mjs', process.execPath,
+  ['scripts/security/verify-glib.mjs'], root, testResult, true);
+check('security-guards', 'node --test scripts/security/guards.test.mjs scripts/security/reports.test.mjs scripts/security/release.test.mjs', process.execPath,
+  ['--test', 'scripts/security/guards.test.mjs', 'scripts/security/reports.test.mjs', 'scripts/security/release.test.mjs'], root, testResult, true);
 check('core-tests', 'cargo test -p telex-core --locked --lib', 'cargo',
   ['test', '-p', 'telex-core', '--locked', '--lib'], root, testResult, true);
 
