@@ -111,10 +111,42 @@ The header mark in `components/Logo.tsx` draws the small variant inline; keep it
 Each page exports `pageMetadata(pages.x)` (`lib/seo.ts`): title, description, canonical URL, Open
 Graph and Twitter cards; its preview image is the `opengraph-image.png` next to it. Subpages get
 a visible breadcrumb and a BreadcrumbList; the home and download pages describe the app
-(SoftwareApplication), the FAQ page its questions (FAQPage). Next.js generates `robots.txt`,
+(SoftwareApplication, with a zero-price offer for the free preview and no invented ratings),
+the FAQ page its questions (FAQPage). Next.js generates `robots.txt`,
 `sitemap.xml` (every page, screenshots as image entries) and `manifest.webmanifest` from `app/`. With
 a custom domain attached, the `*.vercel.app` address answers with `X-Robots-Tag: noindex`, so
-only your domain gets indexed.
+only your domain gets indexed. The sitemap omits `lastmod` until actual page-update dates are
+tracked; rebuilding the site does not mean every page's content changed.
+
+### SEO audits through Vercel
+
+If a crawler receives `429` with `X-Vercel-Mitigated: challenge` or renders a page titled
+"Vercel Security Checkpoint", check the project's **Firewall** traffic events while starting
+a fresh scan. This is an access failure; compare source and rendered HTML only after the
+renderer reaches the actual page. Both the crawler and the separate rendering service need access.
+
+Get the confirmed outbound IPs/CIDRs for both services from SEOMaster; the report does not
+provide them. The rendering service's DNS address is not necessarily its outbound IP.
+In **Firewall → ⋯ → Configure → Add New… → Rule**, create **SEOMaster audit** with all of:
+
+- **Hostname → Equals → `telexmail.app`**
+- **IP Address → Is any of → the confirmed crawler and renderer outbound IPs/CIDRs**
+- **Method → Is any of → `GET`, `HEAD`**
+- **Then → Bypass**
+
+Combine the conditions with **AND**, put the rule above any custom challenge/deny rules,
+then **Save Rule → Review Changes → Publish**. This takes effect without a site redeploy.
+Keep Bot Protection enabled for other traffic. A public `x-seomaster-crawler` marker or a
+user-agent string alone does not authenticate the scanner. If events identify a system-level
+mitigation instead, custom bypass rules do not bypass it; use Vercel's System Bypass Rules
+only for the confirmed sources. See [custom rules](https://vercel.com/docs/vercel-firewall/vercel-waf/custom-rules),
+[bot protection](https://vercel.com/docs/vercel-firewall/vercel-waf/managed-rulesets) and
+[system bypass rules](https://vercel.com/docs/vercel-firewall/vercel-waf/system-bypass-rules).
+
+After publishing the rule and deploying code changes, rerun the full scan. The scanner should
+receive the real `200` HTML, read all 15 public sitemap URLs and load the page assets; the
+rendered title must be the page's title. Verify actual Googlebot access separately with
+Search Console's URL Inspection live test, and repeat PageSpeed against the current deployment.
 
 ## Security, analytics and plain-text files
 

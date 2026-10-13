@@ -41,6 +41,7 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   // Next 16 caching model: the release lookup in lib/release.ts is a `use cache` function.
   cacheComponents: true,
   partialPrefetching: true,
@@ -52,7 +53,7 @@ const nextConfig: NextConfig = {
   },
   // The repo root has its own package-lock.json (the Tauri CLI); this site is a separate project.
   turbopack: { root: __dirname },
-  // Used as the sitemap's lastModified, the footer year and security.txt's expiry.
+  // Used for the footer year and security.txt's expiry.
   env: { BUILD_DATE: new Date().toISOString() },
   async headers() {
     const rules = [];

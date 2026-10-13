@@ -152,7 +152,7 @@ export default function PrivacyPage() {
           <p>
             The site is hosted by Vercel. Like any web server, Vercel processes your IP address and the details of each
             request to deliver the pages and keep the service secure. See{' '}
-            <a href="https://vercel.com/legal/privacy-policy">Vercel’s privacy policy</a>.
+            <a href="https://vercel.com/legal/privacy-notice">Vercel’s privacy policy</a>.
           </p>
           <h3>Theme</h3>
           <p>

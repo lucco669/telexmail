@@ -45,7 +45,7 @@ export const websiteLd = () => ({
   publisher: { '@id': `${site.url}/#organization` },
 });
 
-/** The app. No price or rating: there is no pricing yet, and ratings must come from real reviews. */
+/** The preview is free. Ratings are omitted until real reviews exist. */
 export function appLd(release: Release | null) {
   const file = release?.exe ?? release?.msi;
   return {
@@ -60,6 +60,7 @@ export function appLd(release: Release | null) {
     screenshot: [hero, ...screens].map((s) => abs(`/screens/${s.id}-light.webp`)),
     featureList: features.map((f) => f.title),
     publisher: { '@id': `${site.url}/#organization` },
+    offers: { '@type': 'Offer', price: 0, url: abs(pages.download.path) },
     ...(release && file
       ? {
           softwareVersion: release.version,
