@@ -370,8 +370,9 @@
 </dialog>
 
 <dialog class="dlg" id="upd-dlg" aria-labelledby="upd-title">
-  <h2 class="dtitle" id="upd-title">Telex</h2>
+  <div class="u-brand"><img src="telex-mark.svg" width="36" height="36" alt=""><h2 class="dtitle" id="upd-title">Telex</h2></div>
   <p class="ustate" id="u-state" role="status"></p>
+  <div class="u-progress" id="u-progress-row" hidden><progress id="u-progress" max="100" aria-labelledby="u-state"></progress></div>
   <div class="unotes" id="u-notes" hidden></div>
   <label class="rcheck" id="u-auto-row"><input type="checkbox" id="u-auto"> <span data-i18n>Check for updates when Telex starts and once a day</span></label>
   <p class="dnote" id="u-note" data-i18n>A check downloads one small file from GitHub that names the newest version. It sends nothing about you, your mail or this copy of Telex. An update installs only when you choose, and only if it carries Telex’s signature.</p>

@@ -4928,7 +4928,7 @@ function sayRestored(){
 // to that, and whenever they click the version number. The core asks GitHub and installs;
 // the window never goes online.
 const udlg = $('upd-dlg');
-const upd = {build:null, found:null, checking:false, installing:false, text:'', error:''};
+const upd = {build:null, found:null, checking:false, installing:false, downloading:false, progress:null, text:'', error:''};
 function renderUpdates(){
   const {build, found} = upd, can = !!build?.updatable;
   $('st-ver').hidden = !build;
@@ -4941,6 +4941,9 @@ function renderUpdates(){
   $('upd-title').textContent = 'Telex ' + build.version;
   $('u-state').textContent = can ? upd.text : t('This build of Telex can’t update itself. Release builds from telexmail.app can.');
   $('u-err').textContent = upd.error;
+  $('u-progress-row').hidden = !upd.downloading;
+  if (upd.progress === null) $('u-progress').removeAttribute('value');
+  else $('u-progress').value = upd.progress;
   $('u-notes').hidden = !found?.notes;
   $('u-notes').textContent = found?.notes ?? '';
   $('u-install').hidden = !found;
@@ -4974,22 +4977,24 @@ async function checkUpdate({quiet = false} = {}){
 async function installUpdate(){
   if (!upd.found || upd.installing) return;
   if (state.compose && !await closeCompose()) return;
-  Object.assign(upd, {installing:true, text:t('Downloading Telex {version}…', {version:upd.found.version}), error:''});
+  Object.assign(upd, {installing:true, downloading:true, progress:null, text:t('Downloading Telex {version}…', {version:upd.found.version}), error:''});
   renderUpdates();
   let r;
   try { r = await invoke('install_update'); }
   catch (e){
-    Object.assign(upd, {installing:false, text:'', error:tr(e)}); renderUpdates();
+    Object.assign(upd, {installing:false, downloading:false, progress:null, text:'', error:tr(e)}); renderUpdates();
     if (!udlg.open) say(tr(e), 10000); // replaces the download progress
     return;
   }
   if (r.busy){ // a check or a send is running: start when it's done
+    upd.downloading = false;
     upd.text = t('Waiting for Telex to finish with the mail server…'); renderUpdates();
     setTimeout(() => { upd.installing = false; installUpdate(); }, 2000);
   }
 }
 listenMain('update-progress', ({payload: p}) => {
   const mb = n => I18n.decimal(n / 1048576);
+  upd.progress = p.total ? Math.max(0, Math.min(100, p.done / p.total * 100)) : null;
   upd.text = p.total && p.done >= p.total ? t('Checking the signature. Telex will close, update and open again.')
     : p.total ? t('Downloading Telex {version}: {done} of {total} MB', {version:upd.found?.version ?? '', done:mb(p.done), total:mb(p.total)})
     : t('Downloading Telex {version}: {done} MB', {version:upd.found?.version ?? '', done:mb(p.done)});

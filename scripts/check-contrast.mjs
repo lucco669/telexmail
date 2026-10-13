@@ -49,6 +49,7 @@ const TEXT = [
   ['chip-fg', 'img-b', 'Loaded image stand-ins'],
 ];
 const UI = [
+  ['accent', 'line-soft', 'Update download progress'],
   ['field', 'surface', 'Field and button borders'],
   ['field', 'panel', 'Field borders in dialogs'],
   ['accent', 'surface', 'Focus ring, unread dot'],

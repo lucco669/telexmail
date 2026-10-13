@@ -53,6 +53,37 @@ Then wait for the **Release** workflow, check the draft release on GitHub and pu
   being written is saved to Drafts first, and the install waits until no mail check or send is
   running.
 
+## Windows installer appearance
+
+The recommended `.exe` installer and its passive updater share the Telex icon, light
+palette, Segoe UI text, and artwork. `src-tauri/installer/branding.nsh` adds this through
+Tauri's NSIS hooks, with short English and Polish welcome/finish text and a dedicated
+update heading. Windows selects the installer language automatically. Tauri still owns
+the installation, maintenance, WebView2 setup, shortcuts and restart handling.
+
+The `.msi` uses matching banner and dialog artwork with Windows Installer's standard
+controls. The app's update dialog uses the same mark and its current theme, with download
+progress; after signature verification the native installer takes over.
+
+Regenerate all icons and installer bitmaps after changing the mark:
+
+```
+npm ci --prefix site
+npm run icons --prefix site
+```
+
+The generator uses `brand/telex-mark.svg` and `brand/telex-mark-small.svg`, and writes
+24-bit BMPs at three times NSIS's logical dimensions (for crisp scaled displays) and
+WiX's required sizes. Sidebar text stays in native controls rather than bitmap artwork.
+Commit the generated files, so ordinary app
+builds and release CI don't need the site's dependencies. When changing installer colors,
+keep the generator and `branding.nsh` in step with the light palette in `ui/themes.css`.
+
+Validate with `npm run build` on Windows. Preview the welcome and directory screens without
+installing over an existing copy; test `/P /UPDATE /R` in an isolated installation for
+the progress screen and restart. A local build without the release key cannot download
+and install a signed update from GitHub.
+
 ## One-time setup
 
 1. **Make the repository public.** The updater and the website download release files without

@@ -4,7 +4,7 @@
 // Run after changing the logo:  npm run icons
 // Uses sharp, which Next.js already installs.
 
-import { copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
@@ -77,3 +77,63 @@ for (const [file, make] of out) {
 // Browsers that take SVG favicons draw them at 16–32 px, so they get the small mark.
 copyFileSync(join(repo, 'brand/telex-mark-small.svg'), join(site, 'app/icon.svg'));
 console.log('site/app/icon.svg');
+copyFileSync(join(repo, 'brand/telex-mark.svg'), join(repo, 'ui/telex-mark.svg'));
+console.log('ui/telex-mark.svg');
+
+// Native installer artwork uses the app's light palette and the same mark. Windows
+// installer engines expect uncompressed 24-bit BMPs, which sharp doesn't encode.
+function bmp(width, height, rgb) {
+  const stride = (width * 3 + 3) & ~3;
+  const bytes = Buffer.alloc(54 + stride * height);
+  bytes.write('BM');
+  bytes.writeUInt32LE(bytes.length, 2);
+  bytes.writeUInt32LE(54, 10);
+  bytes.writeUInt32LE(40, 14);
+  bytes.writeInt32LE(width, 18);
+  bytes.writeInt32LE(height, 22);
+  bytes.writeUInt16LE(1, 26);
+  bytes.writeUInt16LE(24, 28);
+  bytes.writeUInt32LE(stride * height, 34);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const from = (y * width + x) * 3, to = 54 + (height - y - 1) * stride + x * 3;
+      bytes[to] = rgb[from + 2];
+      bytes[to + 1] = rgb[from + 1];
+      bytes[to + 2] = rgb[from];
+    }
+  }
+  return bytes;
+}
+
+async function installerArt(width, height, { sidebar = false, wix = false } = {}) {
+  // NSIS scales bitmaps to the dialog's physical pixels. Render at 3x so normal
+  // Windows display scaling downsamples the mark instead of enlarging coarse pixels.
+  const scale = wix ? 1 : 3;
+  const size = sidebar ? 72 : 40;
+  const left = sidebar ? Math.round((164 - size) / 2) : width - size - 20;
+  const top = sidebar ? 38 : Math.round((height - size) / 2);
+  const art = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+    <rect width="${width}" height="${height}" fill="#ffffff"/>
+    ${sidebar ? `<rect width="164" height="${height}" fill="#f3f5f8"/>
+      <rect x="163" width="1" height="${height}" fill="#d2d7de"/>
+      <rect y="${height - 4}" width="164" height="4" fill="${BRAND}"/>` : ''}
+  </svg>`;
+  const rgb = await sharp(Buffer.from(art), { density: 72 * scale })
+    .composite([{ input: await png(size * scale), left: left * scale, top: top * scale }])
+    .removeAlpha().raw().toBuffer();
+  return bmp(width * scale, height * scale, rgb);
+}
+
+mkdirSync(join(repo, 'src-tauri/installer'), { recursive: true });
+for (const [name, width, height, options] of [
+  ['header', 150, 57, {}],
+  // Segoe UI 9's welcome image control is 109 x 193 dialog units. Its physical
+  // aspect ratio is about 164:364; matching it keeps the square mark square.
+  ['sidebar', 164, 364, { sidebar: true }],
+  ['wix-banner', 493, 58, { wix: true }],
+  ['wix-dialog', 493, 312, { sidebar: true, wix: true }],
+]) {
+  const file = `src-tauri/installer/${name}.bmp`;
+  writeFileSync(join(repo, file), await installerArt(width, height, options));
+  console.log(file);
+}

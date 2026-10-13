@@ -526,6 +526,13 @@ button.ph-who:hover .pn{text-decoration:underline}
 .pknote{padding-top:4px}
 
 /* Update dialog */
+.u-brand{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
+.u-brand .dtitle{padding:0;margin:0;border:0}
+.u-brand img{flex:none}
+.u-progress{padding:6px 14px}
+.u-progress progress{display:block;width:100%;height:10px;accent-color:var(--accent)}
+.u-progress progress::-webkit-progress-bar{background:var(--line-soft);border-radius:3px}
+.u-progress progress::-webkit-progress-value{background:var(--accent);border-radius:3px}
 .ustate{margin:0;padding:6px 14px 4px;font-size:12.5px}
 .ustate:empty{display:none}
 .unotes{max-height:min(36vh,240px);overflow:auto;margin:6px 14px 0;padding:8px 10px;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface);font:12px/1.5 var(--font-data);white-space:pre-wrap;overflow-wrap:anywhere}
