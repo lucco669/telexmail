@@ -10,15 +10,18 @@ function siteUrl(): string {
 export const site = {
   name: 'Telex',
   // Search results show about 60 characters of the title and 155 of the description.
-  title: 'Telex – a fast, keyboard-driven email client for Windows',
+  title: 'Telex – fast email for Windows and Linux',
   description:
-    'A compact, fast email client for Windows. Dense lists, one key per action, and your mail on your own disk, searchable offline. No Electron, no telemetry.',
+    'Fast email for Windows and Linux: offline saved searches, powerful rule previews, optional threads and local scam checks. No Electron or telemetry.',
   keywords: [
     'email client for Windows',
     'email client for Linux',
     'IMAP email client',
     'keyboard-driven email',
     'offline email search',
+    'saved email searches',
+    'email sorting rules',
+    'offline scam checks',
     'lightweight email client',
     'The Bat! alternative',
   ],

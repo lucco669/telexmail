@@ -6,13 +6,13 @@ import { isReleased, versionAnchor, versionName } from '@/lib/versions';
 import s from './WhatsNew.module.css';
 
 /** How many highlights the home page shows; the changelog has the rest. */
-const SHOWN = 3;
+const SHOWN = 6;
 
 /** The home page's look at the newest version this site describes: coming soon, or just out. */
 export function WhatsNew({ release }: { release: Release | null }) {
   const v = versions[0];
   const out = isReleased(v.version, release);
-  const all = v.highlights ?? v.points.map((text) => ({ title: '', text, keys: undefined }));
+  const all = v.highlights ?? v.points.map((text) => ({ title: '', text, keys: undefined, href: undefined }));
   const cards = all.slice(0, SHOWN);
   const anchor = `${pages.changelog.path}#${versionAnchor(v.version)}`;
   return (
@@ -28,7 +28,7 @@ export function WhatsNew({ release }: { release: Release | null }) {
           <p className="lead">
             {v.summary}{' '}
             {out
-              ? 'Telex offers the update by itself, or click the version number in its status bar.'
+              ? 'If you enabled update checks, Telex offers it in the status bar. You can also click the version number to check manually.'
               : 'It comes as an update to everyone who has Telex; the live demo already runs it.'}
           </p>
           {!out && (
@@ -57,6 +57,7 @@ export function WhatsNew({ release }: { release: Release | null }) {
                 </div>
               )}
               <p className={s.text}>{c.text}</p>
+              {c.href && <Link className="more" href={c.href} aria-label={`Details: ${c.title}`}>See details</Link>}
             </li>
           ))}
         </ul>

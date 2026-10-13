@@ -49,18 +49,17 @@ npm run themes     # measure the app's themes again into lib/themes.json (the ac
 
 ## Versions: what is out and what is coming
 
-`NEXT` in `lib/content.ts` is the version being finished. Features, points, shortcuts, tips,
-screenshots and roadmap steps built for it carry `since: NEXT`. Until GitHub has a release that new,
-the site marks them "Coming in 0.5" (the roadmap step is in progress, the hero and the home page's
-What's new say "Coming"); once the release is published they turn into "New in 0.5" within the
-hour, with no redeploy (`lib/versions.ts`, `components/Since.tsx`). When a newer minor version is
-out, the badges go away by themselves.
+Features, points, shortcuts, tips, screenshots and roadmap steps carry a fixed `since` version
+(for example `V095` for 0.9.5). Keep that version unchanged after release. Until GitHub has a
+release that new, the site marks them "Coming"; once published they turn into "New" within the
+hour, with no redeploy (`lib/versions.ts`, `components/Since.tsx`). The newest entry in `versions`
+drives the hero and What's new. When a newer minor version is out, older badges go away.
 
 After a release:
 
 1. Its entry in `versions` (`lib/content.ts`) already says what it brought; give it its date.
-2. Set `NEXT` to the version after it, and add that version's entry (title, summary, points and
-   `highlights` for the home page) as its features land.
+2. As features for the next version land, add its entry (title, summary, points and `highlights`
+   for the home page), and mark only its new features with that version. Keep released entries fixed.
 3. Retake the screenshots (`npm run screens`) and rebuild the demo (`npm run demo`).
 4. Put the new release in `lib/known-release.ts` (version, date, file sizes from GitHub).
 
@@ -86,6 +85,9 @@ on the home page's demo band) are three first tries, `demoFirst` in `lib/content
 true to the mailbox. `next.config.ts` lets only this site frame `/demo-app/` and keeps it out of
 search results. Nothing in the demo talks to the network: sending moves mail to Sent, and
 attachments can be added but not opened.
+Saved searches, rule previews, copy actions, optional threads and toolbar layouts work against
+the in-memory mailbox. The scam report is a fixed illustrative fixture, not the Rust scanner;
+automatic forwarding cannot send real mail. Keep these limits visible on the demo and FAQ pages.
 
 ## The footer
 

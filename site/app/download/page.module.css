@@ -87,6 +87,8 @@
 /* The two downloads, right under the title. */
 .get { display: grid; gap: 16px; padding-bottom: 56px; }
 .alts { margin-top: 4px; }
+.upgrade { padding: 18px 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); font-size: 15.5px; }
+.upgrade b { color: var(--fg); }
 
 .mail { display: grid; gap: 20px; padding-block: 56px; border-top: 1px solid var(--line-soft); scroll-margin-top: 80px; }
 .mail .h2 { margin-bottom: 0; }

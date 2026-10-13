@@ -4,7 +4,7 @@ import { Compat, DownloadChoice, LookupNote, ReleaseStatus } from '@/components/
 import { PageHeader } from '@/components/PageHeader';
 import { Shot } from '@/components/Shot';
 import { WindowFrame } from '@/components/WindowFrame';
-import { providers, screens } from '@/lib/content';
+import { providers, screens, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { allReleasesPage, getReleaseInfo, megabytes } from '@/lib/release';
 import { appLd, pageMetadata } from '@/lib/seo';
@@ -22,6 +22,7 @@ export default async function DownloadPage() {
   // GitHub couldn't be asked and no release is known: link to GitHub rather than say "coming soon".
   const unknown = !live && !latest;
   const linux = latest?.appimage || latest?.deb;
+  const notes = versions.find(v => v.version === latest?.version);
   return (
     <>
       <PageHeader
@@ -50,6 +51,7 @@ export default async function DownloadPage() {
         {!live && <LookupNote release={latest} />}
         <DownloadChoice release={latest} unknown={unknown} />
         <ReleaseStatus release={latest} unknown={unknown} />
+        {notes?.upgrade && <p className={s.upgrade}><b>Before upgrading:</b> {notes.upgrade}</p>}
         <Compat />
         <p className={s.alts}>
           <Link className="more" href={pages.demo.path}>
@@ -90,6 +92,11 @@ export default async function DownloadPage() {
                 servers itself and logs in to both before it saves anything. If your provider needs an app password
                 (Gmail, iCloud, Yahoo), it says so. Your own settings? Choose <b>Set up manually</b>.
               </p>
+              <p>
+                Moving from Thunderbird or Outlook? Use the import offered during setup, or <b>Settings › Import and export</b>,
+                to bring accounts, identities, supported filters and local mail, including <code>.pst</code> files.
+                Passwords are entered again.
+              </p>
             </li>
             <li>
               <h3>Let the first sync run</h3>
@@ -108,6 +115,30 @@ export default async function DownloadPage() {
           <p className={s.shotCaption}>{account.caption}</p>
         </div>
       </div>
+
+      <section className={`container ${s.mail}`} aria-labelledby="first-steps">
+        <h2 id="first-steps" className={s.h2}>Make the new tools yours</h2>
+        <div className={s.mailGrid}>
+          <div className={s.group}>
+            <h3>Save a useful search</h3>
+            <p className={s.p}>Press /, type <code>has:file is:unread</code>, choose the folder or all mail, and click Save search.
+              Your named query appears beside your folders.</p>
+            <Link className="more" href={`${pages.features.path}#saved-searches`}>Saved searches</Link>
+          </div>
+          <div className={s.group}>
+            <h3>Preview before sorting</h3>
+            <p className={s.p}>Open Rules, add a header or attachment condition, then Preview to inspect the current list’s matches.
+              Previewing changes and sends nothing.</p>
+            <Link className="more" href={`${pages.features.path}#rules`}>Rules and previews</Link>
+          </div>
+          <div className={s.group}>
+            <h3>Choose how to read</h3>
+            <p className={s.p}>Settings › Reading offers optional threads. Settings › Appearance has five toolbar layouts.
+              Focus a message link or open its link list to inspect the destination.</p>
+            <Link className="more" href={pages.demo.path}>Try the tools in the demo</Link>
+          </div>
+        </div>
+      </section>
 
       {linux && (
         <section id="linux" className={`container ${s.linux}`} aria-labelledby="linux-h">

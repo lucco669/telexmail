@@ -53,6 +53,7 @@ const scenes = {
   // T on the shop reply: the enquiry in Clients, the estimate in Sent, the answer in the Outbox.
   thread: { run: `ui.row('Re: Online shop estimate'); await ui.wait(50); ui.list.focus(); ui.key('t'); await ui.wait(200);` },
   threads: { settings: { threaded: true }, run: `ui.folder('studio/sent'); await ui.wait(150); ui.click('#rows .thread-toggle'); await ui.wait(150); ui.row('Online shop estimate'); await ui.wait(150);` },
+  'toolbar-layouts': { settings: { toolbar_style: 'below' } },
   // A new message with two files, Bcc open, and the suggestions for a second recipient.
   attach: {
     run: `ui.key('n'); await ui.wait(150); ui.click('[data-act="bcc"]'); await ui.wait(200);
@@ -219,8 +220,8 @@ p{margin-top:22px;font-size:24px;line-height:1.4;color:#59636e}
 .win img{display:block;width:100%}
 </style></head><body><div class="band"></div>
 <div class="text"><div class="logo">${mark(44)}Telex</div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>
-<p>A compact, fast email client for Windows.</p></div>
-<div class="facts">Rust · WebView2 · Offline search · No telemetry</div>
+<p>A compact, fast email client for Windows and Linux.</p></div>
+<div class="facts">Rust · Saved searches · Local scam checks · No telemetry</div>
 <div class="win"><div class="tb">${mark(15)}${windowTitle}</div><img src="${shot}"></div>
 </body></html>`;
 }
@@ -319,7 +320,7 @@ if (!only.length || only.includes('og') || ogTargets.length) {
       continue;
     }
     const file = join(work, `og-${p.label}.html`);
-    const eyebrow = p.path === '/' ? 'Email client for Windows' : p.label;
+    const eyebrow = p.path === '/' ? 'Email for Windows and Linux' : p.label;
     writeFileSync(file, ogPage({ eyebrow, title: p.ogTitle, screen: p.ogScreen, windowTitle: windowTitles[p.ogScreen] }));
     shoot(browser, file, join(dir, 'opengraph-image.png'), [1200, 630], 1);
     writeFileSync(join(dir, 'opengraph-image.alt.txt'), `Telex – ${p.ogTitle} A screenshot of the app next to the headline.`);

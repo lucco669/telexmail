@@ -15,7 +15,7 @@ export default function FaqPage() {
       <PageHeader
         page={pages.faq}
         title="Questions and answers."
-        lead="What works with which provider, where your mail lives, and what to expect when you install."
+        lead="Which providers work, how saved searches and richer rules behave, how to customize threads and toolbars, what local scam checks mean, and what to expect when you install."
         extraLd={[faqLd(faqGroups.flatMap((g) => g.items))]}
       />
       <div className={`container ${s.layout}`}>

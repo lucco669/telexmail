@@ -1,5 +1,5 @@
 import { PageLink as Link } from '@/components/PageNavigation';
-import { NEXT, nextTeaser, ticker } from '@/lib/content';
+import { ticker, versions } from '@/lib/content';
 import { footerGroups } from '@/lib/pages';
 import { getLatestRelease } from '@/lib/release';
 import { site } from '@/lib/site';
@@ -18,8 +18,9 @@ export async function Footer() {
     ? [`VERSION ${release.version} IS OUT${release.date ? ` ${release.date.slice(0, 10).split('-').reverse().join('.')}` : ''}`]
     : [];
   // The tape punches letters, figures and a few signs only.
-  const next = `${isReleased(NEXT, release) ? 'NEW' : 'COMING'} IN ${versionName(NEXT)}: ${nextTeaser.toUpperCase().replace(/[^A-Z0-9.,:?'/+=() -]/g, '')}`;
-  const messages = [ticker[0], ...out, next, ...ticker.slice(1)];
+  const newest = versions[0];
+  const news = `${isReleased(newest.version, release) ? 'NEW' : 'COMING'} IN ${versionName(newest.version)}: ${newest.title.toUpperCase().replace(/[^A-Z0-9.,:?'/+=() -]/g, '')}`;
+  const messages = [ticker[0], ...out, news, ...ticker.slice(1)];
   return (
     <footer className={`${s.footer} no-print`}>
       <TelexTicker messages={messages} />

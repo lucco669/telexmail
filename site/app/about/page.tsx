@@ -11,12 +11,12 @@ const principles = [
   ['Dense', '20-pixel rows by default, a condensed face in the list, mono for dates and sizes. No spacious padding; a Comfortable setting for people who want air.'],
   ['Keyboard-first', 'Every common action has a single key. The mouse is optional.'],
   ['Fast and light', 'Starts quickly, installs small, and needs no account or cloud service.'],
-  ['Local mail base', 'Mail is stored on your disk in full and searchable offline.'],
-  ['Powerful filters', 'Rules that sort, flag, move and auto-reply, with the reason shown on every message they touch.'],
-  ['Private by default', 'Remote images blocked until you allow them. Links in spam not clickable. Nothing phones home.'],
+  ['Local mail base', 'Mail is stored on your disk in full and searchable offline. Saved queries put reusable views beside your folders, without copying mail.'],
+  ['Powerful filters', 'Match text, named headers and attachments, preview results, then sort, flag, move, copy or forward new mail, with notes explaining changes.'],
+  ['Private by default', 'Remote images need permission or sender trust. Inspect and copy links even in Spam; scam warning signs are checked locally, without uploading mail.'],
   ['Fluent in Polish', 'Old charsets like Windows-1250 and ISO-8859-2 decode correctly; replies quote the Polish way.'],
   ['Plain text first', 'Compose is plain text in a mono face. HTML is a switch away, and always goes out with a plain-text copy.'],
-  ['Readable', 'Every theme meets WCAG 2.2 AA contrast, the high-contrast ones AAA, checked by a script on every change.'],
+  ['Readable', 'Eight themes with measured AA contrast, two at AAA, six fonts and five toolbar layouts. Optional threads keep conversations compact without hiding unread replies from Space.'],
   ['Mail follows the theme', 'In a dark theme HTML mail goes on the theme’s dark paper with its colors turned around; one click shows it on white, as sent.'],
   ['Honest about mail', '“Sent” only once your server has accepted the message. Until then it waits in the Outbox, with the reason.'],
   ['Forgiving', 'Z undoes a delete or a move, and takes back a message in the moment after Send. Esc keeps a draft, never loses it.'],
@@ -25,10 +25,10 @@ const principles = [
 const never = ['Electron', 'AI features switched on by default', 'A web-app look', 'Anything that phones home'];
 
 const stack = [
-  ['Mail core', 'Rust: IMAP with IDLE (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls), HTML cleaning (ammonia)'],
+  ['Mail core', 'Rust: IMAP with IDLE (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls), HTML cleaning (ammonia), rules and offline scam warning checks'],
   ['Mail base', 'SQLite with FTS5 full-text search, one file on your disk'],
   ['Window', 'Tauri 2: WebView2 on Windows, WebKitGTK on Linux, so no browser is bundled'],
-  ['Interface', 'Plain HTML, CSS and JavaScript, set in IBM Plex'],
+  ['Interface', 'Plain HTML, CSS and JavaScript, with six fonts, eight themes and five toolbar layouts'],
   ['This site', 'Next.js on Vercel, with no cookies and cookieless page counts. The live demo is the app’s own interface'],
 ];
 

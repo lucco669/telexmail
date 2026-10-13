@@ -30,6 +30,25 @@ const aaa = themes.filter((t) => t.level === 'AAA').length;
 
 const beyond = [
   {
+    title: 'Labels or larger controls',
+    text: 'Five toolbar layouts in Settings › Appearance: Classic, Icons only, Large icons, Labels below and Text only. Keep visible names, put labels under larger icons, or use text alone. Search and Settings stay reachable in narrower windows.',
+    link: { href: `${pages.features.path}#toolbar-layouts`, label: 'Toolbar layouts' },
+  },
+  {
+    title: 'Six fonts to choose from',
+    text: 'IBM Plex, the system font, Classic, Inter, Atkinson Hyperlegible and Source Sans. Font choice, text size, density and unread styling are separate settings, so you can tune the list for your reading needs.',
+  },
+  {
+    title: 'Threads with keyboard controls',
+    text: 'Optional thread rows show counts and expose their expanded state. In the list, → expands and ← collapses; Space reaches unread replies inside collapsed groups. The default is individual message rows.',
+    link: { href: `${pages.features.path}#threads`, label: 'Optional threads' },
+  },
+  {
+    title: 'Link destinations on focus',
+    text: 'A focused message link reveals its destination just as hovering does. The expandable link list has address fields and copy actions, including in Spam where opening links remains blocked. Scam warning signs have written reasons.',
+    link: { href: `${pages.features.path}#link-inspection`, label: 'Link inspection' },
+  },
+  {
     title: 'Every action on a key',
     text: 'Reading, replying, selecting, moving, filtering and the settings themselves work from the keyboard. Ctrl+, opens Settings; arrow keys move through its tabs and choices. Folder pickers and address suggestions are listboxes a screen reader can follow.',
     link: { href: pages.keyboard.path, label: 'All shortcuts' },
@@ -77,7 +96,7 @@ export default function AccessibilityPage() {
       <PageHeader
         page={pages.accessibility}
         title="Readable in every theme."
-        lead={`Eight themes, from plain light to a green phosphor screen, in English and Polish. Every one meets WCAG 2.2 AA contrast, the ${aaa} high-contrast ones meet AAA, and a script measures every color pair whenever a color changes.`}
+        lead={`Eight themes, six fonts and five toolbar layouts, in English and Polish. Every theme meets WCAG 2.2 AA contrast, the ${aaa} high-contrast ones meet AAA, and a script measures every color pair whenever a color changes.`}
       >
         <dl className={s.stats}>
           <div>

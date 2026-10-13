@@ -18,7 +18,7 @@ export default async function RoadmapPage() {
       <PageHeader
         page={pages.roadmap}
         title="Early, and honest about it."
-        lead="Telex is built in order: first mail that works, then mail that looks right, then the power tools. Here is every step, what is done, and what each finished step still leaves out."
+        lead="Saved searches, header and attachment rules, previews, optional threads, toolbar layouts and local mail inspection have shipped. Here is every completed step, its remaining limits, and what comes next."
       />
       <div className={`container ${s.layout}`}>
         <aside className={s.summary}>

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { features, hero, screens, type Question } from './content';
+import { featureRows, hero, screens, type Question } from './content';
 import { pages, type PageInfo } from './pages';
 import type { Release } from './release';
 import { site } from './site';
@@ -58,7 +58,7 @@ export function appLd(release: Release | null) {
     operatingSystem: release?.appimage || release?.deb ? 'Windows 10, Windows 11, Linux' : 'Windows 10, Windows 11',
     image: abs('/icon-512.png'),
     screenshot: [hero, ...screens].map((s) => abs(`/screens/${s.id}-light.webp`)),
-    featureList: features.map((f) => f.title),
+    featureList: featureRows.map((f) => f.title),
     publisher: { '@id': `${site.url}/#organization` },
     offers: { '@type': 'Offer', price: 0, url: abs(pages.download.path) },
     ...(release && file

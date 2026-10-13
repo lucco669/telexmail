@@ -2,17 +2,11 @@
 // Keep claims true to the current build (see CLAUDE.md, "Current state"). No imports: scripts/screens.mjs
 // loads this file directly.
 
-/**
- * The version being finished. What is marked `since: '0.5.0'` is built but not released yet: the site
- * says "Coming in 0.5" until GitHub has a release this new, then "New in 0.5" (lib/versions.ts), with
- * no redeploy. After the release, set NEXT to the version after it.
- */
-export const NEXT = '0.9.5';
+// Keep a feature's introduction version fixed after release. The newest entry in `versions`
+// drives the hero and What's new; lib/versions.ts compares it with the live release.
+const V095 = '0.9.5';
 
-/** What NEXT brings, in a few words: the hero's pill and the footer's tape (capitals there). */
-export const nextTeaser = 'Saved searches, stronger rules, threads and local scam checks.';
-
-/** The six points on the home page: short, the features page has the detail. */
+/** The points on the home page: short, the features page has the detail. */
 export const features = [
   {
     title: 'Dense by default',
@@ -24,11 +18,23 @@ export const features = [
   },
   {
     title: 'Your mail, on your disk',
-    text: 'Messages are kept whole in a local mail base, so reading, search and attachments work offline. No Telex server in between.',
+    text: 'Messages are kept whole, attachments too. Search offline across your accounts, and keep useful queries as saved searches in the folder list.',
+  },
+  {
+    title: 'Rules you can preview',
+    text: 'Match senders, text, named headers and attachments. Preview the matches, then file, flag, copy or forward new mail, with a note explaining each change.',
+  },
+  {
+    title: 'Conversations your way',
+    text: 'T brings a conversation together across folders. Prefer a shorter list? Turn on expandable thread rows, with counts and arrow-key controls.',
   },
   {
     title: 'Private by default',
-    text: 'No account and no telemetry. Remote images stay blocked until you allow them, and passwords stay in your system’s password store.',
+    text: 'Remote images stay blocked, passwords use your system’s store, and link inspection and scam warning signs are checked locally. No Telex account or telemetry.',
+  },
+  {
+    title: 'Readable your way',
+    text: 'Eight measured themes, six fonts, text up to 200%, and five toolbar layouts. Keep labels, use larger icons, or choose a toolbar made entirely of text.',
   },
   {
     title: 'Light on your PC',
@@ -41,7 +47,7 @@ export const features = [
 ];
 
 /** The strip under the hero's screenshot: what you get, in a few words each. */
-export const facts = ['Offline search', 'Several accounts', 'Undo send', 'Rules with notes', 'New mail at once', 'English and Polish', 'No Electron', 'No telemetry'];
+export const facts = ['Saved searches', 'Rule previews', 'Optional threads', 'Local scam checks', 'Undo send', 'Windows and Linux', 'No Electron', 'No telemetry'];
 
 /**
  * Which mail works, beside the download buttons. Keep it true to crates/telex-core/src/autoconfig.rs:
@@ -73,7 +79,8 @@ export const providers: Record<'works' | 'appPassword' | 'later', ProviderGroup>
 
 /** Beside the download buttons: what Telex does for you, true to the current build. */
 export const benefits = [
-  { title: 'Search all your mail offline', text: 'Every message is kept whole on your PC, attachments too.' },
+  { title: 'Keep searches close', text: 'Search offline across your accounts, then save the query in your folder list.' },
+  { title: 'Preview your rules', text: 'Match headers and attachments, and inspect results before filing or forwarding new mail.' },
   { title: 'Several accounts, one window', text: 'Each in its own color, one search across all of them.' },
   { title: 'Take it back', text: 'Z undoes a delete, a move or a discarded message, and holds sent mail for five seconds.' },
   { title: 'Nothing to sign up for', text: 'No account, no telemetry, no Telex server in between.' },
@@ -144,7 +151,20 @@ export const featureRows: FeatureRow[] = [
       'Followed by Message-ID, In-Reply-To and References, however deep',
       'Across the account’s folders, leaving out Spam and Trash',
       'Enter opens a message in its own folder',
-      { text: 'Optional threads in Settings › Reading group related messages into expandable rows, with counts and ←/→ controls', since: NEXT },
+    ],
+  },
+  {
+    id: 'threads',
+    screen: 'threads',
+    title: 'A shorter list, with expandable threads',
+    text: 'Keep one row per conversation in a folder, then expand the replies you want to read. Settings › Reading turns threads on; individual message rows remain the default.',
+    since: V095,
+    points: [
+      'Message counts and unread counts show what is inside a thread',
+      'The chevron or → expands; ← collapses the selected thread',
+      'Space still reaches unread messages hidden inside a collapsed thread',
+      'Search and unread-only lists show individual messages',
+      'Actions apply to the selected message; use T for the conversation across folders',
     ],
   },
   {
@@ -281,20 +301,48 @@ export const featureRows: FeatureRow[] = [
       'Esc clears the filter and puts you back in the list',
       { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: '0.7.1' },
       { text: 'What matched is marked in the list', since: '0.7.1' },
-      { text: 'Save a query and its scope under a name, then open its live results from the folder list', since: NEXT },
+    ],
+  },
+  {
+    id: 'saved-searches',
+    screen: 'saved-searches',
+    title: 'Useful searches, always at hand',
+    text: 'Keep “files to review”, unread client mail or flagged invoices beside your folders. A saved search runs its query on your current local mail each time you open it; it does not copy messages into another folder.',
+    since: V095,
+    points: [
+      'Type a query, choose this folder or all mail, and use Save search beside the search box',
+      'Keep the query, scope, sort order, body-search choice and unread-only setting together',
+      'Open the results from the folder list, including while offline',
+      'Use Saved searches to create, edit or delete a query without deleting its messages',
+      'Results cover downloaded mail; older messages still on the server appear after you fetch them',
     ],
   },
   {
     id: 'privacy',
     screen: 'images',
     title: 'Private by default',
-    text: 'Telex talks to your mail servers, to image servers only when you load a message’s images, and to GitHub for updates only if you allow it. There is no account to create, no telemetry, and no Telex server between you and your mail.',
+    text: 'Your mail connects directly to your provider. Images load only when you allow them or trust a sender; update checks follow your choice. Account discovery, optional dictionary downloads and server-side away replies have their own network uses, documented on the privacy page.',
     points: [
       'HTML mail in a sandbox where no script can run',
       'Remote images blocked, so senders can’t see when you read',
       'Your password stays in your system’s password store',
       'Your mail base is one file on your disk',
       'In a dark theme, HTML mail takes the theme’s colors; one click shows it on white',
+      'No Telex account, mail relay or desktop usage analytics',
+    ],
+  },
+  {
+    id: 'link-inspection',
+    screen: 'links',
+    title: 'Inspect before you follow',
+    text: 'See where a link actually points, and why an opened message looks suspicious. Telex checks sender and link warning signs on your PC without opening the destination or uploading your mail.',
+    since: V095,
+    points: [
+      'Hover or focus a link to see its destination; expand the message’s link list to inspect and copy addresses',
+      'Links stay blocked in Spam, while inspection and copying remain available',
+      'Warning reasons include sender and brand lookalikes, disguised destinations and hidden characters',
+      'The score is advisory points out of 100, not a probability; no warning does not establish that mail is safe',
+      'The check runs when you open a message; it does not move mail, follow redirects or verify attachments, reputation, SPF, DKIM or DMARC',
     ],
   },
   {
@@ -312,19 +360,34 @@ export const featureRows: FeatureRow[] = [
   },
   {
     id: 'rules',
-    screen: 'rules',
+    screen: 'rule-preview',
     title: 'Rules that explain themselves',
-    text: 'Telex’s answer to The Bat!’s Sorting Office. Rules run top to bottom on new mail, and when one moves or flags a message, the message says which rule did it.',
+    text: 'Telex’s answer to The Bat!’s Sorting Office. Combine conditions, preview their matches on the current list, and file new mail automatically. Notes on each affected message explain which rule changed it.',
     points: [
       'Conditions on From, To or Cc, subject, text or anywhere',
       'Move, mark read, flag, move to Trash or answer automatically',
       'Run on arrival, or on any folder when you ask',
-      { text: 'Match any named header, attachment filename or attachment type, including presence and absence', since: NEXT },
-      { text: 'Copy to another folder; forward new mail automatically with duplicate and loop protection', since: NEXT },
-      { text: 'Preview a rule on the current list: total matches, sample messages and condition results, without changing or sending mail', since: NEXT },
+      { text: 'Match any named header, attachment filename or MIME type, including presence and absence; combine all or any conditions', since: V095 },
+      { text: 'Copy to another folder while keeping the original; forward newly arriving mail with duplicate and loop protection', since: V095 },
+      { text: 'Preview an unsaved rule on the current folder or search: total matches, sample messages and each condition’s result, without changing or sending mail', since: V095 },
+      'Automatic forwarding and replies run only on new arrivals; running rules by hand does not send old mail',
       { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
       { text: 'An away reply per account, kept on your server where it can be, so it answers while Telex is closed', since: '0.9.0' },
+    ],
+  },
+  {
+    id: 'toolbar-layouts',
+    screen: 'toolbar-layouts',
+    title: 'A toolbar that fits you',
+    text: 'Keep familiar controls or give them more room. Settings › Appearance offers five layouts, applied immediately and remembered for the next start.',
+    since: V095,
+    points: [
+      'Classic: compact icons beside their labels',
+      'Icons only or Large icons when you recognize the controls by shape',
+      'Labels below for bigger controls with their names underneath',
+      'Text only for a toolbar without action icons',
+      'Search and Settings remain reachable as the window gets narrower',
     ],
   },
   {
@@ -345,7 +408,6 @@ export const featureRows: FeatureRow[] = [
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
       'Export settings, rules, identities and servers to a file, never passwords',
       'Import shows what would change, part by part, before anything does',
-      { text: 'Five toolbar layouts: Classic, Icons only, Large icons, Labels below and Text only', since: NEXT },
     ],
   },
 ];
@@ -377,6 +439,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'space', group: 'Move', keys: [['Space']], action: 'Read on: page down, then the next unread message (Shift: back)', match: [{ key: ' ' }], since: '0.7.1', home: true },
   { id: 'ends', group: 'Move', keys: [['Home'], ['End']], action: 'First / last message', match: [{ key: 'Home', shift: false }, { key: 'End', shift: false }] },
   { id: 'thread', group: 'Move', keys: [['T']], action: 'The message’s conversation (T or Esc goes back)', match: [{ key: 't' }], since: '0.5.0', home: true },
+  { id: 'expandthread', group: 'Move', keys: [['→'], ['←']], action: 'Expand / collapse a thread (with threads enabled in Settings › Reading)', match: [{ key: 'ArrowRight', shift: false }, { key: 'ArrowLeft', shift: false }], since: V095 },
   { id: 'goto', group: 'Move', keys: [['G']], action: 'Go to a folder: type part of its name', match: [{ key: 'g' }], since: '0.5.0' },
   { id: 'window', group: 'Move', keys: [['Enter']], action: 'The message in a window of its own (or double-click it); Esc closes it', match: [{ key: 'Enter' }], since: '0.6.0' },
   { id: 'open', group: 'Move', keys: [['Enter']], action: 'Open the message’s folder (in all-mail results and conversations)', match: [{ key: 'Enter' }], since: '0.5.0' },
@@ -458,6 +521,21 @@ export const keyboardTips: Tip[] = [
     title: 'Search in two keys',
     text: 'Press / and type a few letters; the list narrows as you type and marks what matched. Pick a person or an operator from under the box, Enter for the results, Tab for all mail, Esc to go back.',
   },
+  {
+    title: 'Keep the query, not a copy',
+    text: 'After / and a query, Tab chooses the folder or all mail. Save search beside the box keeps that query in the folder list. Opening it searches your current downloaded mail; deleting it leaves messages alone.',
+    since: V095,
+  },
+  {
+    title: 'Open just the replies you need',
+    text: 'Turn on threads in Settings › Reading, then use → and ← in the message list to expand and collapse. Space finds unread replies even inside a closed thread. T still gathers the whole conversation across folders.',
+    since: V095,
+  },
+  {
+    title: 'Inspect a link with the keyboard',
+    text: 'Tab to a message link to reveal its destination, or open the message’s link list and copy an address. This works in Spam too, where opening links stays blocked. Inspection does not visit the website.',
+    since: V095,
+  },
 ];
 
 // Images come from `npm run screens` (public/screens/<id>-light.webp and <id>-dark.webp).
@@ -473,19 +551,23 @@ export const hero: Screen = {
 export const screens: Screen[] = [
   {
     id: 'saved-searches', label: 'Saved searches', title: 'All mail – Telex',
-    caption: 'Save a query and its scope, then open current results from the folder list. Edit and delete searches in one place.', since: NEXT,
+    caption: 'A saved has:file query across all mail, opened from the folder list. Results use current downloaded mail; deleting a search leaves its messages alone.', since: V095,
   },
   {
     id: 'rule-preview', label: 'Rule preview', title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Attachment and header conditions, copy and forward actions, and a preview of matches before changing or sending anything.', since: NEXT,
+    caption: 'Preview an attachment rule against the current list: total matches, sample messages and each condition’s result. Previewing changes and sends nothing.', since: V095,
   },
   {
     id: 'links', label: 'Link inspection', title: 'Spam · sam@lindenstudio.com – Telex',
-    caption: 'Actual destinations and local scam-risk reasons for suspicious mail. The advisory score is not a calibrated probability.', since: NEXT,
+    caption: 'Actual link destinations, copy actions and local scam-risk reasons in Spam. Opening links stays blocked; the advisory score is not a probability.', since: V095,
   },
   {
     id: 'threads', label: 'Threads', title: 'Sent · sam@lindenstudio.com – Telex',
-    caption: 'Optional expandable conversation rows with message counts. Settings › Reading turns them on.', since: NEXT,
+    caption: 'Optional expandable conversation rows with message counts in Sent. Settings › Reading turns them on; search and unread-only lists keep individual messages.', since: V095,
+  },
+  {
+    id: 'toolbar-layouts', label: 'Toolbar layouts', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Labels below is one of five toolbar layouts in Settings › Appearance, alongside Classic, Icons only, Large icons and Text only.', since: V095,
   },
   {
     id: 'reply',
@@ -622,7 +704,7 @@ export const screens: Screen[] = [
     label: 'Appearance',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Settings › Appearance: how unread mail stands out, and six fonts, each card drawn in its own face.',
-    since: NEXT,
+    since: '0.9.1',
   },
   {
     id: 'accounts',
@@ -663,6 +745,31 @@ export const demoFirst: { keys: string[]; text: string }[] = [
 
 /** The cards under the live demo. Keep them true to scripts/demo-mailbox.json and demo/backend.js. */
 export const demoTries: { keys: string[]; title: string; text: string }[] = [
+  {
+    keys: ['/', 'Save search'],
+    title: 'Keep a live search',
+    text: 'Type has:file, choose All mail, then Save search beside the box. Name it “Files to review”, save and close the dialog. Open it from the folder list; Saved searches lets you edit or delete it.',
+  },
+  {
+    keys: ['Rules', 'Preview'],
+    title: 'Preview before filing',
+    text: 'Open Rules and start a new rule named “PDF review”. Choose Attachment name, Ends with and .pdf; leave the Flag action selected, then click Preview matches. You see the current list’s match count and sample condition results without changing mail.',
+  },
+  {
+    keys: ['Ctrl+,', '→'],
+    title: 'Expand a thread',
+    text: 'In Settings › Reading, turn on “Group related messages into threads”. Close Settings, open the studio’s Sent folder and select the Online shop estimate row. → expands it; ← collapses it.',
+  },
+  {
+    keys: ['Spam', 'Links'],
+    title: 'Inspect a suspicious message',
+    text: 'Open Spam under the studio account and select “Your music subscription needs attention”. Expand its link list to see and copy the real destination. The warning reasons are an illustrative fixture here; the desktop app computes them locally in Rust.',
+  },
+  {
+    keys: ['Ctrl+,'],
+    title: 'Choose your toolbar',
+    text: 'Settings › Appearance has five toolbar layouts. Try Labels below or Text only: the controls change immediately. Change the font, unread style or theme in the same place.',
+  },
   {
     keys: ['↓'],
     title: 'Read your way down',
@@ -731,7 +838,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['unread', 'appearance', 'menu', 'reply', 'thread', 'select', 'suggest', 'local', 'attach', 'images', 'rules', 'settings', 'polish'].map(
+export const homeScreens = ['saved-searches', 'rule-preview', 'links', 'threads', 'toolbar-layouts', 'unread', 'reply', 'thread', 'local', 'attach', 'images', 'appearance', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -744,13 +851,13 @@ export type Version = {
   points: string[];
   upgrade?: string;
   /** The cards on the home page while this is the newest version. */
-  highlights?: { title: string; text: string; keys?: string }[];
+  highlights?: { title: string; text: string; keys?: string; href?: string }[];
 };
 
 export const versions: Version[] = [
   {
-    version: NEXT,
-    title: 'Saved searches, stronger rules and security checks before every release',
+    version: V095,
+    title: 'Saved searches, stronger rules and local scam checks',
     date: '2026-10-13',
     summary: 'Keep searches in the folder list, preview richer rules, group conversations when you want to, and inspect suspicious links with an offline scam-risk check.',
     points: [
@@ -761,11 +868,14 @@ export const versions: Version[] = [
       'Five toolbar layouts in Settings › Appearance: Classic, Icons only, Large icons, Labels below and Text only. They apply immediately and persist; Search and Settings stay accessible in narrow windows.',
       'The patched ammonia 4.2.3 sanitizer reaches released builds. Linux uses a checksum-verified GLib 0.18.5 backport of the upstream iterator fix, tested with compiler optimizations. Release builds now wait for dependency and secret scans, security regressions, hostile-email tests in Windows WebView2 and Linux WebKitGTK, and resource-limited MIME/HTML/PST fuzzing.',
     ],
-    upgrade: 'The mail base adds saved searches and rule-action history (schema 13). Back up the mail base before updating; older versions cannot open it afterwards. The remaining proc-macro-error audit finding is an unmaintained dependency warning.',
+    upgrade: 'Version 0.9.5 upgrades the local mail base. Back up in Settings › Backups before updating; older Telex versions cannot reopen the upgraded mail base. Your mail and settings stay in place.',
     highlights: [
-      { title: 'Saved searches', text: 'Keep useful queries in the folder list. Results follow your current mail.' },
-      { title: 'Preview stronger rules', text: 'Headers, attachments, copy and forward, with a preview before you run a rule.' },
-      { title: 'Inspect suspicious mail', text: 'Actual link destinations and offline scam-risk reasons, including in Spam.' },
+      { title: 'Saved searches', text: 'Keep useful queries in the folder list. Results follow your current downloaded mail.', href: '/features#saved-searches' },
+      { title: 'Preview stronger rules', text: 'Headers, attachments, copy and forward, with a preview before you run a rule.', href: '/features#rules' },
+      { title: 'Inspect suspicious mail', text: 'Actual link destinations and offline scam-risk reasons, including in Spam.', href: '/features#link-inspection' },
+      { title: 'Optional threads', text: 'Expandable conversation rows with counts. Arrow keys open replies; Space finds the unread ones.', keys: '→', href: '/features#threads' },
+      { title: 'Five toolbar layouts', text: 'Compact icons, larger controls, labels underneath or text alone. Pick the layout that fits you.', href: '/features#toolbar-layouts' },
+      { title: 'Checks before every release', text: 'Dependency and secret scans, native Windows and Linux mail tests, and bounded parser fuzzing gate release builds.', href: '/security#checks' },
     ],
   },
   {
@@ -1032,7 +1142,7 @@ export const roadmap: Step[] = [
   },
   {
     title: 'Filters',
-    text: 'A Sorting Office: rules that sort, flag, move and auto-reply, run on arrival or on demand, each leaving a note on the message.',
+    text: 'A Sorting Office: match text, named headers and attachments; preview matches, then move, flag or copy mail. Forwarding and auto-replies run on new arrivals, with notes and duplicate protection.',
     status: 'done',
     notYet: 'Regular expressions and rules that run on a schedule.',
   },
@@ -1065,7 +1175,6 @@ export const roadmap: Step[] = [
     text: 'Open, save and attach files, Bcc and address suggestions, many messages at once with M and G, conversations with T, undo send, new mail at once over IMAP IDLE, older mail on request, STARTTLS.',
     status: 'done',
     since: '0.5.0',
-    notYet: 'Rules on attachments.',
   },
   {
     title: 'Archive and backup',
@@ -1076,10 +1185,35 @@ export const roadmap: Step[] = [
   },
   {
     title: 'Reading and finding',
-    text: 'Space for the next unread, read rules of your own, a right-click menu, columns that fit the window, search with suggestions, accounts in your order.',
+    text: 'Space for the next unread, read rules of your own, a right-click menu, columns that fit the window, search with suggestions and saved queries in the folder list, accounts in your order.',
     status: 'done',
     since: '0.7.1',
-    notYet: 'Saved searches as folders of their own.',
+  },
+  {
+    title: 'Moving in, spelling and away replies',
+    text: 'Bring accounts, identities, supported filters and local mail from Thunderbird or Outlook, including .pst files. Check spelling in multiple languages and configure an away reply on the server where supported, or while Telex checks mail.',
+    status: 'done',
+    since: '0.9.0',
+    notYet: 'Importing OAuth, Exchange or POP3 account connections; passwords must be entered again.',
+  },
+  {
+    title: 'Unread at a glance and six fonts',
+    text: 'Quieter read mail, accent-colored unread mail or bold alone; account colors on every list; column choices in Settings; six fonts and spelling-language controls in compose.',
+    status: 'done',
+    since: '0.9.1',
+  },
+  {
+    title: 'Threads, saved searches and stronger rules',
+    text: 'Named live searches, optional expandable threads, header and attachment conditions, rule previews, copy and forwarding, and five toolbar layouts.',
+    status: 'done',
+    since: V095,
+  },
+  {
+    title: 'Local mail inspection and release security checks',
+    text: 'Link destinations and offline scam warning reasons. Dependency and secret scans, hostile-mail tests in both native webviews and bounded MIME, HTML and PST fuzzing gate release builds.',
+    status: 'done',
+    since: V095,
+    notYet: 'An independent security audit, Windows publisher signing, and verified sender authentication or link reputation.',
   },
   {
     title: 'Sign in with Microsoft and Google',
@@ -1156,12 +1290,50 @@ export const faqGroups: { title: string; items: Question[] }[] = [
     ],
   },
   {
+    title: 'Searching, rules and appearance',
+    items: [
+      {
+        id: 'saved-searches',
+        q: 'How do saved searches work?',
+        a: 'Type a query such as has:file is:unread, choose this folder or all mail, and click Save search beside the box. Give it a name and open it from the folder list. It keeps the query, scope, sort order and list options, then searches your current downloaded mail each time you open it. It works offline and creates no message copies. Use Saved searches to edit or delete it; deleting the search does not delete mail.',
+      },
+      {
+        q: 'Can rules match headers and attachments?',
+        a: 'Yes, in 0.9.5. Alongside sender, recipients, subject and text, conditions can inspect a named header, attachment filename or MIME type, including presence and absence. Combine all or any conditions. Rules can move, flag, mark read, copy, forward or reply, and leave notes explaining their changes. Regular expressions and scheduled rules are not built yet.',
+      },
+      {
+        q: 'Does previewing a rule change anything?',
+        a: 'No. In the rule editor, Preview checks the unsaved rule against the current folder or search results. It reports the full match count, sample messages and each condition’s result. It does not save the rule, move mail, mark messages read or send anything. You decide whether to save or run the rule afterward.',
+      },
+      {
+        q: 'Can a rule copy or forward mail automatically?',
+        a: 'Yes. Copy keeps the original and puts a copy in the chosen folder, with protection against repeating the same rule action. Forwarding uses the rule’s sending account and runs only on newly arriving mail, with duplicate and loop protection. Running rules manually does not forward old messages or send automatic replies. A queued forward is sent through your SMTP server; its recipient receives the mail.',
+      },
+      {
+        q: 'Are conversations and thread rows the same thing?',
+        a: 'T gathers a selected message’s conversation across the account’s folders. Optional thread rows instead group related mail inside one folder: turn on Group related messages into threads in Settings › Reading, then expand with → or the chevron and collapse with ←. Counts show messages and unread mail. Space reaches hidden unread replies. Search and unread-only lists remain individual messages, and actions apply to the selected message.',
+      },
+      {
+        q: 'Can I change the toolbar layout?',
+        a: 'Yes. Settings › Appearance offers Classic, Icons only, Large icons, Labels below and Text only. Your choice applies immediately and is saved. Search and Settings remain reachable in narrow windows. The same tab offers eight themes, six fonts, larger text, density and unread-mail styling.',
+      },
+    ],
+  },
+  {
     title: 'Privacy and data',
     items: [
       {
         id: 'privacy',
         q: 'Does Telex send anything about me anywhere?',
-        a: 'No. There is no account, no telemetry and no Telex server. The app talks to your mail servers, to the servers that host a message’s images only when you choose to load them, and to GitHub to look for a new version only if you allow it. That check sends nothing about you.',
+        a: 'The desktop app has no Telex account, telemetry or mail relay. It connects directly to your mail servers. Account setup uses DNS and provider setup URLs; images load after your permission or sender trust; optional dictionaries and permitted or manual update checks contact GitHub; server-side away replies use your provider’s ManageSieve service. Requests reveal your IP address and time, and one setup URL includes your email address. Local search, link inspection and scam checks do not upload mail. The privacy page explains each connection.',
+      },
+      {
+        q: 'Does the scam check upload mail or open links?',
+        a: 'No. The Rust mail engine checks warning signs locally when you open a message. It explains sender and brand lookalikes, misleading links and other supported signals without visiting websites, following redirects or uploading content. The score is advisory points out of 100, not a probability. Its brand catalogue and scan size are limited; no warning does not mean a message is safe. It does not verify attachments, link reputation, SPF, DKIM or DMARC, and does not move messages for you.',
+      },
+      {
+        q: 'Can I inspect links in Spam?',
+        a: 'Yes. Hover or focus a link to see its real destination, or expand the message’s link list to inspect and copy addresses. Hidden characters are made visible. Opening links remains blocked in Spam; move a message out of Spam before using them. Inspecting or copying an address does not contact its website.',
       },
       {
         q: 'Where is my mail kept?',
@@ -1191,7 +1363,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         id: 'demo',
         q: 'Can I try Telex without installing it?',
-        a: 'Yes. The live demo on this site runs the real Telex interface in your browser, with a made-up mailbox: every key, the settings and the eight themes work. It can’t reach real mail servers, and nothing you do there leaves your browser.',
+        a: 'Yes. The live demo runs the real Telex interface with a made-up mailbox: shortcuts, saved searches, rule previews, optional threads, toolbar layouts and themes work. It cannot reach mail servers or send real mail. Scam warning reasons come from a fixed example; the desktop app’s Rust scanner does not run in the browser. Your demo edits are reset when you reload.',
       },
       {
         q: 'Which Windows versions are supported?',
@@ -1232,6 +1404,9 @@ export const ticker = [
   'FAST KEYBOARD MAIL. LOCAL MAIL BASE. NO TELEMETRY.',
   'TRY IT IN YOUR BROWSER: SEE THE LIVE DEMO',
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
+  'SAVE A SEARCH. PREVIEW A RULE. EXPAND A THREAD.',
+  'INSPECT LINKS. SCAM WARNING SIGNS ARE CHECKED ON YOUR PC.',
+  'FIVE TOOLBAR LAYOUTS: PICK YOUR WAY TO WORK.',
   'GMAIL: WORKS WITH AN APP PASSWORD. NEXT: MICROSOFT SIGN-IN',
   'EIGHT THEMES, ALL WCAG 2.2. SIX FONTS. ENGLISH AND POLISH.',
   'TRY: SPACE = NEXT UNREAD, R = REPLY, T = CONVERSATION, / = SEARCH',

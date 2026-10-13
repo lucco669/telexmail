@@ -8,7 +8,7 @@ import s from './page.module.css';
 export const metadata = pageMetadata(pages.privacy);
 
 // Change this date whenever the text below changes.
-const UPDATED = '12 October 2026';
+const UPDATED = '13 October 2026';
 
 export default function PrivacyPage() {
   return (
@@ -27,6 +27,7 @@ export default function PrivacyPage() {
             <li>Your mail stays on your PC and your mail server</li>
             <li>Mail, account discovery, images, dictionaries and updates have different network uses</li>
             <li>Update checks contact GitHub only if allowed by your setting or started manually</li>
+            <li>Saved searches and scam warning checks stay local; configured forwards send mail to their recipients</li>
             <li>This site uses cookieless Vercel Web Analytics for page counts</li>
             <li>The live demo runs in your browser: nothing you do there is sent</li>
           </ul>
@@ -35,8 +36,9 @@ export default function PrivacyPage() {
           <h2>The Telex app</h2>
           <h3>What it stores on your PC</h3>
           <p>
-            The messages it downloads (in full, so you can read and search them offline), your folders and your account
-            settings. All of it is in one file: <code>%APPDATA%\app.telexmail.desktop\telex.db</code>. Your choices in
+            The messages it downloads (in full, so you can read and search them offline), your folders, accounts, rules,
+            identities, saved search names and queries, and rule-action history used to prevent duplicate copies and forwards.
+            These are in <code>%APPDATA%\app.telexmail.desktop\telex.db</code>. Your choices in
             Settings (theme, language and the like) are in <code>settings.json</code> next to it. Passwords are kept
             apart from both, in Windows Credential Manager under “Telex”, or a Secret Service keyring on Linux.
           </p>
@@ -57,12 +59,31 @@ export default function PrivacyPage() {
             signatures, and your accounts’ server names and user names. It never holds passwords. Nothing is sent
             anywhere: what you do with the file is up to you.
           </p>
+          <h3 id="local-checks">Saved searches and local mail inspection</h3>
+          <p>
+            A saved search stores a query, scope and list options in your local mail base. Opening it searches downloaded
+            mail on this PC, without sending the query to a server or making extra message copies. Deleting a saved
+            search removes that view, not the mail it finds. Mail-base backups include saved searches.
+          </p>
+          <p>
+            Link inspection displays addresses already present in a message. Hovering, focusing or copying them does
+            not visit the destination. The scam checker also runs locally, when you open a message, with recent reports
+            cached in memory. It uploads nothing, performs no DNS or reputation lookup, fetches no images and follows
+            no redirects. It does not move, delete or mark mail read; your reading setting still controls read flags.
+            Its limited, advisory score is explained on the <Link href={`${pages.security.path}#limits`}>security page</Link>.
+          </p>
           <h3>Who it talks to</h3>
           <p>
             The IMAP and SMTP servers you set up, over encrypted connections (SSL/TLS, or STARTTLS on port 587 and, from
             version 0.5, 143), never unencrypted. There is no Telex server: your mail never passes through us, and we
             never see it. From version 0.5, to show new mail at once, Telex keeps one connection open to each
             account’s IMAP server, watching the Inbox (IMAP IDLE); you can turn that off in Settings › Mail.
+          </p>
+          <p>
+            Rules can copy mail to a server folder or forward newly arriving mail to addresses you configure.
+            A forward sends the message through your SMTP server to those recipients; automatic and away replies also
+            send through your account. These actions need no Telex relay. Previewing a rule checks local matches and
+            sends nothing; running rules manually does not forward old messages or send automatic replies.
           </p>
           <p>
             When you add an account, Telex finds its servers itself. It looks in its own list of common providers
@@ -166,6 +187,11 @@ export default function PrivacyPage() {
             reload it; files you attach are never read, only their names and sizes are shown. Like the app, it keeps
             its theme, language, text size and pane sizes in your browser’s local storage. Links in the demo mailbox
             open in a new tab, as they would in your browser from the app.
+          </p>
+          <p>
+            Demo saved searches and rule edits stay in memory and reset on reload, as do mail changes. The scam report
+            is a fixed illustrative fixture; the desktop Rust scanner does not run in your browser. The demo cannot
+            send automatic forwards or real replies to anyone.
           </p>
           <h3>Downloads</h3>
           <p>

@@ -54,6 +54,32 @@ const protections = [
     ],
   },
   {
+    title: 'Link destinations you can inspect',
+    text: 'Hover or keyboard focus reveals the actual destination, with hidden characters made visible. The message’s link list supports inspection and copying even in Spam, where opening links stays blocked. Displaying an address does not visit it or resolve redirects.',
+    evidence: [
+      { label: 'URL inspection code', path: 'ui/links.js' },
+      { label: 'Message link interface', path: 'ui/app.js' },
+      { label: 'Misleading-link regressions', path: 'scripts/security/guards.test.mjs' },
+    ],
+  },
+  {
+    title: 'Scam warning signs checked offline',
+    text: 'When you open a message, the Rust engine checks supported sender, brand and link warning signs and explains each contributing reason. It uploads no mail, follows no links and does not change message flags. Scores are advisory points, not probabilities or a safety verdict.',
+    evidence: [
+      { label: 'Risk engine and regression tests', path: 'crates/telex-core/src/risk.rs' },
+      { label: 'Scanner scope and limits', path: 'docs/mail-risk.md' },
+      { label: 'Opened-message boundary', path: 'crates/telex-core/src/store.rs' },
+    ],
+  },
+  {
+    title: 'Previews and safeguards for mail rules',
+    text: 'Rule previews only inspect current matches. Copy actions preserve the original and record duplicate protection; automatic forwards and replies run only on new arrivals, with duplicate and loop safeguards. Configuring a forward shares that mail with the recipient through your SMTP server.',
+    evidence: [
+      { label: 'Rules, previews and forwarding tests', path: 'crates/telex-core/src/filters.rs' },
+      { label: 'Rule-action storage', path: 'crates/telex-core/src/store.rs' },
+    ],
+  },
+  {
     title: 'Update signature verification',
     text: 'Release builds with the updater enabled verify the update signature and signed version before installation. Automatic checks require your choice in Settings; a manual check also contacts GitHub. Installation requires your click. Updater signatures are separate from Windows publisher signing.',
     evidence: [
@@ -92,7 +118,7 @@ export default function SecurityPage() {
       </PageHeader>
       <div className={`container ${s.layout}`}>
         <aside className={s.summary}>
-          <p className={s.updated}>Documented 12 October 2026</p>
+          <p className={s.updated}>Updated 13 October 2026</p>
           <p className={s.summaryTitle}>Evidence you can inspect.</p>
           <p>Source, tests and scan results describe specific protections. They do not establish that an app is safe in every situation.</p>
           <nav aria-label="On this page">
@@ -146,13 +172,20 @@ export default function SecurityPage() {
               <li><b>Rust dependencies:</b> cargo-audit checks the complete Cargo lockfile against RustSec. Vulnerabilities and soundness advisories fail the check; maintenance warnings remain visible.</li>
               <li><b>JavaScript dependencies:</b> npm audit checks both the desktop tooling and website lockfiles, including development dependencies. Reported vulnerabilities fail the check.</li>
               <li><b>Secrets:</b> Gitleaks scans fetched Git history and the current source for recognized secret patterns. Public evidence contains counts and rule names, with matched values and contextual source text omitted.</li>
-              <li><b>Security regressions:</b> tests check desktop security settings and mail-frame restrictions, then run the mail engine’s unit tests, including HTML, image, attachment and password-export cases.</li>
+              <li><b>Security regressions:</b> tests check desktop security settings, mail-frame restrictions and misleading link display, then run the mail engine’s unit tests, including HTML, image, attachment, local risk and password-export cases.</li>
+              <li><b>Linux source verification:</b> the vendored GLib inventory and hashes are checked, then its affected iterator operations run in an optimized regression test.</li>
+              <li><b>Native mail rendering:</b> isolated Tauri builds test hostile messages on light and dark paper in Windows WebView2 and Linux WebKitGTK, using the production CSP and IPC layer. A separate raw-script fixture exercises the sandbox.</li>
+              <li><b>Parser fuzzing:</b> coverage-guided MIME/HTML and complete PST-import targets each run for 60 seconds, with per-input timeout, memory and input-size limits. Crashes, timeouts and memory-limit failures fail the gate and retain reproducers.</li>
             </ul>
+            <p className={s.note}>The release workflow depends on the complete security workflow before creating a draft or signing installers.
+              Failed scans, source verification, native webview tests or fuzzing stop that release build. This is a configured gate;
+              use the run for the exact release commit to inspect the result.</p>
             <p className={s.note}>Each run retains a security-evidence artifact for 90 days with tool versions, timestamps, source and lockfile hashes,
               advisory details and test logs. GitHub may require sign-in to download artifacts. Missing tools or unavailable audit services produce errors.</p>
             <div className={s.actions}>
               <a href={workflow}>Open the security runs ↗</a>
               <a href={source('.github/workflows/security.yml')}>Inspect the workflow ↗</a>
+              <a href={source('.github/workflows/release.yml')}>Inspect the release gate ↗</a>
               <a href={source('docs/security.md')}>Repeat the checks yourself ↗</a>
             </div>
             <p className={s.note}>This page does not display an assumed passing badge. No completed run means no completed result to claim.
@@ -162,6 +195,10 @@ export default function SecurityPage() {
           <section id="limits" aria-labelledby="limits-h">
             <h2 id="limits-h">Current limits and open findings</h2>
             <ul className={s.checks}>
+              <li><b>Local scam checks have a bounded scope.</b> The initial brand catalogue is small and scans have size limits.
+                The checker does not verify attachments, remote images, final redirects, site reputation, SPF, DKIM or DMARC.
+                An incomplete check is reported; no warning does not establish safety. Scores are heuristic points out of 100, capped at 99.
+                <span className={s.inlineEvidence}> <a href={source('docs/mail-risk.md')}>Scope, scoring and limits</a></span></li>
               <li><b>Local mail is not encrypted by Telex.</b> The mail database and its backups are ordinary SQLite files.
                 Settings, exported mail and saved attachments also need protection from your operating system and storage.
                 <span className={s.inlineEvidence}> <a href={source('crates/telex-core/src/store.rs')}>Storage code</a> · <a href={source('crates/telex-core/src/backup.rs')}>Backup code</a></span></li>

@@ -1,5 +1,5 @@
 import { PageLink as Link } from '@/components/PageNavigation';
-import { facts, hero, NEXT, nextTeaser, versions } from '@/lib/content';
+import { facts, hero, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
 import { isReleased, versionAnchor, versionName } from '@/lib/versions';
@@ -12,8 +12,9 @@ import s from './Hero.module.css';
 
 /** The line in the pill above the title: what the next version brings, or what the newest one did. */
 function news(release: Release | null) {
-  if (!release || !isReleased(NEXT, release)) {
-    return { lead: `Coming in ${versionName(NEXT)}:`, text: nextTeaser, anchor: NEXT };
+  const newest = versions[0];
+  if (!release || !isReleased(newest.version, release)) {
+    return { lead: `Coming in ${versionName(newest.version)}:`, text: `${newest.title}.`, anchor: newest.version };
   }
   const notes = versions.find((v) => v.version === release.version);
   if (!notes) return { lead: `Version ${release.version} is out:`, text: 'see what’s new.', anchor: release.version };
@@ -60,7 +61,7 @@ export function Hero({ release, unknown = false }: { release: Release | null; un
         <div className={s.side}>
           <p className={s.lead}>
             Light on your PC. Quick through your inbox. Telex is an email client for Windows and Linux, with dense lists, one key for every action, and all
-            your mail on your own disk, searchable offline.
+            your mail on your own disk. Keep searches close, preview powerful rules, and inspect suspicious mail offline.
           </p>
           <div className={s.actions}>
             <DownloadButton release={release} unknown={unknown} />

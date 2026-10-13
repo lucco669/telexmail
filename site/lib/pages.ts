@@ -20,9 +20,9 @@ export const pages = {
   home: {
     path: '/',
     label: 'Home',
-    title: 'Telex – a fast, keyboard-driven email client for Windows',
+    title: 'Telex – fast email for Windows and Linux',
     description:
-      'A compact, fast email client for Windows. Dense lists, one key per action, and your mail on your own disk, searchable offline. No Electron, no telemetry.',
+      'Fast email for Windows and Linux: offline saved searches, powerful rule previews, optional threads and local scam checks. No Electron or telemetry.',
     ogTitle: 'Email at the speed of your keyboard.',
     ogScreen: 'inbox',
   },
@@ -31,16 +31,16 @@ export const pages = {
     label: 'Features',
     title: 'Features of a fast, keyboard-driven email client',
     description:
-      'What Telex does: a dense list, one key per action, conversations, attachments, accounts that set themselves up, IMAP sync, rules and offline search.',
+      'Explore Telex: saved searches, header and attachment rules, previews, optional threads, link inspection, local scam checks and five toolbar layouts.',
     ogTitle: 'Everything Telex does today.',
-    ogScreen: 'inbox',
+    ogScreen: 'rule-preview',
   },
   demo: {
     path: '/demo',
     label: 'Live demo',
     title: 'Live demo: try Telex in your browser',
     description:
-      'The real Telex interface in your browser, with a demo mailbox: read, reply, filter, move and send with the keyboard. Nothing you do leaves the page.',
+      'Try Telex’s real interface: saved searches, rule previews, threads and toolbar layouts in a browser demo mailbox. Your edits stay in the tab.',
     ogTitle: 'Try it in your browser.',
     ogScreen: 'thread',
   },
@@ -49,7 +49,7 @@ export const pages = {
     label: 'Keyboard',
     title: 'Keyboard shortcuts',
     description:
-      'Every Telex shortcut on one page: move, reply, forward, flag, delete, undo, filter and send without touching the mouse. Printable as a cheat sheet.',
+      'Every Telex shortcut: read, reply, select, move, search, expand threads and inspect links from the keyboard. Print a cheat sheet or try the demo.',
     ogTitle: 'One key per action.',
     ogScreen: 'reply',
   },
@@ -66,16 +66,16 @@ export const pages = {
     label: 'Screenshots',
     title: 'Screenshots in light and dark',
     description:
-      'Telex in light and dark: the main window, reply, conversations, moving many messages, attachments, the quick filter, HTML mail, rules and settings.',
+      'See Telex in light and dark: saved searches, rule previews, link inspection, expandable threads, five toolbar layouts, compose and settings.',
     ogTitle: 'A closer look.',
-    ogScreen: 'filter',
+    ogScreen: 'toolbar-layouts',
   },
   accessibility: {
     path: '/accessibility',
     label: 'Accessibility',
     title: 'Accessibility: eight themes, all WCAG 2.2',
     description:
-      'Eight themes, each measured against WCAG 2.2: AA contrast everywhere, AAA in high contrast. Text up to 200%, keyboard access, English and Polish.',
+      'Eight measured themes, six fonts, five toolbar layouts and text up to 200%. AA contrast, two AAA themes, keyboard access, English and Polish.',
     ogTitle: 'Readable in every theme.',
     ogScreen: 'settings',
   },
@@ -84,8 +84,8 @@ export const pages = {
     label: 'Download',
     title: 'Download for Windows and Linux',
     description:
-      'Download Telex for Windows 10 and 11, or Linux as an AppImage or .deb. System requirements, installation steps, and how Telex sets up your account.',
-    ogTitle: 'Get Telex for Windows.',
+      'Download Telex for Windows or Linux. Get saved searches, stronger rules and local scam checks, with installation, migration and upgrade guidance.',
+    ogTitle: 'Get Telex for Windows and Linux.',
     ogScreen: 'account',
   },
   changelog: {
@@ -93,16 +93,16 @@ export const pages = {
     label: 'Changelog',
     title: 'Changelog: what’s new in each version',
     description:
-      'Every Telex release and what it brought, from the first self-updating build to attachments, conversations and undo send, with its downloads.',
+      'Every Telex release, including 0.9.5: saved searches, stronger rules, threads, toolbar layouts and local scam checks. Notes, upgrades and downloads.',
     ogTitle: 'What’s new in Telex.',
-    ogScreen: 'select',
+    ogScreen: 'saved-searches',
   },
   roadmap: {
     path: '/roadmap',
     label: 'Roadmap',
     title: 'Roadmap: what’s done and what’s next',
     description:
-      'Where Telex stands: what works today, what each step still leaves out, and what comes next: Microsoft and Google sign-in.',
+      'Telex’s shipped features and current limits: saved searches, richer rules, local mail inspection and security gates. Next: Microsoft and Google sign-in.',
     ogTitle: 'Early, and honest about it.',
     ogScreen: 'comfortable',
   },
@@ -111,7 +111,7 @@ export const pages = {
     label: 'FAQ',
     title: 'Questions and answers',
     description:
-      'Answers about Telex: which mail providers work, sending, where your mail is stored, privacy, and installing on Windows.',
+      'Telex answers: providers, saved searches, rule previews, copy and forwarding, threads, toolbar layouts, local scam checks, privacy and upgrades.',
     ogTitle: 'Questions and answers.',
     ogScreen: 'images',
   },
@@ -120,7 +120,7 @@ export const pages = {
     label: 'About',
     title: 'About: a mail client built like a tool',
     description:
-      'The ideas behind Telex: dense, keyboard-first, local and private, in the spirit of The Bat!. What it will never be, and what it is built with.',
+      'Why Telex is dense, keyboard-first and local: reusable searches, rules you can preview, readable layouts and offline mail inspection. Built in Rust.',
     ogTitle: 'A mail client built like a tool.',
     ogScreen: 'reply',
   },
@@ -139,16 +139,16 @@ export const pages = {
     label: 'Privacy & security',
     title: 'Privacy & security: protections and evidence',
     description:
-      'Inspect Telex’s security protections, network access, automated check results and current limits, with links to source and tests.',
+      'Inspect Telex’s local scam checks, link protections and release security gates: scans, native webview tests, parser fuzzing, source and current limits.',
     ogTitle: 'Privacy & security. Evidence you can inspect.',
-    ogScreen: 'images',
+    ogScreen: 'links',
   },
   privacy: {
     path: '/privacy',
     label: 'Privacy',
     title: 'Privacy: what the app and website store and send',
     description:
-      'Where Telex stores mail and passwords, when it contacts mail providers and GitHub, and how this website uses cookieless visitor statistics.',
+      'Where Telex stores mail, saved searches and passwords; how offline scam checks work; when it goes online; and what the website and demo store.',
     ogTitle: 'What stays on your PC. What goes online.',
     ogScreen: 'images',
   },

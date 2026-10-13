@@ -32,7 +32,7 @@ export function GET() {
     '',
     '## Versions',
     '',
-    ...versions.map((v) => `- ${v.version}${out(v.version) ? '' : ' (the next version, when this file was made)'}: ${v.title}. ${v.summary}`),
+    ...versions.map((v) => `- ${v.version}${out(v.version) ? '' : ' (the next version, when this file was made)'}: ${v.title}. ${v.summary}${v.upgrade ? ` Upgrade: ${v.upgrade}` : ''}`),
     '',
     '## Pages',
     '',

@@ -13,7 +13,7 @@ export default function ScreenshotsPage() {
       <PageHeader
         page={pages.screenshots}
         title="Screenshots."
-        lead="The current build, in light and dark, with a demo mailbox. Open any of them full size."
+        lead="The current build in light and dark: saved searches, rule previews, link inspection, optional threads and toolbar layouts, alongside the everyday mail tools. The mailbox is made up. Open any screenshot full size."
       />
       <div className="container">
         <Gallery items={[hero, ...screens]} />

@@ -20,8 +20,8 @@ export function DemoBand() {
           </p>
           <h2 className="h2">Try it before you install.</h2>
           <p className="lead">
-            The live demo runs Telex’s real interface in your browser, on a made-up mailbox. Every key works, the settings
-            and themes too, and nothing you do leaves the page.
+            Telex’s real interface, on a made-up mailbox. Save a search, preview a rule, expand threads or change the
+            toolbar, then try the everyday shortcuts. Your mailbox edits stay in this tab.
           </p>
           <DemoFirst title="Try these first" className={s.first} />
           <p>

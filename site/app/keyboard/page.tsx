@@ -19,7 +19,7 @@ export default async function KeyboardPage() {
       <PageHeader
         page={pages.keyboard}
         title="Keyboard shortcuts."
-        lead="Everything you do all day is one key, no Ctrl chords, and it works on one message or a whole selection. Press any of them here to try it, or print the list and keep it next to your keyboard."
+        lead="Common mail actions take one key, for one message or a whole selection. Expand threads with the arrows, read on with Space, and inspect links on keyboard focus. Press a shortcut here to highlight it, or print the list as a cheat sheet."
       >
         <PrintButton label="Print as a cheat sheet" />
         <Link href={pages.demo.path} className="btn no-print">

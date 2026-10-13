@@ -17,7 +17,7 @@ export default function DemoPage() {
         page={pages.demo}
         compact
         title="Try Telex in your browser."
-        lead="This is Telex’s real interface, the same HTML, CSS and JavaScript the app ships, on a made-up mailbox. Read, reply, move, filter and send with the keyboard. Nothing you do leaves this page."
+        lead="Telex’s real interface on a made-up mailbox. Try saved searches, rule previews, expandable threads and five toolbar layouts, then read, reply and organize with the keyboard. Your mailbox edits stay in this tab."
       />
 
       <section className={`container ${s.stage}`} aria-label="Live demo">
@@ -66,7 +66,9 @@ export default function DemoPage() {
           <ul className={s.list}>
             <li>The whole interface, from the folder tree to the settings, exactly as the app has it.</li>
             <li>Every key, the selection, search with its suggestions and operators, compose in text or HTML.</li>
-            <li>All eight themes, text size, density, and the interface in English and Polish.</li>
+            <li>Saved queries, header and attachment conditions, rule previews and copying inside the demo mailbox.</li>
+            <li>Optional thread rows, all five toolbar layouts, eight themes, six fonts, text size and density.</li>
+            <li>Link destinations and copying, including in Spam, and the interface in English and Polish.</li>
           </ul>
         </div>
         <div>
@@ -76,6 +78,10 @@ export default function DemoPage() {
             <li>
               The servers. In the app, a Rust core syncs with IMAP and sends over SMTP; here a small script in the page
               answers in its place. “Sent” mail only moves to Sent, and attachments can’t be opened.
+            </li>
+            <li>
+              The scam report. Its warning reasons are a fixed illustrative example; the desktop app’s offline Rust
+              scanner does not run here. Automatic forwarding cannot send mail from the demo.
             </li>
             <li>Memory. Reload, or press Start over, and everything is as it was.</li>
           </ul>

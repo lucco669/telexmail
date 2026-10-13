@@ -22,7 +22,7 @@ export default async function FeaturesPage() {
       <PageHeader
         page={pages.features}
         title="Everything Telex does today."
-        lead="A fast, dense mail client for people who read a lot of mail. Here is what works, with screenshots, what the next version adds, and what doesn’t work yet."
+        lead="A fast, dense mail client for people who read a lot of mail. Saved searches, rules you can preview, optional threads and local link checks join the keyboard, offline mail and eight themes. Explore each feature with screenshots."
       >
         <Link href={pages.demo.path} className="btn btn-primary">
           Try it in your browser

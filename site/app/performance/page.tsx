@@ -30,15 +30,22 @@ export default async function PerformancePage() {
       <PageHeader page={pages.performance} title="Small footprint. Measured speed." compact
         lead="100,000 complete synthetic messages in a repeatable test mailbox. The full desktop app, including its window. Every figure below has a date, a workload and a method." />
       <Performance release={release} compact />
+      {release && release.version !== performance.version && <p className={`container ${s.note}`}>
+        The current download is Telex {release.version}; the recorded desktop benchmark below is version {performance.version}.
+        Newer features have not been assigned these timings without another measurement.
+      </p>}
       <section className={`container ${s.section}`} aria-labelledby="search-ready">
         <h2 className="h2" id="search-ready">Searchable as mail is saved.</h2>
         <p className={s.intro}>Telex updates its full-text index while it stores each batch of messages. Once a message is saved,
           it is ready to search. Normal sync and import need no separate background indexing phase afterward.</p>
         <div className={s.design}>
           <div><h3>One storage step</h3><p>Messages and their search entries are saved together. Search keeps up with stored mail, including message bodies.</p></div>
-          <div><h3>Small lists, at any depth</h3><p>Folder views load a page of summaries. Opening a 40,000-message inbox does not load 40,000 message bodies into the window.</p></div>
+          <div><h3>Small lists, at any depth</h3><p>Folder views load a page of summaries. Optional threads keep message bodies paged too. Opening a 40,000-message inbox does not load 40,000 message bodies into the window.</p></div>
           <div><h3>An index without extra body copies</h3><p>The search index stores tokens and message IDs. It does not keep another full copy of each message’s text.</p></div>
         </div>
+        <p className={s.note}>Saved searches reuse the same local query engine; they store queries and list options rather than another copy of the mailbox.
+          The local scam check runs when a message is opened, with recent opened messages cached. Listing, searching and syncing do not run that scanner.
+          {' '}<Link href={`${pages.features.path}#saved-searches`}>Saved searches</Link> · <Link href={`${pages.features.path}#link-inspection`}>Local mail inspection</Link>.</p>
         {performance.coreBuild && <p className={s.note}>In the core benchmark, generating and storing 100,000 synthetic messages, including their search index,
           took {performance.coreBuild.seconds.toFixed(1)} seconds, in batches of {performance.coreBuild.batchMessages.toLocaleString('en-GB')}.
           This excludes network transfer and MIME parsing, and is not a desktop import or a speed comparison with another app.</p>}
