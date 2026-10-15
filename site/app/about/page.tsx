@@ -13,9 +13,9 @@ const principles = [
   ['Fast and light', 'Starts quickly, installs small, and needs no account or cloud service.'],
   ['Local mail base', 'Mail is stored on your disk in full and searchable offline. Saved queries put reusable views beside your folders, without copying mail.'],
   ['Powerful filters', 'Match text, named headers and attachments, preview results, then sort, flag, move, copy or forward new mail, with notes explaining changes.'],
-  ['Private by default', 'Remote images need permission or sender trust. Inspect and copy links even in Spam; scam warning signs are checked locally, without uploading mail.'],
+  ['Private by default', 'Remote images need permission or sender trust. The spam filter learns on your PC; links and scam warning signs are checked there too, without uploading mail.'],
   ['Fluent in Polish', 'Old charsets like Windows-1250 and ISO-8859-2 decode correctly; replies quote the Polish way.'],
-  ['Plain text first', 'Compose is plain text in a mono face. HTML is a switch away, and always goes out with a plain-text copy.'],
+  ['HTML when it helps', 'New messages and replies start in HTML and always go out with a plain-text copy. Plain text in a mono face is a setting, or a switch on any one message.'],
   ['Readable', 'Eight themes with measured AA contrast, two at AAA, six fonts and five toolbar layouts. Optional threads keep conversations compact without hiding unread replies from Space.'],
   ['Mail follows the theme', 'In a dark theme HTML mail goes on the theme’s dark paper with its colors turned around; one click shows it on white, as sent.'],
   ['Honest about mail', '“Sent” only once your server has accepted the message. Until then it waits in the Outbox, with the reason.'],
@@ -25,7 +25,7 @@ const principles = [
 const never = ['Electron', 'AI features switched on by default', 'A web-app look', 'Anything that phones home'];
 
 const stack = [
-  ['Mail core', 'Rust: IMAP with IDLE (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls), HTML cleaning (ammonia), rules and offline scam warning checks'],
+  ['Mail core', 'Rust: IMAP with IDLE (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls), HTML cleaning (ammonia), rules, a learning spam filter and offline scam warning checks'],
   ['Mail base', 'SQLite with FTS5 full-text search, one file on your disk'],
   ['Window', 'Tauri 2: WebView2 on Windows, WebKitGTK on Linux, so no browser is bundled'],
   ['Interface', 'Plain HTML, CSS and JavaScript, with six fonts, eight themes and five toolbar layouts'],

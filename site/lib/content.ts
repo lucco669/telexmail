@@ -31,7 +31,7 @@ export const features = [
   },
   {
     title: 'Private by default',
-    text: 'Remote images stay blocked, passwords use your system’s store, and link inspection and scam warning signs are checked locally. No Telex account or telemetry.',
+    text: 'Remote images stay blocked and passwords use your system’s store. The spam filter learns on your PC, and links and scam warning signs are checked there too. No Telex account or telemetry.',
   },
   {
     title: 'Readable your way',
@@ -48,7 +48,7 @@ export const features = [
 ];
 
 /** The strip under the hero's screenshot: what you get, in a few words each. */
-export const facts = ['Saved searches', 'Rule previews', 'Optional threads', 'Local scam checks', 'Undo send', 'Windows and Linux', 'No Electron', 'No telemetry'];
+export const facts = ['Spam filter that learns', 'Saved searches', 'Rule previews', 'Optional threads', 'Undo send', 'Windows and Linux', 'No Electron', 'No telemetry'];
 
 /**
  * Which mail works, beside the download buttons. Keep it true to crates/telex-core/src/autoconfig.rs:
@@ -81,6 +81,7 @@ export const providers: Record<'works' | 'appPassword' | 'later', ProviderGroup>
 /** Beside the download buttons: what Telex does for you, true to the current build. */
 export const benefits = [
   { title: 'Keep searches close', text: 'Search offline across your accounts, then save the query in your folder list.' },
+  { title: 'Junk out of the way', text: 'A spam filter that learns from your own mail on your PC, and says why it moved each message.' },
   { title: 'Preview your rules', text: 'Match headers and attachments, and inspect results before filing or forwarding new mail.' },
   { title: 'Several accounts, one window', text: 'Each in its own color, one search across all of them.' },
   { title: 'Take it back', text: 'Z undoes a delete, a move or a discarded message, and holds sent mail for five seconds.' },
@@ -335,15 +336,17 @@ export const featureRows: FeatureRow[] = [
   },
   {
     id: 'spam-filter',
-    screen: 'spam',
+    screen: 'spam-filter',
     title: 'A spam filter that learns from you',
     text: 'Telex learns what your spam looks like from your own Spam folder and the mail you keep, on your PC, and files new junk away before you see it. Each message it moves says why.',
     since: V098,
     points: [
       'A statistical filter (as SpamBayes): words, senders, link hosts and a few header facts, nothing uploaded',
+      'The note on a message it moved gives the score and the words that told, and how to send it back',
       'Never moves mail from people you have written to, senders whose images you trust, or answers to your own mail',
-      'Mark as spam and Not spam in the message menu teach it; moving mail into or out of Spam does too',
-      'Careful, normal or strict in Settings › Mail, or off; it waits until it has seen enough of both kinds',
+      'Mark as spam and Not spam in the message menu teach it; moving mail into or out of Spam does too, and Z undoes both',
+      'Careful, normal or strict in Settings › Mail, or off; it waits until it has seen 50 of each kind',
+      'It runs before your rules, and mail it files away brings no notification',
     ],
   },
   {
@@ -548,8 +551,13 @@ export const keyboardTips: Tip[] = [
   },
   {
     title: 'Inspect a link with the keyboard',
-    text: 'Tab to a message link: its real destination shows at the foot of the message. Shift+F10 or the menu key copies the address. This works in Spam too, where opening links stays blocked. Nothing visits the website.',
+    text: 'Tab to a message link: its real destination shows at the foot of the message. Shift+F10 or the menu key opens its menu, to open it or copy the address. This works in Spam too, where opening links stays blocked. Nothing visits the website.',
     since: V095,
+  },
+  {
+    title: 'Teach the spam filter',
+    text: 'Shift+F10 on junk that got through, then Mark as spam: it goes to Spam and the filter learns from it. In Spam, Not spam sends a message back and unlearns it. Z takes either back.',
+    since: V098,
   },
 ];
 
@@ -564,6 +572,10 @@ export const hero: Screen = {
 };
 
 export const screens: Screen[] = [
+  {
+    id: 'spam-filter', label: 'Spam filter', title: 'Spam · sam@lindenstudio.com – Telex',
+    caption: 'Mail the spam filter moved says so, with its score and the words that told. Not spam in the message’s menu sends it back to the Inbox and teaches the filter.', since: V098,
+  },
   {
     id: 'saved-searches', label: 'Saved searches', title: 'All mail – Telex',
     caption: 'A saved has:file query across all mail, opened from the folder list. Results use current downloaded mail; deleting a search leaves its messages alone.', since: V095,
@@ -588,7 +600,7 @@ export const screens: Screen[] = [
     id: 'reply',
     label: 'Reply',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'R opens the reply right in the reading pane: plain text in a mono face, quoted and signed, from the identity you pick.',
+    caption: 'R opens the reply right in the reading pane, in HTML, quoted and signed, from the identity you pick. Text switches it to plain text in a mono face.',
   },
   {
     id: 'menu',
@@ -783,9 +795,14 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
     text: 'In Settings › Reading, turn on “Group related messages into threads”. Close Settings, open the studio’s Sent folder and select the Online shop estimate row. → expands it; ← collapses it.',
   },
   {
-    keys: ['Spam', 'Links'],
-    title: 'Inspect a suspicious message',
-    text: 'Open Spam under the studio account and select “Your music subscription needs attention”. Expand its link list to see and copy the real destination. The warning reasons are an illustrative fixture here; the desktop app computes them locally in Rust.',
+    keys: ['Spam', 'Not spam'],
+    title: 'See why it’s spam',
+    text: 'Open Spam under the studio account and select the €500 gift card: its note says the spam filter moved it, with the score and the words that told. Right-click it and choose Not spam to send it back to the Inbox; Z undoes that. The demo’s filter doesn’t learn; the desktop app’s does, on your PC.',
+  },
+  {
+    keys: ['Spam', 'Hover'],
+    title: 'Where a link really goes',
+    text: 'In the same Spam folder, select “Your music subscription needs attention” and point at its button: the real destination shows in one line at the foot of the message. Right-click the link to copy it. The warning reasons are an illustrative fixture here; the desktop app computes them locally in Rust.',
   },
   {
     keys: ['Ctrl+,'],
@@ -860,7 +877,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['saved-searches', 'rule-preview', 'links', 'threads', 'toolbar-layouts', 'unread', 'reply', 'thread', 'local', 'attach', 'images', 'appearance', 'polish'].map(
+export const homeScreens = ['spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -1262,6 +1279,13 @@ export const roadmap: Step[] = [
     notYet: 'An independent security audit, Windows publisher signing, and verified sender authentication or link reputation.',
   },
   {
+    title: 'A spam filter of your own, HTML by default',
+    text: 'A statistical spam filter that learns from your mail on your PC and explains each move, link destinations in one quiet line, new messages and replies in HTML, and every signature in Settings › Writing.',
+    status: 'done',
+    since: V098,
+    notYet: 'HTML signatures, and images and colors in HTML compose.',
+  },
+  {
     title: 'Sign in with Microsoft and Google',
     text: 'OAuth2 sign-in. Outlook.com, Hotmail and Microsoft 365 let other mail apps in no other way, and Gmail, which works today with an app password, won’t need one.',
     status: 'next',
@@ -1331,7 +1355,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Can I write in HTML?',
-        a: 'Yes. Plain text is the default, and Settings › Writing or the Text | HTML switch in a message turns on bold, italics, lists, quotes and links. Every HTML message goes out with a plain-text copy, and pasted web pages lose their styles and scripts.',
+        a: 'Yes. From version 0.9.8 new messages and replies start in HTML, with bold, italics, lists, quotes and links. Every HTML message goes out with a plain-text copy, and pasted web pages lose their styles and scripts. Prefer plain text in a mono face? Settings › Writing makes it the default, and the Text | HTML switch changes one message. If you chose plain text before 0.9.8, that choice stays.',
       },
     ],
   },
@@ -1374,12 +1398,17 @@ export const faqGroups: { title: string; items: Question[] }[] = [
         a: 'The desktop app has no Telex account, telemetry or mail relay. It connects directly to your mail servers. Account setup uses DNS and provider setup URLs; images load after your permission or sender trust; optional dictionaries and permitted or manual update checks contact GitHub; server-side away replies use your provider’s ManageSieve service. Requests reveal your IP address and time, and one setup URL includes your email address. Local search, link inspection and scam checks do not upload mail. The privacy page explains each connection.',
       },
       {
+        id: 'spam-filter',
+        q: 'Does Telex have its own spam filter?',
+        a: 'From version 0.9.8, yes, besides whatever your provider filters. It learns on your PC from the mail in your Spam folders and the read mail you keep, and moves new Inbox mail it is sure about to Spam, with a note giving the score and the words that told. It never moves mail from people you have written to, senders whose images you trust, or answers to your own mail, and it does nothing until it has seen 50 messages of each kind. Mark as spam and Not spam in the message menu teach it. Settings › Mail sets it to careful (the default), normal or strict, or turns it off. Nothing is uploaded or looked up.',
+      },
+      {
         q: 'Does the scam check upload mail or open links?',
         a: 'No. The Rust mail engine checks warning signs locally when you open a message. It explains sender and brand lookalikes, misleading links and other supported signals without visiting websites, following redirects or uploading content. The score is advisory points out of 100, not a probability. Its brand catalogue and scan size are limited; no warning does not mean a message is safe. It does not verify attachments, link reputation, SPF, DKIM or DMARC, and does not move messages for you.',
       },
       {
         q: 'Can I inspect links in Spam?',
-        a: 'Yes. Hover or focus a link to see its real destination, or expand the message’s link list to inspect and copy addresses. Hidden characters are made visible. Opening links remains blocked in Spam; move a message out of Spam before using them. Inspecting or copying an address does not contact its website.',
+        a: 'Yes. Point at a link or focus it with Tab: its real destination shows in one line at the foot of the message, never over the mail. Right-click it (or Shift+F10) to copy the address. Hidden characters are made visible. Opening links remains blocked in Spam; move a message out of Spam before using them. Inspecting or copying an address does not contact its website.',
       },
       {
         q: 'Where is my mail kept?',
@@ -1409,7 +1438,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         id: 'demo',
         q: 'Can I try Telex without installing it?',
-        a: 'Yes. The live demo runs the real Telex interface with a made-up mailbox: shortcuts, saved searches, rule previews, optional threads, toolbar layouts and themes work. It cannot reach mail servers or send real mail. Scam warning reasons come from a fixed example; the desktop app’s Rust scanner does not run in the browser. Your demo edits are reset when you reload.',
+        a: 'Yes. The live demo runs the real Telex interface with a made-up mailbox: shortcuts, saved searches, rule previews, optional threads, toolbar layouts and themes work. It cannot reach mail servers or send real mail. Scam warning reasons and the spam filter’s note come from fixed examples; the desktop app’s Rust scanner and spam filter do not run in the browser. Your demo edits are reset when you reload.',
       },
       {
         q: 'Which Windows versions are supported?',
@@ -1440,7 +1469,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
 ];
 
 /** The questions on the home page. */
-export const faq: Question[] = ['providers', 'gmail', 'privacy'].map(
+export const faq: Question[] = ['providers', 'gmail', 'spam-filter', 'privacy'].map(
   (id) => faqGroups.flatMap((g) => g.items).find((q) => q.id === id)!,
 );
 
@@ -1451,6 +1480,7 @@ export const ticker = [
   'TRY IT IN YOUR BROWSER: SEE THE LIVE DEMO',
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
   'SAVE A SEARCH. PREVIEW A RULE. EXPAND A THREAD.',
+  'A SPAM FILTER THAT LEARNS ON YOUR PC. NOTHING UPLOADED.',
   'INSPECT LINKS. SCAM WARNING SIGNS ARE CHECKED ON YOUR PC.',
   'FIVE TOOLBAR LAYOUTS: PICK YOUR WAY TO WORK.',
   'GMAIL: WORKS WITH AN APP PASSWORD. NEXT: MICROSOFT SIGN-IN',

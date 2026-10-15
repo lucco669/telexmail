@@ -88,6 +88,14 @@ const scenes = {
     const action = document.querySelector('#r-acts select[data-k="type"]'); action.value = 'copy'; action.dispatchEvent(new Event('input', {bubbles:true}));
     ui.click('#r-preview'); await ui.wait(250);` },
   spam: { run: `ui.folder('studio/spam'); await ui.wait(50); ui.row('Rank #1'); await ui.wait(100);` },
+  // Mail the spam filter moved, with its note, and the menu's Not spam.
+  'spam-filter': {
+    run: `ui.pane(46); ui.folder('studio/spam'); await ui.wait(50); ui.row('gift card'); await ui.wait(150);
+    const c = [...document.querySelectorAll('#rows tr[data-id]')].find(r => r.textContent.includes('gift card')).querySelector('.c-subj');
+    const r = c.getBoundingClientRect();
+    c.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, clientX:r.left + 340, clientY:r.top + r.height / 2}));
+    await ui.wait(80);`,
+  },
   // The pointer on a link in Spam: its address in the strip at the foot of the message, with the scam warning above.
   links: { run: `ui.pane(25); ui.folder('studio/spam'); await ui.wait(100); ui.row('Your music subscription needs attention'); await ui.wait(150);
     let a; for (let i = 0; i < 100 && !(a = document.querySelector('.hframe')?.contentDocument?.querySelector('a[href^="http"]')); i++) await ui.wait(20);

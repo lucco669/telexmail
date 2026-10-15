@@ -1,0 +1,67 @@
+/* The screenshot as a button: a quiet scrim and a play pill that brighten under the pointer. */
+.poster {
+  position: relative;
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.poster img { display: block; width: 100%; height: auto; }
+.poster::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.poster:hover::after,
+.poster:focus-visible::after { opacity: 0.18; }
+.poster:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.cta {
+  position: absolute;
+  left: 50%;
+  bottom: 9%;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  translate: -50% 0;
+  padding: 8px 18px 8px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  white-space: nowrap;
+  transition: border-color 0.2s, translate 0.2s;
+}
+.poster:hover .cta,
+.poster:focus-visible .cta { border-color: var(--accent); translate: -50% -2px; }
+.play {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.play svg { width: 16px; height: 16px; fill: var(--accent-fg); translate: 1px 0; }
+.words { display: grid; gap: 3px; text-align: left; }
+.words b { font-size: 15px; font-weight: 600; line-height: 1.2; }
+.words span { color: var(--muted); font: 12px/1.2 var(--font-mono); }
+
+.narrow { display: none; }
+@media (max-width: 899px) {
+  .cta { gap: 10px; padding: 6px 14px 6px 6px; bottom: 7%; }
+  .play { width: 30px; height: 30px; }
+  .words b { font-size: 14px; }
+  .words span, .wide { display: none; }
+  .narrow { display: inline; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .poster::after, .cta { transition: none; }
+}

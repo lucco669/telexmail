@@ -1,13 +1,12 @@
 import { PageLink as Link } from '@/components/PageNavigation';
-import { facts, hero, versions } from '@/lib/content';
+import { facts, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
 import { isReleased, versionAnchor, versionName } from '@/lib/versions';
 import { Compat } from './DownloadChoice';
 import { DownloadButton } from './DownloadButton';
+import { HeroStage } from './HeroStage';
 import { ArrowIcon } from './Icons';
-import { Shot } from './Shot';
-import { WindowFrame } from './WindowFrame';
 import s from './Hero.module.css';
 
 /** The line in the pill above the title: what the next version brings, or what the newest one did. */
@@ -61,7 +60,7 @@ export function Hero({ release, unknown = false }: { release: Release | null; un
         <div className={s.side}>
           <p className={s.lead}>
             Light on your PC. Quick through your inbox. Telex is an email client for Windows and Linux, with dense lists, one key for every action, and all
-            your mail on your own disk. Keep searches close, preview powerful rules, and inspect suspicious mail offline.
+            your mail on your own disk. A spam filter that learns on your PC, searches kept close, and rules you can preview.
           </p>
           <div className={s.actions}>
             <DownloadButton release={release} unknown={unknown} />
@@ -77,9 +76,7 @@ export function Hero({ release, unknown = false }: { release: Release | null; un
 
       <div className={s.stage}>
         <div className="container">
-          <WindowFrame title={hero.title}>
-            <Shot id={hero.id} alt="Telex main window: folder tree, message list and the selected message." eager />
-          </WindowFrame>
+          <HeroStage />
         </div>
         <div className="container">
           <ul className={s.facts} aria-label="What you get">

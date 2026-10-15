@@ -22,7 +22,7 @@ export const pages = {
     label: 'Home',
     title: 'Telex – fast email for Windows and Linux',
     description:
-      'Fast email for Windows and Linux: offline saved searches, powerful rule previews, optional threads and local scam checks. No Electron or telemetry.',
+      'Fast email for Windows and Linux: a spam filter that learns on your PC, saved searches, rule previews and optional threads. No Electron or telemetry.',
     ogTitle: 'Email at the speed of your keyboard.',
     ogScreen: 'inbox',
   },
@@ -31,7 +31,7 @@ export const pages = {
     label: 'Features',
     title: 'Features of a fast, keyboard-driven email client',
     description:
-      'Explore Telex: saved searches, header and attachment rules, previews, optional threads, link inspection, local scam checks and five toolbar layouts.',
+      'Explore Telex: a learning spam filter, saved searches, header and attachment rules with previews, optional threads, link checks and HTML compose.',
     ogTitle: 'Everything Telex does today.',
     ogScreen: 'rule-preview',
   },
@@ -40,7 +40,7 @@ export const pages = {
     label: 'Live demo',
     title: 'Live demo: try Telex in your browser',
     description:
-      'Try Telex’s real interface: saved searches, rule previews, threads and toolbar layouts in a browser demo mailbox. Your edits stay in the tab.',
+      'Try Telex’s real interface: saved searches, rule previews, threads, spam notes and toolbar layouts in a demo mailbox. Your edits stay in the tab.',
     ogTitle: 'Try it in your browser.',
     ogScreen: 'thread',
   },
@@ -129,7 +129,7 @@ export const pages = {
     label: 'Telex & email history',
     title: 'Telex, email and the history of written messages',
     description:
-      'From optical telegraphs to telex, email and modern messaging. Explore the timeline, try real paper-tape encoding, and see how the systems connect.',
+      'Explore telex and email history, try real paper-tape encoding, and play Night Shift: a telegram dispatch game in an illustrated nighttime office.',
     ogTitle: 'Before the inbox, there was telex.',
     ogScreen: 'inbox',
     ogImage: '/history/teleprinter.webp',

@@ -693,7 +693,24 @@
       "body": "Dear website owner,\n\nwe GUARANTEE the #1 spot on Google in 7 days, or your money back!!!\n\nGuaranteed traffic from 50,000 visitors a month. Order now: http://seo-wizard24.biz/order\n\nThis offer ends tonight."
     },
     {
-      "only": ["links"],
+      "folder": "studio/spam",
+      "from_name": "Rewards Centre",
+      "from_email": "prize@rewards-centre.top",
+      "to": "hello@lindenstudio.com",
+      "cc": "",
+      "subject": "Congratulations! You have been selected for a €500 gift card",
+      "date": "2026-10-09T22:41:00",
+      "size_kb": 12,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": "The spam filter moved it to Spam (spam score 99 of 100; telling words: selected, gift, rewards-centre.top). If it isn't spam, choose Not spam in its menu.",
+      "note_pl": "Filtr spamu przeniósł ją do Spamu (ocena 99 na 100; słowa, które przesądziły: selected, gift, rewards-centre.top). Jeśli to nie spam, wybierz „To nie spam” z jej menu.",
+      "attachments": [],
+      "body": "Dear customer,\n\nyou have been selected to receive a €500 gift card in our October rewards draw.\n\nClaim your gift within 24 hours: http://rewards-centre.top/claim\n\nRewards Centre"
+    },
+    {
+      "only": ["links", "live"],
       "folder": "studio/spam",
       "from_name": "Sporify Billing",
       "from_email": "billing@music-account.example",

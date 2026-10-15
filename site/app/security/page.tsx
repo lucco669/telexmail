@@ -199,6 +199,9 @@ export default function SecurityPage() {
                 The checker does not verify attachments, remote images, final redirects, site reputation, SPF, DKIM or DMARC.
                 An incomplete check is reported; no warning does not establish safety. Scores are heuristic points out of 100, capped at 99.
                 <span className={s.inlineEvidence}> <a href={source('docs/mail-risk.md')}>Scope, scoring and limits</a></span></li>
+              <li><b>The spam filter is statistical.</b> It learns from your own mail and can file good mail as spam or let junk through.
+                It only moves new Inbox mail to Spam, never deletes it, leaves people you have written to alone, and explains each move; Not spam puts a message back.
+                <span className={s.inlineEvidence}> <a href={source('crates/telex-core/src/spam.rs')}>Spam filter code</a></span></li>
               <li><b>Local mail is not encrypted by Telex.</b> The mail database and its backups are ordinary SQLite files.
                 Settings, exported mail and saved attachments also need protection from your operating system and storage.
                 <span className={s.inlineEvidence}> <a href={source('crates/telex-core/src/store.rs')}>Storage code</a> · <a href={source('crates/telex-core/src/backup.rs')}>Backup code</a></span></li>

@@ -80,8 +80,9 @@ export default function DemoPage() {
               answers in its place. “Sent” mail only moves to Sent, and attachments can’t be opened.
             </li>
             <li>
-              The scam report. Its warning reasons are a fixed illustrative example; the desktop app’s offline Rust
-              scanner does not run here. Automatic forwarding cannot send mail from the demo.
+              The scam report and the spam filter. Warning reasons and the spam note are fixed illustrative examples;
+              the desktop app’s offline Rust scanner and spam filter don’t run here, so Not spam moves mail without
+              learning. Automatic forwarding cannot send mail from the demo.
             </li>
             <li>Memory. Reload, or press Start over, and everything is as it was.</li>
           </ul>
