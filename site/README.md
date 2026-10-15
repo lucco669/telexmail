@@ -43,9 +43,62 @@ npm run themes     # measure the app's themes again into lib/themes.json (the ac
   its references, milestones and glossary; `components/HistoryLab.tsx` provides timeline filters,
   an ITA2 workbench (using the shared encoder) and message journeys. The generated hero image in
   `public/history/` is explicitly illustrative; `asset-notes.json` records its prompt and provenance.
+  `components/NightShift.tsx` adds a fictional three-line dispatch game, with a 90-second shift,
+  untimed practice, optional synthesized sound and a browser-local personal best. `lib/night-shift.ts`
+  holds its game rules; transmission timing uses the shared ITA2 encoder at 50 baud. Generated
+  game artwork and its prompt are in `public/history/night-shift.webp` and `night-shift-asset.json`.
+  Run `node --test scripts/night-shift.test.mjs` for the dispatch, timing and scoring checks.
+  Its WebGL scene adds layered camera depth, window rain and lamp flicker with a static fallback,
+  reduced-motion support and an atmosphere switch. The local audio engine synthesizes mechanical
+  impacts, a 50-baud printer, a motor, rain and a metal bell. Delivered telegrams track first-view
+  reaction time, active writing time, five-character WPM, insertion accuracy and queue delay.
 - `public/screens/`: screenshots, `<scene>-light.webp` and `<scene>-dark.webp` (lossless), 1280×800 at 2×.
 - `app/**/opengraph-image.png`: one link preview per page, made by `npm run screens`.
   Pages can set `ogImage` in `lib/pages.ts` to use editorial artwork instead of a screenshot.
+
+### Night Shift's shared leaderboard
+
+Apply `supabase/migrations/20261013_night_shift.sql` to the chosen Supabase project (SQL editor or
+`supabase db push`). Set three server-only values in ignored `site/.env.local` for development and
+in the Vercel project's environment for hosting; `.env.example` lists them:
+
+- `SUPABASE_URL`: the project's `https://….supabase.co` address.
+- `SUPABASE_SECRET_KEY`: its secret key (the legacy `service_role` key is also accepted as
+  `SUPABASE_SERVICE_ROLE_KEY`).
+- `NIGHT_SHIFT_SIGNING_SECRET`: a random value of at least 32 characters, different from the key,
+  e.g. `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`. It signs
+  scored sessions and keys the rate-limit hashes. Changing it voids shifts in progress, nothing else.
+
+The site's API issues signed seeds and replays individual typing and selection events to calculate
+scores and timings itself. A run can be published once (its signed session UUID is the primary key).
+Full 90-second shifts and shifts ending after three misses are eligible; practice and manual early
+finishes are excluded. Public rows contain the chosen operator name and derived statistics, not the
+typing log. The database permits only the server role to read/insert; browsers never receive its key.
+The board shows one best run per operator name for the selected score, speed or reaction ranking,
+with all-time, rolling seven-day and UTC-today filters. Names are aliases, not authenticated identities.
+
+Against scripted runs and spam (the game is deterministic from its seed, and the same-origin check
+stops other sites, not scripts):
+
+- The replay asks for a person's pace (`HUMAN` in `lib/night-shift-ranking.ts`): at least 0.1 s from
+  a telegram appearing to its first key, at most 20 keystrokes in any second, few keystrokes under
+  30 ms apart, and 250 WPM over the shift.
+- Per network (an IPv4 address or IPv6 /64): 40 scored sessions an hour, 10 published runs an hour
+  and 40 a day. Counted in Supabase (`night_shift_limits`, `night_shift_take()`) under a keyed hash
+  of the address, never the address itself; rows go after two days. If Supabase can't be reached,
+  scored play and publishing are refused (the game still works).
+- Operator names (`lib/night-shift-names.ts`): 2–20 letters and numbers with single spaces or
+  `. _ ' -` between them, one alphabet per name (no Latin/Cyrillic lookalikes), and a basic English
+  and Polish word filter that also catches leetspeak and spaced-out spellings.
+- The board's GET is cached at Vercel's edge for 30 seconds (`s-maxage=30`) and answers only its six
+  real queries, so made-up parameters can't bypass the cache. A run just published is added to the
+  board in the browser until the cache catches up.
+
+A patient script that types at human speed can still publish. This is a casual game leaderboard,
+not proof of a human competitor; remove a row in Supabase's table editor if needed.
+
+Without storage configuration, the game keeps working and clearly shows the online board as
+unavailable. No placeholder opponents or pretend online scores are inserted.
 
 ## Versions: what is out and what is coming
 
@@ -86,8 +139,9 @@ true to the mailbox. `next.config.ts` lets only this site frame `/demo-app/` and
 search results. Nothing in the demo talks to the network: sending moves mail to Sent, and
 attachments can be added but not opened.
 Saved searches, rule previews, copy actions, optional threads and toolbar layouts work against
-the in-memory mailbox. The scam report is a fixed illustrative fixture, not the Rust scanner;
-automatic forwarding cannot send real mail. Keep these limits visible on the demo and FAQ pages.
+the in-memory mailbox. The scam report and the spam filter's note are fixed illustrative fixtures,
+not the Rust scanner or filter; Mark as spam and Not spam move mail but learn nothing; automatic
+forwarding cannot send real mail. Keep these limits visible on the demo and FAQ pages.
 
 ## The footer
 

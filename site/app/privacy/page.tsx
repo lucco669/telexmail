@@ -8,7 +8,7 @@ import s from './page.module.css';
 export const metadata = pageMetadata(pages.privacy);
 
 // Change this date whenever the text below changes.
-const UPDATED = '13 October 2026';
+const UPDATED = '15 October 2026';
 
 export default function PrivacyPage() {
   return (
@@ -27,7 +27,7 @@ export default function PrivacyPage() {
             <li>Your mail stays on your PC and your mail server</li>
             <li>Mail, account discovery, images, dictionaries and updates have different network uses</li>
             <li>Update checks contact GitHub only if allowed by your setting or started manually</li>
-            <li>Saved searches and scam warning checks stay local; configured forwards send mail to their recipients</li>
+            <li>Saved searches, the spam filter and scam warning checks stay local; configured forwards send mail to their recipients</li>
             <li>This site uses cookieless Vercel Web Analytics for page counts</li>
             <li>The live demo runs in your browser: nothing you do there is sent</li>
           </ul>
@@ -71,6 +71,12 @@ export default function PrivacyPage() {
             cached in memory. It uploads nothing, performs no DNS or reputation lookup, fetches no images and follows
             no redirects. It does not move, delete or mark mail read; your reading setting still controls read flags.
             Its limited, advisory score is explained on the <Link href={`${pages.security.path}#limits`}>security page</Link>.
+          </p>
+          <p>
+            The spam filter learns on this PC from mail in your Spam folders and the read mail you keep. It stores word
+            and sender counts in your local mail base, not the messages themselves, and uploads nothing, looks nothing
+            up and reports to no one. Mail it moves to Spam carries a note saying why; Not spam moves it back. It can
+            be set to careful, normal or strict in Settings › Mail, or turned off.
           </p>
           <h3>Who it talks to</h3>
           <p>
@@ -192,6 +198,26 @@ export default function PrivacyPage() {
             Demo saved searches and rule edits stay in memory and reset on reload, as do mail changes. The scam report
             is a fixed illustrative fixture; the desktop Rust scanner does not run in your browser. The demo cannot
             send automatic forwards or real replies to anyone.
+          </p>
+          <h3>Night Shift game</h3>
+          <p>
+            The <Link href={`${pages.history.path}#night-shift`}>Night Shift game</Link> runs in your browser
+            with fictional telegrams. Your personal best and, after publishing, your chosen operator name
+            are saved in local storage; clearing this site’s browser data removes those local copies.
+            Optional sound is synthesized on your device. You can play without publishing a score.
+          </p>
+          <p>
+            When you choose “Publish this shift”, your operator name and run statistics become public
+            on the shared leaderboard and are stored in Supabase. Statistics include your score, delivered
+            and clean telegrams, missed deadlines, best streak, reaction time, writing time, typing speed
+            and accuracy. The site sends the fictional game’s typing events to its server to verify the
+            result; those events are not stored in the leaderboard. This uses no email address or account.
+            Contact us using the address below to request removal of a published result.
+          </p>
+          <p>
+            To limit abuse, the server counts how many scored shifts and publications come from your network
+            each hour and day. It keeps only a keyed hash of your IP address (not the address itself) with
+            those counts, in Supabase, and deletes them after two days.
           </p>
           <h3>Downloads</h3>
           <p>

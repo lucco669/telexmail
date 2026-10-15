@@ -2,6 +2,7 @@ import Image from 'next/image';
 import { PageLink as Link } from '@/components/PageNavigation';
 import { HistoryTimeline, MessageJourney, PaperTapeLab } from '@/components/HistoryLab';
 import { JsonLd } from '@/components/JsonLd';
+import { NightShift } from '@/components/NightShift';
 import { PrintButton } from '@/components/PrintButton';
 import { Shot } from '@/components/Shot';
 import { chapters, glossary, historySources, type HistorySourceId } from '@/lib/history';
@@ -59,7 +60,7 @@ export default function HistoryPage() {
           <p className={s.eyebrow}>FIELD NOTES / COMMUNICATION, THEN & NOW</p>
           <h1>Before the inbox,<br />there was telex.</h1>
           <p className={s.lead}>A keyboard. A connection. A written record. The long story of how we learned to send words across the world—and what those early machines still have to teach us.</p>
-          <div className={s.heroActions}><a href="#timeline" className="btn btn-primary">Explore the story <span aria-hidden="true">↓</span></a><a href="#tape" className={s.textLink}>Try the paper tape ↗</a></div>
+          <div className={s.heroActions}><a href="#timeline" className="btn btn-primary">Explore the story <span aria-hidden="true">↓</span></a><a href="#night-shift" className={s.textLink}>Play Night Shift ↗</a><a href="#tape" className={s.textLink}>Try the paper tape ↗</a></div>
         </div>
         <figure className={s.heroFigure}>
           <Image src="/history/teleprinter.webp" width={1536} height={1024} alt="Illustration of a mid-century mechanical teleprinter with a paper roll, dark keys and a curling strip of punched tape on an ivory desk." sizes="(max-width: 1224px) calc(100vw - 32px), 1160px" loading="eager" fetchPriority="high" />
@@ -67,6 +68,12 @@ export default function HistoryPage() {
         </figure>
         <div className={s.heroFacts}><p><strong>1790s → today</strong><span>Two centuries of sending words</span></p><p><strong>5 bits</strong><span>The classic telex alphabet</span></p><p><strong>One continuing idea</strong><span>Leave something the other end can read</span></p></div>
       </header>
+
+      <section className={`container ${s.gameSection} no-print`} aria-labelledby="night-shift">
+        <div className={s.gameHeading}><div><p className={s.eyebrow}>AN OPERATOR’S BREAK / A PLAYABLE LITTLE FICTION</p><h2 id="night-shift">Your turn at the keyboard.</h2></div><p>Step into the dispatch room.<br /> There are still words to send.</p></div>
+        <NightShift />
+        <p className={s.gameCaption}>A fictional arcade challenge with generated artwork. Telegrams and answerbacks are invented; deadlines and scoring are game rules. Transmission uses the same ITA2 encoder as the workbench, at 50 baud. Your personal best stays in this browser; choose to publish a scored shift to join the shared world board.</p>
+      </section>
 
       <div className={`container ${s.readingLayout}`}>
         <aside className={`${s.contents} no-print`}>

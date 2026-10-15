@@ -1,0 +1,9 @@
+{
+  "asset": "night-shift.webp",
+  "purpose": "Background environment for the fictional Night Shift dispatch game on /history. Generated artwork; not an archival scene or an exact historical terminal.",
+  "created": "2026-10-13",
+  "tool": "Built-in image_gen",
+  "original": "exec-ad185c7d-07d5-4589-b523-fea627f65ccd.png",
+  "processing": "WebP format conversion with sharp at quality 86; original 1672 by 941 pixels. The game crops responsively with CSS.",
+  "prompt": "Use case: stylized-concept\nAsset type: wide cinematic background artwork for a playable browser game called Night Shift, a fictional 1960s telex dispatch office.\nPrimary request: a beautifully crafted, premium game environment, intimate tactile realism, a quiet nighttime communications room. View from the seated operator toward a worn charcoal-green mechanical teleprinter on a walnut desk in the foreground, ivory paper curl and punched tape, round dark keys, brass details. A warm amber desk lamp on the right, a rainy tall window in the background with midnight teal city lights, a softly lit wall clock and subtle terminal cabinets. No people. The teleprinter mainly occupies the bottom third; leave the upper-left and center naturally dark and uncluttered for live game text and overlay controls.\nStyle/medium: high-end stylized 3D environment concept art, physically convincing metal and paper, cinematic art direction, crisp close detail, restrained soft depth of field. Landscape panoramic 16:9 framing.\nLighting/mood: amber pool of light on paper, cool teal window rim light, soft volumetric haze, noir but welcoming, rich shadows. Palette: charcoal, deep petrol teal, warm ivory, burnished amber.\nConstraints: this is background art, not a screenshot or UI mockup. No typography, no logos, no watermarks, no readable writing, no futuristic holograms. Do not draw any game interface panels or buttons. Keep generous dark breathing room in upper half."
+}

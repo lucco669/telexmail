@@ -29,6 +29,11 @@
 .contentsNote { color: var(--muted); font-size: 12px; margin: 24px 0 18px; }
 .contents > button { font-size: 12px; }
 .articleBody { min-width: 0; }
+.gameSection { padding-top: 58px; }
+.gameHeading { display: flex; justify-content: space-between; align-items: end; gap: 24px; margin-bottom: 25px; }
+.gameHeading h2 { font-size: clamp(30px, 3.8vw, 43px); line-height: 1.12; margin-top: 12px; scroll-margin-top: 90px; }
+.gameHeading > p { color: var(--muted); font-size: 13px; line-height: 1.7; flex-shrink: 0; }
+.gameCaption { font-size: 11px; color: var(--muted); line-height: 1.8; margin-top: 14px; max-width: 105ch; }
 .opening { max-width: 65ch; font-size: 18px; line-height: 1.8; }
 .opening p + p { margin-top: 16px; color: var(--muted); }
 .section { padding: 64px 0; border-bottom: 1px solid var(--line); }
@@ -100,6 +105,9 @@
   .relatives > div { grid-template-columns: 1fr; gap: 12px; }
 }
 @media (max-width: 760px) {
+  .gameSection { padding-top: 36px; }
+  .gameHeading { align-items: start; flex-direction: column; gap: 12px; }
+  .gameHeading > p br { display: none; }
   .heroText { padding-top: 36px; }
   .heroFigure img { aspect-ratio: 1.65; }
   .heroFacts { gap: 16px; }
