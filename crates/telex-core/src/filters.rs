@@ -719,6 +719,7 @@ fn forward(
         crate::drafts::DraftKind::Forward,
         Some(message.id),
         &account.id,
+        true,
     )
     .map_err(|e| e.to_string())?;
     let draft = OutgoingDraft {
@@ -744,10 +745,21 @@ fn forward(
         .map_err(|e| e.to_string())
 }
 
+/// How many of a list's messages a rule's preview reads, from the top of the list. The
+/// preview holds the mail base while it reads, so a check or a send waits for it; all mail
+/// would take seconds.
+pub const PREVIEW_LIMIT: usize = 2_000;
+
 #[derive(Debug, Serialize)]
 pub struct RulePreview {
+    /// The messages read that the rule could act on (of its account).
     pub checked: usize,
     pub matched: usize,
+    /// Messages in the list, and how many of them were read.
+    pub listed: usize,
+    pub read: usize,
+    /// The list is longer than `PREVIEW_LIMIT`: only its first ones were read.
+    pub limited: bool,
     pub samples: Vec<PreviewMessage>,
     pub actions: Vec<Action>,
     pub new_mail_only: bool,
@@ -761,7 +773,8 @@ pub struct PreviewMessage {
 }
 
 /// Preview an unsaved rule against current search/folder results. No writes, sends or
-/// remote image loads. A limited sample accompanies the complete matching count.
+/// remote image loads. Reads the first `PREVIEW_LIMIT` messages of the list (`limited` says
+/// when there were more); a limited sample accompanies the count of matches among them.
 pub fn preview(
     store: &MailStore,
     rule: &Rule,
@@ -775,6 +788,9 @@ pub fn preview(
     let mut report = RulePreview {
         checked: 0,
         matched: 0,
+        listed: 0,
+        read: 0,
+        limited: false,
         samples: Vec::new(),
         actions: rule.actions.clone(),
         new_mail_only: rule
@@ -782,51 +798,46 @@ pub fn preview(
             .iter()
             .any(|a| matches!(a, Action::Forward { .. } | Action::AutoReply { .. })),
     };
-    let mut at = 0;
-    loop {
-        let page = store.page(&view, crate::PageAt::Row(at), 200)?;
-        if page.rows.is_empty() {
-            break;
+    // The list in its order, once (a filtered list the window shows is worked out already),
+    // then its first messages one by one.
+    let ids = store.ids_between(&view, None, None)?;
+    report.listed = ids.len();
+    report.read = ids.len().min(PREVIEW_LIMIT);
+    report.limited = report.listed > report.read;
+    for &id in &ids[..report.read] {
+        let m = store.get(id)?;
+        if rule
+            .account
+            .as_deref()
+            .is_some_and(|a| a != account_of(&m.folder))
+        {
+            continue;
         }
-        at += page.rows.len();
-        for summary in page.rows {
-            let m = store.get(summary.id)?;
-            if rule
-                .account
-                .as_deref()
-                .is_some_and(|a| a != account_of(&m.folder))
-            {
-                continue;
+        report.checked += 1;
+        let raw = if rule
+            .conditions
+            .iter()
+            .any(|c| matches!(c.field, Field::Header | Field::AttachmentType))
+        {
+            store.raw_of(m.id)?
+        } else {
+            None
+        };
+        let folded = Folded::with_raw(&m, raw.as_deref());
+        if rule.matches_folded(&folded) {
+            report.matched += 1;
+            if report.samples.len() < 50 {
+                report.samples.push(PreviewMessage {
+                    id: m.id,
+                    subject: m.subject.clone(),
+                    from: m.from_email.clone(),
+                    conditions: rule
+                        .conditions
+                        .iter()
+                        .map(|c| c.matches_folded(&folded))
+                        .collect(),
+                });
             }
-            report.checked += 1;
-            let raw = if rule
-                .conditions
-                .iter()
-                .any(|c| matches!(c.field, Field::Header | Field::AttachmentType))
-            {
-                store.raw_of(m.id)?
-            } else {
-                None
-            };
-            let folded = Folded::with_raw(&m, raw.as_deref());
-            if rule.matches_folded(&folded) {
-                report.matched += 1;
-                if report.samples.len() < 50 {
-                    report.samples.push(PreviewMessage {
-                        id: m.id,
-                        subject: m.subject.clone(),
-                        from: m.from_email.clone(),
-                        conditions: rule
-                            .conditions
-                            .iter()
-                            .map(|c| c.matches_folded(&folded))
-                            .collect(),
-                    });
-                }
-            }
-        }
-        if at >= page.total {
-            break;
         }
     }
     Ok(report)
@@ -1388,6 +1399,65 @@ mod tests {
         r.conditions[0].field = Field::Header;
         r.conditions[0].header = Some("X-Evil\r\nBcc".into());
         assert!(r.check(&accounts()).is_err());
+    }
+
+    #[test]
+    fn preview_reads_a_limited_part_of_long_lists_and_says_so() {
+        let (mut store, account, _) = holiday_store();
+        let inbox = account.folder_key("inbox");
+        let fill = |store: &mut MailStore, from: u32, to: u32| {
+            let batch: Vec<SyncedMessage> = (from..to)
+                .map(|uid| {
+                    let sender = if uid % 2 == 0 { "anna@x.pl" } else { "jan@x.pl" };
+                    let raw = format!(
+                        "Message-ID: <m{uid}@x.pl>\r\nFrom: {sender}\r\nTo: biuro@twojastudio.pl\r\nSubject: {uid}\r\n\r\nHej\r\n"
+                    );
+                    let mut message = crate::mime::parse_message(raw.as_bytes(), &inbox, None);
+                    message.folder = inbox.clone();
+                    SyncedMessage {
+                        uid,
+                        message,
+                        raw: raw.into_bytes(),
+                    }
+                })
+                .collect();
+            store.add_synced(&inbox, &batch).unwrap();
+        };
+        let r = rule(
+            "Anna",
+            None,
+            vec![cond(Field::From, Op::Is, "anna@x.pl")],
+            vec![Action::Flag],
+        );
+        let view = crate::ListView {
+            folder: Some(inbox.clone()),
+            ..Default::default()
+        };
+        // A short list is read whole, each message once.
+        fill(&mut store, 1, 251);
+        let report = preview(&store, &r, &view).unwrap();
+        assert_eq!(
+            (
+                report.checked,
+                report.matched,
+                report.listed,
+                report.limited
+            ),
+            (250, 125, 250, false)
+        );
+        // A long one: the first PREVIEW_LIMIT, and the report says there were more.
+        fill(&mut store, 251, PREVIEW_LIMIT as u32 + 301);
+        let report = preview(&store, &r, &view).unwrap();
+        assert_eq!(
+            (
+                report.checked,
+                report.matched,
+                report.listed,
+                report.limited
+            ),
+            (PREVIEW_LIMIT, PREVIEW_LIMIT / 2, PREVIEW_LIMIT + 300, true)
+        );
+        assert_eq!(report.samples.len(), 50);
     }
 
     #[test]

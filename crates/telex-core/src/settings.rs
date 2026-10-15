@@ -67,8 +67,11 @@ const KEYS: &[&str] = &[
     "push_mail",
     "notify",
     "mail_paper",
+    "risk_checks",
+    "spam_filter",
     "compose_format",
     "reply_format",
+    "sign_replies",
     "undo_send",
     "ask_subject",
     "spell_check",
@@ -113,10 +116,19 @@ pub struct Settings {
     pub notify: bool,
     /// HTML mail in a dark theme: on the theme's dark paper, or on white as sent.
     pub mail_paper: MailPaper,
+    /// A line above opened mail that shows scam warning signs (`risk::analyse`), with its reasons.
+    #[serde(default = "yes")]
+    pub risk_checks: bool,
+    /// Telex's own spam filter (`spam.rs`): how sure it must be to move new mail to Spam.
+    #[serde(default)]
+    pub spam_filter: crate::spam::Level,
     /// What a new message is written in.
     pub compose_format: ComposeFormat,
     /// What a reply or a forward is written in.
     pub reply_format: ReplyFormat,
+    /// Replies and forwards open with the identity's signature too (new messages always do).
+    #[serde(default = "yes")]
+    pub sign_replies: bool,
     /// Seconds, one of [`UNDO_SEND`]: how long sent mail waits so Z can take it back.
     pub undo_send: u16,
     /// Send asks once more when the subject is empty.
@@ -298,8 +310,11 @@ impl Default for Settings {
             push_mail: true,
             notify: true,
             mail_paper: MailPaper::Theme,
-            compose_format: ComposeFormat::Plain,
-            reply_format: ReplyFormat::Same,
+            risk_checks: true,
+            spam_filter: crate::spam::Level::Careful,
+            compose_format: ComposeFormat::Html,
+            reply_format: ReplyFormat::Html,
+            sign_replies: true,
             undo_send: 5,
             ask_subject: true,
             spell_check: true,
@@ -1391,17 +1406,27 @@ mod tests {
         assert!(!s.threaded);
         assert_eq!(s.font, Font::Plex);
         assert_eq!(s.toolbar_style, ToolbarStyle::Classic);
-        assert_eq!(s.compose_format, ComposeFormat::Plain);
-        assert_eq!(s.reply_format, ReplyFormat::Same);
+        // Since 0.9.8 new messages and replies start in HTML.
+        assert_eq!(s.compose_format, ComposeFormat::Html);
+        assert_eq!(s.reply_format, ReplyFormat::Html);
         assert!(s.ask_subject && s.spell_check);
+        assert!(s.risk_checks && s.sign_replies);
+        // 0.9.8 added the spam filter: careful until the user picks.
+        assert_eq!(s.spam_filter, crate::spam::Level::Careful);
+        let (strict, ignored) = s.merged(&serde_json::json!({"spam_filter": "strict"}));
+        assert!(ignored.is_empty());
+        assert_eq!(strict.spam_filter, crate::spam::Level::Strict);
+        let (_, ignored) = s.merged(&serde_json::json!({"spam_filter": "eager"}));
+        assert_eq!(ignored, ["spam_filter"]);
 
         let (s, ignored) = s.merged(&serde_json::json!({
-            "compose_format": "html", "reply_format": "plain", "mail_paper": "white",
-            "spell_check": false, "ask_subject": "maybe",
+            "compose_format": "plain", "reply_format": "same", "mail_paper": "white",
+            "spell_check": false, "ask_subject": "maybe", "sign_replies": false,
         }));
         assert_eq!(ignored, ["ask_subject"]);
-        assert_eq!(s.compose_format, ComposeFormat::Html);
-        assert_eq!(s.reply_format, ReplyFormat::Plain);
+        assert_eq!(s.compose_format, ComposeFormat::Plain);
+        assert_eq!(s.reply_format, ReplyFormat::Same);
+        assert!(!s.sign_replies);
         assert_eq!(s.mail_paper, MailPaper::White);
         assert!(!s.spell_check && s.ask_subject);
 

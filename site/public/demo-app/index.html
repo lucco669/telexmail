@@ -285,6 +285,12 @@
           </div>
           <p class="dnote snote" data-i18n>At once: Telex keeps one connection open to each server that allows it (IMAP IDLE) and checks the Inbox when the server says something changed. The other folders are checked as often as set above.</p>
         </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Spam filter</legend>
+          <div class="sopts" id="s-spam"></div>
+          <p class="dnote snote" id="s-spam-learned" aria-live="polite"></p>
+          <p class="dnote snote" data-i18n>Telex learns on this PC from your own mail: what is in Spam is spam, mail you have read is not. New Inbox mail it is sure of goes to Spam with a note saying why; mail from people you have written to never does. Mark as spam and Not spam in a message’s menu teach it.</p>
+        </fieldset>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-read" aria-labelledby="s-tab-read" hidden>
         <fieldset class="sgroup">
@@ -308,6 +314,11 @@
           <p class="dnote snote" data-i18n>On dark paper, the message’s own colors are turned around to match the theme; pictures stay as they are. The sun button above a message shows it on white.</p>
         </fieldset>
         <fieldset class="sgroup">
+          <legend data-i18n>Scam warnings</legend>
+          <label class="sopt"><input type="checkbox" id="s-risk"><span data-i18n>Warn me when an opened message shows signs of a scam</span></label>
+          <p class="dnote snote" data-i18n>A line above the message says why: a sender or link that imitates a known brand, a link whose text names another site, hidden characters. Checked on this PC, without opening any link. Most mail shows nothing.</p>
+        </fieldset>
+        <fieldset class="sgroup">
           <legend data-i18n>Remote images</legend>
           <p class="dnote" data-i18n>Images from the internet stay blocked until you load them, so senders can’t see when you open their mail. These senders’ images load without asking, except in Spam:</p>
           <div class="slist" id="s-trusted"></div>
@@ -322,6 +333,14 @@
         <fieldset class="sgroup">
           <legend data-i18n>Replies and forwards</legend>
           <div class="sopts" id="s-reply"></div>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Signatures</legend>
+          <div class="sigs" id="s-sigs"></div>
+          <div class="sopts">
+            <label class="sopt"><input type="checkbox" id="s-signrep"><span data-i18n>Sign replies and forwards too</span></label>
+          </div>
+          <p class="dnote snote" data-i18n>Each address you write from has its own signature; it is saved as you type. New messages always get it. Switching From in a message swaps it. The reply and forward headers are with each identity: Edit identity.</p>
         </fieldset>
         <div class="sgroup">
           <label class="slabel" for="s-undo" data-i18n>Undo sending</label>
@@ -341,7 +360,6 @@
           <div id="s-spell-langs"></div>
           <p class="dnote snote" data-i18n>Every ticked language is checked at once, so one message can mix them: a word any of them knows is right. Compose shows them at the end of its bar, where a click changes them.</p>
         </fieldset>
-        <p class="dnote" data-i18n>Signatures and the reply and forward headers belong to each identity: Accounts › Identities.</p>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-use" aria-labelledby="s-tab-use" hidden>
         <div id="u-usage"></div>

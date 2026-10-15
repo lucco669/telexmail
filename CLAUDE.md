@@ -24,8 +24,9 @@ plain sentences in your summary.
   speaks English and Polish, following the Windows display language unless the user picks one;
   so do the core's errors and notes (`tr!`).
 - **Readable.** Every theme meets WCAG 2.2 AA contrast (high contrast: AAA), checked by a script.
-- **Plain text first.** Compose is plain text in a mono face by default. HTML compose is a
-  setting and a per-message switch, and HTML always goes out with a plain-text copy.
+- **HTML when it helps, plain text always along.** New messages and replies start in HTML (since
+  0.9.8, the owner's choice); plain text in a mono face is a setting and a per-message switch, and
+  HTML always goes out with a plain-text copy.
 - **Mail follows the theme.** In a dark theme HTML mail goes on the theme's dark paper with its
   colors turned around (OKLab, hue kept); one click shows it on white, as sent.
 
@@ -72,7 +73,13 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      out, top senders, largest messages, the last sync.
   src/i18n.rs        The core's language: `tr!("English", "Polski")`, set from the settings.
   src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
-                     auto-replies with RFC 3834 safeguards (shared with the away reply).
+                     auto-replies with RFC 3834 safeguards (shared with the away reply), previews.
+  src/saved_searches.rs  Saved list queries (schema 13); one unreadable row is left out alone.
+  src/risk.rs        Scam warning signs of an opened message, offline (docs/mail-risk.md): brand
+                     lookalikes, disguised links, hidden characters. Advisory points, not a filter.
+  src/spam.rs        Telex's own spam filter, offline: tokens, Robinson/Fisher scores (as SpamBayes),
+                     learning from Spam and read mail and from moves into and out of Spam, new
+                     Inbox mail sorted before the rules. Its tests are in src/spam/tests.rs.
   src/away.rs        The away reply, one per account: on the server as a Sieve vacation where
                      it takes one, else Telex answers new mail when it checks.
   src/sieve.rs       ManageSieve (RFC 5804, port 4190, STARTTLS before the login) and Telex's
@@ -119,6 +126,7 @@ ui/                  The interface. index.html + styles.css + app.js, no build s
   themes.css         Every color, one block per theme (data-theme on <html> and on theme cards).
   i18n.js            English and Polish: t(), tn() (Polish plurals), data-i18n in index.html.
   boot.js            Puts the saved theme, language and text size on <html> before first paint.
+  links.js           A link's real destination, hidden characters made visible (no network).
   fonts/             IBM Plex, Inter, JetBrains Mono, Atkinson Hyperlegible Next and Mono, Source Sans 3
                      and Source Code Pro (OFL, from @fontsource; latin and latin-ext) bundled so the
                      app works offline; fonts.css (the Source files stand in for heavier weights).
@@ -158,11 +166,13 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs) |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
 | `set_unread_many`, `set_flagged_many` | `ids`, `unread` / `flagged` | how many changed (others are left alone) |
-| `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none; within an account, or to and from the folders on this PC (server mail moved there leaves the server; moved back, it is uploaded) |
+| `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none; within an account, or to and from the folders on this PC (server mail moved there leaves the server; moved back, it is uploaded); into or out of Spam, the spam filter learns from it |
+| `mark_spam`      | `ids`, `spam`                | `[[id, from]]` for undo: to each account's Spam folder (true) or back to its Inbox (false), learned from; all or none (mail on this PC can't) |
+| `spam_status`    | –                            | `{spam, ham, needed}`: messages the spam filter learned from, and how many of each it needs before it moves anything |
 | `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` |
 | `mark_folder_read` | `folder`                   | how many were unread        |
 | `choose_folder`  | `folder`, `kind` (sent, drafts, archive, spam, trash) | – (that server folder is used for it from now on; the one that was becomes the user's own; kept over the server's flags) |
@@ -189,6 +199,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `delete_rule`    | `id`                         | –                           |
 | `move_rule`      | `id`, `delta` (-1 up, 1 down) | –                          |
 | `move_account`   | `id`, `delta` (-1 up, 1 down) | – (server accounts; the folders on this PC stay last) |
+| `preview_rule`   | `rule`, `view`               | how many of the list's first 2,000 messages the rule would match, with samples (`listed`, `read`, `limited`: the list was longer); changes and sends nothing |
+| `list_saved_searches`, `save_search` (`search`, id 0 = new), `delete_search` (`id`) | | saved list queries, A to Z |
 | `run_rules`      | `folder`                     | `{matched, moved, replied, problems}` (no auto-replies on demand) |
 | `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account` | `{account, identity, to, cc, subject, body, attachments, reply_to, forward_of}` |
 | `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
@@ -199,7 +211,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `remove_account` | `id`                         | – (local copies and saved password only; an away reply on the server is taken off first) |
 | `get_away`       | `account`                    | `{account, enabled, starts, ends, subject, body, days, place, script, created}` (off when never set) |
 | `save_away`      | `away`                       | `{away, why}`: onto the server (ManageSieve) where it takes it (`place: server`), else Telex answers (`why: {code, detail}`: no_server, no_tls, no_vacation, no_dates, login, refused) |
-| `check_mail`     | `account` (null = all)       | `{new: [ids], new_in, sent: [lines], sorted, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest; with `account`, only its Inbox) |
+| `check_mail`     | `account` (null = all)       | `{new: [ids], new_in, sent: [lines], sorted, spam, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest; with `account`, only its Inbox; `spam`: new mail the spam filter moved to Spam) |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
 | `download_older` | `folder`, `limit`            | `{new, busy}`: up to `limit` of the newest messages the first download left on the server |
 | `update_info`    | –                            | `{version, updatable}` (false: built without the release key) |
@@ -268,7 +280,8 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this 
 `YYYY-MM-DDTHH:MM:SS` strings.
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
-("auto", "en", "pl"), `density`, `account_mark` (rail, dot, initials, tint, none: how accounts'
+("auto", "en", "pl"), `toolbar_style` (classic, icons, large, below, text), `threaded` (thread rows
+in folder lists, off by default), `density`, `account_mark` (rail, dot, initials, tint, none: how accounts'
 colors show in the tree, on the rows of every list (with two or more accounts; a dot or the
 initials stand once above one account's folder), and the status bar; `data-mark` on `<html>`),
 `unread_style` (quiet: read mail in `--muted`, bold: weight only, color: unread mail in
@@ -279,8 +292,12 @@ the window's, the list's and the mono face; `data-font` on `<html>`, sets of `--
 (moment, at_once, window, manual), `read_delay` (ms a message is on screen before it counts as
 read with moment: 600, 1000, 2000, 3000, 5000, 10000), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
 IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
-`mail_paper` (theme, white: HTML mail in a dark theme), `compose_format` (plain, html),
-`reply_format` (same, plain, html), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
+`mail_paper` (theme, white: HTML mail in a dark theme), `risk_checks` (a line above opened mail
+with scam warning signs; nothing when there are none), `spam_filter` (careful (the default),
+normal, strict, off: how sure the spam filter must be to move new mail to Spam; off still
+learns; `spam::set_level`, like the language), `compose_format` (html, plain; html by
+default since 0.9.8, an existing settings.json keeps its value), `reply_format` (html (the
+default), same, plain), `sign_replies` (the identity's signature in replies and forwards too), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
 can take it back), `ask_subject`, `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `backup_every` (off, daily,
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
 leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
@@ -367,6 +384,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | drag         | messages onto a folder: it fills up, then takes them on release; Esc cancels, Z undoes |
 | G            | go to a folder: type part of its name |
 | T            | the selected message's conversation (T or Esc goes back) |
+| → / ←        | with threads on (Settings › Reading): expand / collapse the selected thread |
 | O            | only the unread mail of the list (also the dot above the list's dots, or "n unread" in the status bar); O again or Esc: all of it. In Unread (top of the tree) O goes back to the folder before |
 | Z            | undo the last delete, move or Discard; within the moment after Send, take the message back (also the Undo button in the status bar) |
 | /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
@@ -386,16 +404,48 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
-## Current state (v0.9.5: saved searches, richer rules and previews, optional threads, toolbar layouts, link inspection and local scam-risk checks, and all earlier features below)
+## Current state (v0.9.8: a spam filter of its own, link destinations in one line, HTML by default, signatures in Settings, and all earlier features below)
 
-- Schema 13 stores saved list queries and duplicate protection for copy/forward rule actions.
-  Rules match named headers and attachment names/types; previews count all matches without
-  changing or sending mail. Copy preserves the original; automatic forwarding is arrival-only.
-- Settings › Reading offers expandable thread rows (off by default). Appearance offers five
-  toolbar layouts. Link inspection and Rust scam-risk reasons stay local; scores are advisory.
-- Linux GLib 0.18.5 uses the verified upstream iterator backport in `vendor/glib`.
-  `crates/telex-security` and `fuzz` exercise hostile mail in both native webviews, optimized
-  GLib iterators, MIME/HTML and PST imports. The complete security workflow gates releases.
+- New in 0.9.8 (schema version 14: `spam_tokens`, `spam_trained`):
+  - Telex's own spam filter (`spam.rs`; Settings › Mail › Spam filter; the message menu's Mark as
+    spam / Not spam). A statistical filter learned from the user's mail on this PC: each message
+    is cut into tokens (folded words of the subject and text, sender address and domain, link
+    hosts, attachment types, a few header facts such as the first Authentication-Results and
+    List-Unsubscribe; the user's own address is left out), each token scored with Robinson's
+    estimate, the 150 strongest combined with Fisher's chi-squared method (as SpamBayes). It
+    learns from mail in Spam folders (spam) and read mail in the Inbox, Sent, Archive and the
+    user's folders (good), up to 400 a check and 5,000 of each by itself (`learn_pending`); any
+    move into Spam or out of it to a good folder learns the message again, undoing what it was
+    learned as (`move_many`, one transaction; Z learns back). In `sync_all` it runs on new Inbox
+    mail before the rules and the away reply (`sort_arrivals`): above the level's cutoff (careful
+    0.99, normal 0.95, strict 0.90) the message goes to the account's Spam with a note naming the
+    score and the telling words, and no notification. It never moves mail from people the user
+    wrote to, trusted senders or answers to the user's own mail, does nothing until it has 50 of
+    each, and doesn't learn from its own moves (`spam_trained.class` -1) until the user says Not
+    spam. Token counts stay when mail is removed; the row with the empty token holds the totals.
+  - Links: pointing at or focusing a link shows its real destination in one line at the foot of the
+    message pane (`.linktip`, like a browser's status bubble; never over the mail); right-click:
+    open, copy the address. The 0.9.5 inspector card and the "n links" bar are gone.
+  - Scam warnings show only when the score is above 0 (`risk_checks` turns them off).
+  - HTML is the default for new messages and replies; `sign_replies`; Settings › Writing lists every
+    identity's signature, edited in place and saved as typed (`save_identity`).
+  - The message menu starts with Mark as read / unread.
+  - One unreadable saved search no longer hides the others.
+  - Speed: thread rows keep the reply graph until mail comes, goes or moves (reading and flagging
+    don't rebuild it), and a rule's preview reads a list's first 2,000 messages (`PREVIEW_LIMIT`),
+    saying when there were more. Numbers in docs/storage.md.
+  - Recipients like `a@x.pl <a@x.pl>` or a name with @ in it send (`smtp::mailbox`: the name is
+    dropped when it repeats the address, else quoted); replies don't write such names.
+
+- New in 0.9.5 (schema 13: saved searches, richer rules and previews, optional threads, toolbar layouts, link inspection and local scam-risk checks):
+  - Schema 13 stores saved list queries and duplicate protection for copy/forward rule actions.
+    Rules match named headers and attachment names/types; previews count all matches without
+    changing or sending mail. Copy preserves the original; automatic forwarding is arrival-only.
+  - Settings › Reading offers expandable thread rows (off by default). Appearance offers five
+    toolbar layouts. Link inspection and Rust scam-risk reasons stay local; scores are advisory.
+  - Linux GLib 0.18.5 uses the verified upstream iterator backport in `vendor/glib`.
+    `crates/telex-security` and `fuzz` exercise hostile mail in both native webviews, optimized
+    GLib iterators, MIME/HTML and PST imports. The complete security workflow gates releases.
 
 - New in 0.9.1 (no schema change):
   - Unread mail stands out (`unread_style`, Settings › Appearance › Unread mail, cards drawn as

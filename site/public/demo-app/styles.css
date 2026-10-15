@@ -342,22 +342,12 @@ button.ph-who:hover .pn{text-decoration:underline}
 .risk-details li span{flex:1;min-width:0}
 .risk-details li>b{font:12px var(--font-data);color:var(--muted)}
 .risk-details p{margin:3px 0;color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
-/* Destinations belong to Telex, outside the sender's sandbox, and stay in view on scroll. */
-.mail-links{position:sticky;top:0;z-index:2;background:var(--panel);color:var(--fg);border-bottom:1px solid var(--line-soft);font:12px/1.4 var(--font-ui)}
-.linktools{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 12px;padding:5px 14px}
-.linkhint,.linkdest>span,.linklabel{color:var(--muted)}
-.linklist{max-height:200px;overflow:auto;overscroll-behavior:contain}
-.linkpeek{position:fixed;z-index:3;background:var(--panel);color:var(--fg);border-block:1px solid var(--field);box-shadow:0 3px 8px var(--shadow);overflow:auto;font:12px/1.4 var(--font-ui)}
-.linkclose{position:absolute;top:3px;right:8px;font-size:16px}
-.linkpeek .linkdest{padding-right:24px}
-.linkcard{padding:6px 14px 8px;border-top:1px solid var(--line-soft);min-width:0}
-.linkdest{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 10px;overflow-wrap:anywhere}
-.linkdest bdi{font:600 12px var(--font-data);direction:ltr;unicode-bidi:isolate}
-.linklabel{margin:2px 0;overflow-wrap:anywhere}
-.linkaddress{display:flex;gap:6px;align-items:center;margin-top:4px}
-.linkaddress textarea{flex:1;min-width:0;min-height:38px;resize:vertical;padding:2px 6px;background:var(--surface);color:var(--fg);border:1px solid var(--field);border-radius:3px;font:12px/1.4 var(--font-data);unicode-bidi:isolate;overflow-wrap:anywhere}
-.linkaddress .btn{flex:none;min-height:24px;padding:2px 8px;font-size:12px}
-.linknote{margin-top:4px;color:var(--muted);overflow-wrap:anywhere}
+/* The address under the pointer, like a browser's status bubble: Telex's, outside the mail, never in the way. */
+.linktip{position:fixed;z-index:3;display:flex;align-items:baseline;gap:8px;min-width:0;padding:2px 8px;background:var(--panel);color:var(--muted);border:1px solid var(--field);border-radius:3px 3px 0 0;box-shadow:0 1px 4px var(--shadow);font:11.5px/1.5 var(--font-ui);pointer-events:none;white-space:nowrap;overflow:hidden}
+.linktip .lt-host{flex:none;color:var(--fg);font:600 11.5px var(--font-data);direction:ltr;unicode-bidi:isolate}
+.linktip .lt-url{min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-data);direction:ltr;unicode-bidi:isolate}
+.linktip .lt-warn,.linktip .lt-off{flex:none;color:var(--note-fg);font-weight:600}
+.linktip.warn{border-color:var(--note-fg)}
 .copyfield{position:fixed;left:-10000px;top:0}
 .imgph{display:grid;place-items:center;height:96px;margin:6px 0 10px;border:1px dashed var(--line);border-radius:4px;color:var(--faint);font-size:11px}
 .imgph.loaded{border-style:solid;border-color:transparent;background:linear-gradient(135deg,var(--img-a),var(--img-b));color:var(--chip-fg)}
@@ -559,6 +549,17 @@ button.ph-who:hover .pn{text-decoration:underline}
 .sdone{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .sselect{height:26px;min-width:min(260px,100%);padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
 .sopts{display:flex;flex-direction:column;gap:2px;margin-bottom:12px}
+/* Signatures in Settings › Writing: one card per address, the text edited in place. */
+.sigs{display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
+.sig{display:flex;flex-direction:column;gap:5px;min-width:0}
+.sighead{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:12.5px}
+.sighead b{font-weight:600}
+.sighead .sdim{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sigstate{margin-left:auto;color:var(--muted);font-size:11px}
+.sighead .linkbtn{flex:none;font-size:11.5px}
+.sig textarea{width:100%;min-height:58px;padding:5px 7px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data);resize:vertical}
+.sig textarea:focus{border-color:var(--accent);outline:0}
+.sig textarea::placeholder{color:var(--muted)}
 .sopt{display:flex;align-items:center;gap:8px;min-height:26px;font-size:12.5px;cursor:pointer}
 .sopt input{flex:none;margin:0}
 .sopt .sinline{min-width:0;height:24px}

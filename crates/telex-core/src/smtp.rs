@@ -461,7 +461,7 @@ fn parse_recipients(input: &str, field: &str) -> Result<Vec<Mailbox>, String> {
     split_addresses(input)
         .into_iter()
         .map(|part| {
-            Mailbox::from_str(&part).map_err(|_| {
+            mailbox(&part).ok_or_else(|| {
                 tr!(
                     "\"{part}\" in {field} isn't a valid address.",
                     "„{part}” w polu {field} nie jest poprawnym adresem."
@@ -475,8 +475,22 @@ fn parse_recipients(input: &str, field: &str) -> Result<Vec<Mailbox>, String> {
 fn lenient_recipients(input: &str) -> Vec<Mailbox> {
     split_addresses(input)
         .iter()
-        .filter_map(|part| Mailbox::from_str(part).ok())
+        .filter_map(|part| mailbox(part))
         .collect()
+}
+
+/// One entry of an address list. Mail often names a person by their address
+/// (`a@x.pl <a@x.pl>`) or with a dot or @ in an unquoted name, which RFC 5322 wants quoted:
+/// the name is taken as it is (and quoted when the message is written), or left out when it
+/// only repeats the address.
+fn mailbox(entry: &str) -> Option<Mailbox> {
+    if let Ok(m) = Mailbox::from_str(entry) {
+        return Some(m);
+    }
+    let (name, address) = mailbox_parts(entry);
+    let address = lettre::Address::from_str(&address).ok()?;
+    let name = (!name.is_empty() && !name.eq_ignore_ascii_case(address.as_ref())).then_some(name);
+    Some(Mailbox::new(name, address))
 }
 
 /// Split an address list at commas and semicolons, except inside quotes and angle
@@ -597,6 +611,32 @@ mod tests {
 
     fn now() -> DateTime<Local> {
         Local.with_ymd_and_hms(2026, 10, 10, 9, 30, 0).unwrap()
+    }
+
+    #[test]
+    fn names_that_are_addresses_or_need_quotes_still_send() {
+        let got = parse_recipients(
+            "m.mostowski@owner.pl <m.mostowski@owner.pl>, J. Nowak (biuro@x.pl) <jan@x.pl>, ewa@y.pl",
+            "To",
+        )
+        .unwrap();
+        assert_eq!(got.len(), 3);
+        assert_eq!(
+            got[0].name, None,
+            "a name that only repeats the address goes"
+        );
+        assert_eq!(got[0].email.to_string(), "m.mostowski@owner.pl");
+        assert_eq!(got[1].name.as_deref(), Some("J. Nowak (biuro@x.pl)"));
+        assert_eq!(got[1].email.to_string(), "jan@x.pl");
+        assert!(parse_recipients("anna@", "To").is_err());
+        assert_eq!(
+            drafts_line("m.mostowski@owner.pl", "M.Mostowski@owner.pl"),
+            "M.Mostowski@owner.pl"
+        );
+    }
+
+    fn drafts_line(name: &str, email: &str) -> String {
+        crate::drafts::address_line(name, email)
     }
 
     #[test]

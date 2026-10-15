@@ -2,7 +2,7 @@
 //! book to keep: the people come from the mail base itself. Those the user has written to
 //! come first, then those who write most, each with the name they used last.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use chrono::NaiveDateTime;
 use serde::Serialize;
@@ -23,6 +23,15 @@ pub struct Recipient {
     /// Messages the user sent to them, and received from them.
     pub sent: usize,
     pub received: usize,
+}
+
+/// Whom the user has written to, and what: for the spam filter, which leaves their mail alone.
+#[derive(Debug, Default)]
+pub(crate) struct Correspondence {
+    /// Every address in To, Cc and Bcc of mail the user wrote, lowercase.
+    pub addresses: HashSet<String>,
+    /// The Message-IDs of that mail: an answer to one of them is no spam.
+    pub message_ids: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -69,6 +78,48 @@ fn is_robot(email: &str) -> bool {
 }
 
 impl MailStore {
+    /// Everyone the user has written to (Sent, Drafts and the Outbox), and those messages'
+    /// Message-IDs.
+    pub(crate) fn correspondence(&self) -> Result<Correspondence, StoreError> {
+        let outgoing: Vec<String> = self
+            .accounts()
+            .iter()
+            .flat_map(|a| {
+                a.folders
+                    .iter()
+                    .filter(|f| f.kind.is_outgoing())
+                    .map(|f| a.folder_key(&f.id))
+            })
+            .collect();
+        let mut known = Correspondence::default();
+        if outgoing.is_empty() {
+            return Ok(known);
+        }
+        let marks = vec!["?"; outgoing.len()].join(", ");
+        let mut stmt = self.db.prepare(&format!(
+            "SELECT to_addr, cc, bcc, message_id FROM messages WHERE folder IN ({marks})"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(&outgoing), |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (to, cc, bcc, message_id) = row?;
+            for entry in split_addresses(&format!("{to}, {cc}, {bcc}")) {
+                let (_, email) = mailbox_parts(&entry);
+                if email.contains('@') {
+                    known.addresses.insert(email.trim().to_lowercase());
+                }
+            }
+            known.message_ids.extend(message_id);
+        }
+        Ok(known)
+    }
+
     /// The people the user mails with, most likely first: everyone they wrote to (Sent,
     /// Drafts and the Outbox), then everyone who wrote to them (not Spam or Trash). Their
     /// own addresses and robots' addresses are left out.

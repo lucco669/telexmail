@@ -56,6 +56,7 @@ const scenes = {
   'toolbar-layouts': { settings: { toolbar_style: 'below' } },
   // A new message with two files, Bcc open, and the suggestions for a second recipient.
   attach: {
+    settings: { compose_format: 'plain' },
     run: `ui.key('n'); await ui.wait(150); ui.click('[data-act="bcc"]'); await ui.wait(200);
     const demo = window.__TELEX_DEMO__, file = (name, kb) => demo.addFile(new File([new Uint8Array(kb * 1024)], name));
     demo.emit('files-dropped', [file('homepage-v2.pdf', 1843), file('header-photo-bright.jpg', 612)]); await ui.wait(50);
@@ -87,7 +88,13 @@ const scenes = {
     const action = document.querySelector('#r-acts select[data-k="type"]'); action.value = 'copy'; action.dispatchEvent(new Event('input', {bubbles:true}));
     ui.click('#r-preview'); await ui.wait(250);` },
   spam: { run: `ui.folder('studio/spam'); await ui.wait(50); ui.row('Rank #1'); await ui.wait(100);` },
-  links: { run: `ui.pane(25); ui.folder('studio/spam'); await ui.wait(100); ui.row('Your music subscription needs attention'); await ui.wait(150); ui.click('[data-act="links"]'); await ui.wait(50);` },
+  // The pointer on a link in Spam: its address in the strip at the foot of the message, with the scam warning above.
+  links: { run: `ui.pane(25); ui.folder('studio/spam'); await ui.wait(100); ui.row('Your music subscription needs attention'); await ui.wait(150);
+    let a; for (let i = 0; i < 100 && !(a = document.querySelector('.hframe')?.contentDocument?.querySelector('a[href^="http"]')); i++) await ui.wait(20);
+    a.dispatchEvent(new PointerEvent('pointerover', {bubbles:true})); await ui.wait(50);` },
+  // Settings › Writing: HTML first, and every address's signature edited in place.
+  signatures: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-write'); await ui.wait(150); const p = document.querySelector('.setpanes');
+    const g = document.getElementById('s-reply').closest('fieldset'); p.scrollTop += g.getBoundingClientRect().top - p.getBoundingClientRect().top - 10; await ui.wait(100);` },
   identities: {
     run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
     ui.click('#i-list [data-id="2"] [data-i="edit"]'); await ui.wait(50);`,

@@ -170,6 +170,33 @@ the message before it in its folder, so conversations are a few messages long):
 
 The rest of the table above stayed the same.
 
+### Thread rows and rule previews (0.9.8)
+
+0.9.5's thread rows (Settings › Reading) worked out the account's whole reply graph again after
+any change to the mail base, so with mail marked read after a moment nearly every arrow key paid
+for it, and each page built the full row list and searched it. Now the graph is kept until mail
+comes, goes, moves or gets new headers (`list_shape`, a counter that temporary triggers on this
+connection raise; reading and flagging don't), a list's groups know each message's group and
+row, and the unread counts are read for the page's groups only. Lists that depend on read and
+flag states (only unread, the Flag order, the quick filter) group their messages again after any
+change, still without working out the graph.
+
+A rule's preview read every message of the list in full while it held the mail base, so a check
+or a send waited for it: now it reads the list's first 2,000 (`filters::PREVIEW_LIMIT`) after one
+pass for their order, and says when there were more.
+
+Measured on 15 October 2026 on the owner's PC, the same benchmark, both versions one after the
+other on the same base (the threaded list is the 40,000-message Inbox by date: 17,229 rows):
+
+| Core (one call into `MailStore`)                       | 0.9.5          | 0.9.8           |
+|--------------------------------------------------------|----------------|-----------------|
+| Threaded: first page after mail came or went           | 126 ms         | 65–76 ms        |
+| Threaded: next page at row 15,000 / jump there         | 1.2 / 1.1 ms   | 0.13 / 0.14 ms  |
+| Threaded: mark read, new counts, open page again       | 141 ms         | 7.7–8.4 ms (plain list: 9.6) |
+| Threaded: mark read, next unread (Space)               | 135 ms         | 8.9 ms          |
+| Threaded: Shift+click across 100 rows                  | 1.0 ms         | 0.01 ms         |
+| Rule preview, body contains, all mail (94,000)         | 67.5 s         | 66–75 ms (first 2,000) |
+
 ## Phase 2: backup, restore, location (built for 0.6, except location)
 
 - **Back up** (`src/backup.rs`, Settings › Backups): `VACUUM INTO` on a read-only connection of

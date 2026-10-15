@@ -40,6 +40,7 @@ impl SettingsState {
         let loaded = Settings::load(&path);
         let locale = core::system_locale();
         i18n::set(Lang::from_code(loaded.settings.effective_language(&locale)));
+        telex_core::spam::set_level(loaded.settings.spam_filter);
         Self {
             settings: Mutex::new(loaded.settings),
             path,
@@ -54,6 +55,7 @@ impl SettingsState {
     fn view(&self, settings: Settings) -> SettingsView {
         let language = settings.effective_language(&self.locale);
         i18n::set(Lang::from_code(language));
+        telex_core::spam::set_level(settings.spam_filter);
         SettingsView {
             language,
             offer: settings.language_to_offer(&self.locale),

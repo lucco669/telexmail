@@ -117,7 +117,7 @@ const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
 const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'run_rules',
-  'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read']);
+  'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read', 'mark_spam']);
 async function call(cmd, args){
   try {
     const result = await invoke(cmd, args);
@@ -302,7 +302,7 @@ const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light')
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
-    threaded:false, push_mail:true, notify:true, mail_paper:'theme', compose_format:'plain', reply_format:'same', undo_send:5, ask_subject:true,
+    threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true,
     spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
@@ -1402,24 +1402,30 @@ function messageMenu(){
   const unread = many ? rows.length > 0 && !rows.some(r => r.unread) : !m.unread; // what U does
   const flag = many ? !rows.length || rows.some(r => !r.flagged) : !m.flagged;
   const trash = many ? !allMail() && kindOf(state.folder) === 'trash' : kindOf(m.f) === 'trash';
+  // Spam or Not spam for received mail of server accounts; Not spam when all of it is in Spam.
+  const spamOk = rows.length > 0 && rows.every(r => acctId(r.f) !== LOCAL && !isOut(r.f));
+  const inSpam = spamOk && rows.every(r => kindOf(r.f) === 'spam');
   const sort = [
     {label:many ? (unread ? t('Mark as unread|several') : t('Mark as read|several')) : unread ? t('Mark as unread') : t('Mark as read'), key:'U', run:toggleUnread},
     {label:flag ? t('Flag|rule action') : t('Remove the flag'), key:'F', run:toggleFlag},
     {label:t('Move to…'), key:'M', run:() => openPicker('move')},
+    ...(spamOk ? [inSpam ? {label:t('Not spam'), run:() => markSpam(false)} : {label:t('Mark as spam'), run:() => markSpam(true)}] : []),
     {label:trash ? t('Delete for good') : t('Move to Trash'), key:'Del', run:del},
   ];
   if (many) return sort;
   const out = isOut(m.f), edit = ['drafts', 'outbox'].includes(kindOf(m.f));
   const to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0];
+  // Read or unread always comes first, where the pointer lands.
   return [
-    {label:t('Open in its own window'), key:'Enter', run:() => openWindow(m.id)},
+    sort[0],
     {sep:true},
+    {label:t('Open in its own window'), key:'Enter', run:() => openWindow(m.id)},
     ...(edit ? [{label:t('Edit'), key:'E', run:() => openCompose('edit')}] : []),
     {label:t('Reply'), key:'R', run:() => openCompose('reply')},
     {label:t('Reply all'), key:'Shift+R', run:() => openCompose('replyall')},
     {label:t('Forward'), key:'Shift+F', run:() => openCompose('forward')},
     {sep:true},
-    ...sort,
+    ...sort.slice(1),
     {sep:true},
     {label:t('Show the conversation'), key:'T', run:toggleThread},
     out ? {label:t('All mail to {name}', {name:nameOf(m.to)}), disabled:!to, run:() => filterAllMail('to:' + to)}
@@ -1809,59 +1815,46 @@ function followLink(href, spam){
     call('open_link', {url:h}).then(() => say(t('Opened in your browser.'), 2500)).catch(() => {});
   }
 }
-// Kept in the app's UI, outside the sender's document. No link is fetched to inspect it.
-let previewLinks = [], activeLink = null;
-const linkLabel = a => window.TelexLinks.visible((a.textContent || a.querySelector('img')?.alt || '').trim().replace(/\s+/g, ' '));
-function linkCard(info, label, index){
-  return `<div class="linkcard"><div class="linkdest"><span>${esc(info.web ? t('Destination') : t('Email address'))}</span> <bdi>${esc(info.destination)}</bdi></div>`
-    + (label ? `<div class="linklabel">${esc(label)}</div>` : '')
-    + `<div class="linkaddress"><textarea rows="2" readonly spellcheck="false" dir="ltr" aria-label="${esc(t('Link address'))}">${esc(info.display)}</textarea><button type="button" class="btn" data-copy-link="${index}">${esc(t('Copy link'))}</button></div>`
-    + (info.credentials ? `<div class="linknote">${esc(t('This address contains a login name. The destination is {host}.', {host:info.destination}))}</div>` : '')
-    + (info.hidden ? `<div class="linknote">${esc(t('Hidden characters are shown as escape codes. Copy link keeps the original address.'))}</div>` : '') + '</div>';
-}
-function collectPreviewLinks(root, spam){
-  const seen = new Set();
-  previewLinks = []; activeLink = null;
+// The address under the pointer, like a browser's status bubble: one line at the foot of the
+// message pane, outside the sender's document, never covering the message. Nothing is fetched.
+const linkTip = document.createElement('div');
+linkTip.className = 'linktip'; linkTip.hidden = true; linkTip.setAttribute('role', 'status');
+document.body.append(linkTip);
+let tipFor = null;
+function markLinks(root, spam){
   root.querySelectorAll('a[href]').forEach(a => {
-    const info = window.TelexLinks.inspect(a.getAttribute('href'));
-    if (!info) return;
-    a.title = info.display; // replace any title supplied by the sender
+    a.removeAttribute('title'); // the sender's tooltip could name another address
     if (spam) a.setAttribute('aria-disabled', 'true');
-    if (seen.has(info.href)) return;
-    seen.add(info.href); previewLinks.push({info, label:linkLabel(a)});
   });
-  const bar = previewEl.querySelector('.mail-links');
-  if (!bar) return;
-  bar.hidden = !previewLinks.length;
-  bar.querySelector('[data-act="links"]').textContent = tn(previewLinks.length, '{n} link', '{n} links');
-  bar.querySelector('.linkhint').textContent = spam ? t('Links are blocked in Spam. You can inspect and copy them.') : t('Hover or focus a link to see its destination.');
-  bar.querySelector('.linklist').replaceChildren(); // build the destination list only when opened
 }
-function showLink(a){
+function showLink(a, spam){
   const info = window.TelexLinks.inspect(a.getAttribute('href'));
-  if (!info) return;
-  const card = previewEl.querySelector('.linkpeek');
-  if (!card || !previewEl.querySelector('.linklist')?.hidden || (activeLink?.anchor === a && !card.hidden)) return;
-  activeLink = {info, anchor:a};
-  card.innerHTML = `<button type="button" class="linkclose pbtn" data-act="hide-link" title="${esc(t('Hide link preview'))}" aria-label="${esc(t('Hide link preview'))}">×</button>` + linkCard(info, '', 'active'); card.hidden = false;
-  positionLinkPeek();
-}
-// Keep the inspector in the opposite half of the pane from the link being examined, so
-// revealing its address never covers the button under the pointer or shifts the email.
-function positionLinkPeek(){
-  const card = previewEl.querySelector('.linkpeek'), a = activeLink?.anchor;
-  if (!card || card.hidden || !a?.isConnected) return;
+  if (!info){ hideLink(); return; }
+  tipFor = a;
+  const warn = info.credentials ? t('Disguised link, it goes to')
+    : info.hidden ? t('Hidden characters in the address.') : '';
+  linkTip.classList.toggle('warn', !!warn);
+  linkTip.innerHTML = (spam ? `<span class="lt-off">${esc(t('Off in Spam'))}</span>` : '')
+    + (warn ? `<span class="lt-warn">${esc(warn)}</span>` : '')
+    + `<bdi class="lt-host">${esc(info.destination)}</bdi>`
+    + (info.web ? `<bdi class="lt-url">${esc(info.display)}</bdi>` : '');
   const pane = previewEl.getBoundingClientRect(), r = a.getBoundingClientRect();
   const frame = a.ownerDocument.defaultView?.frameElement;
-  const top = r.top + (frame ? frame.getBoundingClientRect().top : 0);
-  card.style.left = pane.left + 'px'; card.style.width = previewEl.clientWidth + 'px';
-  card.style.maxHeight = Math.min(180, pane.height / 2) + 'px';
-  const above = top > pane.top + pane.height / 2;
-  card.style.top = above ? pane.top + 'px' : 'auto';
-  card.style.bottom = above ? 'auto' : Math.max(0, innerHeight - pane.bottom) + 'px';
+  const bottom = r.bottom + (frame ? frame.getBoundingClientRect().top : 0);
+  const left = r.left + (frame ? frame.getBoundingClientRect().left : 0);
+  linkTip.style.maxWidth = Math.max(160, pane.width * 0.66) + 'px';
+  linkTip.style.bottom = Math.max(0, innerHeight - pane.bottom) + 'px';
+  linkTip.hidden = false;
+  // Like a browser: bottom left, unless the link itself sits there.
+  const right = bottom > pane.bottom - 40 && left < pane.left + linkTip.offsetWidth;
+  linkTip.style.left = right ? 'auto' : pane.left + 'px';
+  linkTip.style.right = right ? Math.max(0, innerWidth - pane.right) + 'px' : 'auto';
 }
-previewEl.addEventListener('scroll', positionLinkPeek, {passive:true});
-new ResizeObserver(positionLinkPeek).observe(previewEl);
+function hideLink(a = null){
+  if (a && a !== tipFor) return;
+  tipFor = null; linkTip.hidden = true;
+}
+previewEl.addEventListener('scroll', () => hideLink(), {passive:true});
 async function copyLink(info){
   if (!info) return;
   try { await navigator.clipboard.writeText(info.href); }
@@ -1873,49 +1866,38 @@ async function copyLink(info){
     let copied = false;
     try { copied = document.execCommand('copy'); } catch {}
     field.remove(); from?.focus?.({preventScroll:true});
-    if (!copied){
-      const index = previewLinks.findIndex(link => link.info.href === info.href);
-      const list = previewEl.querySelector('.linklist');
-      const field = list && !list.hidden && index >= 0 ? list.querySelectorAll('textarea')[index] : previewEl.querySelector('.linkpeek textarea');
-      field?.focus(); field?.select();
-      say(t('Select the link address and press Ctrl+C to copy it.'), 6000); return;
-    }
+    if (!copied){ say(t('Couldn’t copy the link address.'), 4000); return; }
   }
   say(t('Link address copied.'), 2500);
 }
-function linkMenu(e, a, frame = null){
+function linkMenu(e, a, spam, frame = null){
   const info = window.TelexLinks.inspect(a.getAttribute('href'));
   if (!info) return;
-  e.preventDefault(); showLink(a);
+  e.preventDefault(); showLink(a, spam);
   const offset = frame?.getBoundingClientRect() ?? {left:0, top:0};
   const r = a.getBoundingClientRect();
   const x = offset.left + (e.clientX || r.left), y = offset.top + (e.clientY || r.bottom);
   openMenu(x, y, [
-    {label:t('Copy link address'), run:() => copyLink(info)},
-    {label:t('Show all links'), run:() => toggleLinkList(true)},
+    info.web ? {label:t('Open in the browser'), disabled:spam, run:() => followLink(info.href, spam)}
+      : {label:t('Write to {email}', {email:info.destination}), disabled:spam, run:() => followLink(info.href, spam)},
+    {label:info.web ? t('Copy link address') : t('Copy email address'), run:() => copyLink(info.web ? info : {href:info.destination})},
   ], a);
 }
-function toggleLinkList(open){
-  const bar = previewEl.querySelector('.mail-links'), list = bar?.querySelector('.linklist');
-  if (!list) return;
-  list.hidden = open === undefined ? !list.hidden : !open;
-  if (!list.hidden && !list.childElementCount) list.innerHTML = previewLinks.map(({info, label}, i) => linkCard(info, label, i)).join('');
-  bar.querySelector('[data-act="links"]').setAttribute('aria-expanded', String(!list.hidden));
-  if (!list.hidden) previewEl.querySelector('.linkpeek').hidden = true;
-  activeLink = null;
-}
-function bindPreviewLinks(root, frame = null){
-  root.addEventListener('pointerover', e => { const a = e.target.closest?.('a[href]'); if (a) showLink(a); });
-  root.addEventListener('focusin', e => { const a = e.target.closest?.('a[href]'); if (a) showLink(a); });
-  root.addEventListener('contextmenu', e => { const a = e.target.closest?.('a[href]'); if (a) linkMenu(e, a, frame); });
+function bindPreviewLinks(root, spam, frame = null){
+  const link = e => e.target.closest?.('a[href]');
+  root.addEventListener('pointerover', e => { const a = link(e); if (a) showLink(a, spam); });
+  root.addEventListener('pointerout', e => { const a = link(e); if (a && !a.contains(e.relatedTarget)) hideLink(a); });
+  root.addEventListener('focusin', e => { const a = link(e); if (a) showLink(a, spam); });
+  root.addEventListener('focusout', e => { const a = link(e); if (a) hideLink(a); });
+  root.addEventListener('contextmenu', e => { const a = link(e); if (a) linkMenu(e, a, spam, frame); });
   root.addEventListener('keydown', e => {
-    const a = e.target.closest?.('a[href]');
-    if (a && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))){ e.stopPropagation(); linkMenu(e, a, frame); }
+    const a = link(e);
+    if (a && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))){ e.stopPropagation(); linkMenu(e, a, spam, frame); }
   });
   // Middle-click must not bypass the app's link policy or open a tab in the mail frame.
-  root.addEventListener('auxclick', e => { if (e.target.closest?.('a[href]')) e.preventDefault(); });
+  root.addEventListener('auxclick', e => { if (link(e)) e.preventDefault(); });
   root.addEventListener('pointerdown', e => {
-    if (e.button === 1 && e.target.closest?.('a[href]')) e.preventDefault();
+    if (e.button === 1 && link(e)) e.preventDefault();
     if (!menuEl.hidden) closeMenu(false);
   });
 }
@@ -1925,8 +1907,8 @@ function mountFrame(frame, documentHtml, spam){
   frame.addEventListener('load', () => {
     const d = frame.contentDocument;
     if (!d || !frame.isConnected) return;
-    collectPreviewLinks(d, spam);
-    bindPreviewLinks(d, frame);
+    markLinks(d, spam);
+    bindPreviewLinks(d, spam, frame);
     const fit = () => { frame.style.height = d.documentElement.scrollHeight + 'px'; };
     fit();
     new ResizeObserver(fit).observe(d.documentElement);
@@ -2039,10 +2021,11 @@ function paintReadButton(){
 let pvSeq = 0;
 function riskHtml(m){
   const r = m.risk;
-  if (!r || isOut(m.folder)) return '';
-  const score = Math.max(0, Math.min(99, Number(r.score) || 0));
-  const level = score >= 70 ? 'high' : score >= 40 ? 'elevated' : score ? 'low' : 'none';
-  const label = score >= 70 ? t('High scam risk') : score >= 40 ? t('Suspicious') : score ? t('Some warning signs') : r.limited ? t('Check incomplete') : t('No obvious warning signs');
+  const score = Math.max(0, Math.min(99, Number(r?.score) || 0));
+  // Only mail with warning signs gets a line; everything else reads undisturbed.
+  if (!score || isOut(m.folder) || pref().risk_checks === false) return '';
+  const level = score >= 70 ? 'high' : score >= 40 ? 'elevated' : 'low';
+  const label = score >= 70 ? t('High scam risk') : score >= 40 ? t('Suspicious') : t('Some warning signs');
   const reasons = {
     sender_brand_mismatch:s => t('The sender claims to be {claimed}, but uses an unlisted domain ({actual}).', s),
     sender_lookalike:s => t('The sender domain {actual} resembles {claimed}, but is outside its listed domains.', s),
@@ -2068,7 +2051,7 @@ previewEl.addEventListener('keydown', e => {
 });
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
-  previewLinks = []; activeLink = null; closeMenu(false);
+  hideLink(); closeMenu(false);
   if (!ACCOUNTS.length){
     // Another mail program on this PC: everything can come from there in one go.
     if (!moveIn.sources) findPrograms().then(() => { if (!ACCOUNTS.length) renderPreview(); });
@@ -2111,14 +2094,12 @@ ${headerHtml(m, `${readButton(s)}${popout}${paper}${views}<span class="pill pfla
 ${riskHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
-<section class="mail-links" hidden aria-label="${esc(t('Message links'))}"><div class="linktools"><button type="button" class="linkbtn" data-act="links" aria-expanded="false" aria-controls="message-link-list"></button><span class="linkhint"></span></div><div class="linklist" id="message-link-list" hidden></div></section>
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
-<div class="linkpeek" hidden aria-label="${esc(t('Link address'))}"></div>
 </article>`;
   if (asHtml) mountFrame(previewEl.querySelector('.hframe'), hv.document, spam);
   else {
     const body = previewEl.querySelector('.pbody');
-    collectPreviewLinks(body, spam); bindPreviewLinks(body);
+    markLinks(body, spam); bindPreviewLinks(body, spam);
   }
   previewEl.scrollTop = 0;
 }
@@ -2128,8 +2109,6 @@ async function setView(text){
   say(text ? t('Showing plain text. Press H for HTML.') : t('Showing HTML. Press H for plain text.'), 2500);
 }
 previewEl.addEventListener('click', async e => {
-  const copy = e.target.closest('[data-copy-link]');
-  if (copy){ copyLink(copy.dataset.copyLink === 'active' ? activeLink?.info : previewLinks[Number(copy.dataset.copyLink)]?.info); return; }
   const link = e.target.closest('.pbody a[href]');
   if (link){ e.preventDefault(); const s = current(); followLink(link.getAttribute('href'), s && (kindOf(s.f) === 'spam')); return; }
   const view = e.target.closest('[data-view]');
@@ -2145,8 +2124,6 @@ previewEl.addEventListener('click', async e => {
   const off = e.target.closest('[data-unattach]');
   if (off && state.compose){ state.compose.attachments.splice(Number(off.dataset.unattach), 1); renderComposeAtts(); return; }
   if (!act) return;
-  if (act.dataset.act === 'links'){ toggleLinkList(); return; }
-  if (act.dataset.act === 'hide-link'){ previewEl.querySelector('.linkpeek').hidden = true; activeLink = null; return; }
   const m = current();
   if (act.dataset.act === 'images' && m){
     state.images.add(m.id); say(t('Loading images…'), 0);
@@ -2990,6 +2967,25 @@ async function moveChosen(folder){
   await refresh({skip:n === 1 ? ids[0] : undefined});
   if (!state.compose) renderPreview();
 }
+// The menu's Mark as spam and Not spam: to the account's Spam folder, or back to its Inbox. The
+// spam filter learns from either, and from Z, which moves them back.
+async function markSpam(spam){
+  const ids = chosen(); if (!ids.length) return;
+  const next = state.picked.size > 1 ? rowAfterPicked() : null;
+  let places;
+  try { places = await call('mark_spam', {ids, spam}); } catch { return; }
+  setUndo({kind:'move', items:places.map(([id, from]) => ({id, from}))});
+  const n = ids.length;
+  say(spam ? (n === 1 ? t('Moved to Spam; the spam filter learns from it. Press Z to undo.')
+      : tn(n, 'Moved {n} message to Spam; the spam filter learns from it. Press Z to undo.', 'Moved {n} messages to Spam; the spam filter learns from them. Press Z to undo.', {n:num(n)}))
+    : n === 1 ? t('Back in the Inbox; the spam filter learns it isn’t spam. Press Z to undo.')
+      : tn(n, 'Moved {n} message back to the Inbox; the spam filter learns it isn’t spam. Press Z to undo.', 'Moved {n} messages back to the Inbox; the spam filter learns they aren’t spam. Press Z to undo.', {n:num(n)}));
+  if (VIEWER){ tellMain({say:$('st-msg').textContent, undo:state.undo}); closeViewer(); return; }
+  unpick();
+  if (next){ state.sel[selKey()] = next.id; selRow = next; }
+  await refresh({skip:n === 1 ? ids[0] : undefined});
+  if (!state.compose) renderPreview();
+}
 // Z: put back what was deleted or moved last, or take back mail still waiting to be sent.
 async function undo(){
   const u = state.undo; if (!u) return;
@@ -3153,6 +3149,7 @@ async function getMail({quiet = false, first = false, account = null} = {}){
       text = where ? tn(ids.length, '{n} new message in {where}.', '{n} new messages in {where}.', {where})
         : tn(ids.length, '{n} new message.', '{n} new messages.');
     } else if (!quiet) text = t('No new messages.');
+    if (r.spam) text = [text, tn(r.spam, 'The spam filter moved {n} message to Spam.', 'The spam filter moved {n} messages to Spam.')].filter(Boolean).join(' ');
     if (r.sorted) text = [text, tn(r.sorted, 'Rules sorted {n} message.', 'Rules sorted {n} messages.')].filter(Boolean).join(' ');
     if (r.sent?.length) text = [sentText(r.sent), text].filter(Boolean).join(' ');
     if (r.errors.length) text = [r.errors.join(' · '), text].filter(Boolean).join(' · ');
@@ -3841,6 +3838,45 @@ $('i-list').addEventListener('click', async e => {
   await loadTree();
   showIdentityList();
 });
+// Settings › Writing: every identity's signature, edited in place and saved as it is typed.
+const sigSaves = new Map(); // identity id → timer
+function renderSignatures(){
+  const el = $('s-sigs');
+  const ids = allIdentities();
+  if (!ids.length){ el.innerHTML = `<p class="dnote">${esc(t('Add an account first: each address you write from gets its signature here.'))}</p>`; return; }
+  const several = servers().length > 1;
+  el.innerHTML = ids.map(i => `<div class="sig" data-sig="${i.id}" data-account="${esc(i.account)}">
+<div class="sighead"><b>${esc(i.name || i.email)}</b><span class="sdim">${esc(i.email)}${several && i.email !== ACCT[i.account]?.email ? ' · ' + esc(ACCT[i.account]?.email ?? '') : ''}</span>
+<span class="sigstate" aria-live="polite"></span><button type="button" class="linkbtn" data-sig-edit>${esc(t('Edit identity|button'))}</button></div>
+<textarea rows="3" spellcheck="true" aria-label="${esc(t('Signature for {email}', {email:i.email}))}" placeholder="${esc(t('No signature'))}">${esc(i.signature || '')}</textarea></div>`).join('');
+}
+async function saveSignature(card){
+  clearTimeout(sigSaves.get(card.dataset.sig)); sigSaves.delete(card.dataset.sig);
+  const own = ACCT[card.dataset.account]?.identities?.find(i => i.id === Number(card.dataset.sig));
+  const text = card.querySelector('textarea').value, state = card.querySelector('.sigstate');
+  if (!own || own.signature === text) return;
+  try {
+    const saved = await invoke('save_identity', {identity:{...own, signature:text}});
+    own.signature = saved?.signature ?? text; // compose takes it from here, no reload needed
+    state.textContent = t('Saved');
+  } catch (err){ state.textContent = tr(err); }
+}
+$('s-sigs').addEventListener('input', e => {
+  const card = e.target.closest('.sig');
+  if (!card) return;
+  card.querySelector('.sigstate').textContent = '';
+  clearTimeout(sigSaves.get(card.dataset.sig));
+  sigSaves.set(card.dataset.sig, setTimeout(() => saveSignature(card), 700));
+});
+$('s-sigs').addEventListener('focusout', e => { const card = e.target.closest('.sig'); if (card && e.target.matches('textarea')) saveSignature(card); });
+$('s-sigs').addEventListener('click', e => {
+  const card = e.target.closest('[data-sig-edit]')?.closest('.sig');
+  if (!card) return;
+  saveSignature(card);
+  const i = ACCT[card.dataset.account]?.identities?.find(x => x.id === Number(card.dataset.sig));
+  openIdentities(card.dataset.account);
+  if (i) showIdentityForm(i);
+});
 $('i-new').addEventListener('click', () => showIdentityForm(null));
 $('i-back').addEventListener('click', showIdentityList);
 $('i-close').addEventListener('click', () => showAccountView('home'));
@@ -4061,6 +4097,7 @@ $('r-preview').addEventListener('click', async () => {
   if (snapshot !== JSON.stringify(rule)) return;
   $('r-form-err').textContent = '';
   $('r-preview-result').innerHTML = `<h3 class="rh">${esc(t('Preview: {matched} of {checked} messages match.',{matched:num(report.matched),checked:num(report.checked)}))}</h3><p class="dnote">${esc(t('No messages were changed or sent.'))} ${esc(ruleSummary(rule))}</p>`
+    + (report.limited ? `<p class="dnote">${esc(t('Only the first {n} of the {total} messages in this list were checked.',{n:num(report.read),total:num(report.listed)}))}</p>` : '')
     + (report.new_mail_only ? `<p class="dnote">${esc(t('Automatic replies and forwards run only on new arrivals, never on Run now.'))}</p>` : '')
     + `<ul class="preview-matches">${report.samples.map(m => `<li><b>${esc(m.subject)}</b> · ${esc(m.from)}<span class="dnote">${esc(t('Condition matches: {matches}',{matches:m.conditions.map((hit,i) => (i+1) + (hit ? ' ✓' : ' ×')).join(' · ')}))}</span></li>`).join('')}</ul>`
     + (report.matched > report.samples.length ? `<p class="dnote">${esc(t('Showing the first {n} matches.',{n:report.samples.length}))}</p>` : '');
@@ -4196,10 +4233,13 @@ function renderSettings(keepFocus){
   ], s.mark_read);
   $('s-view').innerHTML = radios('prefer_text', [['html', esc(t('Show the HTML'))], ['text', esc(t('Show the plain text'))]], s.prefer_text ? 'text' : 'html');
   $('s-paper').innerHTML = radios('mail_paper', [['theme', esc(t('On the theme’s dark paper'))], ['white', esc(t('On white, as sent'))]], s.mail_paper);
-  $('s-format').innerHTML = radios('compose_format', [['plain', esc(t('Plain text'))], ['html', esc(t('HTML'))]], s.compose_format);
-  $('s-reply').innerHTML = radios('reply_format', [['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))], ['html', esc(t('Always HTML'))]], s.reply_format);
+  $('s-format').innerHTML = radios('compose_format', [['html', esc(t('HTML'))], ['plain', esc(t('Plain text'))]], s.compose_format);
+  $('s-reply').innerHTML = radios('reply_format', [['html', esc(t('Always HTML'))], ['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))]], s.reply_format);
+  $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
+  renderSignatures();
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
+  $('s-spam').innerHTML = radios('spam_filter', SPAM_LEVELS.map(([v, label]) => [v, esc(t(label))]), s.spam_filter ?? 'careful');
   $('s-threaded').checked = !!s.threaded;
   $('s-undo').innerHTML = UNDO_SEND.map(n => `<option value="${n}"${n === s.undo_send ? ' selected' : ''}>${esc(undoText(n))}</option>`).join('');
   const can = !!upd.build?.updatable;
@@ -4219,7 +4259,8 @@ function paneOpened(tab){
     else if (accountView === 'start') renderLangPick();
   }
   if (tab === 'read') renderTrusted();
-  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); }
+  if (tab === 'mail') renderSpamStatus();
+  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); }
   if (tab === 'use') renderUsage();
   if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
@@ -4228,15 +4269,27 @@ function paneOpened(tab){
 function syncSettings(){
   const s = pref();
   const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
+    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-delay').value = String(s.read_delay);
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   $('s-threaded').checked = !!s.threaded;
+  $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
   $('s-undo').value = String(s.undo_send);
   if ($('s-keep')) $('s-keep').value = String(s.backup_keep);
+}
+// How sure the spam filter must be before it moves new mail to Spam (settings' spam_filter).
+const SPAM_LEVELS = [['careful', N_('Careful: only mail it is all but sure of')], ['normal', N_('Normal|spam filter')],
+  ['strict', N_('Strict: catches more, and now and then a good message')], ['off', N_('Off: it learns, but moves nothing')]];
+// What the spam filter has learned so far, under its levels.
+async function renderSpamStatus(){
+  const el = $('s-spam-learned');
+  let s;
+  try { s = await invoke('spam_status'); } catch { el.textContent = ''; return; }
+  el.textContent = [t('Learned so far: spam {spam}, good mail {ham}.', {spam:num(s.spam), ham:num(s.ham)}),
+    s.spam < s.needed || s.ham < s.needed ? t('It starts moving mail once it has {n} of each.', {n:num(s.needed)}) : ''].filter(Boolean).join(' ');
 }
 // When Telex looks for a newer version by itself.
 const UPDATE_CHOICES = ['start', 'daily', 'off'];
@@ -4298,6 +4351,9 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-push') changeSettings({push_mail:el.checked});
   else if (el.id === 's-notify') changeSettings({notify:el.checked});
   else if (el.id === 's-undo') changeSettings({undo_send:Number(v)});
+  else if (el.id === 's-signrep') changeSettings({sign_replies:el.checked});
+  else if (el.name === 'spam_filter') changeSettings({spam_filter:v});
+  else if (el.id === 's-risk') changeSettings({risk_checks:el.checked}).then(ok => ok && !state.compose && renderPreview());
   else if (el.name === 'updates') changeSettings({updates:v}).then(ok => ok && autoCheck(true));
   else if (el.name === 'backup_every') changeSettings({backup_every:v}).then(ok => { if (ok){ renderTree(); autoBackup(); } });
   else if (el.dataset.mv) moveInTick(el);
@@ -4319,7 +4375,7 @@ sdlg.addEventListener('close', () => {
 // passwords. Importing shows what would change first; nothing changes until Import.
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
-  compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), ask_subject:N_('Ask before sending a message without a subject'),
+  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), ask_subject:N_('Ask before sending a message without a subject'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
@@ -4340,8 +4396,9 @@ function settingValue(key, v){
     case 'updates': return v === 'ask' ? t('Not decided yet') : updatesText(v);
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
+    case 'spam_filter': return SPAM_LEVELS.find(([id]) => id === v) ? t(SPAM_LEVELS.find(([id]) => id === v)[1]) : v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
-    case 'threaded': case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
+    case 'threaded': case 'risk_checks': case 'sign_replies': case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
     case 'undo_send': return undoText(v);
     case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
     case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
@@ -5129,10 +5186,7 @@ function onKey(e){
   if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
     if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
-    const linkpeek = previewEl.querySelector('.linkpeek'), linklist = previewEl.querySelector('.linklist');
-    if ((linkpeek && !linkpeek.hidden) || (linklist && !linklist.hidden)){
-      e.preventDefault(); linkpeek.hidden = true; toggleLinkList(false); return;
-    }
+    if (!linkTip.hidden){ e.preventDefault(); hideLink(); return; }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
     if (unpick()){ e.preventDefault(); afterPick(); return; }

@@ -78,7 +78,7 @@ function installTelexDemo(options) {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
     toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
-    threaded: false, mail_paper: 'theme', compose_format: 'plain', reply_format: 'same', undo_send: 5, ask_subject: true, spell_check: true,
+    threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, spell_check: true,
     updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
   const SLIPS = {
@@ -448,6 +448,28 @@ function installTelexDemo(options) {
     for (const [id] of places) byId(id).folder = folder;
     return places;
   }
+  // The menu's Spam and Not spam (spam.rs's mark_spam): to the account's Spam folder or back to
+  // its Inbox. The demo's filter learns nothing; spam_status counts what the folders hold.
+  function markSpam(ids, spam) {
+    const plan = ids.map((id) => {
+      const m = need(id), acct = acctId(m.folder);
+      const to = acct === LOCAL ? null : keyOfKind(acct, spam ? 'spam' : 'inbox');
+      if (!to) {
+        if (spam) fail('This mail has no Spam folder to go to.', 'Ta poczta nie ma folderu Spam, do którego mogłaby trafić.');
+        fail('This mail has no Inbox to go back to.', 'Ta poczta nie ma Odebranych, do których mogłaby wrócić.');
+      }
+      return [m, to];
+    });
+    return plan.map(([m, to]) => { const from = m.folder; m.folder = to; return [m.id, from]; });
+  }
+  function spamStatus() {
+    const good = ['inbox', 'sent', 'archive', 'custom'];
+    return {
+      spam: msgs.filter((m) => kindOf(m.folder) === 'spam').length,
+      ham: msgs.filter((m) => !m.unread && good.includes(kindOf(m.folder))).length,
+      needed: 50,
+    };
+  }
   function deleteMany(ids) {
     const plan = ids.map((id) => {
       const m = need(id), inTrash = kindOf(m.folder) === 'trash';
@@ -548,7 +570,7 @@ function installTelexDemo(options) {
     const m = kind === 'new' ? null : of != null ? need(of) : fail('Select a message first.', 'Najpierw wybierz wiadomość.');
     const a = sender(m, acct);
     const me = m ? identityFor(a, m) : defaultIdentity(a);
-    const sig = (me.signature || '').trimEnd();
+    const sig = m && settings.sign_replies === false ? '' : (me.signature || '').trimEnd();
     const draft = { account: a.id, identity: me.id, to: '', cc: '', subject: '', body: layout(sig, null), attachments: [], reply_to: null, forward_of: null };
     if (!m) return draft;
     const d = parse(m.date);
@@ -1121,7 +1143,7 @@ function installTelexDemo(options) {
     if (busy) return { new: [], new_in: null, sent: [], sorted: 0, errors: [], busy: true };
     busy = true;
     try {
-      const out = { new: [], new_in: null, sent: [], sorted: 0, errors: [], busy: false };
+      const out = { new: [], new_in: null, sent: [], sorted: 0, spam: 0, errors: [], busy: false };
       const list = accounts.filter((a) => a.imap && (!only || a.id === only));
       // The check at start finds the mailbox as the demo left it.
       if (!checkedOnce) {
@@ -1206,9 +1228,9 @@ function installTelexDemo(options) {
     theme: THEMES, language: ['auto', 'en', 'pl'], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
-    backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20],
+    backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20], spam_filter: ['off', 'careful', 'normal', 'strict'],
   };
-  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'spell_check'];
+  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'spell_check', 'risk_checks', 'sign_replies'];
   const settingsView = () => ({ settings: { ...settings }, language: lang(), offer: null, fresh: false });
   function updateSettings({ changes }) {
     for (const [k, v] of Object.entries(changes || {})) {
@@ -1311,6 +1333,8 @@ function installTelexDemo(options) {
     },
     mark_folder_read: ({ folder }) => { needFolder(folder); return setMany(msgs.filter((m) => m.folder === folder).map((m) => m.id), 'unread', false); },
     move_messages: ({ ids, folder }) => moveMany(ids, folder),
+    mark_spam: ({ ids, spam }) => markSpam(ids, !!spam),
+    spam_status: spamStatus,
     delete_messages: ({ ids }) => deleteMany(ids),
     get_html: getHtml,
     trusted_senders: () => [...trusted].sort((a, b) => a.localeCompare(b)),

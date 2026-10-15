@@ -35,12 +35,14 @@ pub struct DraftStart {
 }
 
 /// Start a draft. A new message is from `account`; a reply or forward comes from the
-/// account of the message `of`, as the identity it was sent to.
+/// account of the message `of`, as the identity it was sent to. `sign_replies` false leaves
+/// the signature out of replies and forwards (Settings › Writing); new messages always have it.
 pub fn start(
     store: &MailStore,
     kind: DraftKind,
     of: Option<MessageId>,
     account: &str,
+    sign_replies: bool,
 ) -> Result<DraftStart, StoreError> {
     let original = match (kind, of) {
         (DraftKind::New, _) => None,
@@ -57,7 +59,11 @@ pub fn start(
         Some(m) => identity_for(account, m),
         None => account.identity(None),
     };
-    let signature = identity.signature.trim_end().to_owned();
+    let signature = if sign_replies || original.is_none() {
+        identity.signature.trim_end().to_owned()
+    } else {
+        String::new()
+    };
     let mut draft = DraftStart {
         account: account.id.clone(),
         identity: identity.id,
@@ -271,11 +277,11 @@ fn strip_prefixes(subject: &str) -> String {
     }
 }
 
-fn address_line(name: &str, email: &str) -> String {
+pub(crate) fn address_line(name: &str, email: &str) -> String {
     let name = name.trim();
-    if name.is_empty() || name == email {
+    if name.is_empty() || name.eq_ignore_ascii_case(email) {
         email.to_owned()
-    } else if name.contains([',', ';', '"']) {
+    } else if name.contains([',', ';', '"', '@', '<', '>']) {
         format!("\"{}\" <{email}>", name.replace('"', "'"))
     } else {
         format!("{name} <{email}>")
@@ -313,7 +319,7 @@ mod tests {
     #[test]
     fn a_new_message_opens_with_the_signature() {
         let store = sample_store();
-        let d = start(&store, DraftKind::New, None, "firma").unwrap();
+        let d = start(&store, DraftKind::New, None, "firma", true).unwrap();
         assert_eq!(d.body, "\n\nPozdrawiam\n");
         assert_eq!(d.account, "firma");
         assert!(d.identity > 0);
@@ -323,7 +329,7 @@ mod tests {
     fn a_reply_quotes_with_the_polish_header() {
         let store = sample_store();
         let m = first_in(&store, "firma/inbox", "Poprawki");
-        let d = start(&store, DraftKind::Reply, Some(m.id), "firma").unwrap();
+        let d = start(&store, DraftKind::Reply, Some(m.id), "firma", true).unwrap();
         assert_eq!(d.to, "Anna Kowalska <anna@kowalska-architekci.pl>");
         assert_eq!(d.subject, format!("Re: {}", m.subject));
         assert_eq!(d.reply_to, Some(m.id));
@@ -361,7 +367,7 @@ mod tests {
             .find(|s| s.has_attachments)
             .map(|s| store.get(s.id).unwrap())
             .unwrap();
-        let d = start(&store, DraftKind::Forward, Some(m.id), "firma").unwrap();
+        let d = start(&store, DraftKind::Forward, Some(m.id), "firma", true).unwrap();
         assert!(d.subject.starts_with("Fwd: "));
         assert_eq!(d.attachments, m.attachments);
         assert_eq!(d.forward_of, Some(m.id));
@@ -430,7 +436,7 @@ mod tests {
             &account,
             "From: Formularz <www@sklep.pl>\r\nReply-To: Anna Klientka <anna@x.pl>\r\nTo: jan@twojastudio.pl\r\n",
         );
-        let d = start(&store, DraftKind::Reply, Some(id), &account.id).unwrap();
+        let d = start(&store, DraftKind::Reply, Some(id), &account.id, true).unwrap();
         assert_eq!(d.to, "Anna Klientka <anna@x.pl>", "Reply-To wins over From");
         let jan = account
             .identities
@@ -456,7 +462,7 @@ mod tests {
             "From: Anna <anna@x.pl>\r\nTo: jan@twojastudio.pl\r\n",
         );
         store.move_to(id, "local/archive").unwrap();
-        let d = start(&store, DraftKind::Reply, Some(id), LOCAL_ID).unwrap();
+        let d = start(&store, DraftKind::Reply, Some(id), LOCAL_ID, true).unwrap();
         assert_eq!(d.account, account.id);
         let jan = account
             .identities
@@ -465,7 +471,7 @@ mod tests {
             .unwrap();
         assert_eq!(d.identity, jan.id, "the alias it was sent to");
         // A new message while a folder on this PC is open: from an account that can send.
-        let d = start(&store, DraftKind::New, None, LOCAL_ID).unwrap();
+        let d = start(&store, DraftKind::New, None, LOCAL_ID, true).unwrap();
         assert_eq!(d.account, account.id);
     }
 
@@ -477,7 +483,7 @@ mod tests {
             &account,
             "From: Anna <anna@x.pl>\r\nTo: biuro@twojastudio.pl, Piotr <piotr@y.pl>\r\nCc: ANNA@x.pl, jan@twojastudio.pl, ewa@z.pl\r\n",
         );
-        let d = start(&store, DraftKind::ReplyAll, Some(id), &account.id).unwrap();
+        let d = start(&store, DraftKind::ReplyAll, Some(id), &account.id, true).unwrap();
         assert_eq!(d.to, "Anna <anna@x.pl>, Piotr <piotr@y.pl>");
         assert_eq!(d.cc, "ewa@z.pl");
     }
@@ -486,7 +492,7 @@ mod tests {
     fn replying_to_your_own_sent_mail_goes_to_its_recipients() {
         let store = sample_store();
         let m = first_in(&store, "firma/sent", "");
-        let d = start(&store, DraftKind::Reply, Some(m.id), "firma").unwrap();
+        let d = start(&store, DraftKind::Reply, Some(m.id), "firma", true).unwrap();
         assert_eq!(d.to, split_addresses(&m.to).join(", "));
     }
 
@@ -494,5 +500,22 @@ mod tests {
     fn an_empty_signature_leaves_no_gap() {
         assert_eq!(layout("", None), "\n");
         assert_eq!(layout("", Some("Dnia…")), "\n\nDnia…");
+    }
+
+    #[test]
+    fn replies_can_go_without_the_signature() {
+        let store = sample_store();
+        let m = first_in(&store, "firma/inbox", "Poprawki");
+        let d = start(&store, DraftKind::Reply, Some(m.id), "firma", false).unwrap();
+        assert!(d.body.starts_with("\n\nDnia "), "{:?}", d.body);
+        let d = start(&store, DraftKind::Forward, Some(m.id), "firma", false).unwrap();
+        assert!(
+            d.body.starts_with("\n\n-------- Przekazana"),
+            "{:?}",
+            d.body
+        );
+        // A new message keeps it: the setting is about replies and forwards.
+        let d = start(&store, DraftKind::New, None, "firma", false).unwrap();
+        assert_eq!(d.body, "\n\nPozdrawiam\n");
     }
 }

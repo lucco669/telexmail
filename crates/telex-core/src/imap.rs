@@ -144,8 +144,10 @@ pub struct SyncReport {
     /// Ids of messages downloaded, in every folder.
     pub new: Vec<MessageId>,
     /// The new Inbox mail that really arrived (not a folder's first download), for a
-    /// notification.
+    /// notification; not what the spam filter moved to Spam.
     pub arrived: Vec<MessageId>,
+    /// New Inbox mail the spam filter moved to Spam.
+    pub spam: usize,
     /// New Inbox mail the rules changed, and how many automatic replies they queued.
     pub sorted: usize,
     pub answered: usize,
@@ -378,27 +380,33 @@ pub async fn sync_all<T: ImapStream>(
         None
     };
     lock(store)?.set_quota(&account.id, quota)?;
+    let mut arrived = downloaded.arrived;
+    // The spam filter first, so the rules and the away reply never see what it caught; then
+    // it learns from the mail sorted since the last check.
+    let caught = {
+        let mut s = lock(store)?;
+        let caught = crate::spam::sort_arrivals(&mut s, &arrived, crate::spam::level())?;
+        crate::spam::learn_pending(&mut s, crate::spam::LEARN_BATCH)?;
+        caught
+    };
+    arrived.retain(|id| !caught.contains(id));
     let mut report = SyncReport {
         new: downloaded.new,
-        arrived: downloaded.arrived.clone(),
+        arrived: arrived.clone(),
+        spam: caught.len(),
         refused,
         ..SyncReport::default()
     };
-    if !downloaded.arrived.is_empty() {
+    if !arrived.is_empty() {
         let run = {
             let mut s = lock(store)?;
-            filters::run(&mut s, &downloaded.arrived, Trigger::Arrival, Local::now())?
+            filters::run(&mut s, &arrived, Trigger::Arrival, Local::now())?
         };
         report.sorted = run.matched;
         report.answered = run.replied;
         report.refused.extend(run.problems);
         // The away reply, where Telex sends it, after the rules have filed the mail.
-        let away = crate::away::answer(
-            &mut *lock(store)?,
-            &account.id,
-            &downloaded.arrived,
-            Local::now(),
-        );
+        let away = crate::away::answer(&mut *lock(store)?, &account.id, &arrived, Local::now());
         report.answered += away.replied;
         report.refused.extend(away.problems);
     }
@@ -2830,6 +2838,132 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             .unwrap()
             .has_pending_changes(&account.id)
             .unwrap());
+        logout(&mut session).await;
+    }
+
+    /// A message in UTF-8 from `from`, with words picked from `words` by `seed`.
+    fn worded(uid: u32, from: &str, words: &[&str], seed: usize) -> FakeMail {
+        let pick = |n: usize| words[(seed * 7 + n * 13) % words.len()];
+        let subject = (0..3).map(pick).collect::<Vec<_>>().join(" ");
+        let body = (3..40).map(pick).collect::<Vec<_>>().join(" ");
+        FakeMail {
+            uid,
+            flags: vec!["\\Seen".into()],
+            raw: format!(
+                "From: {from}
+To: biuro@twojastudio.pl
+Subject: {subject}
+                 Message-ID: <w{uid}.{seed}@example.net>
+                 Date: Fri, 09 Oct 2026 14:30:00 +0200
+                 Content-Type: text/plain; charset=utf-8
+
+{body}
+"
+            )
+            .into_bytes(),
+        }
+    }
+
+    #[tokio::test]
+    async fn the_spam_filter_learns_from_spam_and_sorts_arriving_mail_first() {
+        const JUNK: &[&str] = &[
+            "lottery",
+            "winner",
+            "prize",
+            "claim",
+            "bitcoin",
+            "casino",
+            "bonus",
+            "jackpot",
+            "crypto",
+            "pills",
+            "unclaimed",
+            "inheritance",
+            "guaranteed",
+            "beneficiary",
+        ];
+        const WORK: &[&str] = &[
+            "faktura",
+            "projekt",
+            "spotkanie",
+            "wycena",
+            "umowa",
+            "termin",
+            "poprawki",
+            "makieta",
+            "klient",
+            "harmonogram",
+            "strona",
+            "przegląd",
+            "prezentacja",
+        ];
+        let (addr, server) = start_fake_server("IMAP4rev1 MOVE UIDPLUS").await;
+        {
+            let mut srv = server.lock().unwrap();
+            let junk = (1..=60)
+                .map(|n| worded(n, &format!("promo{n}@deals{n}.example"), JUNK, n as usize))
+                .collect();
+            srv.boxes
+                .push(fake_box("Spam", "\\HasNoChildren \\Junk", junk));
+            let inbox = &mut srv.boxes[0];
+            for n in 10..70 {
+                inbox
+                    .mail
+                    .push(worded(n, "anna@kowalska-architekci.pl", WORK, n as usize));
+            }
+            inbox.next_uid = 70;
+        }
+        let (store, account) = store_with_account();
+        let mut session = login(addr, "secret").await.unwrap();
+        // The first download learns from what the server already sorted.
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert_eq!(report.spam, 0);
+        let status = store.lock().unwrap().spam_status().unwrap();
+        assert_eq!(
+            (status.spam, status.ham),
+            (60, 62),
+            "and Wycena, read, and Sent"
+        );
+
+        // Spam and a message about work arrive: the spam goes to Spam, the rest stays.
+        {
+            let mut srv = server.lock().unwrap();
+            let inbox = &mut srv.boxes[0];
+            inbox
+                .mail
+                .push(worded(70, "offers@prizes-now.example", JUNK, 99));
+            inbox
+                .mail
+                .push(worded(71, "piotr@nowak-meble.pl", WORK, 98));
+            inbox.next_uid = 72;
+        }
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert_eq!((report.new.len(), report.spam), (2, 1), "{report:?}");
+        assert_eq!(report.arrived.len(), 1, "no notification for spam");
+        let account = store.lock().unwrap().account(&account.id).unwrap().clone();
+        let caught = store
+            .lock()
+            .unwrap()
+            .list(&account.folder_key("spam"))
+            .unwrap()
+            .into_iter()
+            .find(|m| m.from_email == "offers@prizes-now.example")
+            .expect("in Spam");
+        let note = store.lock().unwrap().get(caught.id).unwrap().note.unwrap();
+        assert!(note.contains("spam filter"), "{note}");
+        // The same sync moved it on the server.
+        assert!(server
+            .lock()
+            .unwrap()
+            .find("Spam")
+            .unwrap()
+            .mail
+            .iter()
+            .any(|m| String::from_utf8_lossy(&m.raw).contains("offers@prizes-now.example")));
         logout(&mut session).await;
     }
 

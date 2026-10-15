@@ -45,7 +45,7 @@ const beyond = [
   },
   {
     title: 'Link destinations on focus',
-    text: 'A focused message link reveals its destination just as hovering does. The expandable link list has address fields and copy actions, including in Spam where opening links remains blocked. Scam warning signs have written reasons.',
+    text: 'A focused message link reveals its destination just as hovering does. Shift+F10 or the menu key on a link copies its address, including in Spam where opening links remains blocked. Scam warning signs have written reasons.',
     link: { href: `${pages.features.path}#link-inspection`, label: 'Link inspection' },
   },
   {

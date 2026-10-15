@@ -26,13 +26,16 @@ impl MailStore {
                 r.get::<_, String>(2)?,
             ))
         })?;
-        rows.map(|row| {
+        // One search a newer (or older) Telex wrote in a shape this one can't read is left
+        // out; it mustn't take the others with it.
+        let mut out = Vec::new();
+        for row in rows {
             let (id, name, view) = row?;
-            let view =
-                serde_json::from_str(&view).map_err(|e| StoreError::Database(e.to_string()))?;
-            Ok(SavedSearch { id, name, view })
-        })
-        .collect()
+            if let Ok(view) = serde_json::from_str(&view) {
+                out.push(SavedSearch { id, name, view });
+            }
+        }
+        Ok(out)
     }
 
     pub fn save_search(&mut self, search: &SavedSearch) -> Result<SavedSearch, StoreError> {
@@ -186,5 +189,31 @@ mod tests {
         assert!(store.save_search(&bad).is_err());
         store.delete_search(search.id).unwrap();
         assert!(store.saved_searches().unwrap().is_empty());
+    }
+
+    #[test]
+    fn one_unreadable_search_leaves_the_others() {
+        let mut store = sample_store();
+        let good = store
+            .save_search(&SavedSearch {
+                id: 0,
+                name: "Unread".into(),
+                view: ListView {
+                    filter: "is:unread".into(),
+                    ..ListView::default()
+                },
+            })
+            .unwrap();
+        store
+            .db
+            .execute(
+                "INSERT INTO saved_searches (name, view) VALUES ('Broken', '{\"sort\": 42')",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            store.saved_searches().unwrap().as_slice(),
+            std::slice::from_ref(&good)
+        );
     }
 }

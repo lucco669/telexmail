@@ -5,6 +5,7 @@
 // Keep a feature's introduction version fixed after release. The newest entry in `versions`
 // drives the hero and What's new; lib/versions.ts compares it with the live release.
 const V095 = '0.9.5';
+const V098 = '0.9.8';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -199,11 +200,11 @@ export const featureRows: FeatureRow[] = [
   {
     id: 'writing',
     screen: 'writing',
-    title: 'Plain text, or HTML when it helps',
-    text: 'R opens the reply right in the reading pane, quoted and signed. Compose is plain text in a mono face, the way mail between people reads best; switch a message to HTML for bold, lists and links, and it still goes out with a plain-text copy.',
+    title: 'HTML when it helps, plain text when you want it',
+    text: 'R opens the reply right in the reading pane, quoted and signed. New messages and replies start in HTML, for bold, lists and links, and always go out with a plain-text copy; switch a message, or the default, to plain text in a mono face.',
     points: [
       'Reply, reply to all and forward, each one key',
-      'Plain text or HTML, as a default or per message; replies can follow the original',
+      'HTML or plain text, as a default or per message; replies can follow the original',
       'Pasted web pages lose their styles and scripts: only formatting goes in',
       'A From picker with all your identities; the signature follows',
       'Ctrl+Enter sends, Esc saves a draft and closes',
@@ -266,6 +267,7 @@ export const featureRows: FeatureRow[] = [
       'Header templates with {name}, {email}, {date}, {time} and {subject}',
       'The Polish reply header out of the box: “Dnia … napisał(a):”',
       'Switching identity in compose swaps the signature too',
+      { text: 'Every signature in one place, Settings › Writing, saved as you type; replies and forwards signed or not', since: V098 },
     ],
   },
   {
@@ -332,15 +334,28 @@ export const featureRows: FeatureRow[] = [
     ],
   },
   {
+    id: 'spam-filter',
+    screen: 'spam',
+    title: 'A spam filter that learns from you',
+    text: 'Telex learns what your spam looks like from your own Spam folder and the mail you keep, on your PC, and files new junk away before you see it. Each message it moves says why.',
+    since: V098,
+    points: [
+      'A statistical filter (as SpamBayes): words, senders, link hosts and a few header facts, nothing uploaded',
+      'Never moves mail from people you have written to, senders whose images you trust, or answers to your own mail',
+      'Mark as spam and Not spam in the message menu teach it; moving mail into or out of Spam does too',
+      'Careful, normal or strict in Settings › Mail, or off; it waits until it has seen enough of both kinds',
+    ],
+  },
+  {
     id: 'link-inspection',
     screen: 'links',
     title: 'Inspect before you follow',
     text: 'See where a link actually points, and why an opened message looks suspicious. Telex checks sender and link warning signs on your PC without opening the destination or uploading your mail.',
     since: V095,
     points: [
-      'Hover or focus a link to see its destination; expand the message’s link list to inspect and copy addresses',
-      'Links stay blocked in Spam, while inspection and copying remain available',
-      'Warning reasons include sender and brand lookalikes, disguised destinations and hidden characters',
+      { text: 'Point at a link or focus it: its real destination shows in one line at the foot of the message, never over it', since: V098 },
+      'Right-click a link to copy its address; in Spam links stay blocked, copying still works',
+      'Warning reasons include sender and brand lookalikes, disguised destinations and hidden characters; mail without warning signs shows nothing',
       'The score is advisory points out of 100, not a probability; no warning does not establish that mail is safe',
       'The check runs when you open a message; it does not move mail, follow redirects or verify attachments, reputation, SPF, DKIM or DMARC',
     ],
@@ -533,7 +548,7 @@ export const keyboardTips: Tip[] = [
   },
   {
     title: 'Inspect a link with the keyboard',
-    text: 'Tab to a message link to reveal its destination, or open the message’s link list and copy an address. This works in Spam too, where opening links stays blocked. Inspection does not visit the website.',
+    text: 'Tab to a message link: its real destination shows at the foot of the message. Shift+F10 or the menu key copies the address. This works in Spam too, where opening links stays blocked. Nothing visits the website.',
     since: V095,
   },
 ];
@@ -559,7 +574,7 @@ export const screens: Screen[] = [
   },
   {
     id: 'links', label: 'Link inspection', title: 'Spam · sam@lindenstudio.com – Telex',
-    caption: 'Actual link destinations, copy actions and local scam-risk reasons in Spam. Opening links stays blocked; the advisory score is not a probability.', since: V095,
+    caption: 'A link’s real destination in one line at the foot of the message, under the local scam-risk reasons, in Spam. Opening links stays blocked; the advisory score is not a probability.', since: V095,
   },
   {
     id: 'threads', label: 'Threads', title: 'Sent · sam@lindenstudio.com – Telex',
@@ -680,6 +695,13 @@ export const screens: Screen[] = [
     label: 'Identities',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Several identities per account, each with its own signature and reply and forward headers.',
+  },
+  {
+    id: 'signatures',
+    label: 'Signatures',
+    title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Settings › Writing: new messages and replies in HTML, and every address’s signature in one place, saved as you type.',
+    since: V098,
   },
   {
     id: 'account',
@@ -855,6 +877,30 @@ export type Version = {
 };
 
 export const versions: Version[] = [
+  {
+    version: V098,
+    title: 'A spam filter of your own, quieter link checks, HTML by default',
+    date: '2026-10-15',
+    summary: 'Telex learns what spam looks like from your own mail and files it away, a link shows where it really goes in one line instead of a panel, and new messages and replies start in HTML with every signature in one place.',
+    points: [
+      'A spam filter that learns on your PC from your Spam folder and the mail you keep. New Inbox mail above its cutoff goes to Spam with a note saying why; it never touches people you have written to, and does nothing until it has seen enough of both kinds. Mark as spam and Not spam in the message menu teach it; Settings › Mail sets how careful it is, or turns it off.',
+      'Point at a link or focus it: its real destination shows in one line at the foot of the message, never over it. Right-click to open it or copy the address. The link panel and the links bar are gone.',
+      'Scam warnings appear only on mail that shows warning signs, and Settings › Reading can turn them off.',
+      'New messages and replies start in HTML, still sent with a plain-text copy. Settings › Writing lists every signature to edit in place, saved as you type, and can leave the signature out of replies and forwards.',
+      'Mark as read (or unread) is the first item of the message menu.',
+      'Recipients written as their own address in angle brackets, or with an @ in the name, send instead of being refused.',
+      'Thread rows and rule previews stay quick in very large mailboxes; a preview reads the first 2,000 messages of a list and says when there were more. One damaged saved search no longer hides the others.',
+    ],
+    upgrade: 'Version 0.9.8 upgrades the local mail base for the spam filter. Back up in Settings › Backups before updating; older Telex versions cannot reopen the upgraded mail base. Settings you already chose, such as plain-text compose, stay as they are.',
+    highlights: [
+      { title: 'Your own spam filter', text: 'Learns from your Spam folder on this PC and files new junk away, with the reason on each message.', href: '/features#spam-filter' },
+      { title: 'Where a link really goes', text: 'One line at the foot of the message, never over it. Right-click to copy.', href: '/features#link-inspection' },
+      { title: 'HTML by default', text: 'New messages and replies start formatted, and always go out with a plain-text copy.', href: '/features#writing' },
+      { title: 'Signatures in one place', text: 'Every address you write from, edited in Settings › Writing and saved as you type.', href: '/features#identities' },
+      { title: 'Mark as read, first', text: 'The first item of the message menu, where the pointer lands.' },
+      { title: 'Quick at any size', text: 'Thread rows and rule previews stay fast in mailboxes of 100,000 messages.', href: '/performance' },
+    ],
+  },
   {
     version: V095,
     title: 'Saved searches, stronger rules and local scam checks',

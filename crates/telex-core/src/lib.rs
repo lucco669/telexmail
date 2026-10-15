@@ -30,6 +30,7 @@ pub mod saved_searches;
 pub mod settings;
 pub mod sieve;
 pub mod smtp;
+pub mod spam;
 pub mod spell;
 pub mod store;
 pub mod usage;

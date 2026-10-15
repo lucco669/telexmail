@@ -55,7 +55,7 @@ const protections = [
   },
   {
     title: 'Link destinations you can inspect',
-    text: 'Hover or keyboard focus reveals the actual destination, with hidden characters made visible. The message’s link list supports inspection and copying even in Spam, where opening links stays blocked. Displaying an address does not visit it or resolve redirects.',
+    text: 'Hover or keyboard focus reveals the actual destination, with hidden characters made visible. Its menu copies the address even in Spam, where opening links stays blocked. Displaying an address does not visit it or resolve redirects.',
     evidence: [
       { label: 'URL inspection code', path: 'ui/links.js' },
       { label: 'Message link interface', path: 'ui/app.js' },

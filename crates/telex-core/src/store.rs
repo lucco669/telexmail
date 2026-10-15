@@ -34,6 +34,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/011_folder_choices.sql"),
     include_str!("migrations/012_away.sql"),
     include_str!("migrations/013_saved_searches_and_rule_actions.sql"),
+    include_str!("migrations/014_spam_filter.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -267,6 +268,8 @@ pub struct MailStore {
     /// The last filtered list the UI paged through (see `list`).
     pub(crate) found: RefCell<Option<list::Found>>,
     pub(crate) grouped: RefCell<Option<list::Grouped>>,
+    /// The reply graph thread rows are made from (see `list::Graph`).
+    pub(crate) graph: RefCell<Option<list::Graph>>,
     /// The last conversation worked out: for which message, at which `total_changes`.
     pub(crate) thread: RefCell<Option<(MessageId, u64, Vec<MessageId>)>>,
 }
@@ -298,6 +301,7 @@ impl MailStore {
         db.set_prepared_statement_cache_capacity(64);
         list::register_functions(&db)?;
         migrate(&db)?;
+        list::watch_shape(&db)?;
         let accounts = load_accounts(&db)?;
         Ok(Self {
             db,
@@ -308,6 +312,7 @@ impl MailStore {
             incoming: Vec::new(),
             found: RefCell::new(None),
             grouped: RefCell::new(None),
+            graph: RefCell::new(None),
             thread: RefCell::new(None),
         })
     }
@@ -555,10 +560,31 @@ impl MailStore {
     /// on this PC leaves the server (an expunge, taken back when the message returns before
     /// the server heard of it); mail from this PC moved to a server folder is uploaded there.
     /// Between two server accounts mail goes by way of this PC, in two moves.
+    ///
+    /// Moving mail into Spam or out of it teaches the spam filter (`spam.rs`), in the same
+    /// transaction.
     pub fn move_many(
         &mut self,
         ids: &[MessageId],
         folder: &str,
+    ) -> Result<Vec<(MessageId, String)>, StoreError> {
+        self.move_and_learn(ids, folder, true)
+    }
+
+    /// A move the spam filter doesn't learn from: its own, to Spam.
+    pub(crate) fn move_unlearned(
+        &mut self,
+        ids: &[MessageId],
+        folder: &str,
+    ) -> Result<Vec<(MessageId, String)>, StoreError> {
+        self.move_and_learn(ids, folder, false)
+    }
+
+    fn move_and_learn(
+        &mut self,
+        ids: &[MessageId],
+        folder: &str,
+        learn: bool,
     ) -> Result<Vec<(MessageId, String)>, StoreError> {
         let target_acct = self.check_folder(folder)?.to_owned();
         let on_server = self.folder(folder).is_some_and(|f| f.remote.is_some());
@@ -574,7 +600,15 @@ impl MailStore {
             }
             places.push((id, source, srv_folder));
         }
+        let lessons = if learn {
+            let from: Vec<(MessageId, &str)> =
+                places.iter().map(|(id, f, _)| (*id, f.as_str())).collect();
+            crate::spam::lessons_for_move(self, &from, folder)?
+        } else {
+            Vec::new()
+        };
         let tx = self.db.transaction()?;
+        crate::spam::learn(&tx, &lessons)?;
         for (id, source, srv_folder) in &places {
             if account_of(source) == target_acct {
                 move_row(

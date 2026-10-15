@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
+use telex_core::filters::{self, Action, Condition, Field, Op, Rule};
 use telex_core::{
     AccountSetup, Attachment, Folder, FolderKind, ListView, MailStore, Message, MessageId, PageAt,
     SortKey, SyncedMessage,
@@ -803,6 +804,82 @@ fn hundred_thousand_messages() {
         store.move_many(&ids, archive).unwrap();
         store.move_many(&ids, inbox).unwrap()
     });
+
+    // Since 0.9.5: thread rows (Settings › Reading). The reply graph of the account is worked
+    // out once; reading and flagging mail must not work it out again.
+    let threaded = ListView {
+        grouped: true,
+        ..date.clone()
+    };
+    let mut moved = false;
+    let page = measure("threaded: first page after mail came or went", 5, || {
+        moved = !moved;
+        let to = if moved { archive } else { inbox };
+        store.move_many(&ids[..1], to).unwrap();
+        store.page(&threaded, PageAt::First, 100).unwrap()
+    });
+    if moved {
+        store.move_many(&ids[..1], inbox).unwrap();
+    }
+    println!("{:<52} {} rows", "", page.total);
+    let deep = store.page(&threaded, PageAt::Row(15_000), 100).unwrap();
+    let middle = deep.rows[50].id;
+    measure("threaded: next page after row 15,000", 21, || {
+        store
+            .page(&threaded, PageAt::After(deep.rows[99].id), 100)
+            .unwrap()
+    });
+    measure("threaded: jump to row 15,000 (scroll bar)", 21, || {
+        store.page(&threaded, PageAt::Row(15_000), 100).unwrap()
+    });
+    let mut flip = false;
+    measure(
+        "threaded: mark read, new counts, open page again",
+        21,
+        || {
+            flip = !flip;
+            store.set_unread(middle, flip).unwrap();
+            (
+                store.folder_tree().unwrap(),
+                store.page(&threaded, PageAt::Around(middle), 100).unwrap(),
+            )
+        },
+    );
+    measure("threaded: mark read, next unread (Space)", 21, || {
+        flip = !flip;
+        store.set_unread(middle, flip).unwrap();
+        store.next_unread(&threaded, Some(middle), false).unwrap()
+    });
+    measure("threaded: Shift+click across 100 rows", 21, || {
+        store
+            .ids_between(&threaded, Some(deep.rows[0].id), Some(deep.rows[99].id))
+            .unwrap()
+    });
+
+    // A rule's preview (Rules › Preview) holds the mail base while it reads messages, so a
+    // check or a send waits for it: it reads a limited number of the list's messages.
+    let rule = Rule {
+        id: 0,
+        name: "Żółw".into(),
+        enabled: true,
+        account: None,
+        match_all: true,
+        conditions: vec![Condition {
+            field: Field::Body,
+            op: Op::Contains,
+            value: "żółwia".into(),
+            header: None,
+        }],
+        actions: vec![Action::Flag],
+        stop: false,
+    };
+    let report = measure("rule preview: body contains, all mail", 3, || {
+        filters::preview(&store, &rule, &view(None, SortKey::Date, "", false)).unwrap()
+    });
+    println!(
+        "{:<52} {} of {} checked match",
+        "", report.matched, report.checked
+    );
 
     drop(store);
     if !keep {

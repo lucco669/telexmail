@@ -134,7 +134,7 @@ export default async function DownloadPage() {
           <div className={s.group}>
             <h3>Choose how to read</h3>
             <p className={s.p}>Settings › Reading offers optional threads. Settings › Appearance has five toolbar layouts.
-              Focus a message link or open its link list to inspect the destination.</p>
+              Point at or focus a message link to see its real destination at the foot of the message.</p>
             <Link className="more" href={pages.demo.path}>Try the tools in the demo</Link>
           </div>
         </div>

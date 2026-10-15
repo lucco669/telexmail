@@ -173,6 +173,23 @@ fn move_messages(
     with_store(&state, |s| s.move_many(&ids, &folder))
 }
 
+/// The menu's Spam (`spam` true) and Not spam: to each account's Spam folder or back to its
+/// Inbox, and the spam filter learns from it. Returns where each one was, for undo.
+#[tauri::command(async)]
+fn mark_spam(
+    state: State<'_, AppState>,
+    ids: Vec<MessageId>,
+    spam: bool,
+) -> CmdResult<Vec<(MessageId, String)>> {
+    with_store(&state, |s| s.mark_spam(&ids, spam))
+}
+
+/// What the spam filter has learned, for Settings › Mail.
+#[tauri::command(async)]
+fn spam_status(state: State<'_, AppState>) -> CmdResult<telex_core::spam::Status> {
+    with_store(&state, |s| s.spam_status())
+}
+
 /// Delete several messages: to Trash, or for good from Trash.
 #[tauri::command(async)]
 fn delete_messages(state: State<'_, AppState>, ids: Vec<MessageId>) -> CmdResult<DeleteReport> {
@@ -371,11 +388,15 @@ fn trust_sender(state: State<'_, AppState>, email: String, trusted: bool) -> Cmd
 #[tauri::command(async)]
 fn start_draft(
     state: State<'_, AppState>,
+    settings: State<'_, SettingsState>,
     kind: DraftKind,
     of: Option<MessageId>,
     account: String,
 ) -> CmdResult<DraftStart> {
-    with_store(&state, |s| drafts::start(s, kind, of, &account))
+    let sign_replies = settings.get().sign_replies;
+    with_store(&state, |s| {
+        drafts::start(s, kind, of, &account, sign_replies)
+    })
 }
 
 /// Add (id 0) or update an identity. Mistakes come back as sentences.
@@ -616,6 +637,8 @@ struct SyncOutcome {
     sent: Vec<String>,
     /// New messages the rules changed.
     sorted: usize,
+    /// New messages the spam filter moved to Spam.
+    spam: usize,
     /// One line per problem, e.g. "Studio: can't reach mail.x.pl: …".
     errors: Vec<String>,
     /// Another check or push was running, so this one didn't start. Try again shortly.
@@ -712,6 +735,7 @@ async fn check_mail(
                 outcome.new.extend(report.new);
                 arrived.extend(report.arrived);
                 outcome.sorted += report.sorted;
+                outcome.spam += report.spam;
                 let refused = report.refused.iter();
                 outcome
                     .errors
@@ -1017,6 +1041,8 @@ pub fn run() {
             set_unread_many,
             set_flagged_many,
             move_messages,
+            mark_spam,
+            spam_status,
             delete_messages,
             mark_folder_read,
             choose_folder,
