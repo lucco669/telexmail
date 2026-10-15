@@ -344,6 +344,7 @@ function applySettings(){
   if (SETTINGS.language !== I18n.lang()){ I18n.setLang(SETTINGS.language); relabel(); }
   renderUpdates();
   try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font, toolbar:s.toolbar_style})); } catch {}
+  fitToolbarSoon(); // labels, language, font and layout all change how wide the actions are
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
 // Saved at once; the window follows. Resolves to true when it worked.
@@ -413,6 +414,18 @@ function paintDensity(){
   $('b-density').innerHTML = I.rows + `<span class="lbl">${esc(pref().density === 'compact' ? t('Compact') : t('Comfortable'))}</span>`;
   $('b-density').setAttribute('aria-label', t('Switch row density') + ': ' + t(pref().density === 'compact' ? 'Compact' : 'Comfortable'));
 }
+// Classic shows its words while they fit; when they don't (a narrow window, longer Polish words)
+// it shows only the icons, each with its tooltip, instead of scrolling. Measured, not guessed.
+function fitToolbar(){
+  const bar = document.querySelector('.toolbar'), actions = $('toolbar-actions');
+  if (!bar) return;
+  bar.classList.remove('tight');
+  if (document.documentElement.dataset.toolbar !== 'classic' || VIEWER) return;
+  bar.classList.toggle('tight', actions.scrollWidth > actions.clientWidth + 1);
+}
+function fitToolbarSoon(){ requestAnimationFrame(fitToolbar); } // after the new words are drawn
+new ResizeObserver(fitToolbarSoon).observe(document.querySelector('.toolbar'));
+document.fonts?.ready.then(fitToolbarSoon);
 // A vertical mouse wheel can reach the rest of the actions on narrow windows.
 $('toolbar-actions').addEventListener('wheel', e => {
   const actions = e.currentTarget;
@@ -2012,6 +2025,9 @@ function headerHtml(m, controls){
 // The envelope above a message marks it read or unread, like U; it shows what a click does.
 const readTip = m => m.unread ? t('Mark as read (U)') : t('Mark as unread (U)');
 const readButton = m => `<button type="button" class="pbtn" data-act="read" title="${esc(readTip(m))}" aria-label="${esc(readTip(m))}">${m.unread ? I.mailOpen : I.mail}</button>`;
+// The flag next to it, like F: a switch that shows the flag's color while the message has one.
+const flagTip = m => m.flagged ? t('Remove the flag (F)') : t('Flag (F)');
+const flagButton = m => `<button type="button" class="pbtn pflag" data-act="flag" aria-pressed="${!!m.flagged}" title="${esc(flagTip(m))}" aria-label="${esc(flagTip(m))}">${I.flag}</button>`;
 function paintReadButton(){
   const b = previewEl.querySelector('[data-act="read"]'), m = current();
   if (!b || !m) return;
@@ -2090,7 +2106,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${readButton(s)}${popout}${paper}${views}<span class="pill pflag"${s.flagged ? '' : ' hidden'}>${I.flag}${esc(t('Flagged'))}</span>`)}
+${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${paper}${views}`)}
 ${riskHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
@@ -2140,6 +2156,7 @@ previewEl.addEventListener('click', async e => {
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
   if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
+  if (act.dataset.act === 'flag' && m){ setFlagged(m, !m.flagged); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
@@ -2874,8 +2891,13 @@ function toggleFlag(){
 }
 // One message flagged or not: F, the flag in its row, the menu.
 function setFlagged(m, flagged){
-  // The pill above the message, without drawing the message again.
-  const shown = on => { const pill = m.id === current()?.id && previewEl.querySelector('.pflag'); if (pill) pill.hidden = !on; };
+  // The flag button above the message, without drawing the message again.
+  const shown = on => {
+    const b = m.id === current()?.id && previewEl.querySelector('.pflag');
+    if (!b) return;
+    b.setAttribute('aria-pressed', String(on));
+    b.title = flagTip({flagged:on}); b.setAttribute('aria-label', b.title);
+  };
   changed(m, {flagged}); shown(flagged);
   call('set_flagged', {id:m.id, flagged})
     .then(() => { say(flagged ? t('Flagged.') : t('Flag removed.'), 2000); reorder(); })

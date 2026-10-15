@@ -404,6 +404,13 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
+## Not released yet
+
+- The Classic toolbar shows its words while they fit and only icons when they don't (`fitToolbar`
+  measures; `.toolbar.tight`), instead of a scroll bar; other layouts still scroll, without a bar.
+- The flag above a message is a button like the envelope (`.pflag`, pressed in `--flag`), not a pill.
+- The status bar's left side clips with an ellipsis; the key hints give way below 1100 px.
+
 ## Current state (v0.9.8: a spam filter of its own, link destinations in one line, HTML by default, signatures in Settings, and all earlier features below)
 
 - New in 0.9.8 (schema version 14: `spam_tokens`, `spam_trained`):

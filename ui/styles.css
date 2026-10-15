@@ -40,9 +40,12 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 
 /* Toolbar */
 .toolbar{display:flex;align-items:center;gap:4px;padding:4px 6px;background:var(--chrome);border-bottom:1px solid var(--line);min-width:0}
-/* Actions can scroll while Settings and search stay in reach. Tab also scrolls the focused button into view. */
-.toolbar-actions{display:flex;align-items:center;gap:2px;min-width:0;flex:0 1 auto;overflow-x:auto;scrollbar-width:thin}
-.toolbar-actions::-webkit-scrollbar{height:5px}
+/* Actions that still don't fit scroll (wheel, or Tab to a button) while Settings and search stay in reach; no bar. */
+.toolbar-actions{display:flex;align-items:center;gap:2px;min-width:0;flex:0 1 auto;overflow-x:auto;scrollbar-width:none}
+.toolbar-actions::-webkit-scrollbar{display:none}
+/* Classic without room for its words (fitToolbar in app.js): icons only, each with its tooltip. */
+[data-toolbar="classic"] .toolbar.tight .tb .lbl{display:none}
+[data-toolbar="classic"] .toolbar.tight .tb{padding:0 6px}
 .tb{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 8px;border:1px solid transparent;border-radius:4px;background:none;font-size:12px;cursor:pointer;white-space:nowrap;flex:none}
 .tb:hover{background:var(--hover);border-color:var(--line)}
 .tb:active{background:var(--sel)}
@@ -289,8 +292,6 @@ tr.empty:hover td{background:none}
 .ph{padding:10px 14px 9px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
 .ph-top{display:flex;align-items:flex-start;gap:10px}
 .ph-subj{flex:1;min-width:0;margin:0 0 6px;font:600 15px/1.3 var(--font-ui);text-wrap:balance;overflow-wrap:anywhere}
-.pill{flex:none;display:inline-flex;align-items:center;gap:4px;margin-top:2px;padding:2px 7px;border-radius:10px;font:500 10.5px var(--font-ui);letter-spacing:.04em;text-transform:uppercase;color:var(--flag);border:1px solid currentColor}
-.pill svg{width:10px;height:10px}
 /* Who, when and to whom: one face, labels quieter than the people, figures in columns. */
 .ph-grid{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:2px 12px;margin:0;font-size:12.5px;line-height:1.45}
 .ph-grid dt{color:var(--muted);font-size:12px}
@@ -419,6 +420,8 @@ button.ph-who:hover .pn{text-decoration:underline}
 .pbtn{flex:none;display:inline-grid;place-items:center;width:24px;height:22px;margin-top:0;padding:0;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--muted);cursor:pointer}
 .pbtn:hover{color:var(--fg);border-color:var(--accent)}
 .pbtn svg{width:14px;height:14px}
+.pbtn.pflag[aria-pressed="true"]{color:var(--flag);border-color:var(--flag)}
+@media (forced-colors: active){ .pbtn.pflag[aria-pressed="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText;border-color:Highlight} }
 /* Compose in HTML: the Text | HTML switch, a formatting bar and the editor */
 .ctitle .cfmt{margin-left:auto;align-self:center}
 .fbar{display:flex;flex-wrap:wrap;align-items:center;gap:2px;padding:3px 10px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
@@ -771,7 +774,7 @@ button.ph-who:hover .pn{text-decoration:underline}
   .pklist li[aria-selected="true"],.sugg li[aria-selected="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText}
   tr.unread .ic .dot{forced-color-adjust:none;background:CanvasText}
   .list:focus tr.sel.unread .ic .dot,tr.sel.unread .ic .dot{background:HighlightText}
-  .bar,.whint,.derr,.tag,.chip,.ist,.pill,.qchip,.unote{border:1px solid CanvasText}
+  .bar,.whint,.derr,.tag,.chip,.ist,.qchip,.unote{border:1px solid CanvasText}
   .ubar,.mbar,.spark,.ustack,.ulegend li>i,.ukey{forced-color-adjust:none}
   .tcard:has(input:checked){outline:3px solid Highlight;outline-offset:1px}
   .mini{forced-color-adjust:none}
@@ -787,7 +790,8 @@ button.ph-who:hover .pn{text-decoration:underline}
 #st-msg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 /* The two sides share what the keys leave, so the keys sit in the middle. The right side never
    shrinks below what it holds; a message too long for the left makes the keys give way (say). */
-.st-side{display:flex;align-items:center;gap:14px;flex:1 1 0;min-width:0}
+.st-side{display:flex;align-items:center;gap:14px;flex:1 1 0;min-width:0;overflow:hidden}
+#st-folder{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .st-right{justify-content:flex-end;min-width:max-content}
 .status.saying .hint{display:none}
 #st-check{font-variant-numeric:tabular-nums}
@@ -873,11 +877,7 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
 @media (forced-colors: active){ .helppop{border-color:CanvasText} }
 
 @media (max-width: 1360px){ .hint .more{display:none} }
-@media (max-width: 1080px){
-  [data-toolbar="classic"] .toolbar .tb .lbl{display:none}
-  [data-toolbar="classic"] .toolbar .tb{padding:0 6px}
-  [data-toolbar="classic"] .win.viewer .tb .lbl{display:inline}
-}
+@media (max-width: 1100px){ .hint{display:none} } /* the folder and its counts need the room more */
 @media (max-width: 760px){
   .main{grid-template-columns:minmax(0,1fr)}
   .tree,.split-v{display:none}
