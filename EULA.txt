@@ -1,0 +1,54 @@
+TELEX END-USER LICENSE AGREEMENT
+Version 1, 16 October 2026
+
+Telex is made by Łukasz Szramuk ("the author"). By installing or using Telex you agree to these
+terms. If you don't agree, don't install or use it.
+
+1. Free to use
+   You may install and use this version of Telex free of charge, on any number of computers,
+   at home or at work, and copy its unmodified installer for that purpose.
+
+2. What you may not do
+   You may not sell, rent or sublicense Telex; distribute modified copies of it; remove or
+   change its name, notices or this agreement; or present it as your own product. You may
+   reverse engineer it only as far as the law allows despite this term.
+
+3. Your mail stays yours
+   Telex keeps your mail, settings and passwords on your computer. It connects to your mail
+   servers, and otherwise only where you ask it to: your mail domain when it looks up the
+   servers for a new account, a sender's servers when you load a message's images, and GitHub
+   when you check for updates or fetch a spelling dictionary. The author receives none of
+   your data.
+
+4. Future versions
+   The author may release new versions, and they may come under different terms, including
+   paid ones. A version you already have stays usable under the terms it came with.
+
+5. Third-party components
+   Telex includes open-source components under their own licenses, listed in
+   THIRD-PARTY-NOTICES.txt next to this file. For those components their licenses apply, and
+   nothing in this agreement limits them.
+
+6. No warranty
+   Telex is provided "as is", without warranty of any kind, express or implied, including
+   fitness for a particular purpose. Keep backups of mail that matters to you: Telex can make
+   them (Settings › Backups).
+
+7. Limitation of liability
+   As far as the law allows, the author is not liable for any damage that comes from using
+   Telex or from being unable to use it, including lost mail or data. Nothing in this
+   agreement limits liability that the law does not allow to be limited, or your rights as a
+   consumer under the law of your country.
+
+8. Ownership
+   Telex and its source code belong to the author. You receive a license to use Telex, not
+   ownership of it.
+
+9. Ending
+   This license ends if you break these terms. You must then stop using Telex and remove it.
+
+10. Law
+   Polish law applies to this agreement, without taking away the protection that the
+   mandatory consumer law of your country gives you.
+
+Questions: admin@telexmail.app

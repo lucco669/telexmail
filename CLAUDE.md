@@ -322,6 +322,7 @@ cargo test -p telex-core --release --test scale -- --ignored --nocapture   # 100
 cargo clippy -p telex-core --all-targets -- -D warnings
 cargo clippy -p telex --all-targets -- -D warnings
 cargo fmt -p telex-core -p telex -p telex-security
+node scripts/third-party-notices.mjs   # after changing dependencies or fonts (CI checks it)
 node scripts/check-contrast.mjs   # every theme meets its WCAG level (after changing a color)
 node scripts/check-i18n.mjs       # every text has its Polish (after changing a text)
 ```
@@ -959,9 +960,21 @@ then daily like `daily`),
    restore~~ and ~~local folders with mbox export and .eml/mbox import~~: done in 0.6. Not
    yet: moving the mail base to another folder, and POP3.
 
+## License
+
+Decided 2026-10-16: freeware, all rights reserved, copyright Łukasz Szramuk. `LICENSE` (the code is
+public to read, no license to reuse it), `EULA.txt` (the app is free for personal and business
+use; shown by both Windows installers through `bundle.licenseFile` and installed next to the app
+with `THIRD-PARTY-NOTICES.txt` through `bundle.resources`), `CONTRIBUTING.md` (no code
+contributions; take one only with a CLA, so the copyright stays one person's). Not open source:
+never add an open-source license or call Telex open source. `scripts/third-party-notices.mjs`
+writes THIRD-PARTY-NOTICES.txt and the site's copies (`site/public/third-party-notices.txt`,
+`eula.txt` for the /license page) from Cargo.lock and ui/fonts: run it after any dependency or
+font change; CI fails with `--check` otherwise. The update dialog and Settings › Updates link to
+the site's License page and notices.
+
 ## Open decisions
 
-- License (none chosen yet).
 - Final product name and domain. "Telex" is the working name; the repo is `telexmail`.
 - App icon: the dot-matrix T in `brand/`. `src-tauri/icons/` is generated from it with
   `npm run icons` in `site/` (not `tauri icon`, which can't use the small-size variant).

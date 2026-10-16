@@ -1461,6 +1461,11 @@ export const faqGroups: { title: string; items: Question[] }[] = [
     title: 'Privacy and data',
     items: [
       {
+        id: 'license',
+        q: 'Is Telex free? Is it open source?',
+        a: 'Free, yes: for personal and business use, on any number of PCs, with no account and no ads. Open source, no: the code is public on GitHub so anyone can read how Telex handles mail and check its security, but all rights are reserved, so it may not be copied, changed or redistributed. Future versions may come under other terms; a version you have stays usable. The open-source libraries and fonts Telex is built on keep their own licenses, listed in the third-party notices. The License page has the full agreement.',
+      },
+      {
         id: 'privacy',
         q: 'Does Telex send anything about me anywhere?',
         a: 'The desktop app has no Telex account, telemetry or mail relay. It connects directly to your mail servers. Account setup uses DNS and provider setup URLs; images load after your permission or sender trust; optional dictionaries and permitted or manual update checks contact GitHub; server-side away replies use your provider’s ManageSieve service. Requests reveal your IP address and time, and one setup URL includes your email address. Local search, link inspection and scam checks do not upload mail. The privacy page explains each connection.',

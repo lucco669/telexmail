@@ -128,3 +128,12 @@ mailbox: desktop startup, folder changes, reading, search, and the full process 
 idle memory and CPU. The same messages export for comparison with other mail clients.
 See [the method and commands](docs/performance.md) before running it. Verified figures
 feed the site's performance page; production mail and app profiles are kept separate.
+
+## License
+
+Telex is free to use, for personal and business use on any number of PCs, under its
+[end-user license agreement](EULA.txt). It is not open source: the code is public so anyone can
+read and review it, but all rights are reserved ([LICENSE](LICENSE)), and code contributions
+can't be accepted ([CONTRIBUTING.md](CONTRIBUTING.md)). The open-source components and fonts it
+is built on keep their own licenses, listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)
+(regenerate it with `node scripts/third-party-notices.mjs` after changing dependencies; CI checks it).

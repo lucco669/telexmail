@@ -28,6 +28,13 @@
     "targets": ["nsis", "msi"],
     "shortDescription": "Compact, keyboard-driven email client",
     "category": "Productivity",
+    "copyright": "Copyright © 2026 Łukasz Szramuk. All rights reserved.",
+    "license": "LicenseRef-Proprietary",
+    "licenseFile": "../EULA.rtf",
+    "resources": {
+      "../EULA.txt": "EULA.txt",
+      "../THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

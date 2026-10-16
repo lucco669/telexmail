@@ -11,6 +11,8 @@ glib = { path = "vendor/glib" }
 version = "0.9.10"
 edition = "2021"
 rust-version = "1.90"
+# Not open source: all rights reserved (LICENSE); the app is free to use (EULA.txt).
+license = "LicenseRef-Proprietary"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }

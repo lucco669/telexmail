@@ -5457,6 +5457,11 @@ function sayRestored(){
 // to that, and whenever they click the version number. The core asks GitHub and installs;
 // the window never goes online.
 const udlg = $('upd-dlg');
+// The license and the third-party notices, on the site: in the update dialog and Settings › Updates.
+for (const d of [udlg, sdlg]) d.addEventListener('click', e => {
+  const l = e.target.closest('[data-weblink]');
+  if (l) call('open_link', {url:l.dataset.weblink}).catch(() => {});
+});
 const upd = {build:null, found:null, checking:false, installing:false, downloading:false, progress:null, text:'', error:''};
 function renderUpdates(){
   const {build, found} = upd, can = !!build?.updatable;

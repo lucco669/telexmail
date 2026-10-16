@@ -1,0 +1,16 @@
+Telex
+Copyright © 2026 Łukasz Szramuk. All rights reserved.
+
+This repository is public so that anyone can read the source code, see how Telex handles mail
+and privacy, and review its security. Publishing it grants no license to the code.
+
+You may view the code, and fork it on GitHub as far as GitHub's Terms of Service allow. You may
+not copy, modify, merge, publish, distribute, sublicense or sell the code or any part of it, or
+make works based on it, without written permission from the copyright holder.
+
+The Telex application built from this code is free to use under its own terms: see EULA.txt.
+
+Third-party components keep their own licenses, listed in THIRD-PARTY-NOTICES.txt. Nothing here
+limits the rights those licenses give.
+
+Questions and permission requests: admin@telexmail.app

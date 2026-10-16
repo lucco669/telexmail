@@ -152,6 +152,15 @@ export const pages = {
     ogTitle: 'What stays on your PC. What goes online.',
     ogScreen: 'images',
   },
+  license: {
+    path: '/license',
+    label: 'License',
+    title: 'License: free to use, all rights reserved',
+    description:
+      'Telex is free for personal and business use on any number of PCs. The code is public to read and review; all rights are reserved. Third-party notices.',
+    ogTitle: 'Free to use. Public to read.',
+    ogScreen: 'settings',
+  },
 } satisfies Record<string, PageInfo>;
 
 export const nav: PageInfo[] = [pages.features, pages.demo, pages.performance, pages.keyboard, pages.accessibility, pages.changelog, pages.roadmap, pages.faq, { ...pages.history, label: 'History' }];
@@ -161,5 +170,5 @@ export type FooterLink = { path: string; label: string };
 export const footerGroups: { title: string; items: FooterLink[] }[] = [
   { title: 'Product', items: [pages.features, pages.demo, pages.performance, pages.keyboard, pages.accessibility, pages.screenshots, pages.download] },
   { title: 'Project', items: [pages.changelog, pages.roadmap, pages.faq, pages.security, pages.about, pages.history] },
-  { title: 'Legal', items: [pages.privacy, { path: '/privacy#cookies', label: 'Cookies' }] },
+  { title: 'Legal', items: [pages.privacy, pages.license, { path: '/privacy#cookies', label: 'Cookies' }] },
 ];

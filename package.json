@@ -1,6 +1,7 @@
 {
   "name": "telexmail",
   "private": true,
+  "license": "UNLICENSED",
   "version": "0.9.10",
   "description": "Telex: a compact, keyboard-driven email client for Windows and Linux, built with Rust and Tauri",
   "scripts": {

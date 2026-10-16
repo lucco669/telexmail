@@ -68,6 +68,10 @@ const PL = {
   'Click an underlined word for suggestions; F7 goes to the next one. A word any ticked language knows is right, so one message can mix them.':'Kliknij podkreślone słowo, aby zobaczyć podpowiedzi; F7 przechodzi do następnego. Słowo znane któremukolwiek zaznaczonemu językowi jest poprawne, więc jedna wiadomość może je mieszać.',
   'Sending':'Wysyłanie',
   'A check fetches one small file from GitHub that names the newest version, and sends nothing about you. An update installs only when you choose, and only with Telex’s signature.':'Sprawdzenie pobiera z GitHuba jeden mały plik z numerem najnowszej wersji i nie wysyła nic o Tobie. Aktualizacja instaluje się tylko, gdy zdecydujesz, i tylko z podpisem Telexa.',
+  // The license
+  'Telex is free to use. © 2026 Łukasz Szramuk.':'Telex jest bezpłatny. © 2026 Łukasz Szramuk.',
+  'License':'Licencja',
+  'Third-party notices':'Licencje komponentów',
   // Replies, quotes and attachments
   'This message quotes nothing.':'Ta wiadomość niczego nie cytuje.',
   'Quotes open. Q folds them again.':'Cytaty rozwinięte. Q zwija je z powrotem.',
