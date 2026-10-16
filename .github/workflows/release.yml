@@ -4,6 +4,10 @@ name: Release
 # installers, the Linux AppImage and .deb, and the updater's latest.json into it. Publishing
 # the draft is what makes the update reach Telex. The whole process is in docs/releasing.md.
 #
+# Last, the release gets a SHA256SUMS file of all its files, and each file a build provenance
+# attestation (Sigstore, through GitHub: proof that this workflow, at this commit, published it).
+# Neither needs a secret or costs anything.
+#
 # Needs, under Settings > Secrets and variables > Actions:
 #   secret   TAURI_SIGNING_PRIVATE_KEY           the private key (contents of the .key file)
 #   secret   TAURI_SIGNING_PRIVATE_KEY_PASSWORD  its password
@@ -185,3 +189,51 @@ jobs:
         if: always()
         shell: bash
         run: rm -f "$RUNNER_TEMP/telex-signing.key"
+
+  # SHA256SUMS of every file on the release, made from what was uploaded (so it matches the
+  # downloads), after both builds; also when one failed, for what is there. A re-run replaces it.
+  # Each of those files is attested here too: anyone can check one with
+  # `gh attestation verify <file> --repo lucco669/telexmail`. Sigstore signs with this job's
+  # GitHub identity (id-token), so no key of ours is involved, and the jobs that hold the
+  # signing key get no new permissions.
+  checksums:
+    name: Checksums
+    needs: [draft, release]
+    if: ${{ !cancelled() && needs.draft.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: SHA256SUMS of the release's files
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ID: ${{ needs.draft.outputs.id }}
+        run: |
+          mkdir files
+          gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets?per_page=100" \
+            --jq '.[] | select(.name != "SHA256SUMS") | "\(.id) \(.name)"' |
+            while read -r asset name; do
+              gh api -H 'Accept: application/octet-stream' "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "files/$name"
+            done
+          (cd files && sha256sum -- *) > SHA256SUMS
+          cat SHA256SUMS
+          test -s SHA256SUMS
+
+      - name: Attest every file
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-checksums: SHA256SUMS
+
+      - name: Upload SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ID: ${{ needs.draft.outputs.id }}
+        run: |
+          old="$(gh api "repos/$GITHUB_REPOSITORY/releases/$ID/assets?per_page=100" \
+            --jq '.[] | select(.name == "SHA256SUMS") | .id')"
+          if [ -n "$old" ]; then gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$old"; fi
+          curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H 'Content-Type: text/plain' \
+            --data-binary @SHA256SUMS \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$ID/assets?name=SHA256SUMS" > /dev/null

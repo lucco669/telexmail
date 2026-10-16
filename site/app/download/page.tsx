@@ -8,6 +8,7 @@ import { providers, screens, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { allReleasesPage, getReleaseInfo, megabytes } from '@/lib/release';
 import { appLd, pageMetadata } from '@/lib/seo';
+import { site } from '@/lib/site';
 import { versionAnchor } from '@/lib/versions';
 import s from './page.module.css';
 
@@ -184,6 +185,49 @@ export default async function DownloadPage() {
             Both need a 64-bit PC with Ubuntu 22.04 or newer (or a system of the same age), and a keyring for the
             passwords: GNOME Keyring or KWallet.
           </p>
+        </section>
+      )}
+
+      {latest?.sums && (
+        <section id="verify" className={`container ${s.linux}`} aria-labelledby="verify-h">
+          <h2 id="verify-h" className={s.h2}>
+            Check your download
+          </h2>
+          <p className={s.p}>
+            The Windows installer isn’t code-signed yet, so Windows can’t name its publisher. You can still check
+            that a file is the one GitHub built from Telex’s code. Every release lists the SHA-256 of each of its
+            files in <a href={latest.sums.url}>SHA256SUMS</a>, and GitHub keeps a signed record (an attestation)
+            that Telex’s release workflow published each file. Updates need no checking: Telex verifies their
+            signature itself.
+          </p>
+          <div className={s.linuxGrid}>
+            <div className={s.pkg}>
+              <h3>The checksum</h3>
+              <p className={s.p}>
+                On Windows, in PowerShell in your Downloads folder, compare the hash with the file’s line in
+                SHA256SUMS:
+              </p>
+              <pre className={s.cmd}>
+                <code>Get-FileHash .\{latest.exe?.name ?? 'Telex_x64-setup.exe'}</code>
+              </pre>
+              <p className={s.p}>On Linux, with SHA256SUMS next to the file:</p>
+              <pre className={s.cmd}>
+                <code>sha256sum -c --ignore-missing SHA256SUMS</code>
+              </pre>
+            </div>
+            <div className={s.pkg}>
+              <h3>The attestation</h3>
+              <p className={s.p}>
+                With the <a href="https://cli.github.com">GitHub CLI</a>, on Windows or Linux. It checks the file
+                against GitHub’s record and names the commit it was built from:
+              </p>
+              <pre className={s.cmd}>
+                <code>
+                  gh attestation verify {latest.exe?.name ?? 'Telex_x64-setup.exe'} --repo {site.releasesRepo}
+                </code>
+              </pre>
+            </div>
+          </div>
         </section>
       )}
 

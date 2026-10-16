@@ -149,9 +149,14 @@ and install a signed update from GitHub.
    `Telex_0.2.0_x64-setup.exe` and `.exe.sig`, `Telex_0.2.0_x64_en-US.msi` and `.msi.sig`,
    `Telex_0.2.0_amd64.AppImage` and `.AppImage.sig`, `Telex_0.2.0_amd64.deb` and `.deb.sig`,
    and `latest.json`. Windows builds first, then Linux on Ubuntu 22.04 (one at a time, so
-   both get into latest.json). It takes about 20–30 minutes.
-5. Wait until the whole run is green, Linux too: the draft shows the Windows files about ten
-   minutes before the Linux ones. Then check it: the files are there, latest.json lists both
+   both get into latest.json). Last, the **Checksums** job downloads every file of the draft,
+   uploads `SHA256SUMS` and attests each file (build provenance through GitHub's Sigstore: no
+   key, no cost; `gh attestation verify <file> --repo lucco669/telexmail`). The site's download
+   page shows "Check your download" for a release that has `SHA256SUMS`. It takes about 20–30
+   minutes.
+5. Wait until the whole run is green, Linux and Checksums too: the draft shows the Windows files
+   about ten minutes before the Linux ones. Then check it: the files are there with
+   `SHA256SUMS`, latest.json lists both
    `windows-x86_64` and `linux-x86_64`, and the installers work on a clean PC if you like
    (download them from the draft; for the AppImage see "Testing the AppImage" below).
 6. **Publish** the draft. From then on, `releases/latest/download/latest.json` is this
@@ -187,6 +192,32 @@ small 0.2.1) and watch 0.2.0 update itself.
   pair and replace the secrets and the variable. Copies installed before then trust only the
   old key, so they can't update to releases signed with the new one: their users download the
   new installer once from the site.
+
+## SmartScreen and code signing
+
+The minisign key above signs updates only; Windows doesn't know it. The installers carry no
+Authenticode signature, so SmartScreen warns on a first install (the site says More info › Run
+anyway). Updates don't warn: Telex downloads them itself, without the Mark of the Web.
+
+- **Free, each release:** submit the new `-setup.exe` and `.msi` to Microsoft's file submission
+  portal (Microsoft Security Intelligence, "incorrectly detected", software developer). It often
+  clears the warning for that file within a day or two. Unsigned reputation is per file, so
+  every release starts over.
+- **Free, once:** a winget manifest (a PR to `microsoft/winget-pkgs`, then one per release, e.g.
+  with `wingetcreate update`). Files winget downloads should carry no Mark of the Web, so no
+  warning; test it on a clean PC before relying on that.
+- **Free, larger:** the Microsoft Store (individual developers register free since 2025). An
+  MSIX package is signed by the Store; Tauri doesn't build MSIX itself, and Store copies update
+  through the Store, so that build would turn Telex's own updater off.
+- **Paid, the real fix:** Azure Trusted Signing (about $10 a month; check whether it takes an
+  individual or sole trader in Poland) through `bundle.windows.signCommand` in
+  `tauri.release.conf.json` and three Azure secrets in the Windows job; or a Certum certificate
+  with its SimplySign cloud key (about €100–200 a year, awkward in CI: sign locally). Since 2023
+  every code-signing key lives in an HSM, so a `.pfx` in a secret is no longer possible.
+  SignPath's free certificates and Certum's cheap one are for open-source projects only;
+  Telex isn't one. EV no longer skips SmartScreen's reputation, so it isn't worth its price.
+- Linux has no such warning. The AppImage updater checks minisign, and `SHA256SUMS` with the
+  attestations covers the downloads.
 
 ## A release build on your own PC
 

@@ -12,6 +12,8 @@ export type Release = {
   /** The Linux builds, from releases that have them. */
   appimage: Asset | null;
   deb: Asset | null;
+  /** SHA256SUMS of every file, from releases made after 0.9.10 (with attestations of each file). */
+  sums: Asset | null;
 };
 
 /** What the site knows about the releases. */
@@ -40,6 +42,11 @@ type GitHubRelease = {
 function pick(assets: GitHubAsset[], ext: string): Asset | null {
   const files = assets.filter((a) => a.name.toLowerCase().endsWith(ext));
   const a = files.find((f) => /x64|amd64/i.test(f.name) && !/arm64/i.test(f.name)) ?? files[0];
+  return a ? { name: a.name, url: a.browser_download_url, size: a.size } : null;
+}
+
+function named(assets: GitHubAsset[], name: string): Asset | null {
+  const a = assets.find((f) => f.name === name);
   return a ? { name: a.name, url: a.browser_download_url, size: a.size } : null;
 }
 
@@ -81,6 +88,7 @@ async function lookUp(): Promise<Release[] | null> {
         msi: pick(r.assets, '.msi'),
         appimage: pick(r.assets, '.appimage'),
         deb: pick(r.assets, '.deb'),
+        sums: named(r.assets, 'SHA256SUMS'),
       }))
       .filter((r) => r.exe || r.msi);
   } catch (error) {

@@ -20,4 +20,5 @@ export const knownRelease: Release | null = {
   msi: file(`Telex_${version}_x64_en-US.msi`, 6918144),
   appimage: file(`Telex_${version}_amd64.AppImage`, 85535224),
   deb: file(`Telex_${version}_amd64.deb`, 7374410),
+  sums: null,
 };
