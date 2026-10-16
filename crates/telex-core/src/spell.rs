@@ -249,17 +249,23 @@ impl Worker {
             .collect()
     }
 
+    /// Every language's suggestions, the closest to the word first: by the letters without
+    /// diacritics ("wycene" is one step from "wycenę" in Polish, not from English's "wyocena"),
+    /// one word before a word split in two, then with diacritics, then in each language's order.
     fn suggestions(&mut self, word: &str, langs: &[String]) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
+        let (folded, lower) = (crate::filters::fold(word), word.to_lowercase());
+        let mut ranked: Vec<(usize, bool, usize, usize, String)> = Vec::new();
         for lang in self.usable(langs) {
-            for s in self.engine.suggest(&lang, word) {
-                if !out.contains(&s) && s != word {
-                    out.push(s);
+            for (rank, s) in self.engine.suggest(&lang, word).into_iter().enumerate() {
+                if s != word && !ranked.iter().any(|r| r.4 == s) {
+                    let near = distance(&crate::filters::fold(&s), &folded);
+                    let split = s.contains([' ', '-']) && !word.contains([' ', '-']);
+                    ranked.push((near, split, distance(&s.to_lowercase(), &lower), rank, s));
                 }
             }
         }
-        out.truncate(SUGGESTIONS);
-        out
+        ranked.sort();
+        ranked.into_iter().take(SUGGESTIONS).map(|r| r.4).collect()
     }
 
     fn add(&mut self, word: &str) -> Result<(), String> {
@@ -284,6 +290,32 @@ impl Worker {
         }
         Ok(())
     }
+}
+
+/// How many letters must be added, removed or swapped for one to become the other
+/// (Damerau–Levenshtein, adjacent swaps counting once: "tset" is one step from "test").
+fn distance(a: &str, b: &str) -> usize {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    let mut d = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in d.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for (j, cell) in d[0].iter_mut().enumerate() {
+        *cell = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            let mut best = (d[i - 1][j] + 1)
+                .min(d[i][j - 1] + 1)
+                .min(d[i - 1][j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                best = best.min(d[i - 2][j - 2] + 1);
+            }
+            d[i][j] = best;
+        }
+    }
+    d[a.len()][b.len()]
 }
 
 fn lowercase_first(word: &str) -> String {
@@ -1048,6 +1080,53 @@ mod tests {
         let again = worker(file.clone());
         assert!(again.own.contains("monday"), "kept in the file");
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// Suggestions as each language's dictionary gives them, best first.
+    struct Lists(Vec<(&'static str, Vec<&'static str>)>);
+
+    impl Engine for Lists {
+        fn languages(&mut self) -> Vec<Language> {
+            self.0
+                .iter()
+                .map(|(tag, _)| Language {
+                    tag: (*tag).to_owned(),
+                    own: false,
+                })
+                .collect()
+        }
+        fn knows(&mut self, _: &str, _: &str) -> Option<bool> {
+            Some(false)
+        }
+        fn suggest(&mut self, lang: &str, _: &str) -> Vec<String> {
+            let list = self.0.iter().find(|(tag, _)| *tag == lang);
+            list.map_or_else(Vec::new, |(_, l)| {
+                l.iter().map(|s| (*s).to_owned()).collect()
+            })
+        }
+    }
+
+    #[test]
+    fn the_closest_suggestions_come_first_from_any_language() {
+        let file = std::env::temp_dir().join(format!("telex-words-s-{}.txt", std::process::id()));
+        let mut w = Worker::new(
+            Box::new(Lists(vec![
+                ("en-US", vec!["Wyocena", "Wyden", "Wiener", "WY Cene"]),
+                ("pl-PL", vec!["wycen", "Wycenę", "wyceni"]),
+            ])),
+            file,
+        );
+        let both = ["en-US".to_owned(), "pl-PL".to_owned()];
+        let found = w.suggestions("Wycene", &both);
+        assert_eq!(
+            found[0], "Wycenę",
+            "a missing diacritic is the nearest: {found:?}"
+        );
+        // As near, but split in two: after the single words.
+        assert_eq!(&found[1..4], ["wycen", "wyceni", "WY Cene"]);
+        assert_eq!(&found[4..], ["Wyocena", "Wyden", "Wiener"]);
+        assert_eq!(distance("tset", "test"), 1);
+        assert_eq!(distance("kitten", "sitting"), 3);
     }
 
     #[test]

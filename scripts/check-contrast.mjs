@@ -62,7 +62,7 @@ const UI = [
   ['flag', 'sel', 'Flag icon in the selected row'],
   ['flag', 'chrome', 'Usage meter, nearly full'],
   ['note-fg', 'chrome', 'Usage meter, full'],
-  ['note-fg', 'surface', 'The wavy line under a spelling mistake'],
+  ['spell', 'surface', 'The wavy line under a spelling mistake'],
   ...[0, 1, 2, 3, 4, 5].flatMap((i) => [
     [`acct-${i}`, 'panel', `Account ${i + 1}'s dot in the folder tree`],
     [`acct-${i}`, 'surface', `Account ${i + 1}'s dot in All mail`],

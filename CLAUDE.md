@@ -397,7 +397,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+Enter   | send (compose)                 |
 | Ctrl+,       | settings                       |
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
-| F7           | in compose: the next spelling mistake and its suggestions (also right-click an underlined word, or the menu key on one) |
+| F7           | in compose: the next spelling mistake and its suggestions (also a click on an underlined word, a right-click, or the menu key on one) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
 | ? / F1       | keys and tips (also on hover over the ? in the status bar) |
 | F2, Shift+F10 | in the folder tree: rename a folder on this PC; a folder's or account's menu (also right-click) |
@@ -410,6 +410,20 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   measures; `.toolbar.tight`), instead of a scroll bar; other layouts still scroll, without a bar.
 - The flag above a message is a button like the envelope (`.pflag`, pressed in `--flag`), not a pill.
 - The status bar's left side clips with an ellipsis; the key hints give way below 1100 px.
+- Spelling, easier: a click on an underlined word shows its suggestions in a strip under it
+  (`.spelltip`; the focus stays in the field), the lines move with the text as it is typed
+  (`spellEdited`), the word being typed gets its line once the caret leaves it, a red `--spell`
+  token per theme, the subject's line no longer cut off. Suggestions from every language are
+  ranked by closeness without diacritics ("Wycene" → "Wycenę" before English guesses;
+  `spell::distance`). Signatures and the away reply use Telex's checker; the webview's own
+  (Windows' languages only) is off everywhere (`<body spellcheck="false">`).
+- New mail that lands in the open list brings it to its start (its end when sorted oldest
+  first); the selection stays (`refresh({arrived})`).
+- Settings tidied: shorter notes, Appearance starts with Theme and Font, toolbar cards in one row,
+  Usage as one line per account with the picked one's details below (`.uacct`), Backups' schedule,
+  keep and folder side by side (`.sgrid`), account rows with their actions below, Writing's
+  spelling and sending in groups of their own. The Usage and unread-card `.urow` clash is gone
+  (Usage uses `.uline`).
 
 ## Current state (v0.9.8: a spam filter of its own, link destinations in one line, HTML by default, signatures in Settings, and all earlier features below)
 
