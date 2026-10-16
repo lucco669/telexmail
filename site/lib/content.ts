@@ -7,6 +7,7 @@
 const V095 = '0.9.5';
 const V098 = '0.9.8';
 const V099 = '0.9.9';
+const V0910 = '0.9.10';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -115,6 +116,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Unread mail stands out: read mail goes quieter, or unread takes the accent color', since: '0.9.1' },
       { text: 'With several accounts every list wears its account’s color, and all-mail search names the account next to the folder', since: '0.9.1' },
       { text: 'Dates, the Size column and fitting the columns in Settings › Appearance too', since: '0.9.1' },
+      { text: 'Quoted mail reads as blocks: who wrote it on top, a colored bar for each level, in the normal text color; long quotes fold, and Q opens them all', since: V0910 },
     ],
   },
   {
@@ -206,6 +208,10 @@ export const featureRows: FeatureRow[] = [
     text: 'R opens the reply right in the reading pane, quoted and signed. New messages and replies start in HTML, for bold, lists and links, and always go out with a plain-text copy; switch a message, or the default, to plain text in a mono face.',
     points: [
       'Reply, reply to all and forward, each one key',
+      { text: 'Reply | Reply all at the top of every reply: switch any time, your text stays; with Reply, a line names who else was on the original, one click from being added', since: V0910 },
+      { text: 'A reply to all that goes to 8 people or more asks once before Send', since: V0910 },
+      { text: 'Mention an attachment without attaching one, and Send asks first: “attached”, “enclosed”, “w załączniku”; quotes and your signature don’t count', since: V0910 },
+      { text: 'A reply offers the original’s files: one click and they go along', since: V0910 },
       'HTML or plain text, as a default or per message; replies can follow the original',
       'Pasted web pages lose their styles and scripts: only formatting goes in',
       'A From picker with all your identities; the signature follows',
@@ -475,6 +481,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'forward', group: 'Write', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }] },
   { id: 'edit', group: 'Write', keys: [['E']], action: 'Edit a draft or an unsent message', match: [{ key: 'e' }] },
   { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }] },
+  { id: 'quotes', group: 'View', keys: [['Q']], action: 'Open or fold the quoted mail of a message', match: [{ key: 'q' }], since: V0910 },
   { id: 'spell', group: 'Write', keys: [['F7']], action: 'The next spelling mistake, with suggestions (compose)', match: [{ key: 'F7' }], since: '0.9.0' },
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
   { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }] },
@@ -578,6 +585,14 @@ export const hero: Screen = {
 
 export const screens: Screen[] = [
   {
+    id: 'reply-checks', label: 'Reply checks', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'A reply that would have gone wrong: Telex names who else was on the original, offers its two files, and asks before sending “attached” with nothing attached.', since: V0910,
+  },
+  {
+    id: 'quotes', label: 'Quoted mail', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Quoted mail as blocks: who wrote each part on top, a bar for each level, in the normal text color. Long quotes fold to their first lines; Q opens them all.', since: V0910,
+  },
+  {
     id: 'spelling', label: 'Spelling', title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Click an underlined word: its suggestions sit right under it, closest first, with Add to dictionary and Ignore. The focus stays in the message, so you can keep typing.', since: V099,
   },
@@ -609,7 +624,7 @@ export const screens: Screen[] = [
     id: 'reply',
     label: 'Reply',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'R opens the reply right in the reading pane, in HTML, quoted and signed, from the identity you pick. Text switches it to plain text in a mono face.',
+    caption: 'R opens the reply right in the reading pane, quoted and signed, from the identity you pick. Reply | Reply all switches at any time, and the line under Cc names who else was on the original.',
   },
   {
     id: 'menu',
@@ -886,7 +901,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['spelling', 'spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
+export const homeScreens = ['reply-checks', 'quotes', 'spelling', 'spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -903,6 +918,28 @@ export type Version = {
 };
 
 export const versions: Version[] = [
+  {
+    version: V0910,
+    title: 'Replies that keep everyone, quoted mail you can read, no forgotten attachments',
+    date: '2026-10-16',
+    summary: 'The three classic reply mistakes, caught before they happen: leaving people out, forgetting the file, and losing track of who said what in a long quoted history.',
+    points: [
+      'Reply | Reply all sits at the top of every reply and switches at any time without touching your text. With Reply, a line under Cc names who else was on the original, one click from being added.',
+      'A reply to all that would go to 8 people or more asks once before it goes, and offers to answer only the sender instead.',
+      'Send asks when your text mentions an attachment (“attached”, “enclosed”, “załączam”, “w załączniku”) and nothing is attached. Quotes, a forwarded message and your signature don’t count, so a confidentiality footer won’t set it off.',
+      'A reply offers the original’s files: “The original had 2 files · Attach them”.',
+      'Quoted mail reads as blocks: who wrote it on top, a colored bar for each level, in the normal text color instead of grey. Long quotes fold to their first lines; in HTML mail, Gmail, Outlook, Apple Mail and Thunderbird quotes fold behind one line. Q opens or folds them all, and a reply’s own quote stays folded in the editor until you click it.',
+      'Settings › Writing › Sending can turn either question off.',
+    ],
+    highlights: [
+      { title: 'Nobody left out', text: 'Reply | Reply all at the top of every reply, and a line naming who else was on the original.', href: '/features#writing' },
+      { title: 'Not to everyone by accident', text: 'A reply to all for 8 people or more asks once before it goes.', href: '/features#writing' },
+      { title: 'The file you meant to attach', text: '“Attached” with nothing attached? Send asks first, in English and Polish.', href: '/features#writing' },
+      { title: 'The original’s files', text: 'One click puts them in a reply, carried along like a forward’s.', href: '/features#writing' },
+      { title: 'Quotes you can read', text: 'Blocks with who wrote them, a bar per level, folded when long.', keys: 'Q', href: '/features#reading' },
+      { title: 'In every mail program’s style', text: 'Gmail, Outlook, Apple Mail and Thunderbird quotes fold the same way.', href: '/features#reading' },
+    ],
+  },
   {
     version: V099,
     title: 'Spelling you can click, new mail on top, tidier Settings',
@@ -1513,6 +1550,7 @@ export const ticker = [
   'SAVE A SEARCH. PREVIEW A RULE. EXPAND A THREAD.',
   'A SPAM FILTER THAT LEARNS ON YOUR PC. NOTHING UPLOADED.',
   'CLICK A MISSPELT WORD: SUGGESTIONS IN YOUR LANGUAGES.',
+  'ATTACHED? TELEX ASKS BEFORE YOU SEND WITHOUT THE FILE.',
   'INSPECT LINKS. SCAM WARNING SIGNS ARE CHECKED ON YOUR PC.',
   'FIVE TOOLBAR LAYOUTS: PICK YOUR WAY TO WORK.',
   'GMAIL: WORKS WITH AN APP PASSWORD. NEXT: MICROSOFT SIGN-IN',

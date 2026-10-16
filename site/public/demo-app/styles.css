@@ -320,7 +320,14 @@ button.ph-who:hover .pn{text-decoration:underline}
 .linkbtn{border:0;background:none;padding:0;color:inherit;font-weight:600;text-decoration:underline;cursor:pointer}
 .pbody{padding:12px 14px 28px;max-width:76ch;font:13px/1.55 var(--font-ui);user-select:text}
 .pbody .ln{white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.55em}
-.pbody .ln.q{color:var(--muted);border-left:2px solid var(--line);padding-left:9px}
+/* Quoted mail: a block per quoted message, in the text's own color, with a bar for its depth and
+   the line that introduced it on top. A long one shows its first lines until Show more or Q. */
+.pbody .qb{margin:6px 0;padding-left:10px;border-left:3px solid var(--qc,var(--accent))}
+.pbody .qb.q1{--qc:var(--accent)} .pbody .qb.q2{--qc:var(--acct-1)} .pbody .qb.q3{--qc:var(--acct-3)} .pbody .qb.q4{--qc:var(--acct-2)}
+.pbody .qh{font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere}
+.pbody .qb.folded>.qin{max-height:calc(3 * 1.55em);overflow:hidden;-webkit-mask-image:linear-gradient(#000 45%,transparent);mask-image:linear-gradient(#000 45%,transparent)}
+.pbody .qmore{margin:2px 0 0;padding:0;border:0;background:none;color:var(--accent);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
+.pbody .qmore:hover{text-decoration:underline}
 .pbody a{color:var(--accent)}
 .pbody.html{max-width:none;padding:0;background:var(--mail-bg)}
 .hframe{display:block;width:100%;min-height:80px;border:0;background:var(--mail-bg)}
@@ -378,7 +385,22 @@ button.ph-who:hover .pn{text-decoration:underline}
 .cbcc{flex:none;font-weight:500;text-decoration:none;color:var(--accent);font-size:12px}
 .compose #c-attbox .atts{margin:0;padding:6px 14px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
 .compose #c-attbox:empty{display:none}
-.cbar .btn svg{width:13px;height:13px;color:var(--muted)}
+/* A reply: Reply | Reply all as its title, who else was on the original, the original's files,
+   and Send's questions above the buttons. */
+.ctitle .crk{align-self:center;font-size:inherit;color:inherit;margin-top:0}
+.ctitle .crk button{height:22px;padding:0 9px;font:600 12px var(--font-ui);letter-spacing:0;text-transform:none}
+.cothers{grid-column:2;font-size:12px;color:var(--fg)}
+.cothers[hidden]{display:none}
+.cothers .linkbtn{color:var(--accent);text-decoration:none}
+.cothers .linkbtn:hover{text-decoration:underline}
+.cfiles{padding:6px 14px;background:var(--panel);border-bottom:1px solid var(--line-soft);font-size:12px;overflow-wrap:anywhere}
+.cfiles .linkbtn{color:var(--accent);text-decoration:none}
+.cfiles .linkbtn:hover{text-decoration:underline}
+.cask{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:6px 14px;background:var(--warn-bg);color:var(--warn-fg);border-top:1px solid var(--line-soft);font-size:12.5px;font-weight:500}
+.cask[hidden]{display:none}
+.cask span{margin-right:4px}
+.cask .btn{color:var(--fg)}
+.cbar .btn svg,.cask .btn svg{width:13px;height:13px;color:var(--muted)}
 /* Suggestions under To, Cc and Bcc: people from the mail base */
 .sugg{position:absolute;z-index:5;max-height:220px;margin:0;padding:3px 0;overflow:auto;list-style:none;border:1px solid var(--field);border-radius:4px;background:var(--surface);box-shadow:0 6px 18px var(--shadow)}
 .sugg li{display:flex;align-items:baseline;gap:8px;min-height:24px;padding:3px 9px;font-size:12.5px;cursor:pointer}
@@ -454,7 +476,9 @@ button.ph-who:hover .pn{text-decoration:underline}
 .spelltip .snone{padding:0 8px;color:var(--muted)}
 .spelltip .ssep{align-self:stretch;width:1px;margin:3px 2px;background:var(--line)}
 @media (forced-colors: active){ .spelltip{border-color:CanvasText} }
-.hedit blockquote{margin:2px 0 2px 2px;padding-left:10px;border-left:2px solid var(--line);color:var(--muted)}
+.hedit blockquote{margin:4px 0 4px 2px;padding-left:10px;border-left:3px solid var(--accent);color:var(--fg)}
+.hedit blockquote blockquote{border-left-color:var(--acct-1)}
+.hedit blockquote.cfold{max-height:calc(3 * 1.55em);overflow:hidden;cursor:pointer;-webkit-mask-image:linear-gradient(#000 45%,transparent);mask-image:linear-gradient(#000 45%,transparent)}
 .hedit ul,.hedit ol{margin:2px 0;padding-left:24px}
 .hedit p{margin:0 0 8px}
 /* Dialogs */

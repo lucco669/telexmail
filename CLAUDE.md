@@ -408,20 +408,23 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-- Replies: a Reply | Reply all switch as the reply's title (both answers come from `start_draft`;
-  switching keeps the text and hand-typed addresses), a line under Cc naming who else was on the
-  original with Add them, and "The original had 2 files · Attach them" (sets `forward_of`, so the
-  core carries them like a forward's; threading stays on `reply_to`). Send asks, in a line above
-  the buttons, when the text mentions an attachment and none is attached (`ask_attachment`) and
-  when a reply to all goes to 8 people or more (`ask_many`); Send again goes ahead.
-- Quoted mail reads as blocks: plain text in the text's own color with a bar per depth and its
-  introducing line on top (`quoteTree`), a long block folded to three lines with Show more; HTML
-  mail's quotes (Gmail's and Thunderbird's classes and Apple's cite, now kept by the sanitizer,
-  and everything from Outlook's `divRplyFwdMsg` on) fold behind one `<details>` line; Q opens
-  or folds them all. A reply's quote is folded in the HTML editor until clicked (`cfold`, never
-  saved).
+Nothing yet.
 
-## Current state (v0.9.9: spelling you can click, new mail on top, tidier Settings, and all earlier features below)
+## Current state (v0.9.10: replies that keep everyone, quoted mail you can read, no forgotten attachments, and all earlier features below)
+
+- New in 0.9.10 (no schema change; settings `ask_attachment`, `ask_many`):
+  - Replies: a Reply | Reply all switch as the reply's title (both answers come from `start_draft`;
+    switching keeps the text and hand-typed addresses), a line under Cc naming who else was on the
+    original with Add them, and "The original had 2 files · Attach them" (sets `forward_of`, so the
+    core carries them like a forward's; threading stays on `reply_to`). Send asks, in a line above
+    the buttons, when the text mentions an attachment and none is attached (`ask_attachment`) and
+    when a reply to all goes to 8 people or more (`ask_many`); Send again goes ahead.
+  - Quoted mail reads as blocks: plain text in the text's own color with a bar per depth and its
+    introducing line on top (`quoteTree`), a long block folded to three lines with Show more; HTML
+    mail's quotes (Gmail's and Thunderbird's classes and Apple's cite, now kept by the sanitizer,
+    and everything from Outlook's `divRplyFwdMsg` on) fold behind one `<details>` line; Q opens
+    or folds them all. A reply's quote is folded in the HTML editor until clicked (`cfold`, never
+    saved).
 
 - New in 0.9.9 (no schema change):
   - The Classic toolbar shows its words while they fit and only icons when they don't (`fitToolbar`

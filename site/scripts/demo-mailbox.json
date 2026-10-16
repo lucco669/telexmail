@@ -254,6 +254,23 @@
     },
     {
       "folder": "studio/inbox",
+      "thread": "launch",
+      "from_name": "Ewa Nowak",
+      "from_email": "ewa@nowak-design.pl",
+      "to": "Sam Carter <sam@lindenstudio.com>",
+      "cc": "Jan Kowalski <jan@kowalska-architects.pl>, Priya Shah <priya@lindenstudio.com>, Tom Whitaker <tom@whitaker.dev>",
+      "subject": "Re: Launch plan",
+      "date": "2026-10-08T15:20:00",
+      "size_kb": 9,
+      "unread": false,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [{ "name": "launch-plan-v3.pdf", "size_kb": 412 }, { "name": "timeline.xlsx", "size_kb": 38 }],
+      "body": "Hi Sam,\n\nthe new plan is attached, with the dates we agreed on.\nTwo things are still open: the press note and the photos.\n\nEwa\n\nOn Wed, 7 Oct 2026 at 18:02, Sam Carter wrote:\n> Hi Ewa,\n>\n> thanks, that works for me. Could you send the plan with the new dates?\n> I'd also like to know who writes the press note.\n> And whether the photos are ready.\n>\n> Sam\n>\n> On Wed, 7 Oct 2026 at 11:40, Ewa Nowak wrote:\n> > Hi all,\n> >\n> > here is where we are with the launch:\n> > 1. The site is ready for review on Monday.\n> > 2. The shop goes live a week later.\n> > 3. The newsletter goes out the same day.\n> > 4. The photos come from the shoot on Friday.\n> > 5. The press note is not written yet.\n> >\n> > Let me know what you think.\n> >\n> > Ewa"
+    },
+    {
+      "folder": "studio/inbox",
       "thread": "kasia",
       "from_name": "Kasia Nowak",
       "from_email": "kasia@smallstudios.pl",
