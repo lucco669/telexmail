@@ -2730,6 +2730,7 @@ spellTip.addEventListener('click', e => {
 });
 document.addEventListener('pointerdown', e => { if (!spellTip.hidden && !spellTip.contains(e.target) && e.target !== spellTipFor?.el) hideSpellTip(); }, true);
 addEventListener('blur', hideSpellTip);
+addEventListener('resize', hideSpellTip);
 function spellMenuAt(el, e){
   const m = spellHit(el, e.clientX, e.clientY);
   if (!m) return; // the browser's own menu: cut, copy, paste

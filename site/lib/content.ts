@@ -6,6 +6,7 @@
 // drives the hero and What's new; lib/versions.ts compares it with the live release.
 const V095 = '0.9.5';
 const V098 = '0.9.8';
+const V099 = '0.9.9';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -214,6 +215,8 @@ export const featureRows: FeatureRow[] = [
       { text: 'Discard can be undone: Z or the Undo button brings the message back', since: '0.7.2' },
       { text: 'Spelling in your languages, Polish and English together: right-click a word or press F7 for suggestions', since: '0.9.0' },
       { text: 'The languages spelling checks show at the end of the compose bar, and a click there changes them', since: '0.9.1' },
+      { text: 'Click an underlined word for its suggestions, ranked across your languages: “Wycene” offers “Wycenę” first', since: V099 },
+      { text: 'Lines follow the text as you type, and the word you are typing waits until you finish it; signatures and the away reply are checked too', since: V099 },
     ],
   },
   {
@@ -279,6 +282,7 @@ export const featureRows: FeatureRow[] = [
     points: [
       { text: 'New mail shows within seconds: one IMAP IDLE connection per Inbox', since: '0.5.0' },
       { text: 'A notification names the sender while Telex is in the background', since: '0.5.0' },
+      { text: 'New mail brings the list to its top, where it lands; the message you were on stays selected', since: V099 },
       'IMAP over SSL/TLS, folders straight from the server',
       { text: 'IMAP over STARTTLS on port 143 too, never unencrypted', since: '0.5.0' },
       'Inbox, Sent, Trash and others found by their flags or by English and Polish names',
@@ -367,9 +371,10 @@ export const featureRows: FeatureRow[] = [
     id: 'usage',
     screen: 'usage',
     title: 'See where your mail goes',
-    text: 'A quiet bar in the status bar shows how full the open account is on the server. Settings › Usage shows each account the way a phone shows its storage: what takes the space, and how mail comes and goes.',
+    text: 'A quiet bar in the status bar shows how full the open account is on the server. Settings › Usage puts every account on one line, then shows the one you pick the way a phone shows its storage: what takes the space, and how mail comes and goes.',
     points: [
       'The server’s storage, when it reports a quota, with a warning before it fills up',
+      { text: 'Every account on one line: the server, this PC and the last check side by side', since: V099 },
       { text: 'The status bar’s storage bar fills in the account’s own color and says how much room is left', since: '0.6.0' },
       'This PC by kind of folder: Inbox, Sent, your folders, Spam and Trash',
       'Mail received, sent and caught as spam, day by day for 30 days',
@@ -573,6 +578,10 @@ export const hero: Screen = {
 
 export const screens: Screen[] = [
   {
+    id: 'spelling', label: 'Spelling', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Click an underlined word: its suggestions sit right under it, closest first, with Add to dictionary and Ignore. The focus stays in the message, so you can keep typing.', since: V099,
+  },
+  {
     id: 'spam-filter', label: 'Spam filter', title: 'Spam · sam@lindenstudio.com – Telex',
     caption: 'Mail the spam filter moved says so, with its score and the words that told. Not spam in the message’s menu sends it back to the Inbox and teaches the filter.', since: V098,
   },
@@ -648,7 +657,7 @@ export const screens: Screen[] = [
     id: 'backups',
     label: 'Backups',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Settings › Backups: the mail base in one file, by hand or every day or week, and a restore that keeps what was there.',
+    caption: 'Settings › Backups: the mail base in one file, by hand or every day or week, to a folder you choose, and a restore that keeps what was there.',
     since: '0.6.0',
   },
   {
@@ -712,7 +721,7 @@ export const screens: Screen[] = [
     id: 'signatures',
     label: 'Signatures',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Settings › Writing: new messages and replies in HTML, and every address’s signature in one place, saved as you type.',
+    caption: 'Settings › Writing: every address’s signature in one place, saved as you type and spell-checked, then spelling and its languages.',
     since: V098,
   },
   {
@@ -737,7 +746,7 @@ export const screens: Screen[] = [
     id: 'appearance',
     label: 'Appearance',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Settings › Appearance: how unread mail stands out, and six fonts, each card drawn in its own face.',
+    caption: 'Settings › Appearance: six fonts, each card drawn in its own face, text size and rows, five toolbars, and how unread mail stands out.',
     since: '0.9.1',
   },
   {
@@ -750,7 +759,7 @@ export const screens: Screen[] = [
     id: 'usage',
     label: 'Usage',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Settings › Usage: the server’s storage, what takes the space on this PC, and 30 days of mail in and out.',
+    caption: 'Settings › Usage: every account on one line, then the one you pick: what takes the space on this PC, 30 days of mail in and out, who sends the most.',
   },
   {
     id: 'polish',
@@ -877,7 +886,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
+export const homeScreens = ['spelling', 'spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -894,6 +903,28 @@ export type Version = {
 };
 
 export const versions: Version[] = [
+  {
+    version: V099,
+    title: 'Spelling you can click, new mail on top, tidier Settings',
+    date: '2026-10-16',
+    summary: 'A misspelt word shows its suggestions with one click, ranked across your languages; new mail brings the list to its top; and Settings says what it needs to in fewer words.',
+    points: [
+      'Click an underlined word: its suggestions appear right under it, with Add to dictionary and Ignore, and the focus stays in the message. Right-click and F7 still work.',
+      'Suggestions from every language you write in are ranked by how close they are, so a missing Polish letter comes first: “Wycene” offers “Wycenę”, not English guesses.',
+      'The wavy lines are red and clearer, follow the text as you type, and leave the word you are typing alone until you finish it. The subject’s line is no longer cut off.',
+      'Signatures and the away reply are checked with Telex’s dictionaries too; the webview’s English-only checker is gone everywhere.',
+      'New mail that lands in the open list brings it to its top (its end when sorted oldest first); the message you were on stays selected.',
+      'Settings, tidied: shorter notes everywhere, Appearance opens with Theme and Font, the toolbar layouts in one row, Usage as one line per account with the details of the one you pick, Backups’ schedule, keep and folder side by side, and account actions in a row of their own.',
+    ],
+    highlights: [
+      { title: 'Click to fix', text: 'An underlined word shows its suggestions right under it. Keep typing whenever you like.', keys: 'F7', href: '/features#writing' },
+      { title: 'Polish first', text: 'Suggestions ranked across your languages: “Wycene” gives “Wycenę”, not English guesses.', href: '/features#writing' },
+      { title: 'Lines that keep up', text: 'Red and clear, they move with the text and wait for the word you are typing.' },
+      { title: 'New mail on top', text: 'The list goes to where new mail lands, and your selection stays.', href: '/features#sync' },
+      { title: 'Usage at a glance', text: 'Every account on one line, the details of the one you pick below.', href: '/features#usage' },
+      { title: 'Tidier Settings', text: 'Shorter notes and choices side by side, in every tab.' },
+    ],
+  },
   {
     version: V098,
     title: 'A spam filter of your own, quieter link checks, HTML by default',
@@ -1481,6 +1512,7 @@ export const ticker = [
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
   'SAVE A SEARCH. PREVIEW A RULE. EXPAND A THREAD.',
   'A SPAM FILTER THAT LEARNS ON YOUR PC. NOTHING UPLOADED.',
+  'CLICK A MISSPELT WORD: SUGGESTIONS IN YOUR LANGUAGES.',
   'INSPECT LINKS. SCAM WARNING SIGNS ARE CHECKED ON YOUR PC.',
   'FIVE TOOLBAR LAYOUTS: PICK YOUR WAY TO WORK.',
   'GMAIL: WORKS WITH AN APP PASSWORD. NEXT: MICROSOFT SIGN-IN',

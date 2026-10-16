@@ -1308,7 +1308,9 @@ async function loadView({top = false} = {}){
 }
 // After mail changed (a check, rules, sending, a push): new counts, and the open page again,
 // keeping the first row on screen where it was. `skip`: a message that just went away.
-async function refresh({skip} = {}){
+// `arrived`: mail a check brought; when some of it is in this list, the list goes to its start
+// (its end when sorted oldest first), where new mail is, and the selection stays.
+async function refresh({skip, arrived} = {}){
   if (VIEWER) return viewerShow();
   try { await loadTree(); } catch { return; }
   if (!folderOf(state.folder)){ setFolder(homeOf(ACCOUNTS[0]?.id)); return; } // e.g. the folder is gone from the server
@@ -1322,12 +1324,19 @@ async function refresh({skip} = {}){
   const [va] = visibleRange(), seq = ++list.seq;
   const anchor = list.rows.slice(Math.max(0, va - list.start)).find(r => r.id !== skip);
   const before = selRow?.id;
-  let p = null;
-  try { p = await fetchPage(anchor ? {around:anchor.id} : 'first'); } catch {}
+  let p = null, end = null;
+  if (arrived?.length){
+    end = state.sort.key === 'date' && state.sort.dir > 0 ? 'last' : 'first';
+    const fresh = new Set(arrived);
+    try { p = await fetchPage(end); } catch {}
+    if (p && !p.rows.some(r => fresh.has(r.id))) p = end = null; // none of it is in this list
+  }
+  if (!p) try { p = await fetchPage(anchor ? {around:anchor.id} : 'first'); } catch {}
   if (!p || seq !== list.seq) return;
-  const was = anchor ? posOf(anchor.id) : -1;
+  const was = anchor && !end ? posOf(anchor.id) : -1;
   merge(p);
-  const now = anchor ? posOf(anchor.id) : -1;
+  const now = anchor && !end ? posOf(anchor.id) : -1;
+  if (end) listEl.scrollTop = end === 'first' ? 0 : list.total * rowH;
   if (grouped() && selRow?.thread && !state.expanded.has(selRow.thread.id)){
     const head = list.rows.find(r => r.thread?.id === selRow.thread.id && !r.thread.child);
     if (head){ selRow = head; state.sel[selKey()] = head.id; }
@@ -2482,37 +2491,64 @@ function wireEditor(ed){
 }
 /* ---------- spelling ---------- */
 // Telex's own checker (spell.rs), in the languages of Settings › Writing: the words none of them
-// knows get a wavy line. A text field can't style its words, so in the subject and in plain text a
+// knows get a red wavy line. A text field can't style its words, so in inputs and textareas a
 // layer over the field (the same face, wrapping and scroll, and no pointer) draws the lines; the
-// HTML editor uses the CSS Custom Highlight API. Right-click or the menu key on one: suggestions,
-// Add to dictionary, Ignore. F7: the next one.
-const spellOf = new WeakMap(); // field → {seq, timer, found: [{s, l, word, range?}]}
+// HTML editor uses the CSS Custom Highlight API. The lines move with the text as it is typed, and
+// the word being typed gets its line only once the caret leaves it. A click on a marked word
+// shows its suggestions under it; right-click, the menu key or F7 (the next one) open them as a
+// menu. Compose's fields, the signatures and the away reply are checked; the webview's own
+// checker (Windows' languages only) is off everywhere (spellcheck="false" on <body>).
+const spellOf = new WeakMap(); // field → {seq, timer, text, found: [{s, l, word, range?}], typing}
+const spellLive = new Set(); // the fields wired, while they are on the page
 const spellIgnored = new Set(); // "Ignore", for this session
+const spellSuggested = new Map(); // word → suggestions, until the languages change
 const spellMarks = window.Highlight && CSS.highlights ? new Highlight() : null;
 if (spellMarks) CSS.highlights.set('spell', spellMarks);
 const spellFields = () => ['c-subj', 'c-body', 'c-html'].map($).filter(Boolean);
-// One observer for the layers' fields: a new compose lets go of the old ones.
 const spellResize = new ResizeObserver(entries => entries.forEach(e => syncLayer(e.target)));
-function wireSpelling(){
-  spellResize.disconnect();
-  for (const el of spellFields()){
-    spellOf.set(el, {seq:0, timer:0, found:[]});
-    el.addEventListener('input', () => scheduleSpelling(el));
-    el.addEventListener('contextmenu', e => spellMenuAt(el, e));
-    el.addEventListener('keydown', e => spellKeys(el, e));
-    if (el.id !== 'c-html'){
-      // An input scrolls sideways with the caret, without a scroll event.
-      for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => scrollLayer(el));
-      spellResize.observe(el);
-    }
-    scheduleSpelling(el, 0);
+// Telex's checking for one field. An input or textarea gets a box with the layer of lines.
+function spellField(el){
+  if (!el || spellOf.has(el)) return;
+  if (el.id !== 'c-html' && !el.parentElement.classList.contains('spellfield')){
+    const box = document.createElement('div');
+    box.className = 'spellfield';
+    el.before(box); box.append(el);
+    box.insertAdjacentHTML('beforeend', '<div class="spellmarks" aria-hidden="true"></div>');
   }
+  spellOf.set(el, {seq:0, timer:0, text:'', found:[], typing:false});
+  spellLive.add(el);
+  el.addEventListener('input', () => { hideSpellTip(); spellEdited(el); scheduleSpelling(el); });
+  el.addEventListener('contextmenu', e => spellMenuAt(el, e));
+  el.addEventListener('keydown', e => spellKeys(el, e));
+  // The caret moved by hand: the word it was in may get its line now.
+  el.addEventListener('pointerdown', () => { spellOf.get(el).typing = false; });
+  el.addEventListener('click', () => { paintSpelling(el); spellTipAt(el); });
+  el.addEventListener('blur', () => { spellOf.get(el).typing = false; paintSpelling(el); hideSpellTip(); });
+  if (el.id !== 'c-html'){
+    // An input scrolls sideways with the caret, without a scroll event.
+    for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => scrollLayer(el));
+    el.addEventListener('scroll', hideSpellTip);
+    spellResize.observe(el);
+  } else el.addEventListener('scroll', hideSpellTip);
+  scheduleSpelling(el, 0);
+}
+// Fields that left the page are let go.
+function spellPrune(){
+  for (const el of spellLive) if (!el.isConnected){ spellLive.delete(el); spellResize.unobserve(el); }
+}
+function wireSpelling(){
+  spellPrune();
+  spellFields().forEach(spellField);
   spellNudge();
 }
-const respell = () => spellFields().forEach(el => scheduleSpelling(el, 0));
+const respell = () => {
+  spellPrune(); spellSuggested.clear();
+  spellLive.forEach(el => scheduleSpelling(el, 0));
+};
 // Compose closed: its suggestions go, and the editor's marks let go of its words.
 function leftCompose(){
   closeSuggestions();
+  hideSpellTip();
   spellMarks?.clear();
 }
 function scheduleSpelling(el, ms = 400){
@@ -2545,19 +2581,58 @@ async function checkSpelling(el){
     try { found = await invoke('spell_check', {text}); } catch { return; }
   }
   if (seq !== st.seq || !el.isConnected) return;
+  st.text = text;
   st.found = found.map(([s, l]) => ({s, l, word:text.slice(s, s + l)})).filter(m => !spellIgnored.has(m.word)).sort((a, b) => a.s - b.s);
-  if (html) paintHighlights(st.found, nodes); else paintLayer(el, st.found);
-}
-function paintHighlights(found, nodes){
-  if (!spellMarks) return;
-  spellMarks.clear();
-  for (const m of found){
+  if (html) for (const m of st.found){
     const at = nodes.findLast(n => n.at <= m.s);
     if (!at || m.s + m.l > at.at + at.node.data.length) continue;
     m.range = new Range();
     m.range.setStart(at.node, m.s - at.at); m.range.setEnd(at.node, m.s - at.at + m.l);
-    spellMarks.add(m.range);
   }
+  paintSpelling(el);
+}
+// Typed: the lines stay on their words until the next check. In a text field the edit is found
+// by what the text before and after it kept; a mistake it touched goes. The editor's ranges
+// follow the text by themselves; one whose word changed goes.
+function spellEdited(el){
+  const st = spellOf.get(el);
+  st.typing = true;
+  if (!st.found.length) return;
+  if (el.id === 'c-html'){
+    st.found = st.found.filter(m => m.range && m.range.toString() === m.word);
+  } else {
+    const old = st.text, now = el.value, max = Math.min(old.length, now.length);
+    let p = 0, q = 0;
+    while (p < max && old[p] === now[p]) p++;
+    while (q < max - p && old[old.length - 1 - q] === now[now.length - 1 - q]) q++;
+    const end = old.length - q, d = now.length - old.length;
+    st.found = st.found.filter(m => m.s + m.l < p || m.s > end).map(m => m.s > end ? {...m, s:m.s + d} : m);
+    st.text = now;
+  }
+  paintSpelling(el);
+}
+// The mistake the caret is in or at the end of, in the text the checker got.
+function mistakeAtCaret(el){
+  const found = spellOf.get(el)?.found ?? [];
+  if (el.id === 'c-html'){
+    const sel = getSelection();
+    if (!sel.rangeCount || !el.contains(sel.anchorNode)) return null;
+    return found.find(m => { try { return m.range?.comparePoint(sel.anchorNode, sel.anchorOffset) === 0; } catch { return false; } }) ?? null;
+  }
+  const at = el.selectionStart ?? -1;
+  return found.find(m => at >= m.s && at <= m.s + m.l) ?? null;
+}
+// Draw the lines, leaving out the word being typed.
+function paintSpelling(el){
+  const st = spellOf.get(el);
+  if (!st || !el.isConnected) return;
+  const held = st.typing && document.activeElement === el ? mistakeAtCaret(el) : null;
+  const shown = st.found.filter(m => m !== held);
+  if (el.id === 'c-html'){
+    if (!spellMarks) return;
+    spellMarks.clear();
+    for (const m of shown) if (m.range) spellMarks.add(m.range);
+  } else paintLayer(el, shown);
 }
 function paintLayer(el, found){
   const layer = el.parentElement.querySelector('.spellmarks');
@@ -2565,52 +2640,111 @@ function paintLayer(el, found){
   const text = el.value;
   let html = '', at = 0;
   for (const m of found){
-    html += esc(text.slice(at, m.s)) + '<mark>' + esc(text.slice(m.s, m.s + m.l)) + '</mark>';
+    if (m.s < at || text.slice(m.s, m.s + m.l) !== m.word) continue;
+    html += esc(text.slice(at, m.s)) + `<mark data-s="${m.s}">` + esc(m.word) + '</mark>';
     at = m.s + m.l;
   }
   // A last empty line still takes room in a textarea.
   layer.innerHTML = html + esc(text.slice(at)) + (el.tagName === 'TEXTAREA' ? '\n ' : '');
   syncLayer(el);
 }
-// The layer covers the field's text box exactly: inside its border, beside its scroll bar.
+// The layer covers the field's text box exactly: inside its border, beside its scroll bar. An
+// input puts its line in the middle of its height; its layer reaches a little lower, so the wavy
+// line under a word isn't cut off.
 function syncLayer(el){
   const layer = el.parentElement?.querySelector('.spellmarks');
   if (!layer) return;
-  const cs = getComputedStyle(el);
+  const cs = getComputedStyle(el), input = el.tagName === 'INPUT';
+  const inner = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
   Object.assign(layer.style, {left:el.offsetLeft + el.clientLeft + 'px', top:el.offsetTop + el.clientTop + 'px',
-    width:el.clientWidth + 'px', height:el.clientHeight + 'px', padding:cs.padding, font:cs.font, letterSpacing:cs.letterSpacing,
-    lineHeight:cs.lineHeight, tabSize:cs.tabSize, textIndent:cs.textIndent});
+    width:el.clientWidth + 'px', height:el.clientHeight + (input ? 3 : 0) + 'px', padding:cs.padding, font:cs.font, letterSpacing:cs.letterSpacing,
+    lineHeight:input ? inner + 'px' : cs.lineHeight, tabSize:cs.tabSize, textIndent:cs.textIndent});
   scrollLayer(el);
 }
-// While typing only the scroll follows, and only when there are lines to keep in place.
 function scrollLayer(el){
-  if (!spellOf.get(el)?.found.length) return;
   const layer = el.parentElement?.querySelector('.spellmarks');
   if (layer){ layer.scrollTop = el.scrollTop; layer.scrollLeft = el.scrollLeft; }
 }
+// Where a mistake is on screen.
+function mistakeRect(el, m){
+  if (el.id === 'c-html') return m.range?.getClientRects()[0] ?? null;
+  return el.parentElement.querySelector(`.spellmarks mark[data-s="${m.s}"]`)?.getClientRects()[0] ?? null;
+}
 const within = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
-// The misspelt word under the pointer, if there is one.
+// The marked word under the pointer, if there is one.
 function spellHit(el, x, y){
   const found = spellOf.get(el)?.found ?? [];
   if (el.id === 'c-html') return found.find(m => m.range && [...m.range.getClientRects()].some(r => within(r, x, y)));
-  const marks = [...(el.parentElement.querySelector('.spellmarks')?.querySelectorAll('mark') ?? [])];
-  const i = marks.findIndex(mk => [...mk.getClientRects()].some(r => within(r, x, y)));
-  return i < 0 ? null : found[i];
+  const mark = [...(el.parentElement.querySelector('.spellmarks')?.querySelectorAll('mark') ?? [])]
+    .find(mk => [...mk.getClientRects()].some(r => within(r, x, y)));
+  return mark ? found.find(m => m.s === Number(mark.dataset.s)) : null;
 }
+async function suggestionsFor(word){
+  if (!spellSuggested.has(word)){
+    let list = [];
+    try { list = await invoke('spell_suggest', {word}); } catch {}
+    spellSuggested.set(word, list);
+  }
+  return spellSuggested.get(word);
+}
+// A click on a marked word: its suggestions in a small strip under it. The focus stays in the
+// field, so typing goes on; typing, Esc or a click elsewhere closes it.
+const spellTip = document.createElement('div');
+spellTip.className = 'spelltip'; spellTip.hidden = true; spellTip.setAttribute('role', 'toolbar');
+document.body.append(spellTip);
+let spellTipFor = null;
+async function spellTipAt(el){
+  const sel = el.id === 'c-html' ? getSelection() : null;
+  if (sel ? !sel.isCollapsed : el.selectionStart !== el.selectionEnd) return hideSpellTip();
+  const m = mistakeAtCaret(el);
+  if (!m || spellTipFor?.m === m) return m ? null : hideSpellTip();
+  spellTipFor = {el, m};
+  const list = await suggestionsFor(m.word);
+  if (spellTipFor?.m !== m) return;
+  const r = mistakeRect(el, m);
+  if (!r) return hideSpellTip();
+  spellTip.setAttribute('aria-label', t('Spelling: {word}', {word:m.word}));
+  spellTip.innerHTML = (list.length ? list.slice(0, 5).map((s, i) => `<button type="button" class="sfix" data-fix="${i}">${esc(s)}</button>`).join('')
+    : `<span class="snone">${esc(t('No suggestions'))}</span>`)
+    + `<span class="ssep"></span><button type="button" data-add>${esc(t('Add to dictionary'))}</button><button type="button" data-ignore>${esc(t('Ignore|spelling'))}</button>`;
+  spellTip.hidden = false;
+  const w = spellTip.offsetWidth, h = spellTip.offsetHeight;
+  spellTip.style.left = Math.max(4, Math.min(r.left - 6, innerWidth - w - 4)) + 'px';
+  spellTip.style.top = (r.bottom + 4 + h > innerHeight - 4 ? r.top - h - 4 : r.bottom + 4) + 'px';
+  spellTip.list = list;
+}
+function hideSpellTip(){
+  spellTipFor = null;
+  spellTip.hidden = true;
+}
+// The field keeps the focus: the strip's buttons don't take it.
+spellTip.addEventListener('pointerdown', e => e.preventDefault());
+spellTip.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b || !spellTipFor) return;
+  const {el, m} = spellTipFor, list = spellTip.list ?? [];
+  hideSpellTip();
+  if (b.dataset.fix) fixMistake(el, m, list[Number(b.dataset.fix)]);
+  else if ('add' in b.dataset) addWord(el, m.word);
+  else if ('ignore' in b.dataset) ignoreWord(el, m.word);
+});
+document.addEventListener('pointerdown', e => { if (!spellTip.hidden && !spellTip.contains(e.target) && e.target !== spellTipFor?.el) hideSpellTip(); }, true);
+addEventListener('blur', hideSpellTip);
+addEventListener('resize', hideSpellTip);
 function spellMenuAt(el, e){
   const m = spellHit(el, e.clientX, e.clientY);
   if (!m) return; // the browser's own menu: cut, copy, paste
   e.preventDefault();
+  hideSpellTip();
   openSpellMenu(el, m, e.clientX, e.clientY);
 }
 async function openSpellMenu(el, m, x, y){
-  let list = [];
-  try { list = await invoke('spell_suggest', {word:m.word}); } catch {}
+  const list = await suggestionsFor(m.word);
   const items = list.length ? list.map(s => ({label:s, run:() => fixMistake(el, m, s)}))
     : [{label:t('No suggestions'), disabled:true, run(){}}];
   items.push({sep:true},
     {label:t('Add “{word}” to the dictionary', {word:m.word}), run:() => addWord(el, m.word)},
-    {label:t('Ignore|spelling'), run:() => { spellIgnored.add(m.word); el.focus(); respell(); }});
+    {label:t('Ignore|spelling'), run:() => ignoreWord(el, m.word)});
   openMenu(x, y, items, el);
 }
 // The word as the menu found it, if the text still has it there.
@@ -2626,8 +2760,14 @@ function selectWord(el, m){
   return true;
 }
 function fixMistake(el, m, word){
-  // insertText keeps Ctrl+Z working, and the input event checks again.
-  if (selectWord(el, m)) document.execCommand('insertText', false, word);
+  // insertText keeps Ctrl+Z working, and the input event checks again. The word put in is done:
+  // its line, if any, shows at once.
+  if (selectWord(el, m)){ document.execCommand('insertText', false, word); spellOf.get(el).typing = false; }
+}
+function ignoreWord(el, word){
+  spellIgnored.add(word);
+  el.focus();
+  respell();
 }
 async function addWord(el, word){
   el.focus();
@@ -2646,24 +2786,36 @@ function caretAt(el, end){
 }
 function menuForMistake(el, m){
   if (!selectWord(el, m)) return;
-  const r = el.id === 'c-html' ? m.range.getBoundingClientRect()
-    : [...el.parentElement.querySelectorAll('.spellmarks mark')][spellOf.get(el).found.indexOf(m)]?.getBoundingClientRect();
+  spellOf.get(el).typing = false; paintSpelling(el);
+  const r = mistakeRect(el, m);
   if (r) openSpellMenu(el, m, r.left, r.bottom + 2);
 }
 function spellKeys(el, e){
   const found = spellOf.get(el)?.found ?? [];
-  if (e.key === 'F7' && !e.ctrlKey && !e.altKey){
+  if (e.key === 'Escape' && !spellTip.hidden){
+    e.preventDefault(); e.stopPropagation();
+    hideSpellTip();
+  } else if (e.key === 'F7' && !e.ctrlKey && !e.altKey){
     // The next mistake after the caret, then from the top.
     e.preventDefault(); e.stopPropagation();
+    hideSpellTip();
     const at = caretAt(el, true), next = found.find(m => m.s >= at) ?? found[0];
     if (next) menuForMistake(el, next); else say(t('No spelling mistakes here.'));
   } else if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)){
-    const at = caretAt(el), m = found.find(x => at >= x.s && at <= x.s + x.l);
+    const m = mistakeAtCaret(el);
     if (!m) return; // the browser's own menu
     e.preventDefault(); e.stopPropagation();
+    hideSpellTip();
     menuForMistake(el, m);
+  } else if (/^(Arrow|Home|End|Page)/.test(e.key)){
+    // The caret moves away from the word typed: its line may show.
+    const st = spellOf.get(el);
+    if (st?.typing){ st.typing = false; setTimeout(() => paintSpelling(el)); }
+    hideSpellTip();
   }
 }
+// The other fields where people write prose: an identity's signature and the away reply.
+['i-sig', 'away-body'].map($).forEach(spellField);
 // Once a session, when the language Telex speaks has no dictionary yet but one can be fetched.
 let spellNudged = false;
 async function spellNudge(){
@@ -3162,7 +3314,7 @@ async function getMail({quiet = false, first = false, account = null} = {}){
     if (r.busy){ setTimeout(() => getMail({quiet, first, account}), 2000); return; } // changes are being sent
     forgetRecipients();
     lastCheck = new Date();
-    await refresh(); // the quota and how the check went come with the tree
+    await refresh({arrived:r.new}); // the quota and how the check went come with the tree
     const ids = r.new;
     let text = '';
     if (first) text = tn(ids.length, '{n} message downloaded.', '{n} messages downloaded.');
@@ -3468,9 +3620,11 @@ function renderAccountList(){
       + `<button type="button" class="btn icon" data-down="${esc(a.id)}" title="${esc(t('Move down'))}" aria-label="${esc(t('Move {email} down', {email:a.email}))}"${i < real.length - 1 ? '' : ' disabled'}>↓</button>`;
     const sync = u?.sync_error ? `<div class="st warn" title="${esc(u.sync_error)}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</div>`
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
-    return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="nm">${esc(a.name)}</div><div class="em" title="${esc(where)}">${esc(where)}</div>${sync}</div>${order}`
+    // The account and how its last check went on top; what can be done with it in a row below.
+    return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="sahead"><span class="nm">${esc(a.name)}</span>${sync}</div><div class="em" title="${esc(where)}">${esc(where)}</div>`
+      + `<div class="sacts"><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button>`
       + `<button type="button" class="btn${awayOn(a.id) ? ' on' : ''}" data-away="${esc(a.id)}" title="${esc(awayOn(a.id) ? t('Auto-reply is on') : t('Auto-reply while you’re away'))}">${esc(t('Auto-reply'))}</button>`
-      + `<button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div>`;
+      + `<span class="sgap"></span>${order}<button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div></div></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
   $('a-list-err').textContent = '';
 }
@@ -3713,6 +3867,7 @@ function fillAway(a, why){
   $('away-from').value = a.starts ?? ''; $('away-until').value = a.ends ?? '';
   $('away-subj').value = a.subject;
   $('away-body').value = a.body || [t('Hello,|away'), '', t('I’m away and will answer your message when I’m back.'), '', t('Best regards|away')].join('\n');
+  scheduleSpelling($('away-body'), 0);
   $('away-days').innerHTML = AWAY_DAYS.map(n => `<option value="${n}"${n === a.days ? ' selected' : ''}>${esc(tn(n, 'at most once a day', 'at most once in {n} days'))}</option>`).join('');
   paintAwayWhere(a, why);
 }
@@ -3834,7 +3989,7 @@ function showIdentityForm(existing){
   showAccountView('idform');
   $('i-form-err').textContent = '';
   $('i-form-title').textContent = existing ? t('Edit identity') : t('New identity');
-  $('i-name').value = identity.name; $('i-email').value = identity.email; $('i-sig').value = identity.signature;
+  $('i-name').value = identity.name; $('i-email').value = identity.email; $('i-sig').value = identity.signature; scheduleSpelling($('i-sig'), 0);
   $('i-reply').value = identity.reply_header; $('i-fwd').value = identity.forward_header;
   $('i-default').checked = identity.is_default;
   $('i-default').disabled = existing?.is_default === true; // switch by making another one the default
@@ -3870,7 +4025,8 @@ function renderSignatures(){
   el.innerHTML = ids.map(i => `<div class="sig" data-sig="${i.id}" data-account="${esc(i.account)}">
 <div class="sighead"><b>${esc(i.name || i.email)}</b><span class="sdim">${esc(i.email)}${several && i.email !== ACCT[i.account]?.email ? ' · ' + esc(ACCT[i.account]?.email ?? '') : ''}</span>
 <span class="sigstate" aria-live="polite"></span><button type="button" class="linkbtn" data-sig-edit>${esc(t('Edit identity|button'))}</button></div>
-<textarea rows="3" spellcheck="true" aria-label="${esc(t('Signature for {email}', {email:i.email}))}" placeholder="${esc(t('No signature'))}">${esc(i.signature || '')}</textarea></div>`).join('');
+<textarea rows="3" aria-label="${esc(t('Signature for {email}', {email:i.email}))}" placeholder="${esc(t('No signature'))}">${esc(i.signature || '')}</textarea></div>`).join('');
+  el.querySelectorAll('textarea').forEach(spellField);
 }
 async function saveSignature(card){
   clearTimeout(sigSaves.get(card.dataset.sig)); sigSaves.delete(card.dataset.sig);
@@ -4209,9 +4365,9 @@ function fontCards(){
 }
 function toolbarCards(){
   const sample = (icon, label) => `<span class="navsample">${I[icon]}<span class="lbl">${esc(t(label))}</span></span>`;
-  return TOOLBAR_STYLES.map(([id, name, description]) => `<label class="tcard"><input type="radio" name="toolbar_style" value="${id}"${(pref().toolbar_style || 'classic') === id ? ' checked' : ''}>`
+  return TOOLBAR_STYLES.map(([id, name, description]) => `<label class="tcard" title="${esc(t(description))}"><input type="radio" name="toolbar_style" value="${id}"${(pref().toolbar_style || 'classic') === id ? ' checked' : ''}>`
     + `<span class="navprev" data-style="${id}" aria-hidden="true">${sample('neu', 'New|message')}${sample('reply', 'Reply')}</span>`
-    + `<span class="tname">${esc(t(name))}</span><span class="navdesc">${esc(t(description))}</span></label>`).join('');
+    + `<span class="tname">${esc(t(name))}</span></label>`).join('');
 }
 function renderSettings(keepFocus){
   const focused = keepFocus && document.activeElement?.closest?.('#set-dlg') ? document.activeElement : null;
@@ -4743,14 +4899,13 @@ async function renderSpellLanguages(){
       + (l.own ? `<small class="sdim">${esc(t('fetched by Telex'))} · <button type="button" class="linkbtn" data-unspell="${esc(l.tag)}">${esc(t('Remove'))}</button></small>` : '')
       + '</label>').join('')}</div>`
     : `<p class="dnote">${esc(t('This PC has no spelling dictionaries yet.'))}</p>`;
-  const auto = info.auto && info.chosen.length ? `<p class="dnote snote">${esc(t('Chosen by themselves from the languages of Windows and of Telex. Tick the ones you write in.'))}</p>` : '';
+  const auto = info.auto && info.chosen.length ? `<p class="dnote">${esc(t('Ticked by themselves from Windows’ languages. Tick the ones you write in.'))}</p>` : '';
   // The languages the user writes in first: the ones most likely wanted.
   const first = d => (info.missing ?? []).includes(d.tag) || d.tag.split('-')[0] === ui;
   const offers = [...info.downloads].sort((a, b) => first(b) - first(a));
   const get = offers.length ? `<div class="sbtns"><select id="s-dict" class="sselect" aria-label="${esc(t('Dictionary to download'))}">${offers.map(d =>
       `<option value="${esc(d.tag)}">${esc(langName(d.tag))} · ${esc(fmtSize(Math.ceil(d.bytes / 1024)))}</option>`).join('')}</select>`
-    + `<button type="button" class="btn" id="s-dict-get"${spellFetching ? ' disabled' : ''}>${esc(spellFetching ? t('Downloading…') : t('Download'))}</button></div>`
-    + `<p class="dnote snote">${esc(t('For a language Windows has no dictionary for: LibreOffice’s, fetched from GitHub only when you click, and checked before use. Nothing about you is sent.'))}</p>` : '';
+    + `<button type="button" class="btn" id="s-dict-get"${spellFetching ? ' disabled' : ''} title="${esc(t('LibreOffice’s dictionary, fetched from GitHub only when you click and checked before use. Nothing about you is sent.'))}">${esc(spellFetching ? t('Downloading…') : t('Add language'))}</button></div>` : '';
   el.innerHTML = langs + auto + get + `<p class="derr" role="alert">${esc(spellError)}</p>`;
 }
 async function toggleSpellLanguage(box){
@@ -4797,9 +4952,6 @@ $('s-trusted').addEventListener('click', async e => {
 });
 
 /* ---------- usage ---------- */
-// Settings › Usage, a page per account in the spirit of a phone's storage screen: the
-// server's storage when it says, what each kind of folder takes on this PC, mail in and out
-// over the last 30 days, who sends the most, the largest messages, and what still waits.
 const USE_GROUPS = [['inbox', N_('Inbox'), 0], ['sent', N_('Sent'), 1], ['archive', N_('Archive'), 3], ['custom', N_('Your folders'), 2],
   ['drafts', N_('Drafts and Outbox'), 5], ['junk', N_('Spam and Trash'), 4]];
 const groupOf = kind => ({outbox:'drafts', spam:'junk', trash:'junk'}[kind] ?? kind);
@@ -4820,48 +4972,66 @@ function flowSvg(flow, since){
   }).join('');
   return `<svg class="flow" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(t('Mail received and sent per day'))}">${bars}<line class="axis" x1="0" x2="${W}" y1="${mid + 0.5}" y2="${mid + 0.5}"/></svg>`;
 }
-function accountUsageHtml(u, since){
+// Settings › Usage: one line per account (the server's storage when it says, what this PC keeps,
+// the last check), and below it the details of the account picked there: what each kind of
+// folder takes, mail in and out over the last 30 days, who sends the most, the largest
+// messages, and what still waits.
+let usagePick = null;
+function usageTotals(u){
+  return {kb:u.folders.reduce((n, f) => n + f.size_kb, 0), count:u.folders.reduce((n, f) => n + f.count, 0)};
+}
+function usageLine(u){
   const a = ACCT[u.account]; if (!a) return '';
-  const localKb = u.folders.reduce((n, f) => n + f.size_kb, 0), count = u.folders.reduce((n, f) => n + f.count, 0);
-  const sync = u.sync_error ? `<span class="ustat warn" title="${esc(u.sync_error)}">${esc(t('Last check failed'))}</span>`
-    : u.synced_at ? `<span class="ustat">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</span>` : '';
-  let html = `<article class="ucard"><header class="uhead">${adot(a.id)}<span class="uname" title="${esc(a.id === LOCAL ? t('On this PC') : a.name)}">${esc(acctLabel(a.id))}</span>${sync}</header>`;
-  if (a.id === LOCAL) html += `<p class="unote">${esc(t('This mail is kept only on this PC, on no server. Back it up now and then: Settings › Backups.'))}</p>`;
-  if (u.sync_error) html += `<p class="unote warn">${esc(u.sync_error)}</p>`;
-  // Storage on the server, when the server reports it.
+  const {kb, count} = usageTotals(u);
+  let server = `<span class="sdim">${esc(a.id === LOCAL ? t('no server') : '–')}</span>`;
   if (u.quota){
-    const pct = pctOf(u.quota), level = levelOf(pct);
-    html += `<div class="ublock"><div class="urow"><span class="ulabel">${esc(t('On the server'))}</span><span class="uval">${esc(t('{used} of {limit}', {used:fmtSize(u.quota.used_kb), limit:fmtSize(u.quota.limit_kb)}))} · ${pct}%</span></div>${bar(pct, level)}`
-      + (pct >= 80 ? `<p class="unote ${level}">${esc(t('The mailbox is nearly full. Once it is, new mail bounces back to its senders: empty Trash and Spam, or move old mail out.'))}</p>` : '') + '</div>';
+    const pct = pctOf(u.quota);
+    server = `${bar(pct, levelOf(pct))}<span class="uval">${esc(fmtSize(u.quota.used_kb))} / ${esc(fmtSize(u.quota.limit_kb))}</span>`;
   }
+  const check = u.sync_error ? `<span class="ustat warn" title="${esc(u.sync_error)}">${esc(t('failed'))}</span>`
+    : u.synced_at ? `<span class="ustat">${esc(fmtWhen(parseDate(u.synced_at)))}</span>` : '<span class="ustat">–</span>';
+  return `<button type="button" class="uacct" data-pick="${esc(a.id)}" aria-pressed="${a.id === usagePick}" title="${esc(tn(count, '{n} message', '{n} messages', {n:num(count)}))}">`
+    + `<span class="uname">${adot(a.id)}<span>${esc(acctLabel(a.id))}</span></span><span class="userver">${server}</span>`
+    + `<span class="uval">${esc(fmtSize(kb))}</span>${check}</button>`;
+}
+function usageDetail(u, since){
+  const a = ACCT[u.account]; if (!a) return '';
+  const {kb, count} = usageTotals(u);
+  let html = '';
+  if (a.id === LOCAL) html += `<p class="unote">${esc(t('This mail is only on this PC. Back it up now and then: Settings › Backups.'))}</p>`;
+  if (u.sync_error) html += `<p class="unote warn">${esc(u.sync_error)}</p>`;
+  if (u.quota && pctOf(u.quota) >= 80) html += `<p class="unote ${levelOf(pctOf(u.quota))}">${esc(t('The mailbox is nearly full. Once it is, new mail bounces back to its senders: empty Trash and Spam, or move old mail out.'))}</p>`;
   // This PC, by kind of folder: one stacked bar and its legend.
   const groups = USE_GROUPS.map(([g, label, c]) => {
     const fs = u.folders.filter(f => groupOf(f.kind) === g);
     return {label, c, kb:fs.reduce((n, f) => n + f.size_kb, 0), n:fs.reduce((n, f) => n + f.count, 0)};
   }).filter(x => x.n);
-  html += `<div class="ublock"><div class="urow"><span class="ulabel">${esc(t('On this PC'))}</span><span class="uval">${esc(fmtSize(localKb))} · ${esc(tn(count, '{n} message', '{n} messages', {n:num(count)}))}</span></div>`
-    + `<div class="ustack" aria-hidden="true">${groups.map(x => `<i class="u${x.c}" style="flex-grow:${Math.max(x.kb, localKb / 150, 1)}"></i>`).join('')}</div>`
-    + `<ul class="ulegend">${groups.map(x => `<li><i class="u${x.c}" aria-hidden="true"></i>${esc(t(x.label))} <span>${esc(fmtSize(x.kb))}</span></li>`).join('')}</ul></div>`;
-  // Mail in and out, day by day.
+  html += `<div class="ublock"><div class="uline"><span class="ulabel">${esc(t('On this PC'))}</span><span class="uval">${esc(fmtSize(kb))} · ${esc(tn(count, '{n} message', '{n} messages', {n:num(count)}))}</span></div>`
+    + (groups.length ? `<div class="ustack" aria-hidden="true">${groups.map(x => `<i class="u${x.c}" style="flex-grow:${Math.max(x.kb, kb / 150, 1)}"></i>`).join('')}</div>`
+    + `<ul class="ulegend">${groups.map(x => `<li><i class="u${x.c}" aria-hidden="true"></i>${esc(t(x.label))} <span>${esc(fmtSize(x.kb))}</span></li>`).join('')}</ul>` : '') + '</div>';
+  // Mail in and out, day by day (the folders on this PC get none from a server).
   const sum = k => u.flow.reduce((n, d) => n + d[k], 0);
-  const today = new Date(since.getFullYear(), since.getMonth(), since.getDate() + u.flow.length - 1);
-  html += `<div class="ublock"><div class="urow"><span class="ulabel">${esc(t('Last 30 days'))}</span><span class="uval"><i class="ukey in" aria-hidden="true"></i>${esc(tn(sum('received'), '{n} received', '{n} received'))}`
-    + ` · <i class="ukey out" aria-hidden="true"></i>${esc(tn(sum('sent'), '{n} sent', '{n} sent'))}${sum('spam') ? ` · <i class="ukey junk" aria-hidden="true"></i>${esc(tn(sum('spam'), '{n} in Spam', '{n} in Spam'))}` : ''}</span></div>`
-    + flowSvg(u.flow, since) + `<div class="uaxis"><span>${dm(since)}</span><span>${esc(t('today'))} ${dm(today)}</span></div></div>`;
-  // Who sends the most, and the largest messages: each a way to tidy up.
+  if (a.id !== LOCAL){
+    const today = new Date(since.getFullYear(), since.getMonth(), since.getDate() + u.flow.length - 1);
+    html += `<div class="ublock"><div class="uline"><span class="ulabel">${esc(t('Last 30 days'))}</span><span class="uval"><i class="ukey in" aria-hidden="true"></i>${esc(tn(sum('received'), '{n} received', '{n} received'))}`
+      + ` · <i class="ukey out" aria-hidden="true"></i>${esc(tn(sum('sent'), '{n} sent', '{n} sent'))}${sum('spam') ? ` · <i class="ukey junk" aria-hidden="true"></i>${esc(tn(sum('spam'), '{n} in Spam', '{n} in Spam'))}` : ''}</span></div>`
+      + flowSvg(u.flow, since) + `<div class="uaxis"><span>${dm(since)}</span><span>${esc(t('today'))} ${dm(today)}</span></div></div>`;
+  }
+  // Who sends the most, and the largest messages, side by side: each a way to tidy up.
   const most = Math.max(1, ...u.senders.map(s => s.count));
-  if (u.senders.length) html += `<div class="ublock"><span class="ulabel">${esc(t('Most mail from'))}</span><ul class="ulist">${u.senders.map(s =>
+  const senders = u.senders.length ? `<div class="ublock"><span class="ulabel">${esc(t('Most mail from'))}</span><ul class="ulist">${u.senders.map(s =>
     `<li><button type="button" class="ulink" data-sender="${esc(s.email)}" title="${esc(t('Show all mail from {email}', {email:s.email}))}"><span class="who">${esc(s.name || s.email)}</span>`
-    + `<span class="spark" aria-hidden="true"><i style="width:${s.count / most * 100}%"></i></span><span class="n">${num(s.count)}</span></button></li>`).join('')}</ul></div>`;
-  if (u.largest.length) html += `<div class="ublock"><span class="ulabel">${esc(t('Largest messages'))}</span><ul class="ulist">${u.largest.map(m =>
-    `<li><button type="button" class="ulink" data-open="${m.id}" data-folder="${esc(m.folder)}" title="${esc(t('Open it in {folder}', {folder:folderName(m.folder)}))}"><span class="who">${esc(m.subject)}</span>`
-    + `<span class="from">${esc(isOut(m.folder) ? nameOf(m.to) : m.from_name)}</span><span class="n">${esc(fmtSize(m.size_kb))}</span></button></li>`).join('')}</ul></div>`;
+    + `<span class="spark" aria-hidden="true"><i style="width:${s.count / most * 100}%"></i></span><span class="n">${num(s.count)}</span></button></li>`).join('')}</ul></div>` : '';
+  const largest = u.largest.length ? `<div class="ublock"><span class="ulabel">${esc(t('Largest messages'))}</span><ul class="ulist">${u.largest.map(m =>
+    `<li><button type="button" class="ulink" data-open="${m.id}" data-folder="${esc(m.folder)}" title="${esc(t('Open it in {folder}', {folder:folderName(m.folder)}))} · ${esc(isOut(m.folder) ? nameOf(m.to) : m.from_name)}"><span class="who">${esc(m.subject)}</span>`
+    + `<span class="n">${esc(fmtSize(m.size_kb))}</span></button></li>`).join('')}</ul></div>` : '';
+  if (senders || largest) html += `<div class="ucols">${senders}${largest}</div>`;
   // What still waits.
   const outbox = u.folders.find(f => f.kind === 'outbox')?.count ?? 0, waits = [];
   if (u.queued) waits.push(tn(u.queued, '{n} change waits for the server', '{n} changes wait for the server'));
   if (outbox) waits.push(tn(outbox, '{n} message waits in the Outbox', '{n} messages wait in the Outbox'));
   if (waits.length) html += `<p class="unote">${esc(waits.join(' · '))}.</p>`;
-  return html + '</article>';
+  return html;
 }
 let usageSeq = 0;
 async function renderUsage(){
@@ -4871,15 +5041,24 @@ async function renderUsage(){
   if (seq !== usageSeq) return;
   renderMeter(); renderTree();
   if (!ACCOUNTS.length){ box.innerHTML = `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`; return; }
-  const since = parseDate(USAGE.since + 'T00:00:00');
+  paintUsage();
+}
+function paintUsage(){
+  const box = $('u-usage'), list = USAGE.accounts.filter(u => ACCT[u.account]);
+  // The account open in the window, until another is picked here.
+  if (!list.some(u => u.account === usagePick)) usagePick = list.find(u => u.account === acctId(state.folder))?.account ?? list[0]?.account;
+  const since = parseDate(USAGE.since + 'T00:00:00'), picked = list.find(u => u.account === usagePick);
   box.innerHTML = `<div class="ubase"><span>${esc(t('Mail base on this PC: {size}', {size:fmtBytes(USAGE.base_bytes)}))}</span>`
-    + (USAGE.free_bytes > 1048576 ? `<span class="sdim">${esc(t('{size} of it is free space Telex fills before the file grows', {size:fmtBytes(USAGE.free_bytes)}))}</span>` : '') + '</div>'
-    + USAGE.accounts.map(u => accountUsageHtml(u, since)).join('')
-    + `<p class="dnote">${esc(t('The counts cover the mail Telex has downloaded: the newest 300 messages of each folder at the first check, then everything new.'))}</p>`;
+    + (USAGE.free_bytes > 1048576 ? `<span class="sdim" title="${esc(t('Space inside the file that new mail fills first. Settings › Backups › Compact gives it back to the disk.'))}">${esc(t('{size} unused inside', {size:fmtBytes(USAGE.free_bytes)}))}</span>` : '') + '</div>'
+    + `<div class="uaccts" role="group" aria-label="${esc(t('Accounts'))}"><div class="uacct uhead" aria-hidden="true"><span>${esc(t('Account'))}</span><span>${esc(t('On the server'))}</span><span class="uval">${esc(t('On this PC'))}</span><span class="ustat">${esc(t('Last check'))}</span></div>`
+    + list.map(usageLine).join('') + '</div>'
+    + (picked ? `<section class="udetail" aria-label="${esc(acctLabel(picked.account))}">${usageDetail(picked, since)}</section>` : '')
+    + `<p class="dnote">${esc(t('Counts cover the mail downloaded to this PC.'))}</p>`;
 }
 const fmtBytes = b => fmtSize(Math.ceil(b / 1024));
 $('u-usage').addEventListener('click', e => {
-  const s = e.target.closest('[data-sender]'), o = e.target.closest('[data-open]');
+  const p = e.target.closest('[data-pick]'), s = e.target.closest('[data-sender]'), o = e.target.closest('[data-open]');
+  if (p){ usagePick = p.dataset.pick; paintUsage(); $('u-usage').querySelector(`[data-pick="${CSS.escape(usagePick)}"]`)?.focus(); }
   if (s){ sdlg.close(); filterAllMail(s.dataset.sender); }
   if (o){ sdlg.close(); openMessage(Number(o.dataset.open), o.dataset.folder); }
 });
@@ -4911,15 +5090,14 @@ function renderBackups(){
     + (s.free_bytes > 1048576 ? `<div class="sbtns"><button type="button" class="btn" id="bk-compact"${off}>${esc(work === 'compact' ? t('Compacting…') : t('Compact|base'))}</button><span class="sdim">${esc(t('Gives that space back to the disk. Telex pauses while it works.'))}</span></div>` : '')
     : `<p class="dnote">${esc(t('There is no mail base yet: it is made when you add your first account.'))}</p>`;
   html += `<h3 class="rh">${esc(t('Back up'))}</h3>
-<p class="dnote">${esc(t('A backup is one file with all your mail, the folders on this PC, rules and identities. Passwords stay in the system’s password store; settings go in Import and export.'))}</p>
+<p class="dnote">${esc(t('One file with your mail, the folders on this PC, rules and identities. Passwords stay in the system’s password store.'))}</p>
 <div class="sbtns"><button type="button" class="btn primary" id="bk-now"${off || !s.base ? ' disabled' : ''}>${esc(work === 'backup' || s.running ? t('Backing up…') : t('Back up now'))}</button>
 <span class="sdone">${newest ? esc(t('Last backup {when}, {size}.', {when:when(newest), size:fmtBytes(newest.bytes)})) : esc(t('No backups yet.'))}</span></div>
-<div class="sgroup"><span class="slabel">${esc(t('Folder for backups'))}</span><div class="bkdir"><code title="${esc(s.dir)}">${esc(s.dir)}</code>${s.suggested ? `<small class="sdim">${esc(t('suggested'))}</small>` : ''}
-<button type="button" class="btn" id="bk-pick">${esc(t('Choose…'))}</button>${newest ? `<button type="button" class="linkbtn" id="bk-show">${esc(t('Show'))}</button>` : ''}</div>
-<p class="dnote snote">${esc(t('Another disk, a USB stick or a OneDrive folder keeps the mail safe if this disk fails.'))}</p></div>
-<fieldset class="sgroup"><legend>${esc(t('Back up by itself'))}</legend><div class="sopts">${radios('backup_every', [['off', esc(t('Never'))], ['daily', esc(t('Every day'))], ['weekly', esc(t('Every week'))]], p.backup_every)}</div></fieldset>
-<div class="sgroup"><label class="slabel" for="s-keep">${esc(t('Keep'))}</label><select id="s-keep" class="sselect">${BACKUP_KEEP.map(n => `<option value="${n}"${n === p.backup_keep ? ' selected' : ''}>${esc(tn(n, 'the newest {n} backup', 'the newest {n} backups'))}</option>`).join('')}</select>
-<p class="dnote snote">${esc(t('Older ones in that folder are removed. Only Telex’s own backup files are ever touched.'))}</p></div>`;
+<div class="sgrid"><span class="lab" id="bk-every">${esc(t('Automatically'))}</span><div class="segs" role="radiogroup" aria-labelledby="bk-every">${segs('backup_every', [['off', esc(t('Never'))], ['daily', esc(t('Every day'))], ['weekly', esc(t('Every week'))]], p.backup_every)}</div>
+<label class="lab" for="s-keep">${esc(t('Keep'))}</label><div><select id="s-keep" class="sselect">${BACKUP_KEEP.map(n => `<option value="${n}"${n === p.backup_keep ? ' selected' : ''}>${esc(tn(n, 'the newest {n} backup', 'the newest {n} backups'))}</option>`).join('')}</select></div>
+<span class="lab">${esc(t('Folder'))}</span><div class="bkdir"><code title="${esc(s.dir)}">${esc(s.dir)}</code>${s.suggested ? `<small class="sdim">${esc(t('suggested'))}</small>` : ''}
+<button type="button" class="btn" id="bk-pick">${esc(t('Choose…'))}</button>${newest ? `<button type="button" class="linkbtn" id="bk-show">${esc(t('Show'))}</button>` : ''}</div></div>
+<p class="dnote">${esc(t('A folder on another disk, a USB stick or OneDrive keeps the mail safe if this disk fails. Telex removes only its own older backups there.'))}</p>`;
   html += `<h3 class="rh">${esc(t('Restore'))}</h3>
 <p class="dnote">${esc(t('Restoring puts a backup in place of the mail base. The mail base as it is now is kept next to it, so nothing is lost.'))}</p>`;
   if (s.backups.length) html += `<ul class="bklist">${s.backups.map(b => `<li><span class="bkwhen">${esc(when(b))}</span><span class="bksize">${esc(fmtBytes(b.bytes))}</span><button type="button" class="btn" data-restore="${esc(b.path)}"${off}>${esc(t('Restore…'))}</button></li>`).join('')}</ul>`;
@@ -5128,7 +5306,7 @@ const HELP_KEYS = [
     ['H', N_('HTML or plain text')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['← / →', N_('collapse or expand a thread (when enabled)')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
-    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or right-click it')]]],
+    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or click it')]]],
   [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
     ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],
@@ -5151,7 +5329,7 @@ const HELP_TIPS = [
   N_('Shift+click selects a range, Ctrl+click one more message.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),
-  N_('Spelling checks every ticked language at once. They show at the end of the compose bar; a click there changes them.'),
+  N_('A click on an underlined word shows its suggestions. Spelling checks every ticked language at once; the end of the compose bar shows them.'),
   N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
   N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),
   N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),

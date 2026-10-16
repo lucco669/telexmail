@@ -435,15 +435,25 @@ button.ph-who:hover .pn{text-decoration:underline}
 .hedit{flex:1;min-height:120px;overflow:auto;padding:10px 14px;background:var(--surface);color:var(--fg);font:13px/1.55 var(--font-ui);overflow-wrap:anywhere;user-select:text}
 .hedit:focus{outline:0;box-shadow:inset 0 0 0 1px var(--accent)}
 .hedit a{color:var(--accent)}
-/* Spelling: a layer over the subject and the plain text draws wavy lines under the words the
-   checker marks (a field can't style its own words); in HTML, the Highlight API does. */
+/* Spelling: a layer over a field (the subject, plain text, signatures) draws wavy lines under the
+   words the checker marks (a field can't style its own words); in HTML, the Highlight API does. */
 .spellfield{position:relative;min-width:0}
-.spellfield>input{width:100%}
+.spellfield>input,.spellfield>textarea{display:block;width:100%;box-sizing:border-box}
 .spellfield.body{flex:1;display:flex;min-height:120px}
 .spellmarks{position:absolute;box-sizing:border-box;overflow:hidden;margin:0;pointer-events:none;user-select:none;color:transparent;white-space:pre-wrap;overflow-wrap:break-word}
 .spellfield>input~.spellmarks{white-space:pre;overflow-wrap:normal}
-.spellmarks mark{background:none;color:transparent;text-decoration:underline wavy var(--note-fg) 1px;text-decoration-skip-ink:none;text-underline-offset:3px}
-::highlight(spell){text-decoration:underline wavy var(--note-fg) 1px;text-decoration-skip-ink:none;text-underline-offset:3px}
+.spellfield>input~.spellmarks mark{text-underline-offset:1px}
+.spellmarks mark{background:none;color:transparent;text-decoration:underline wavy var(--spell);text-decoration-thickness:1.5px;text-decoration-skip-ink:none;text-underline-offset:2px}
+::highlight(spell){text-decoration:underline wavy var(--spell);text-decoration-thickness:1.5px;text-decoration-skip-ink:none;text-underline-offset:2px}
+/* A click on a marked word: its suggestions in a strip under it; the focus stays in the field. */
+.spelltip{position:fixed;z-index:31;display:flex;flex-wrap:wrap;align-items:center;gap:2px;max-width:min(640px,calc(100vw - 8px));padding:3px;border:1px solid var(--line);border-radius:5px;background:var(--panel);color:var(--fg);box-shadow:0 6px 18px var(--shadow);font-size:12.5px}
+.spelltip[hidden]{display:none}
+.spelltip button{height:24px;padding:0 8px;border:0;border-radius:3px;background:none;color:var(--muted);font:inherit;cursor:pointer;white-space:nowrap}
+.spelltip button.sfix{color:var(--fg);font-weight:600}
+.spelltip button:hover{background:var(--sel);color:var(--fg)}
+.spelltip .snone{padding:0 8px;color:var(--muted)}
+.spelltip .ssep{align-self:stretch;width:1px;margin:3px 2px;background:var(--line)}
+@media (forced-colors: active){ .spelltip{border-color:CanvasText} }
 .hedit blockquote{margin:2px 0 2px 2px;padding-left:10px;border-left:2px solid var(--line);color:var(--muted)}
 .hedit ul,.hedit ol{margin:2px 0;padding-left:24px}
 .hedit p{margin:0 0 8px}
@@ -542,16 +552,25 @@ button.ph-who:hover .pn{text-decoration:underline}
 .sgroup{margin:0 0 18px;padding:0;border:0;min-width:0}
 .sgroup legend,.slabel{display:block;margin:0 0 8px;padding:0;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .spane .dnote{padding:0 0 10px}
-.spane .snote{padding:8px 0 0}
+.spane .snote{padding:2px 0 0}
 .spane .rh{margin:2px 0 6px}
 .spane .derr{margin:0 0 10px}
 .spane .whint{margin:0 0 10px}
 .snotel{margin-left:0;margin-right:auto}
 .sdim{color:var(--muted);font-size:11.5px}
+/* Label and control side by side, for a few related choices. */
+.sgrid{display:grid;grid-template-columns:max-content minmax(0,1fr);align-items:center;gap:8px 14px;margin:0 0 10px;font-size:12.5px}
+.sgrid>.lab{color:var(--muted);font-size:12px}
+.sgrid .bkdir{margin:0}
+.sgrid>.segs{justify-self:start}
+.spane>.sgrid{margin-bottom:18px}
+.sgrid+.dnote{margin-top:-4px}
+/* The spelling languages belong to the switch above them. */
+#s-spell-langs{padding-left:22px}
 .sbtns{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:2px 0 16px}
 .sdone{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
 .sselect{height:26px;min-width:min(260px,100%);padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
-.sopts{display:flex;flex-direction:column;gap:2px;margin-bottom:12px}
+.sopts{display:flex;flex-direction:column;gap:2px;margin-bottom:6px}
 /* Signatures in Settings › Writing: one card per address, the text edited in place. */
 .sigs{display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
 .sig{display:flex;flex-direction:column;gap:5px;min-width:0}
@@ -579,16 +598,15 @@ button.ph-who:hover .pn{text-decoration:underline}
 /* Theme cards: each preview carries its own data-theme, so it is drawn in that theme's colors. */
 .themes{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
 /* Small, non-interactive samples of the actual toolbar styles. */
-.toolbar-styles{grid-template-columns:repeat(auto-fill,minmax(138px,1fr))}
-.navprev{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:8px;height:66px;border:1px solid var(--line-soft);border-radius:4px;background:var(--chrome);overflow:hidden}
-.navsample{display:inline-flex;align-items:center;justify-content:center;gap:4px;font-size:11px;line-height:1.2;white-space:nowrap}
-.navsample svg{width:16px;height:16px;color:var(--accent)}
+.toolbar-styles{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px}
+.navprev{grid-column:1/-1;display:flex;align-items:center;justify-content:center;gap:5px;height:52px;padding:0 2px;border:1px solid var(--line-soft);border-radius:4px;background:var(--chrome);overflow:hidden}
+.navsample{display:inline-flex;align-items:center;justify-content:center;gap:3px;font-size:10.5px;line-height:1.2;white-space:nowrap}
+.navsample svg{width:14px;height:14px;color:var(--accent)}
 .navprev[data-style="icons"] .lbl,.navprev[data-style="large"] .lbl{display:none}
 .navprev[data-style="large"] svg{width:26px;height:26px}
 .navprev[data-style="below"] .navsample{flex-direction:column;gap:4px}
 .navprev[data-style="below"] svg{width:22px;height:22px}
 .navprev[data-style="text"] svg{display:none}
-.navdesc{grid-column:1/-1;color:var(--muted);font-size:11px;line-height:1.35}
 .tcard{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:6px;padding:6px 7px 7px;border:1px solid var(--line);border-radius:6px;background:var(--surface);cursor:pointer}
 .tcard:hover{border-color:var(--field)}
 .tcard input{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
@@ -693,35 +711,54 @@ button.ph-who:hover .pn{text-decoration:underline}
 .spane .dhead .rh{margin-top:6px}
 .spane .langpick{margin-top:0}
 .slist{display:flex;flex-direction:column;margin:0 0 10px}
-.sacct{display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 0;border-bottom:1px solid var(--line-soft)}
+.sacct{display:flex;align-items:flex-start;gap:8px;padding:8px 0;border-bottom:1px solid var(--line-soft)}
 .sacct:last-child{border-bottom:0}
 .sacct .adot{display:inline-block;align-self:flex-start;margin-top:5px}
 .satext{flex:1;min-width:0}
 .satext .nm{font-weight:600;font-size:12.5px}
 .satext .em,.satext .st{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .satext .st.warn{color:var(--note-fg)}
+.sahead{display:flex;align-items:baseline;gap:10px;min-width:0}
+.sahead .st{flex:none;margin-left:auto;max-width:55%}
+.sacts{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:6px}
+.sacts .btn{height:23px;padding:0 8px;font-size:11.5px}
+.sacts .btn.icon{width:23px;padding:0}
+.sgap{flex:1}
 .srow{display:flex;align-items:center;gap:8px;min-height:32px;border-bottom:1px solid var(--line-soft)}
 .srow:last-child{border-bottom:0}
 .srow .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
 .set .adot{display:inline-block}
 
 /* Settings › Usage: a card per account, like a phone's storage screen */
-.ubase{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 0 12px;font-size:12.5px}
-.ucard{margin:0 0 14px;padding:10px 12px 4px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
-.uhead{display:flex;align-items:center;gap:7px;margin:0 0 8px}
-.uname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;font-size:13px}
-.ustat{flex:none;font-size:11.5px;color:var(--muted)}
+.ubase{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 0 10px;font-size:12.5px}
+/* One line per account; the picked one's details below. */
+.uaccts{margin:0 0 12px;border:1px solid var(--line-soft);border-radius:5px;background:var(--surface);overflow:hidden}
+.uacct{display:grid;grid-template-columns:minmax(0,1fr) minmax(90px,170px) 72px 64px;align-items:center;gap:12px;width:100%;min-height:30px;padding:0 10px;border:0;border-bottom:1px solid var(--line-soft);background:none;color:var(--fg);font-size:12.5px;text-align:left;cursor:pointer}
+.uacct:last-child{border-bottom:0}
+.uacct:hover{background:var(--hover)}
+.uacct[aria-pressed="true"]{background:var(--sel);box-shadow:inset 3px 0 var(--accent)}
+.uacct.uhead{min-height:24px;background:var(--panel);font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);cursor:default}
+.uacct.uhead:hover{background:var(--panel)}
+.uacct.uhead>span{font:inherit;color:inherit}
+.uname{display:flex;align-items:center;gap:7px;min-width:0;font-weight:600}
+.uname>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.userver{display:flex;align-items:center;gap:8px;min-width:0}
+.userver .ubar{flex:1;min-width:30px}
+.userver .uval{flex:none}
+.ustat{font-size:11.5px;color:var(--muted);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .ustat.warn{color:var(--note-fg);font-weight:500}
-.ublock{margin:0 0 12px}
-.urow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 5px}
+.udetail{margin:0 0 6px}
+.ucols{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 18px}
+.ublock{margin:0 0 12px;min-width:0}
+.uline{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:0 0 5px}
 .ulabel{display:block;margin:0 0 5px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.urow .ulabel{margin:0}
-.uval{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--fg);text-align:right}
+.uline .ulabel{margin:0}
+.uval{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--fg);text-align:right;white-space:nowrap}
 .ubar{height:6px;border-radius:3px;background:var(--line-soft);overflow:hidden}
 .ubar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
 .ubar[data-level="warn"] i{background:var(--flag)}
 .ubar[data-level="full"] i{background:var(--note-fg)}
-.unote{margin:6px 0 10px;padding:5px 8px;border-radius:3px;background:var(--panel);color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
+.unote{margin:0 0 10px;padding:5px 8px;border-radius:3px;background:var(--panel);color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
 .unote.warn,.unote.full{background:var(--note-bg);color:var(--note-fg)}
 .ustack{display:flex;gap:2px;height:10px;border-radius:3px;overflow:hidden}
 .ustack i{display:block;min-width:3px}
@@ -743,9 +780,8 @@ button.ph-who:hover .pn{text-decoration:underline}
 .ulink{display:flex;align-items:center;gap:8px;width:100%;min-height:26px;padding:0 4px;border:0;border-radius:3px;background:none;font-size:12px;text-align:left;cursor:pointer}
 .ulink:hover{background:var(--hover)}
 .ulink .who{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.ulink .from{max-width:35%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:11.5px}
-.ulink .n{flex:none;min-width:52px;text-align:right;font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
-.spark{flex:0 0 72px;height:5px;border-radius:3px;background:var(--line-soft);overflow:hidden}
+.ulink .n{flex:none;min-width:44px;text-align:right;font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
+.spark{flex:0 0 56px;height:5px;border-radius:3px;background:var(--line-soft);overflow:hidden}
 .spark i{display:block;height:100%;background:var(--accent)}
 /* Settings › Backups: the mail base and the backup folder, the backups there, and the
    question before one is put back */

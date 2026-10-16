@@ -100,17 +100,32 @@ const scenes = {
   links: { run: `ui.pane(25); ui.folder('studio/spam'); await ui.wait(100); ui.row('Your music subscription needs attention'); await ui.wait(150);
     let a; for (let i = 0; i < 100 && !(a = document.querySelector('.hframe')?.contentDocument?.querySelector('a[href^="http"]')); i++) await ui.wait(20);
     a.dispatchEvent(new PointerEvent('pointerover', {bubbles:true})); await ui.wait(50);` },
-  // Settings › Writing: HTML first, and every address's signature edited in place.
+  // Settings › Writing: every address's signature edited in place, then spelling.
   signatures: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-write'); await ui.wait(150); const p = document.querySelector('.setpanes');
-    const g = document.getElementById('s-reply').closest('fieldset'); p.scrollTop += g.getBoundingClientRect().top - p.getBoundingClientRect().top - 10; await ui.wait(100);` },
+    const g = document.getElementById('s-sigs').closest('fieldset'); p.scrollTop += g.getBoundingClientRect().top - p.getBoundingClientRect().top - 10; await ui.wait(250);` },
+  // A new message with two slips; a click in one shows its suggestions under it.
+  spelling: {
+    settings: { compose_format: 'html' },
+    run: `ui.key('n'); await ui.wait(400); ui.fill('c-to', 'Anna Kowalska <anna@kowalska-architects.pl>'); ui.fill('c-subj', 'Plans for Friday');
+    const ed = document.getElementById('c-html');
+    ed.innerHTML = '<div>Hi Anna,</div><div><br></div><div>thanks for the plans, they look great. I will send the photos tommorow, so you recieve them before the visit.</div><div><br></div>' + ed.innerHTML;
+    ed.dispatchEvent(new Event('input', {bubbles:true})); await ui.wait(700);
+    const word = [...CSS.highlights.get('spell')].find(x => x.toString() === 'tommorow'), at = new Range();
+    at.setStart(word.startContainer, word.startOffset + 3); ed.focus(); getSelection().removeAllRanges(); getSelection().addRange(at);
+    const show = () => { ed.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true})); ed.dispatchEvent(new MouseEvent('click', {bubbles:true})); };
+    show(); await ui.wait(250);
+    // The picture is taken as the headless window loses focus and resizes, which close the strip: keep it, redrawn in the new layout.
+    addEventListener('blur', e => e.stopImmediatePropagation(), true);
+    addEventListener('resize', e => { e.stopImmediatePropagation(); document.body.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true})); show(); }, true);`,
+  },
   identities: {
     run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
     ui.click('#i-list [data-id="2"] [data-i="edit"]'); await ui.wait(50);`,
   },
-  // Settings › Appearance from the unread cards down: the fonts and the account colors.
+  // Settings › Appearance from the fonts down: text size, rows, the toolbars and unread mail.
   appearance: {
     run: `ui.click('#b-settings'); await ui.wait(50); const p = document.querySelector('.setpanes');
-    const g = document.getElementById('s-unread').closest('fieldset');
+    const g = document.getElementById('s-fonts').closest('fieldset');
     p.scrollTop += g.getBoundingClientRect().top - p.getBoundingClientRect().top - 10; await ui.wait(250);`,
   },
   // Settings › Accounts: every account, its servers and how its last check went.

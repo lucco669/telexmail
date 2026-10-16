@@ -10,7 +10,7 @@
   <link rel="stylesheet" href="themes.css">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body spellcheck="false">
 <!-- Elements with data-i18n have their text, title, placeholder and aria-label translated by
      i18n.js; the English here is the key. -->
 <div class="win" id="win" data-density="compact">
@@ -107,19 +107,23 @@
     <div class="setpanes">
       <section class="spane" role="tabpanel" id="s-pane-look" aria-labelledby="s-tab-look">
         <fieldset class="sgroup">
-          <legend data-i18n>Toolbar</legend>
-          <div class="themes toolbar-styles" id="s-toolbar"></div>
-          <p class="dnote snote" data-i18n>Changes apply right away. Hover over a button for its action and keyboard shortcut.</p>
-        </fieldset>
-        <fieldset class="sgroup">
           <legend data-i18n>Theme</legend>
           <div class="themes" id="s-themes"></div>
           <p class="dnote snote" id="s-forced" hidden data-i18n>A Windows contrast theme is on, so Windows chooses the colors. Turn it off in Windows settings to use these.</p>
-          <p class="dnote snote" data-i18n>Every theme meets WCAG 2.2 AA contrast; the high contrast ones meet AAA.</p>
         </fieldset>
         <fieldset class="sgroup">
-          <legend data-i18n>Rows</legend>
-          <div class="segs" id="s-density"></div>
+          <legend data-i18n>Font</legend>
+          <div class="themes fonts" id="s-fonts"></div>
+        </fieldset>
+        <div class="sgrid">
+          <span class="lab" id="s-size-l" data-i18n>Text size</span>
+          <div class="segs" id="s-size" role="radiogroup" aria-labelledby="s-size-l" title="Ctrl+= larger, Ctrl+− smaller, Ctrl+0 normal" data-i18n></div>
+          <span class="lab" id="s-density-l" data-i18n>Rows</span>
+          <div class="segs" id="s-density" role="radiogroup" aria-labelledby="s-density-l"></div>
+        </div>
+        <fieldset class="sgroup">
+          <legend data-i18n>Toolbar</legend>
+          <div class="themes toolbar-styles" id="s-toolbar"></div>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Unread mail</legend>
@@ -127,14 +131,9 @@
           <p class="dnote snote" data-i18n>Unread mail is always bold, with a dot at the start of its row.</p>
         </fieldset>
         <fieldset class="sgroup">
-          <legend data-i18n>Font</legend>
-          <div class="themes fonts" id="s-fonts"></div>
-          <p class="dnote snote" data-i18n>Each is a set: one face for the window, one for the message list, and a mono one for dates, sizes and plain-text writing. System and Classic use fonts Windows already has.</p>
-        </fieldset>
-        <fieldset class="sgroup">
           <legend data-i18n>Account colors</legend>
           <div class="themes marks" id="s-marks"></div>
-          <p class="dnote snote" data-i18n>Each account has a color of its own, shown this way once there is more than one: in the folders, on every row of the message list and in the status bar.</p>
+          <p class="dnote snote" data-i18n>Shown once there is more than one account.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Message list columns</legend>
@@ -143,12 +142,7 @@
             <label class="sopt"><input type="checkbox" id="s-sizecol"><span data-i18n>Size column</span></label>
           </div>
           <div class="sbtns"><button type="button" class="btn" id="s-fitcols" data-i18n>Fit columns to the list</button></div>
-          <p class="dnote snote" data-i18n>Drag the edge between two headings to set a width; double-click it to fit the names. Right-click the headings for these choices too.</p>
-        </fieldset>
-        <fieldset class="sgroup">
-          <legend data-i18n>Text size</legend>
-          <div class="segs" id="s-size"></div>
-          <p class="dnote snote" data-i18n>Ctrl+= makes everything larger, Ctrl+− smaller, Ctrl+0 normal.</p>
+          <p class="dnote" data-i18n>Drag the edge between two headings to set a width. Right-click the headings for these choices too.</p>
         </fieldset>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-lang" aria-labelledby="s-tab-lang" hidden>
@@ -156,7 +150,7 @@
           <legend data-i18n>Language of the interface</legend>
           <div class="sopts" id="s-langs"></div>
         </fieldset>
-        <p class="dnote" data-i18n>Menus, messages and the errors Telex writes follow this language. Mail you write keeps its own words: each identity has its signature and its reply and forward headers (Accounts › Identities).</p>
+        <p class="dnote" data-i18n>Mail you write keeps its own words: signatures and reply headers belong to each identity (Accounts › Identities).</p>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-accts" aria-labelledby="s-tab-accts" hidden>
         <div id="a-home">
@@ -273,35 +267,30 @@
         </form>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-mail" aria-labelledby="s-tab-mail" hidden>
-        <div class="sgroup">
-          <label class="slabel" for="s-every" data-i18n>Check for new mail</label>
-          <select id="s-every" class="sselect"></select>
-        </div>
         <fieldset class="sgroup">
           <legend data-i18n>New mail</legend>
+          <div class="sgrid">
+            <label class="lab" for="s-every" data-i18n>Check for new mail</label>
+            <div><select id="s-every" class="sselect"></select></div>
+          </div>
           <div class="sopts">
             <label class="sopt"><input type="checkbox" id="s-push"><span data-i18n>Show new mail at once</span></label>
             <label class="sopt"><input type="checkbox" id="s-notify"><span data-i18n>Notify me of new mail while Telex is in the background</span></label>
           </div>
-          <p class="dnote snote" data-i18n>At once: Telex keeps one connection open to each server that allows it (IMAP IDLE) and checks the Inbox when the server says something changed. The other folders are checked as often as set above.</p>
+          <p class="dnote snote" data-i18n>At once: Telex keeps a connection open to each Inbox (IMAP IDLE). Other folders are checked as often as set above.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Spam filter</legend>
           <div class="sopts" id="s-spam"></div>
           <p class="dnote snote" id="s-spam-learned" aria-live="polite"></p>
-          <p class="dnote snote" data-i18n>Telex learns on this PC from your own mail: what is in Spam is spam, mail you have read is not. New Inbox mail it is sure of goes to Spam with a note saying why; mail from people you have written to never does. Mark as spam and Not spam in a message’s menu teach it.</p>
+          <p class="dnote snote" data-i18n>It learns on this PC from your mail: what is in Spam is spam, mail you have read is not. Mail from people you have written to is never moved. Mark as spam and Not spam in a message’s menu teach it.</p>
         </fieldset>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-read" aria-labelledby="s-tab-read" hidden>
         <fieldset class="sgroup">
-          <legend data-i18n>Threads</legend>
-          <label class="sopt"><input type="checkbox" id="s-threaded"><span data-i18n>Group related messages into threads</span></label>
-          <p class="dnote snote" data-i18n>One row per thread in a folder. Expand with the arrow or →; collapse with ←. Search and unread-only lists show individual messages. Actions apply to the selected message.</p>
-        </fieldset>
-        <fieldset class="sgroup">
           <legend data-i18n>Mark messages as read</legend>
           <div class="sopts" id="s-read"></div>
-          <p class="dnote snote" data-i18n>By hand: U, a click on the dot at the start of a row, the envelope above a message, or the menu on a right-click. Each marks read or unread.</p>
+          <p class="dnote snote" data-i18n>By hand: U, the dot at the start of a row, or the envelope above a message.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>HTML mail</legend>
@@ -311,12 +300,15 @@
         <fieldset class="sgroup">
           <legend data-i18n>HTML mail in a dark theme</legend>
           <div class="sopts" id="s-paper"></div>
-          <p class="dnote snote" data-i18n>On dark paper, the message’s own colors are turned around to match the theme; pictures stay as they are. The sun button above a message shows it on white.</p>
+          <p class="dnote snote" data-i18n>The sun button above a message shows it on white.</p>
         </fieldset>
         <fieldset class="sgroup">
-          <legend data-i18n>Scam warnings</legend>
-          <label class="sopt"><input type="checkbox" id="s-risk"><span data-i18n>Warn me when an opened message shows signs of a scam</span></label>
-          <p class="dnote snote" data-i18n>A line above the message says why: a sender or link that imitates a known brand, a link whose text names another site, hidden characters. Checked on this PC, without opening any link. Most mail shows nothing.</p>
+          <legend data-i18n>Threads and warnings</legend>
+          <div class="sopts">
+            <label class="sopt"><input type="checkbox" id="s-threaded"><span data-i18n>Group related messages into threads</span></label>
+            <label class="sopt"><input type="checkbox" id="s-risk"><span data-i18n>Warn me when an opened message shows signs of a scam</span></label>
+          </div>
+          <p class="dnote snote" data-i18n>Threads: one row per conversation; → opens it, ← closes it. Scam warnings: a line above the message names the signs, such as a sender or link that imitates a known brand. Both are worked out on this PC.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Remote images</legend>
@@ -328,7 +320,7 @@
         <fieldset class="sgroup">
           <legend data-i18n>New messages</legend>
           <div class="sopts" id="s-format"></div>
-          <p class="dnote snote" data-i18n>Plain text reads the same everywhere. HTML adds bold, lists and links, and goes out with a plain-text copy. The Text | HTML switch in a message changes it for that one.</p>
+          <p class="dnote snote" data-i18n>HTML always goes out with a plain-text copy. The switch above a message changes it for that one.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Replies and forwards</legend>
@@ -340,25 +332,26 @@
           <div class="sopts">
             <label class="sopt"><input type="checkbox" id="s-signrep"><span data-i18n>Sign replies and forwards too</span></label>
           </div>
-          <p class="dnote snote" data-i18n>Each address you write from has its own signature; it is saved as you type. New messages always get it. Switching From in a message swaps it. The reply and forward headers are with each identity: Edit identity.</p>
+          <p class="dnote snote" data-i18n>Saved as you type. Reply and forward headers are with each identity: Edit identity.</p>
         </fieldset>
-        <div class="sgroup">
-          <label class="slabel" for="s-undo" data-i18n>Undo sending</label>
-          <select id="s-undo" class="sselect"></select>
-          <p class="dnote snote" data-i18n>Sent mail waits this long in the Outbox. Z takes it back to change it.</p>
-        </div>
         <fieldset class="sgroup">
-          <legend data-i18n>Checks</legend>
+          <legend data-i18n>Spelling</legend>
           <div class="sopts">
-            <label class="sopt"><input type="checkbox" id="s-subject"><span data-i18n>Ask before sending a message without a subject</span></label>
             <label class="sopt"><input type="checkbox" id="s-spell"><span data-i18n>Underline spelling mistakes</span></label>
           </div>
-          <p class="dnote snote" data-i18n>Right-click an underlined word, or press F7 for the next one: suggestions, Add to dictionary, Ignore.</p>
+          <div id="s-spell-langs"></div>
+          <p class="dnote snote" data-i18n>Click an underlined word for suggestions; F7 goes to the next one. A word any ticked language knows is right, so one message can mix them.</p>
         </fieldset>
         <fieldset class="sgroup">
-          <legend data-i18n>Spelling languages</legend>
-          <div id="s-spell-langs"></div>
-          <p class="dnote snote" data-i18n>Every ticked language is checked at once, so one message can mix them: a word any of them knows is right. Compose shows them at the end of its bar, where a click changes them.</p>
+          <legend data-i18n>Sending</legend>
+          <div class="sgrid">
+            <label class="lab" for="s-undo" data-i18n>Undo sending</label>
+            <div><select id="s-undo" class="sselect"></select></div>
+          </div>
+          <p class="dnote" data-i18n>Sent mail waits this long in the Outbox. Z takes it back to change it.</p>
+          <div class="sopts">
+            <label class="sopt"><input type="checkbox" id="s-subject"><span data-i18n>Ask before sending a message without a subject</span></label>
+          </div>
         </fieldset>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-use" aria-labelledby="s-tab-use" hidden>
@@ -372,7 +365,7 @@
           <legend data-i18n>Check for updates</legend>
           <div class="sopts" id="s-updates"></div>
         </fieldset>
-        <p class="dnote" data-i18n>A check downloads one small file from GitHub that names the newest version. It sends nothing about you, your mail or this copy of Telex. An update installs only when you choose, and only if it carries Telex’s signature.</p>
+        <p class="dnote" data-i18n>A check fetches one small file from GitHub that names the newest version, and sends nothing about you. An update installs only when you choose, and only with Telex’s signature.</p>
         <p class="dnote" id="s-upd-none" hidden data-i18n>This build of Telex can’t update itself. Release builds from telexmail.app can.</p>
         <div class="sbtns"><button class="btn" type="button" id="s-check" data-i18n>Check now</button></div>
       </section>
@@ -393,7 +386,7 @@
   <div class="u-progress" id="u-progress-row" hidden><progress id="u-progress" max="100" aria-labelledby="u-state"></progress></div>
   <div class="unotes" id="u-notes" hidden></div>
   <label class="rcheck" id="u-auto-row"><input type="checkbox" id="u-auto"> <span data-i18n>Check for updates when Telex starts and once a day</span></label>
-  <p class="dnote" id="u-note" data-i18n>A check downloads one small file from GitHub that names the newest version. It sends nothing about you, your mail or this copy of Telex. An update installs only when you choose, and only if it carries Telex’s signature.</p>
+  <p class="dnote" id="u-note" data-i18n>A check fetches one small file from GitHub that names the newest version, and sends nothing about you. An update installs only when you choose, and only with Telex’s signature.</p>
   <p class="derr" id="u-err" role="alert"></p>
   <div class="cbar">
     <button class="btn primary" type="button" id="u-install" hidden></button>
