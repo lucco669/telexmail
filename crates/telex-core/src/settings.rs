@@ -74,6 +74,8 @@ const KEYS: &[&str] = &[
     "sign_replies",
     "undo_send",
     "ask_subject",
+    "ask_attachment",
+    "ask_many",
     "spell_check",
     "spell_languages",
     "updates",
@@ -133,6 +135,12 @@ pub struct Settings {
     pub undo_send: u16,
     /// Send asks once more when the subject is empty.
     pub ask_subject: bool,
+    /// Send asks once more when the text mentions an attachment and none is attached.
+    #[serde(default = "yes")]
+    pub ask_attachment: bool,
+    /// Send asks once more when a reply to all goes to many people.
+    #[serde(default = "yes")]
+    pub ask_many: bool,
     /// Underline misspelt words while writing.
     pub spell_check: bool,
     /// The languages spelling is checked in ("pl-PL"); a word any of them knows is right.
@@ -317,6 +325,8 @@ impl Default for Settings {
             sign_replies: true,
             undo_send: 5,
             ask_subject: true,
+            ask_attachment: true,
+            ask_many: true,
             spell_check: true,
             spell_languages: Vec::new(),
             updates: Updates::Ask,
@@ -1410,6 +1420,8 @@ mod tests {
         assert_eq!(s.compose_format, ComposeFormat::Html);
         assert_eq!(s.reply_format, ReplyFormat::Html);
         assert!(s.ask_subject && s.spell_check);
+        // Added after 0.9.9: on until the user turns them off.
+        assert!(s.ask_attachment && s.ask_many);
         assert!(s.risk_checks && s.sign_replies);
         // 0.9.8 added the spam filter: careful until the user picks.
         assert_eq!(s.spam_filter, crate::spam::Level::Careful);

@@ -187,6 +187,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
+| `mentions_attachment` | `text`, `signature`    | whether the user's own text (no quotes, forwarded part or signature) says a file is attached (`drafts::mentions_attachment`; Send asks when none is) |
 | `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
@@ -298,7 +299,7 @@ normal, strict, off: how sure the spam filter must be to move new mail to Spam; 
 learns; `spam::set_level`, like the language), `compose_format` (html, plain; html by
 default since 0.9.8, an existing settings.json keeps its value), `reply_format` (html (the
 default), same, plain), `sign_replies` (the identity's signature in replies and forwards too), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
-can take it back), `ask_subject`, `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `backup_every` (off, daily,
+can take it back), `ask_subject`, `ask_attachment` (Send asks when the text mentions an attachment and none is attached), `ask_many` (Send asks before a reply to all goes to 8 people or more), `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `backup_every` (off, daily,
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
 leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
@@ -392,6 +393,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Tab          | in the quick filter: this folder / all mail |
 | Enter, double-click | open the message in a window of its own (Esc closes it); in all-mail results and conversations Enter opens the message's folder |
 | H            | switch HTML / plain text view (remembered) |
+| Q            | open or fold the quoted mail of the open message |
 | Esc          | clear filter, the selection, the conversation or only-unread; in compose: save draft and close |
 | ↓ ↑ Enter Tab Esc | in To, Cc, Bcc: choose a suggested address |
 | Ctrl+Enter   | send (compose)                 |
@@ -406,26 +408,40 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-- The Classic toolbar shows its words while they fit and only icons when they don't (`fitToolbar`
-  measures; `.toolbar.tight`), instead of a scroll bar; other layouts still scroll, without a bar.
-- The flag above a message is a button like the envelope (`.pflag`, pressed in `--flag`), not a pill.
-- The status bar's left side clips with an ellipsis; the key hints give way below 1100 px.
-- Spelling, easier: a click on an underlined word shows its suggestions in a strip under it
-  (`.spelltip`; the focus stays in the field), the lines move with the text as it is typed
-  (`spellEdited`), the word being typed gets its line once the caret leaves it, a red `--spell`
-  token per theme, the subject's line no longer cut off. Suggestions from every language are
-  ranked by closeness without diacritics ("Wycene" → "Wycenę" before English guesses;
-  `spell::distance`). Signatures and the away reply use Telex's checker; the webview's own
-  (Windows' languages only) is off everywhere (`<body spellcheck="false">`).
-- New mail that lands in the open list brings it to its start (its end when sorted oldest
-  first); the selection stays (`refresh({arrived})`).
-- Settings tidied: shorter notes, Appearance starts with Theme and Font, toolbar cards in one row,
-  Usage as one line per account with the picked one's details below (`.uacct`), Backups' schedule,
-  keep and folder side by side (`.sgrid`), account rows with their actions below, Writing's
-  spelling and sending in groups of their own. The Usage and unread-card `.urow` clash is gone
-  (Usage uses `.uline`).
+- Replies: a Reply | Reply all switch as the reply's title (both answers come from `start_draft`;
+  switching keeps the text and hand-typed addresses), a line under Cc naming who else was on the
+  original with Add them, and "The original had 2 files · Attach them" (sets `forward_of`, so the
+  core carries them like a forward's; threading stays on `reply_to`). Send asks, in a line above
+  the buttons, when the text mentions an attachment and none is attached (`ask_attachment`) and
+  when a reply to all goes to 8 people or more (`ask_many`); Send again goes ahead.
+- Quoted mail reads as blocks: plain text in the text's own color with a bar per depth and its
+  introducing line on top (`quoteTree`), a long block folded to three lines with Show more; HTML
+  mail's quotes (Gmail's and Thunderbird's classes and Apple's cite, now kept by the sanitizer,
+  and everything from Outlook's `divRplyFwdMsg` on) fold behind one `<details>` line; Q opens
+  or folds them all. A reply's quote is folded in the HTML editor until clicked (`cfold`, never
+  saved).
 
-## Current state (v0.9.8: a spam filter of its own, link destinations in one line, HTML by default, signatures in Settings, and all earlier features below)
+## Current state (v0.9.9: spelling you can click, new mail on top, tidier Settings, and all earlier features below)
+
+- New in 0.9.9 (no schema change):
+  - The Classic toolbar shows its words while they fit and only icons when they don't (`fitToolbar`
+    measures; `.toolbar.tight`), instead of a scroll bar; other layouts still scroll, without a bar.
+  - The flag above a message is a button like the envelope (`.pflag`, pressed in `--flag`), not a pill.
+  - The status bar's left side clips with an ellipsis; the key hints give way below 1100 px.
+  - Spelling, easier: a click on an underlined word shows its suggestions in a strip under it
+    (`.spelltip`; the focus stays in the field), the lines move with the text as it is typed
+    (`spellEdited`), the word being typed gets its line once the caret leaves it, a red `--spell`
+    token per theme, the subject's line no longer cut off. Suggestions from every language are
+    ranked by closeness without diacritics ("Wycene" → "Wycenę" before English guesses;
+    `spell::distance`). Signatures and the away reply use Telex's checker; the webview's own
+    (Windows' languages only) is off everywhere (`<body spellcheck="false">`).
+  - New mail that lands in the open list brings it to its start (its end when sorted oldest
+    first); the selection stays (`refresh({arrived})`).
+  - Settings tidied: shorter notes, Appearance starts with Theme and Font, toolbar cards in one row,
+    Usage as one line per account with the picked one's details below (`.uacct`), Backups' schedule,
+    keep and folder side by side (`.sgrid`), account rows with their actions below, Writing's
+    spelling and sending in groups of their own. The Usage and unread-card `.urow` clash is gone
+    (Usage uses `.uline`).
 
 - New in 0.9.8 (schema version 14: `spam_tokens`, `spam_trained`):
   - Telex's own spam filter (`spam.rs`; Settings › Mail › Spam filter; the message menu's Mark as

@@ -262,6 +262,41 @@ fn text_lines(body: &str) -> Vec<&str> {
         .collect()
 }
 
+/// Words that say something is attached, folded: "attached", "attachment", "enclosed",
+/// "załączam", "w załączniku", "załączone".
+const ATTACHED: &[&str] = &["attach", "enclos", "zalacz"];
+
+/// Whether the text the user wrote says a file is attached, so Send can ask when none is.
+/// Quoted lines and the line that introduces them, a forwarded message and the signature
+/// (often a disclaimer about attachments) are left out.
+pub fn mentions_attachment(text: &str, signature: &str) -> bool {
+    let signature = signature.trim();
+    let text = match text.find(signature) {
+        Some(at) if !signature.is_empty() => {
+            format!("{}{}", &text[..at], &text[at + signature.len()..])
+        }
+        _ => text.to_owned(),
+    };
+    let lines: Vec<&str> = text.split('\n').collect();
+    let quoted = |l: &str| l.trim_start().starts_with('>');
+    let mut own = String::new();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        // "-------- Forwarded message --------": what follows isn't the user's.
+        if trimmed.starts_with("-----") && trimmed.ends_with("-----") && trimmed.len() > 12 {
+            break;
+        }
+        let introduces = trimmed.ends_with(':') && lines.get(i + 1).is_some_and(|n| quoted(n));
+        if !quoted(line) && !introduces {
+            own.push_str(line);
+            own.push('\n');
+        }
+    }
+    crate::filters::fold(&own)
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| ATTACHED.iter().any(|stem| w.starts_with(stem)))
+}
+
 /// "Re: Odp: FW: Oferta" → "Oferta". Covers English, Polish (Odp, PD) and German (AW, WG).
 fn strip_prefixes(subject: &str) -> String {
     let mut s = subject.trim();
@@ -356,6 +391,46 @@ mod tests {
             "Reklamacja",
             "words that start like a prefix stay"
         );
+    }
+
+    #[test]
+    fn a_mention_of_an_attachment_is_found_in_the_users_own_text() {
+        let none = "";
+        assert!(mentions_attachment(
+            "Hi Anna,\nthe plans are attached.",
+            none
+        ));
+        assert!(mentions_attachment(
+            "Dzień dobry,\nw załączniku przesyłam wycenę.",
+            none
+        ));
+        assert!(mentions_attachment("Załączam umowę do podpisu.", none));
+        assert!(mentions_attachment(
+            "Please see the enclosed invoice.",
+            none
+        ));
+        assert!(
+            !mentions_attachment("Dołącz do spotkania o 10.", none),
+            "joining isn't attaching"
+        );
+        assert!(!mentions_attachment("Thanks, see you on Friday.", none));
+        // What someone else wrote, and a forwarded message, aren't the user's.
+        let reply =
+            "Got it, thanks!\n\nDnia 10.10.2026 o 06:12, Anna napisała:\n> W załączniku plany.";
+        assert!(!mentions_attachment(reply, none));
+        let forward =
+            "FYI\n\n-------- Forwarded message --------\nSubject: Plans\nThe plans are attached.";
+        assert!(!mentions_attachment(forward, none));
+        // A signature's disclaimer about attachments doesn't count; the text above it does.
+        let signature = "Sam Carter\nThis email and any attachments are confidential.";
+        assert!(!mentions_attachment(
+            &format!("See you tomorrow.\n\n{signature}"),
+            signature
+        ));
+        assert!(mentions_attachment(
+            &format!("Attached: the plans.\n\n{signature}"),
+            signature
+        ));
     }
 
     #[test]

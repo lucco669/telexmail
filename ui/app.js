@@ -302,7 +302,7 @@ const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light')
 const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
-    threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true,
+    threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true, ask_attachment:true, ask_many:true,
     spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
@@ -1787,14 +1787,117 @@ function rowAfterPicked(){
 }
 
 /* ---------- preview ---------- */
+// Quoted mail in plain text reads as blocks: each quoted message in the text's own color with a
+// bar for its depth, the line that introduced it ("Dnia … napisał(a):", "On … wrote:") on top,
+// and an old message after "-----Original Message-----" as one block too. A long block shows its
+// first lines and folds the rest; Q opens or folds every quote of the message.
+const QUOTE_FOLD = 8, QUOTE_PEEK = 3;
+const quotesOpen = new Set(); // messages whose quotes Q opened
+const HISTORY_LINE = /^\s*-{2,}\s*(original message|forwarded message|wiadomość oryginalna|oryginalna wiadomość|przekazana wiadomość|wiadomość przekazana)\s*-{2,}\s*$/i;
+// The lines as a tree of blocks: {head, items: [line text | block], n: lines in all}.
+function quoteTree(body){
+  let history = 0;
+  const rows = body.split('\n').map(line => {
+    if (!history && HISTORY_LINE.test(line)){ history = 1; return {depth:1, text:line.trim(), head:true}; }
+    const m = line.match(/^((?:>[ \t]?)+)/);
+    return {depth:(m ? m[1].split('>').length - 1 : 0) + history, text:m ? line.slice(m[1].length) : line};
+  });
+  const blank = r => !r.head && !r.text.trim();
+  // A blank line inside a quote belongs to it.
+  rows.forEach((r, i) => {
+    if (!blank(r)) return;
+    const prev = rows.slice(0, i).findLast(x => !blank(x)), next = rows.slice(i + 1).find(x => !blank(x));
+    r.depth = Math.min(prev?.depth ?? 0, next?.depth ?? 0);
+  });
+  // The line that introduces a quote heads it (blank lines between them go in with it).
+  rows.forEach((r, i) => {
+    if (r.head || !r.text.trim().endsWith(':')) return;
+    const j = rows.findIndex((x, k) => k > i && !blank(x));
+    if (j < 0 || rows[j].depth <= r.depth) return;
+    for (let k = i + 1; k < j; k++) rows[k].depth = rows[j].depth;
+    Object.assign(r, {head:true, depth:rows[j].depth});
+  });
+  const root = {head:null, items:[], n:0}, stack = [root];
+  for (const r of rows){
+    // A head opens a block of its own, even right after another at the same depth.
+    while (stack.length - 1 > r.depth - (r.head ? 1 : 0)) stack.pop();
+    while (stack.length - 1 < r.depth - (r.head ? 1 : 0)){ const b = {head:null, items:[], n:0}; stack.at(-1).items.push(b); stack.push(b); }
+    if (r.head){ const b = {head:r.text, items:[], n:0}; stack.at(-1).items.push(b); stack.push(b); }
+    else stack.at(-1).items.push(r.text);
+  }
+  const count = b => (b.n = b.items.reduce((n, x) => n + (typeof x === 'string' ? 1 : count(x)), 0));
+  count(root);
+  return root;
+}
 function bodyHtml(m){
-  const loaded = state.images.has(m.id);
-  return m.body.split('\n').map(line => {
-    const img = line.match(/^\[img:(.+)\]$/);
+  const loaded = state.images.has(m.id), open = quotesOpen.has(m.id);
+  const line = text => {
+    const img = text.match(/^\[img:(.+)\]$/);
     if (img) return `<div class="imgph${loaded ? ' loaded' : ''}">${loaded ? esc(img[1]) : t('Blocked image: {name}', {name:esc(img[1])})}</div>`;
-    const q = line.startsWith('>'), text = q ? line.replace(/^> ?/, '') : line;
-    return `<div class="ln${q ? ' q' : ''}">${linked(text)}</div>`;
-  }).join('');
+    return `<div class="ln">${linked(text)}</div>`;
+  };
+  const block = (b, depth) => {
+    const inner = b.items.map(x => typeof x === 'string' ? line(x) : block(x, depth + 1)).join('');
+    if (!depth) return inner;
+    const fold = !open && b.n > QUOTE_FOLD;
+    return `<div class="qb q${(depth - 1) % 4 + 1}${fold ? ' folded' : ''}">${b.head ? `<div class="qh">${linked(b.head)}</div>` : ''}`
+      + `<div class="qin">${inner}</div>`
+      + (fold ? `<button type="button" class="qmore" data-act="quote">${esc(tn(b.n - QUOTE_PEEK, 'Show {n} more line', 'Show {n} more lines'))}</button>` : '') + '</div>';
+  };
+  return block(quoteTree(m.body), 0);
+}
+// Q: every quote of the open message, opened or folded again.
+function toggleQuotes(){
+  const s = current();
+  if (!s || state.compose) return;
+  const open = !quotesOpen.has(s.id);
+  if (open) quotesOpen.add(s.id); else quotesOpen.delete(s.id);
+  const body = previewEl.querySelector('.pbody:not(.html)');
+  if (body) full(s.id).then(m => { if (current()?.id !== m.id) return; body.innerHTML = bodyHtml(m); markLinks(body, kindOf(s.f) === 'spam'); }, () => {});
+  const d = previewEl.querySelector('.hframe')?.contentDocument;
+  d?.querySelectorAll('details.tq').forEach(x => { x.open = open; });
+  const any = !!previewEl.querySelector('.qb') || !!d?.querySelector('details.tq');
+  say(!any ? t('This message quotes nothing.') : open ? t('Quotes open. Q folds them again.') : t('Quotes folded. Q opens them.'), 2500);
+}
+// HTML mail: quoted mail (Gmail's and Thunderbird's quote blocks, Apple's cite, everything
+// from Outlook's reply divider on) folds behind one line when it is long: the frame has no
+// scripts, so <details> opens and closes it.
+function foldFrameQuotes(d, id){
+  const roots = [];
+  const outer = el => !roots.some(r => r.contains(el));
+  // Outlook: the divider and all that follows it in its parent.
+  const divider = d.getElementById('divRplyFwdMsg');
+  if (divider){
+    const box = d.createElement('div');
+    const hr = divider.previousElementSibling?.tagName === 'HR' ? divider.previousElementSibling : null;
+    (hr ?? divider).before(box);
+    for (let n = hr ?? divider; n;){ const next = n.nextSibling; box.append(n); n = next; }
+    roots.push(box);
+  }
+  d.querySelectorAll('div.gmail_quote, blockquote').forEach(el => { if (outer(el) && !el.parentElement.closest('div.gmail_quote, blockquote')) roots.push(el); });
+  const lines = el => el.innerText.split('\n').filter(l => l.trim()).length;
+  let folded = 0;
+  for (const el of roots){
+    const n = lines(el);
+    if (n <= QUOTE_FOLD) continue;
+    // Its introduction ("On … wrote:"): Gmail's inside it, Thunderbird's or a short line before it.
+    const prev = el.previousElementSibling;
+    const intro = el.querySelector(':scope > .gmail_attr')
+      ?? (prev && (prev.classList.contains('moz-cite-prefix') || (prev.innerText.trim().endsWith(':') && prev.innerText.length < 300)) ? prev : null);
+    const head = intro?.innerText.trim().replace(/\s+/g, ' ') || t('Quoted text');
+    const box = d.createElement('details');
+    box.className = 'tq'; box.open = quotesOpen.has(id);
+    const sum = d.createElement('summary');
+    sum.textContent = `${head} · ${tn(n, '{n} line', '{n} lines')}`;
+    el.before(box); box.append(sum, el);
+    if (intro && intro !== el.querySelector(':scope > .gmail_attr')) intro.remove();
+    folded++;
+  }
+  if (!folded) return;
+  const style = d.createElement('style');
+  style.textContent = 'details.tq{margin:8px 0}details.tq>summary{cursor:pointer;font-weight:600;padding:3px 0;opacity:.85}'
+    + 'details.tq>summary:hover{opacity:1}details.tq[open]>summary{margin-bottom:4px}';
+  d.head.append(style);
 }
 // Plain text with its web addresses as links. An address ends before a space, <, > or a
 // quote, and without the full stop or bracket that ends the sentence around it.
@@ -1925,10 +2028,11 @@ function bindPreviewLinks(root, spam, frame = null){
 }
 // The frame shows the core's inert document: no scripts may run in it (sandbox without
 // allow-scripts). allow-same-origin only lets this page size it and catch link clicks.
-function mountFrame(frame, documentHtml, spam){
+function mountFrame(frame, documentHtml, spam, id){
   frame.addEventListener('load', () => {
     const d = frame.contentDocument;
     if (!d || !frame.isConnected) return;
+    foldFrameQuotes(d, id);
     markLinks(d, spam);
     bindPreviewLinks(d, spam, frame);
     const fit = () => { frame.style.height = d.documentElement.scrollHeight + 'px'; };
@@ -2121,7 +2225,7 @@ ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : '
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
 </article>`;
-  if (asHtml) mountFrame(previewEl.querySelector('.hframe'), hv.document, spam);
+  if (asHtml) mountFrame(previewEl.querySelector('.hframe'), hv.document, spam, s.id);
   else {
     const body = previewEl.querySelector('.pbody');
     markLinks(body, spam); bindPreviewLinks(body, spam);
@@ -2138,6 +2242,10 @@ previewEl.addEventListener('click', async e => {
   if (link){ e.preventDefault(); const s = current(); followLink(link.getAttribute('href'), s && (kindOf(s.f) === 'spam')); return; }
   const view = e.target.closest('[data-view]');
   if (view){ setView(view.dataset.view === 'text'); return; }
+  const rk = e.target.closest('[data-rk]');
+  if (rk && state.compose){ switchReply(rk.dataset.rk === 'all'); return; }
+  const more = e.target.closest('.qmore');
+  if (more){ more.closest('.qb').classList.remove('folded'); more.remove(); return; }
   const att = e.target.closest('[data-att]'), save = e.target.closest('[data-save]'), act = e.target.closest('[data-act]');
   if (!state.compose && (att || save || e.target.closest('[data-saveall]'))){
     const m = current(); if (!m) return;
@@ -2175,6 +2283,10 @@ previewEl.addEventListener('click', async e => {
     readCompose(); state.compose.showBcc = true; renderCompose(); $('c-bcc')?.focus();
   }
   if (act.dataset.act === 'attach' && state.compose) pickFiles();
+  if (act.dataset.act === 'others-add' && state.compose) switchReply(true);
+  if (act.dataset.act === 'origfiles' && state.compose) attachOriginal();
+  if (act.dataset.act === 'ask-send' && state.compose) send();
+  if (act.dataset.act === 'ask-one' && state.compose){ switchReply(false); say(t('Only to the sender now. Send when ready.'), 4000); }
   if (act.dataset.act === 'spell' && state.compose) spellLanguageMenu(act);
   if (act.dataset.act === 'discard') discardCompose();
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
@@ -2210,6 +2322,16 @@ async function openCompose(kind, preset = {}, of = null){
       const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder)});
       c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, bcc:'', subject:d.subject, body:d.body, html:null,
         attachments:d.attachments, replyTo:d.reply_to, forwardOf:d.forward_of, replaces:null};
+      if (kind === 'reply' || kind === 'replyall'){
+        const [other, orig] = await Promise.all([
+          invoke('start_draft', {kind:kind === 'reply' ? 'reply_all' : 'reply', of:s.id, account:acctId(state.folder)}).catch(() => null),
+          full(s.id).catch(() => null)]);
+        const [one, all] = kind === 'reply' ? [d, other] : [other, d];
+        // Only when the original had others besides the sender is there a choice to make.
+        const count = x => addressesIn(x.to + ',' + x.cc).length;
+        if (one && all && count(all) > count(one)) c.recipients = {one:{to:one.to, cc:one.cc}, all:{to:all.to, cc:all.cc}};
+        if (orig?.attachments?.length) c.originalFiles = {id:s.id, list:orig.attachments};
+      }
       const p = pref();
       const html = kind === 'new' ? p.compose_format === 'html'
         : p.reply_format === 'same' ? !!(await htmlView(s.id, false)) : p.reply_format === 'html';
@@ -2261,20 +2383,22 @@ function renderCompose(){
   const note = composeNote(c);
   const bcc = !!c.bcc || c.showBcc;
   previewEl.innerHTML = `<form class="compose" id="cform" novalidate>
-<div class="ctitle">${esc(title)}<label class="cfrom">${esc(t('from|compose'))} <select id="c-from" aria-label="${esc(t('From'))}">${fromOptions(c)}</select></label>
+<div class="ctitle">${c.recipients && (c.kind === 'reply' || c.kind === 'replyall') ? `<span class="seg crk" role="group" aria-label="${esc(t('Reply to'))}"><button type="button" data-rk="one" aria-pressed="${c.kind === 'reply'}">${esc(t('Reply|compose switch'))}</button><button type="button" data-rk="all" aria-pressed="${c.kind === 'replyall'}">${esc(t('Reply all|compose switch'))}</button></span>` : esc(title)}<label class="cfrom">${esc(t('from|compose'))} <select id="c-from" aria-label="${esc(t('From'))}">${fromOptions(c)}</select></label>
 <span class="seg cfmt" role="group" aria-label="${esc(t('Format'))}"><button type="button" data-fmt="plain" aria-pressed="${!html}" title="${esc(t('Plain text'))}">${esc(t('Text|view'))}</button><button type="button" data-fmt="html" aria-pressed="${html}" title="${esc(t('HTML: bold, lists, links'))}">HTML</button></span></div>
 <div class="cf">
   <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">
   <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" title="${esc(t('Blind copy: they get it, the others don’t see them'))}">${esc(t('Bcc'))}</button>`}</div>
+  <div class="cothers" id="c-others" hidden></div>
   ${bcc ? `<label for="c-bcc">${esc(t('Bcc'))}</label><input id="c-bcc" value="${esc(c.bcc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">` : ''}
   <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
 </div>
-<div id="c-attbox">${attsHtml(c.attachments, true)}</div>
+<div id="c-attbox">${composeAttsHtml(c)}</div>
 ${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
     `<button type="button" class="fb" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">${label}</button>`).join('')}<span class="flink" hidden><input id="c-url" type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>
 <div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
   : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
 ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>`}
+<div class="cask" id="c-ask" role="alert" hidden></div>
 <div class="cbar">
   <button class="btn primary" type="submit"><span>${esc(t('Send'))}</span> <kbd>Ctrl+Enter</kbd></button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
@@ -2291,12 +2415,154 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   previewEl.querySelector('.cfmt').addEventListener('click', e => { const b = e.target.closest('[data-fmt]'); if (b) setFormat(b.dataset.fmt); });
   ['c-to', 'c-cc', 'c-bcc'].forEach(id => { if ($(id)) wireSuggestions($(id)); });
   const body = html ? $('c-html') : $('c-body');
-  if (html){ body.innerHTML = c.html; wireEditor(body); }
+  if (html){ body.innerHTML = c.html; wireEditor(body); if (c.kind !== 'new') foldComposeQuote(body); }
+  ['c-to', 'c-cc', 'c-bcc'].forEach(id => $(id)?.addEventListener('input', paintOthers));
+  paintOthers();
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
   else focusStart(body);
   wireSpelling();
   paintSpellChip();
 }
+/* ---------- reply or reply all ---------- */
+// A reply knows both answers the core gave: to the sender (`one`) and to everyone (`all`). The
+// switch at the top swaps between them without touching the text; with Reply, a line under Cc
+// names who else was on the original, one click from being added. Addresses typed by hand stay.
+const REPLY_MANY = 8; // a reply to all with this many people asks once before it goes
+// "Anna <a@x.pl>, b@y.pl" → [{text, email}], split at commas and semicolons outside quotes.
+function addressesIn(line){
+  const out = [];
+  let from = 0, quoted = false;
+  const take = to => {
+    const text = line.slice(from, to).trim();
+    if (text) out.push({text, email:(text.match(/<([^>]+)>/)?.[1] ?? text).trim().toLowerCase()});
+    from = to + 1;
+  };
+  for (let i = 0; i < line.length; i++){
+    if (line[i] === '"') quoted = !quoted;
+    else if (!quoted && (line[i] === ',' || line[i] === ';')) take(i);
+  }
+  take(line.length);
+  return out;
+}
+const nameOfAddress = a => a.text.replace(/<[^>]*>/, '').replace(/"/g, '').trim() || a.email;
+// Who was on the original but isn't on this reply now.
+function othersLeftOut(c){
+  if (!c.recipients) return [];
+  const now = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => addressesIn($(id)?.value ?? '')).map(a => a.email));
+  const all = [...addressesIn(c.recipients.all.to), ...addressesIn(c.recipients.all.cc)];
+  return all.filter((a, i) => !now.has(a.email) && all.findIndex(b => b.email === a.email) === i);
+}
+function paintOthers(){
+  const c = state.compose, row = $('c-others');
+  if (!c || !row) return;
+  const left = c.kind === 'reply' ? othersLeftOut(c) : [];
+  row.hidden = !left.length;
+  if (!left.length) return;
+  const names = left.slice(0, 4).map(nameOfAddress).join(', ') + (left.length > 4 ? ' ' + tn(left.length - 4, 'and {n} more', 'and {n} more') : '');
+  row.innerHTML = `${esc(t('Also on the original: {names}', {names}))} · <button type="button" class="linkbtn" data-act="others-add">${esc(t('Add them'))}</button>`;
+}
+// Reply ↔ Reply all: everyone from the original goes in (To to To, Cc to Cc), or out again.
+function switchReply(all){
+  const c = state.compose;
+  if (!c?.recipients || (c.kind === 'replyall') === all) return;
+  const fields = {to:$('c-to'), cc:$('c-cc')};
+  if (all){
+    const have = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => addressesIn($(id)?.value ?? '')).map(a => a.email));
+    for (const k of ['to', 'cc']){
+      const add = addressesIn(c.recipients.all[k]).filter(a => !have.has(a.email) && have.add(a.email));
+      if (add.length) fields[k].value = [...addressesIn(fields[k].value), ...add].map(a => a.text).join(', ');
+    }
+  } else {
+    const keep = new Set([...addressesIn(c.recipients.one.to), ...addressesIn(c.recipients.one.cc)].map(a => a.email));
+    const drop = new Set([...addressesIn(c.recipients.all.to), ...addressesIn(c.recipients.all.cc)].map(a => a.email).filter(e => !keep.has(e)));
+    for (const k of ['to', 'cc']) fields[k].value = addressesIn(fields[k].value).filter(a => !drop.has(a.email)).map(a => a.text).join(', ');
+  }
+  c.kind = all ? 'replyall' : 'reply';
+  c.manyOk = false;
+  previewEl.querySelectorAll('[data-rk]').forEach(b => b.setAttribute('aria-pressed', String((b.dataset.rk === 'all') === all)));
+  hideComposeAsk();
+  paintOthers();
+}
+// The original's files: a reply goes without them, one click puts them in (carried from the
+// original like a forward's).
+function originalFilesHtml(c){
+  const o = c.originalFiles;
+  if (!o || c.forwardOf === o.id) return '';
+  const names = o.list.slice(0, 3).map(a => a.name).join(', ') + (o.list.length > 3 ? ' …' : '');
+  return `<div class="cfiles">${esc(tn(o.list.length, 'The original had a file: {names}', 'The original had {n} files: {names}', {names}))} · <button type="button" class="linkbtn" data-act="origfiles">${esc(tn(o.list.length, 'Attach it', 'Attach them'))}</button></div>`;
+}
+const composeAttsHtml = c => originalFilesHtml(c) + attsHtml(c.attachments, true);
+function attachOriginal(){
+  const c = state.compose, o = c?.originalFiles;
+  if (!o) return;
+  c.forwardOf = o.id;
+  const have = new Set(c.attachments.filter(a => !a.path).map(a => a.name));
+  c.attachments.push(...o.list.filter(a => !have.has(a.name)));
+  renderComposeAtts();
+  hideComposeAsk();
+  say(tn(o.list.length, 'Attached the original’s file.', 'Attached the original’s {n} files.'), 3000);
+}
+// The text the user wrote: the HTML editor's without its quotes and links, or the plain text.
+function ownText(){
+  const ed = $('c-html');
+  return ed ? editorText(ed).text : $('c-body')?.value ?? '';
+}
+// Send's questions, in a line above the buttons: a file the text mentions but that isn't
+// attached, and a reply to all that goes to many people. Send again goes ahead.
+function showComposeAsk(kind, n = 0){
+  const box = $('c-ask'), c = state.compose;
+  if (!box || !c) return;
+  box.dataset.kind = kind;
+  if (kind === 'files'){
+    box.innerHTML = `<span>${esc(t('You mention an attachment, but nothing is attached.'))}</span>`
+      + (c.originalFiles && c.forwardOf !== c.originalFiles.id ? `<button type="button" class="btn" data-act="origfiles">${esc(tn(c.originalFiles.list.length, 'Attach the original’s file', 'Attach the original’s files'))}</button>` : '')
+      + `<button type="button" class="btn" data-act="attach">${I.clip}<span>${esc(t('Attach…'))}</span></button>`
+      + `<button type="button" class="btn" data-act="ask-send">${esc(t('Send anyway'))}</button>`;
+  } else {
+    const sender = c.recipients ? addressesIn(c.recipients.one.to).map(nameOfAddress).join(', ') : '';
+    box.innerHTML = `<span>${esc(tn(n, 'This reply goes to {n} person.', 'This reply goes to {n} people.'))}</span>`
+      + `<button type="button" class="btn" data-act="ask-send">${esc(tn(n, 'Send to all {n}', 'Send to all {n}'))}</button>`
+      + (sender ? `<button type="button" class="btn" data-act="ask-one">${esc(t('Reply to {name} only', {name:sender}))}</button>` : '');
+  }
+  box.hidden = false;
+  box.querySelector('button')?.focus();
+}
+function hideComposeAsk(){
+  const box = $('c-ask');
+  if (box){ box.hidden = true; delete box.dataset.kind; }
+}
+// Before Send: true when it may go now; false when it asked something (or the answer was no).
+async function sendChecks(){
+  const c = state.compose, asked = $('c-ask')?.hidden === false ? $('c-ask').dataset.kind : null;
+  // Send while the question shows: go ahead, as with the subject.
+  if (asked === 'many') c.manyOk = true;
+  if (asked === 'files') c.filesOk = true;
+  hideComposeAsk();
+  if (pref().ask_many !== false && c.kind === 'replyall' && !c.manyOk){
+    const n = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => addressesIn($(id)?.value ?? '')).map(a => a.email)).size;
+    if (n >= REPLY_MANY){ showComposeAsk('many', n); return false; }
+  }
+  if (pref().ask_attachment !== false && !c.attachments.length && !c.filesOk){
+    const signature = allIdentities().find(i => i.id === c.identity)?.signature ?? '';
+    let mentions = false;
+    try { mentions = await invoke('mentions_attachment', {text:ownText(), signature}); } catch {}
+    if (state.compose !== c) return false;
+    if (mentions){ showComposeAsk('files'); return false; }
+  }
+  return true;
+}
+// A reply's quoted original folds to its first lines in the HTML editor; a click or the caret
+// in it opens it. The fold is the editor's only, never saved or sent.
+function foldComposeQuote(ed){
+  ed.querySelectorAll(':scope > blockquote').forEach(q => { if (q.innerText.split('\n').filter(l => l.trim()).length > QUOTE_FOLD) q.classList.add('cfold'); });
+  const open = () => {
+    const n = getSelection().anchorNode;
+    (n?.nodeType === 1 ? n : n?.parentElement)?.closest?.('blockquote.cfold')?.classList.remove('cfold');
+  };
+  ed.addEventListener('click', e => { e.target.closest?.('blockquote.cfold')?.classList.remove('cfold'); });
+  ed.addEventListener('keyup', open);
+}
+const unfolded = html => html.replace(/ class="cfold"/g, '');
 /* ---------- recipient suggestions ---------- */
 // People come from the mail base (recipients): those written to first, then those who write
 // most. Typing in To, Cc or Bcc shows the ones whose name or address has a word starting with
@@ -2387,7 +2653,7 @@ function wireSuggestions(input){
 // The attachments of the message being written, drawn again without touching the text.
 function renderComposeAtts(){
   const box = $('c-attbox');
-  if (box && state.compose) box.innerHTML = attsHtml(state.compose.attachments, true);
+  if (box && state.compose) box.innerHTML = composeAttsHtml(state.compose);
 }
 // Files chosen in the Open dialog or dropped on the window. Dropped with no message open, they
 // start a new one.
@@ -2401,6 +2667,7 @@ async function addFiles(files){
   const fresh = files.filter(f => !have.has(f.path));
   c.attachments.push(...fresh);
   renderComposeAtts();
+  hideComposeAsk();
   say(fresh.length === 1 ? t('Attached {name}.', {name:fresh[0].name}) : tn(fresh.length, 'Attached {n} file.', 'Attached {n} files.'), 3000);
 }
 async function pickFiles(){
@@ -2947,7 +3214,7 @@ function readCompose(){
   const c = state.compose;
   c.to = trimList($('c-to').value); c.cc = trimList($('c-cc').value); c.subject = $('c-subj').value.trim();
   if ($('c-bcc')) c.bcc = trimList($('c-bcc').value);
-  if (c.html != null) c.html = $('c-html').innerHTML; else c.body = $('c-body').value;
+  if (c.html != null) c.html = unfolded($('c-html').innerHTML); else c.body = $('c-body').value;
   return c;
 }
 // Saves the compose content as a draft and closes it. Resolves to true when it worked.
@@ -2973,6 +3240,7 @@ async function send(){
     return;
   }
   askedSubject = 0;
+  if (!await sendChecks()) return;
   const btn = document.querySelector('#cform .btn.primary');
   if (!btn || btn.disabled) return;
   const label = btn.querySelector('span');
@@ -4416,6 +4684,7 @@ function renderSettings(keepFocus){
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
   renderSignatures();
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
+  $('s-askfile').checked = s.ask_attachment !== false; $('s-askmany').checked = s.ask_many !== false;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   $('s-spam').innerHTML = radios('spam_filter', SPAM_LEVELS.map(([v, label]) => [v, esc(t(label))]), s.spam_filter ?? 'careful');
   $('s-threaded').checked = !!s.threaded;
@@ -4452,6 +4721,7 @@ function syncSettings(){
   $('s-every').value = String(s.check_every);
   $('s-delay').value = String(s.read_delay);
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
+  $('s-askfile').checked = s.ask_attachment !== false; $('s-askmany').checked = s.ask_many !== false;
   $('s-push').checked = s.push_mail; $('s-notify').checked = s.notify;
   $('s-threaded').checked = !!s.threaded;
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
@@ -4523,6 +4793,8 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
   else if (el.name === 'reply_format') changeSettings({reply_format:v});
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
+  else if (el.id === 's-askfile') changeSettings({ask_attachment:el.checked});
+  else if (el.id === 's-askmany') changeSettings({ask_many:el.checked});
   else if (el.id === 's-spell') changeSettings({spell_check:el.checked}).then(respell);
   else if (el.dataset.spell) toggleSpellLanguage(el);
   else if (el.id === 's-every') changeSettings({check_every:Number(v)});
@@ -4553,7 +4825,7 @@ sdlg.addEventListener('close', () => {
 // passwords. Importing shows what would change first; nothing changes until Import.
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
-  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), ask_subject:N_('Ask before sending a message without a subject'),
+  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
@@ -4576,7 +4848,7 @@ function settingValue(key, v){
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
     case 'spam_filter': return SPAM_LEVELS.find(([id]) => id === v) ? t(SPAM_LEVELS.find(([id]) => id === v)[1]) : v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
-    case 'threaded': case 'risk_checks': case 'sign_replies': case 'ask_subject': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
+    case 'threaded': case 'risk_checks': case 'sign_replies': case 'ask_subject': case 'ask_attachment': case 'ask_many': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
     case 'undo_send': return undoText(v);
     case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
     case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
@@ -5303,7 +5575,7 @@ const helpBtn = $('st-help'), helpPop = $('help-pop');
 const HELP_KEYS = [
   [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Space', N_('read on; at the end, the next unread message')],
     ['Shift+Space', N_('back up; at the top, the previous unread')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
-    ['H', N_('HTML or plain text')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['← / →', N_('collapse or expand a thread (when enabled)')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
+    ['H', N_('HTML or plain text')], ['Q', N_('open or fold the quoted mail')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['← / →', N_('collapse or expand a thread (when enabled)')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or click it')]]],
@@ -5427,6 +5699,7 @@ function onKey(e){
   else if (k === 'n') openCompose('new');
   else if (k === 'e') openCompose('edit');
   else if (k === 'h') setView(!pref().prefer_text);
+  else if (k === 'q') toggleQuotes();
   else if (k === 'm') openPicker('move');
   else if (k === 'g') openPicker('go');
   else if (k === 't') toggleThread();

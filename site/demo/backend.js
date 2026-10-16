@@ -78,7 +78,7 @@ function installTelexDemo(options) {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
     toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
-    threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, spell_check: true,
+    threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, ask_attachment: true, ask_many: true, spell_check: true,
     updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
   const SLIPS = {
@@ -1230,7 +1230,7 @@ function installTelexDemo(options) {
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20], spam_filter: ['off', 'careful', 'normal', 'strict'],
   };
-  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'spell_check', 'risk_checks', 'sign_replies'];
+  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'ask_attachment', 'ask_many', 'spell_check', 'risk_checks', 'sign_replies'];
   const settingsView = () => ({ settings: { ...settings }, language: lang(), offer: null, fresh: false });
   function updateSettings({ changes }) {
     for (const [k, v] of Object.entries(changes || {})) {
@@ -1431,6 +1431,14 @@ function installTelexDemo(options) {
     spell_languages: () => ({ languages: [{ tag: 'en-US', own: false }, { tag: 'pl-PL', own: true }], chosen: ['en-US', 'pl-PL'], auto: true, downloads: [], missing: [] }),
     spell_check: ({ text }) => [...String(text).matchAll(/\p{L}+/gu)]
       .filter((m) => SLIPS[m[0].toLowerCase()] && !ownWords.has(m[0].toLowerCase())).map((m) => [m.index, m[0].length]),
+    // The core leaves out quotes, a forwarded message and the signature; so does this.
+    mentions_attachment: ({ text, signature }) => {
+      const sig = String(signature || '').trim();
+      const lines = (sig ? String(text).replace(sig, '') : String(text)).split(/\n-{5,}.*-{5,}\n/)[0].split('\n');
+      const quoted = (l) => /^\s*>/.test(l || '');
+      const own = lines.filter((l, i) => !quoted(l) && !(/:\s*$/.test(l) && quoted(lines[i + 1]))).join('\n');
+      return /(attach|enclos|za[lł][aą]cz)/i.test(own);
+    },
     spell_suggest: ({ word }) => SLIPS[String(word).toLowerCase()] ?? [],
     spell_add: ({ word }) => { ownWords.add(String(word).toLowerCase()); return null; },
     spell_download: () => refuse('spell'),

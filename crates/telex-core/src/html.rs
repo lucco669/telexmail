@@ -178,6 +178,12 @@ fn sanitize(
         .add_tag_attributes("table", &["cellpadding", "cellspacing", "summary"])
         .add_tag_attributes("font", &["face", "size"])
         .add_tag_attributes("img", &["hspace", "vspace"])
+        // Where quoted mail starts, so the window can fold it: Gmail's and Thunderbird's
+        // classes, Apple's and Thunderbird's cite, and Outlook's reply divider (only that id).
+        .add_tag_attributes("blockquote", &["type"])
+        .add_tag_attributes("div", &["id"])
+        .add_allowed_classes("div", &["gmail_quote", "gmail_attr", "moz-cite-prefix"])
+        .add_allowed_classes("blockquote", &["gmail_quote"])
         // cid: and data: must pass ammonia's scheme check to reach the filter below,
         // which allows each only where it is safe.
         .url_schemes(HashSet::from(["http", "https", "mailto", "cid", "data"]))
@@ -203,6 +209,10 @@ fn filter<'u>(
 ) -> Option<Cow<'u, str>> {
     match (element, attribute) {
         ("img", "src") | (_, "background") => image_url(sources, found, value).map(Cow::Owned),
+        ("div", "id") => (value == "divRplyFwdMsg").then_some(Cow::Borrowed(value)),
+        ("blockquote", "type") => value
+            .eq_ignore_ascii_case("cite")
+            .then_some(Cow::Borrowed("cite")),
         ("a", "href") => {
             let lower = value.trim().to_ascii_lowercase();
             let ok = ["http://", "https://", "mailto:"]
@@ -299,7 +309,7 @@ const FRAME_CSP: &str =
 const FRAME_STYLE: &str = "html{background:#fff;color-scheme:light}\
 body{margin:0;padding:12px 14px 28px;font:14px/1.5 'Segoe UI',system-ui,sans-serif;color:#1a1e23;overflow-wrap:anywhere}\
 img{max-width:100%;height:auto}table{max-width:100%}a{color:#2453a6}pre{white-space:pre-wrap}\
-blockquote{margin:0 0 0 2px;padding-left:10px;border-left:2px solid #d2d7de;color:#59636e}";
+blockquote{margin:6px 0 6px 2px;padding-left:10px;border-left:3px solid #7f9fd6;color:inherit}\nblockquote blockquote{border-left-color:#c7b07c}blockquote blockquote blockquote{border-left-color:#9fb7a4}";
 
 /// The dark frame, in the theme's colors (already checked to be plain hex colors).
 fn dark_style(p: &Palette) -> String {
@@ -314,7 +324,7 @@ fn dark_style(p: &Palette) -> String {
         "html{{background:{paper};color-scheme:dark}}\
 body{{margin:0;padding:12px 14px 28px;font:14px/1.5 'Segoe UI',system-ui,sans-serif;color:{ink};overflow-wrap:anywhere}}\
 img{{max-width:100%;height:auto}}table{{max-width:100%}}a{{color:{link}}}pre{{white-space:pre-wrap}}\
-blockquote{{margin:0 0 0 2px;padding-left:10px;border-left:2px solid {line};color:{muted}}}"
+blockquote{{margin:6px 0 6px 2px;padding-left:10px;border-left:3px solid {link};color:inherit}}\nblockquote blockquote{{border-left-color:{muted}}}blockquote blockquote blockquote{{border-left-color:{line}}}"
     )
 }
 
@@ -1038,6 +1048,23 @@ Content-Type: text/html; charset=utf-8\r\n\
         let start = r.document.find("<body>").unwrap() + 6;
         let end = r.document.rfind("</body>").unwrap();
         &r.document[start..end]
+    }
+
+    #[test]
+    fn where_quoted_mail_starts_stays_marked_and_nothing_else_does() {
+        let r = render_html(
+            "<p class=\"hero\" id=\"top\">New text</p>\
+             <div class=\"gmail_quote big\"><div class=\"gmail_attr\">On Fri, Anna wrote:</div>\
+             <blockquote class=\"gmail_quote x\" type=\"CITE\">Old text</blockquote></div>\
+             <div id=\"divRplyFwdMsg\">From: Anna</div><div id=\"other\">x</div>",
+        );
+        let body = body_of(&r);
+        assert!(body.contains("<div class=\"gmail_quote\">"), "{body}");
+        assert!(body.contains("<div class=\"gmail_attr\">"));
+        assert!(body.contains("type=\"cite\""));
+        assert!(body.contains("<div id=\"divRplyFwdMsg\">"));
+        assert!(!body.contains("hero") && !body.contains("\"top\"") && !body.contains("\"other\""));
+        assert!(!body.contains(" x\"") && !body.contains("big"));
     }
 
     #[test]

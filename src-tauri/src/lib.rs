@@ -300,6 +300,13 @@ fn html_to_text(html: String) -> String {
     html::to_text(&html::compose_clean(&html))
 }
 
+/// Whether the text being sent says a file is attached (Send asks when none is). The
+/// signature is left out of it.
+#[tauri::command(async)]
+fn mentions_attachment(text: String, signature: String) -> bool {
+    drafts::mentions_attachment(&text, &signature)
+}
+
 /// Compose switches from plain text to HTML, or a reply opens in the HTML editor.
 #[tauri::command(async)]
 fn text_to_html(text: String) -> String {
@@ -1083,6 +1090,7 @@ pub fn run() {
             discard_draft,
             draft_html,
             html_to_text,
+            mentions_attachment,
             text_to_html,
             clean_html,
             usage,

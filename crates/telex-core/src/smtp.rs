@@ -796,7 +796,7 @@ JVBERi0xLjQK\r\n\
         }];
         let forwarded = Originals {
             replied: None,
-            forwarded: Some(original),
+            forwarded: Some(original.clone()),
         };
         let forward = compose(&account(), &fwd, &forwarded, now()).unwrap();
         let files = attachments_of(&forward.raw);
@@ -804,6 +804,21 @@ JVBERi0xLjQK\r\n\
         assert_eq!(files[0].name, "makiety.pdf");
         assert_eq!(files[0].content_type, "application/pdf");
         assert_eq!(files[0].data, b"%PDF-1.4\n");
+
+        // A reply that takes the original's files along: threaded, and with them.
+        let mut with_files = draft("anna@kowalska-architekci.pl");
+        with_files.attachments = fwd.attachments.clone();
+        let both = Originals {
+            replied: Some(original.clone()),
+            forwarded: Some(original),
+        };
+        let reply = compose(&account(), &with_files, &both, now()).unwrap();
+        let parsed = MessageParser::default().parse(&reply.raw).unwrap();
+        assert_eq!(
+            parsed.in_reply_to().as_text(),
+            Some("wycena.2@kowalska-architekci.pl")
+        );
+        assert_eq!(attachments_of(&reply.raw)[0].name, "makiety.pdf");
     }
 
     #[test]
