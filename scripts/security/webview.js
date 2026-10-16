@@ -12,10 +12,20 @@
   frame.title = 'Security regression fixture';
   document.body.replaceChildren(frame);
   frame.style.cssText = 'width:800px;height:500px';
+  // Each mount waits for the mail document's own load: a new frame's first about:blank load can
+  // arrive after srcdoc is set, and reading the frame then sees nothing (an intermittent
+  // "valid content lost" on slow runners). Every load brings a new document, so the one the last
+  // mount saw can't count twice.
+  let seen = null;
   async function mount(document){
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Mail frame did not load')), 10000);
-      frame.onload = () => { clearTimeout(timer); resolve(); };
+      frame.onload = () => {
+        const doc = frame.contentDocument;
+        if (frame.contentWindow?.location.href !== 'about:srcdoc' || !doc || doc === seen) return;
+        seen = doc;
+        clearTimeout(timer); resolve();
+      };
       frame.srcdoc = document;
     });
     await new Promise(resolve => setTimeout(resolve, 100));
