@@ -11,7 +11,9 @@ mkdirSync(work, {recursive:true});
 const fixture = mkdtempSync(join(work, 'webview-fixtures-'));
 const generated = spawnSync('cargo', ['run', '-p', 'telex-security', '--locked', '--', 'fixture', fixture], {cwd:root, stdio:'inherit'});
 if (generated.status !== 0) throw new Error('Security fixture generation failed');
-const identifier = 'app.telexmail.securitycheck.' + basename(fixture).split('-').at(-1).toLowerCase();
+// On Linux the single-instance plugin makes a D-Bus name of the identifier, and a part of a
+// D-Bus name may not start with a digit; mkdtemp's random suffix sometimes does ("r" first).
+const identifier = 'app.telexmail.securitycheck.r' + basename(fixture).split('-').at(-1).toLowerCase();
 const data = process.platform === 'win32' ? process.env.APPDATA : process.env.XDG_DATA_HOME || join(process.env.HOME, '.local/share');
 const profile = join(data, identifier);
 mkdirSync(profile, {recursive:true});

@@ -199,13 +199,11 @@ The minisign key above signs updates only; Windows doesn't know it. The installe
 Authenticode signature, so SmartScreen warns on a first install (the site says More info › Run
 anyway). Updates don't warn: Telex downloads them itself, without the Mark of the Web.
 
-- **Free, each release:** submit the new `-setup.exe` and `.msi` to Microsoft's file submission
-  portal (Microsoft Security Intelligence, "incorrectly detected", software developer). It often
-  clears the warning for that file within a day or two. Unsigned reputation is per file, so
-  every release starts over.
-- **Free, once:** a winget manifest (a PR to `microsoft/winget-pkgs`, then one per release, e.g.
-  with `wingetcreate update`). Files winget downloads should carry no Mark of the Web, so no
-  warning; test it on a clean PC before relying on that.
+- **Free, each release:** submit the new installers to Microsoft (below). It often clears the
+  warning for those files within a few days; there is no promise and no fixed time. Unsigned
+  reputation is per file (its hash), so every release starts over.
+- **Free, once, then a line per release:** winget (below). Files winget downloads should carry
+  no Mark of the Web, so no warning; test it on a clean PC before relying on that.
 - **Free, larger:** the Microsoft Store (individual developers register free since 2025). An
   MSIX package is signed by the Store; Tauri doesn't build MSIX itself, and Store copies update
   through the Store, so that build would turn Telex's own updater off.
@@ -218,6 +216,76 @@ anyway). Updates don't warn: Telex downloads them itself, without the Mark of th
   Telex isn't one. EV no longer skips SmartScreen's reputation, so it isn't worth its price.
 - Linux has no such warning. The AppImage updater checks minisign, and `SHA256SUMS` with the
   attestations covers the downloads.
+
+### Submitting a release to Microsoft (each release, about 10 minutes)
+
+Do it while the draft is waiting to be published: the files are final once the run is green,
+and a day of Microsoft's review is saved. Submit the `.exe` and the `.msi` separately, one file
+per submission (Microsoft asks for single files; a bundle is analysed later or with lower
+priority).
+
+1. Download `Telex_<version>_x64-setup.exe` and `Telex_<version>_x64_en-US.msi` from the draft
+   release on GitHub.
+2. Open <https://www.microsoft.com/en-us/wdsi/filesubmission> and choose **Software developer**.
+   Sign in with a Microsoft account (a personal one works; use the same one every time, so the
+   submissions are in one history).
+3. Fill in the form:
+   - **Product:** Microsoft Defender SmartScreen.
+   - **Company name:** Łukasz Szramuk.
+   - **File:** the `.exe` (the next submission: the `.msi`).
+   - **What do you believe this file is?** Incorrectly detected / should not be blocked (the
+     form's wording changes; choose the option that says the file is clean).
+   - **Detection name:** `Windows protected your PC: unrecognized app` (what SmartScreen says).
+   - **Additional information** (paste and fill in):
+
+     ```
+     Telex is a free email client for Windows by Łukasz Szramuk, built by GitHub Actions
+     from https://github.com/lucco669/telexmail (tag v<version>) and published at
+     https://github.com/lucco669/telexmail/releases. SmartScreen shows "unrecognized app"
+     for this new version. The file is unsigned; its build provenance can be checked with
+     "gh attestation verify <file> --repo lucco669/telexmail", and its SHA-256 is in the
+     release's SHA256SUMS. Earlier versions of the same app were submitted before.
+     ```
+4. Submit and keep the submission ID. Its state is under **Submission history** on the same
+   portal. If nothing happens for a couple of weeks, Microsoft's support takes the ID and the
+   file's SHA-256.
+
+Nothing to change in Telex either way: when the review clears the file, the warning stops for
+everyone downloading that exact file.
+
+### winget (once, then each release)
+
+Wait with the first listing until the product name is final (see CLAUDE.md, Open decisions):
+the package identifier stays with the listing.
+
+Once:
+
+1. `winget install Microsoft.WingetCreate`
+2. `wingetcreate new https://github.com/lucco669/telexmail/releases/download/v<version>/Telex_<version>_x64-setup.exe`
+   It downloads the installer and asks for the rest:
+   - **PackageIdentifier:** `Szramuk.Telex` (Publisher.Name; it can't be changed later).
+   - **Publisher:** Łukasz Szramuk. **PackageName:** Telex. **Moniker:** telex.
+   - **License:** Freeware. **LicenseUrl:** the site's `/license` page.
+   - **ShortDescription:** Fast, keyboard-driven email client.
+   - **InstallerType:** nullsoft (Tauri's NSIS installer; silent install is `/S`).
+     **Scope:** user (Tauri installs per user by default).
+   - **PackageUrl:** the site; **ReleaseNotesUrl:** the release on GitHub.
+3. Check the manifest before sending it. In an administrator PowerShell, once:
+   `winget settings --enable LocalManifestFiles`. Then
+   `winget validate --manifest <the folder wingetcreate wrote>` and
+   `winget install --manifest <that folder>` (installs Telex from it; uninstall afterwards).
+4. Let wingetcreate submit (it signs in to GitHub in the browser and opens a PR on
+   `microsoft/winget-pkgs` from a fork in your account). A bot checks the PR, a moderator
+   merges it, usually within days. After that, `winget install Szramuk.Telex` works.
+
+Each release, after publishing:
+
+```
+wingetcreate update Szramuk.Telex --version <version> --urls https://github.com/lucco669/telexmail/releases/download/v<version>/Telex_<version>_x64-setup.exe --submit
+```
+
+(Older Telex versions update themselves, so winget only needs the newest version for new
+installs.) This step could run in release.yml later, with a GitHub token of your own as a secret.
 
 ## A release build on your own PC
 
