@@ -3927,7 +3927,9 @@ function renderAccountList(){
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
     // The account and how its last check went on top; what can be done with it in a row below.
     return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="sahead"><span class="nm">${esc(a.name)}</span>${sync}</div><div class="em" title="${esc(where)}">${esc(where)}</div>`
-      + `<div class="sacts"><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button>`
+      + `<div class="sacts"><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button>`
+      // A POP3 account's folders are Telex's own: nothing to choose among a server's.
+      + (a.imap.pop3 ? '' : `<button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button>`)
       + `<button type="button" class="btn${awayOn(a.id) ? ' on' : ''}" data-away="${esc(a.id)}" title="${esc(awayOn(a.id) ? t('Auto-reply is on') : t('Auto-reply while you’re away'))}">${esc(t('Auto-reply'))}</button>`
       + `<span class="sgap"></span>${order}<button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div></div></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
