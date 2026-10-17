@@ -547,6 +547,26 @@ td.c-subj .goes{font-weight:600}
 .rh{margin:12px 14px 6px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .rcheck{display:flex;align-items:center;gap:7px;margin:12px 14px 10px;font-size:12px}
 
+/* View source and All headers: the message as it came, in the mono face */
+.dlg.src{width:min(920px,calc(100vw - 32px))}
+.dlg.src .seg{margin-top:11px}
+.dlg.src .dnote:empty{display:none}
+.srctext,.srchd{height:min(62vh,580px);margin:6px 14px 12px;padding:8px 10px;overflow:auto;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data)}
+.srctext{white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
+.srchd{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:14px;row-gap:3px;align-content:start}
+.srchd dt{font-weight:600;color:var(--muted)}
+.srchd dd{margin:0;overflow-wrap:anywhere}
+.srctext[hidden],.srchd[hidden]{display:none}
+
+/* Print… and Save as PDF: only the message made ready in #printout goes on paper. */
+#printout{display:none}
+@page{margin:15mm}
+@media print{
+  html,body{height:auto;overflow:visible;background:none}
+  body.printing>:not(#printout){display:none!important}
+  body.printing>#printout{display:block}
+}
+
 /* Folder picker: M moves, G goes */
 .dlg.pick{width:min(420px,calc(100vw - 32px));margin-top:12vh}
 .pkbox{padding:8px 14px 6px}

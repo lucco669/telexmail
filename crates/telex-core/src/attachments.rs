@@ -168,8 +168,14 @@ pub fn safe_file_name(name: &str) -> String {
 /// already holds exactly these bytes (the same attachment opened again), that one is
 /// returned. On Windows the file is marked as coming from the internet.
 pub fn write_file(dir: &Path, file: &FileAttachment, reuse: bool) -> io::Result<PathBuf> {
+    write_named(dir, &file.name, &file.data, reuse)
+}
+
+/// Write any bytes into `dir` as [`write_file`] writes an attachment: under the safe form of
+/// `name`, numbered rather than over another file, marked as coming from the internet.
+pub fn write_named(dir: &Path, name: &str, data: &[u8], reuse: bool) -> io::Result<PathBuf> {
     fs::create_dir_all(dir)?;
-    let name = safe_file_name(&file.name);
+    let name = safe_file_name(name);
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_owned(), format!(".{e}")),
         _ => (name.clone(), String::new()),
@@ -181,7 +187,7 @@ pub fn write_file(dir: &Path, file: &FileAttachment, reuse: bool) -> io::Result<
             dir.join(format!("{stem} ({n}){ext}"))
         };
         if candidate.exists() {
-            if reuse && fs::read(&candidate).is_ok_and(|old| old == file.data) {
+            if reuse && fs::read(&candidate).is_ok_and(|old| old == data) {
                 return Ok(candidate);
             }
             continue;
@@ -193,7 +199,7 @@ pub fn write_file(dir: &Path, file: &FileAttachment, reuse: bool) -> io::Result<
             .open(&candidate)
         {
             Ok(mut f) => {
-                io::Write::write_all(&mut f, &file.data)?;
+                io::Write::write_all(&mut f, data)?;
                 drop(f);
                 mark_from_internet(&candidate);
                 return Ok(candidate);
@@ -211,7 +217,12 @@ pub fn write_file(dir: &Path, file: &FileAttachment, reuse: bool) -> io::Result<
 /// Write an attachment to a file the user chose in a Save dialog (which asked before
 /// replacing one), marked like [`write_file`]'s.
 pub fn save_as(path: &Path, file: &FileAttachment) -> io::Result<()> {
-    fs::write(path, &file.data)?;
+    save_bytes(path, &file.data)
+}
+
+/// Write bytes to a file the user chose in a Save dialog, marked like [`write_file`]'s.
+pub fn save_bytes(path: &Path, data: &[u8]) -> io::Result<()> {
+    fs::write(path, data)?;
     mark_from_internet(path);
     Ok(())
 }

@@ -109,6 +109,8 @@ function installTelexDemo(options) {
       'Przeglądarka zablokowała okno. Zezwól tej stronie na wyskakujące okna, aby otwierać wiadomości w osobnych oknach.'],
     backup: ['This is a demo: it doesn’t write or read files. Download Telex to back up your own mail.',
       'To tylko demo: nie zapisuje ani nie czyta plików. Pobierz Telex, aby robić kopie zapasowe własnej poczty.'],
+    eml: ['This is a demo: it doesn’t write files. Download Telex to save your own mail as .eml files.',
+      'To tylko demo: nie zapisuje plików. Pobierz Telex, aby zapisywać własną pocztę jako pliki .eml.'],
     mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
       'To tylko demo: nie zapisuje ani nie czyta plików z pocztą. Pobierz Telex, aby zapisywać foldery jako mbox i wczytywać pocztę z plików.'],
     away: ['This is a demo: it doesn’t send automatic replies. Download Telex to set one up for your own mail.',
@@ -470,6 +472,43 @@ function installTelexDemo(options) {
       const text = String(m.body || '').replace(/\r\n/g, '\n').replace(/^\n+|\s+$/g, '');
       return `# ${line(m.subject)}\n\n${head}${text ? `\n${text}\n` : ''}`;
     }).join('\n---\n\n');
+  }
+  // View source and All headers (export.rs): the demo's messages have no raw form, so one is
+  // written from what they have, as a plain-text or HTML message.
+  function messageSource({ id }) {
+    const m = need(id);
+    const day = parse(m.date);
+    const date = `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day.getDay()]}, ${day.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][day.getMonth()]} ${day.getFullYear()} ${m.date.slice(11, 19)} +0200`;
+    const headers = [['From', m.from_name && m.from_name !== m.from_email ? `${m.from_name} <${m.from_email}>` : m.from_email],
+      ['To', m.to], ['Cc', m.cc], ['Subject', m.subject], ['Date', date], ['Message-ID', `<demo-${m.id}@telexmail.app>`],
+      ['MIME-Version', '1.0'], ['Content-Type', `${m.html ? 'text/html' : 'text/plain'}; charset=utf-8`], ['Content-Transfer-Encoding', '8bit']]
+      .filter(([, v]) => v).map(([name, value]) => ({ name, value: String(value) }));
+    const text = `${headers.map((h) => `${h.name}: ${h.value}`).join('\n')}\n\n${String(m.html || m.body || '').replace(/\r\n/g, '\n')}\n`;
+    return { text, cut: false, bytes: new TextEncoder().encode(text).length, headers };
+  }
+  // Print… and Save as PDF (export.rs's print_document): the header, then the HTML as the
+  // window shows it, or the text.
+  function printDocument({ id, html, loadImages }) {
+    const m = need(id);
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const line = (s) => String(s ?? '').split(/\s+/).filter(Boolean).join(' ');
+    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() === 'pl' ? ',' : '.')} MB`);
+    const from = !m.from_name || m.from_name.toLowerCase() === m.from_email.toLowerCase() ? m.from_email : `${m.from_name} <${m.from_email}>`;
+    const d = m.date;
+    const fields = [[tr('From', 'Od'), from], [tr('To', 'Do'), m.to], [tr('Cc', 'DW'), m.cc],
+      [tr('Bcc', 'UDW'), isOutgoing(kindOf(m.folder)) ? m.bcc : ''],
+      [tr('Date', 'Data'), lang() === 'pl' ? `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}, ${d.slice(11, 16)}` : d.slice(0, 16).replace('T', ' ')],
+      [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')]];
+    const rows = fields.map(([k, v]) => [k, line(v)]).filter(([, v]) => v).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
+    const shown = html && m.html ? getHtml({ id, loadImages, dark: null }) : null;
+    const body = shown ? `<div class="mail">${(shown.document.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [, ''])[1]}</div>`
+      : `<div class="text">${esc(String(m.body || '').replace(/\r\n/g, '\n').trimEnd())}</div>`;
+    const style = ".tp{color:#000;background:#fff;font:10.5pt/1.45 'Segoe UI',system-ui,sans-serif;overflow-wrap:anywhere}.tp h1{font-size:15pt;line-height:1.25;margin:0 0 8pt}"
+      + '.tp .hd{border-collapse:collapse;margin:0 0 12pt;width:100%;border-bottom:.75pt solid #777}.tp .hd th{text-align:left;font-weight:600;padding:1pt 12pt 1pt 0;vertical-align:top;white-space:nowrap;color:#333}'
+      + '.tp .hd td{padding:1pt 0;width:100%}.tp .hd tr:last-child th,.tp .hd tr:last-child td{padding-bottom:8pt}.tp .text{white-space:pre-wrap}'
+      + '.tp img{max-width:100%;height:auto}.tp table{max-width:100%}.tp a{color:#1d4690}.tp blockquote{margin:6pt 0 6pt 2pt;padding-left:8pt;border-left:2pt solid #8a9bb8}';
+    const title = esc(line(m.subject));
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>${style}</style></head><body><div class="tp"><h1>${title}</h1><table class="hd">${rows}</table>${body}</div></body></html>`;
   }
   // The menu's Spam and Not spam (spam.rs's mark_spam): to the account's Spam folder or back to
   // its Inbox. The demo's filter learns nothing; spam_status counts what the folders hold.
@@ -1490,6 +1529,12 @@ function installTelexDemo(options) {
         goes: goesOf(m), unsubscribe: unsubscribeOffer(m) };
     },
     message_markdown: messageMarkdown,
+    message_source: messageSource,
+    print_document: printDocument,
+    // The browser prints, and its print dialog saves PDFs; files it doesn't write.
+    save_pdf: () => 'print_dialog',
+    save_messages: () => refuse('eml'),
+    drag_out: () => refuse('eml'),
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
     set_unread_many: ({ ids, unread }) => setMany(ids, 'unread', !!unread),

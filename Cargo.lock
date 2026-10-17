@@ -5061,6 +5061,7 @@ version = "0.9.11"
 dependencies = [
  "chrono",
  "futures-util",
+ "gtk",
  "keyring",
  "serde",
  "serde_json",
@@ -5073,6 +5074,8 @@ dependencies = [
  "tauri-plugin-updater",
  "telex-core",
  "tokio",
+ "webview2-com",
+ "windows",
 ]
 
 [[package]]

@@ -111,6 +111,30 @@ pub struct Rendered {
 /// Render a message's HTML body, or `None` for plain-text mail. `images` maps remote
 /// image URLs to data: URIs; anything remote not in it is left out.
 pub fn render(raw: &[u8], images: &HashMap<String, String>, paper: &Paper) -> Option<Rendered> {
+    let dark = match paper {
+        Paper::Light => None,
+        Paper::Dark(palette) => Some(palette.checked()),
+    };
+    let (html, remote) = cleaned(raw, images, dark.as_ref().map(|d| d.1))?;
+    let blocked = remote.iter().filter(|u| !images.contains_key(*u)).count();
+    Some(Rendered {
+        document: wrap(&html, dark.as_ref().map(|d| &d.0)),
+        remote,
+        blocked,
+    })
+}
+
+/// A message's HTML body cleaned for white paper, without a document around it, and the
+/// remote images it references: what the printed copy shows (`export::print_document`).
+pub fn printable(raw: &[u8], images: &HashMap<String, String>) -> Option<(String, Vec<String>)> {
+    cleaned(raw, images, None)
+}
+
+fn cleaned(
+    raw: &[u8],
+    images: &HashMap<String, String>,
+    dark: Option<Target>,
+) -> Option<(String, Vec<String>)> {
     let body = html_body(raw)?;
     let inline = body
         .inline
@@ -118,22 +142,7 @@ pub fn render(raw: &[u8], images: &HashMap<String, String>, paper: &Paper) -> Op
         .filter(|(_, (mime, _))| mime.starts_with("image/"))
         .map(|(cid, (mime, data))| (cid.clone(), data_uri(mime, data)))
         .collect();
-    let dark = match paper {
-        Paper::Light => None,
-        Paper::Dark(palette) => Some(palette.checked()),
-    };
-    let (html, remote) = sanitize(
-        &body.html,
-        inline,
-        images.clone(),
-        dark.as_ref().map(|d| d.1),
-    );
-    let blocked = remote.iter().filter(|u| !images.contains_key(*u)).count();
-    Some(Rendered {
-        document: wrap(&html, dark.as_ref().map(|d| &d.0)),
-        remote,
-        blocked,
-    })
+    Some(sanitize(&body.html, inline, images.clone(), dark))
 }
 
 /// Where image references can be resolved: images in the message, and fetched ones. And
@@ -479,7 +488,7 @@ pub fn from_text(text: &str) -> String {
 /// Quotes deeper than this are shown at this depth, so a crafted reply can't nest without end.
 const MAX_QUOTE_DEPTH: usize = 20;
 
-fn escape(s: &str) -> String {
+pub(crate) fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

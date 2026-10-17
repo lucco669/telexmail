@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -22,9 +23,25 @@ use crate::{with_store, AppState, CmdResult};
 #[derive(Default)]
 pub struct FilesState {
     picked: Mutex<HashSet<PathBuf>>,
+    /// Messages are being dragged out as files (`export::drag_out`): the window ignores them.
+    dragging_out: AtomicBool,
+    /// …and they were dropped back on a window of Telex's, so nothing was saved.
+    dropped_home: AtomicBool,
 }
 
 impl FilesState {
+    pub fn dragging_out(&self, on: bool) {
+        if on {
+            self.dropped_home.store(false, Ordering::SeqCst);
+        }
+        self.dragging_out.store(on, Ordering::SeqCst);
+    }
+
+    /// The last drag out ended on one of Telex's own windows.
+    pub fn dropped_home(&self) -> bool {
+        self.dropped_home.load(Ordering::SeqCst)
+    }
+
     /// A file to attach, now that the user chose it: its name and size for the compose pane.
     fn remember(&self, path: &Path) -> Option<Attachment> {
         let meta = std::fs::metadata(path).ok().filter(|m| m.is_file())?;
@@ -249,6 +266,13 @@ struct Dropped {
 /// where (so a folder on this PC can light up), and `null` when they leave; dropped, they are
 /// remembered and handed to that window in a "files-dropped" event. Folders are left out.
 pub fn drag_drop(window: &Window, event: &DragDropEvent) {
+    let files = window.state::<FilesState>();
+    if files.dragging_out.load(Ordering::SeqCst) {
+        if matches!(event, DragDropEvent::Drop { .. }) {
+            files.dropped_home.store(true, Ordering::SeqCst);
+        }
+        return;
+    }
     let label = window.label();
     match event {
         DragDropEvent::Enter { position, .. } | DragDropEvent::Over { position } => {

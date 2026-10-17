@@ -454,6 +454,18 @@
   </form>
 </dialog>
 
+<!-- View source (Ctrl+U) and All headers: the message as it came, to read and copy. -->
+<dialog class="dlg src" id="src-dlg" aria-labelledby="src-title">
+  <div class="dhead">
+    <h2 class="dtitle" id="src-title" data-i18n>Message source</h2>
+    <span class="seg" role="group" aria-label="Show" data-i18n><button type="button" data-src="source" aria-pressed="true" data-i18n>Source</button><button type="button" data-src="headers" aria-pressed="false" data-i18n>Headers</button></span>
+  </div>
+  <p class="dnote" id="src-note"></p>
+  <pre class="srctext" id="src-text" tabindex="0"></pre>
+  <dl class="srchd" id="src-headers" tabindex="0" hidden></dl>
+  <div class="cbar"><button class="btn" type="button" id="src-copy" data-i18n>Copy</button><button class="btn" type="button" id="src-save" data-i18n>Save as…</button><button class="btn" type="button" id="src-close"><span data-i18n>Close</span> <kbd>Esc</kbd></button></div>
+</dialog>
+
 <!-- M moves the selected messages, G opens a folder: type part of its name. -->
 <dialog class="dlg wide" id="search-dlg" aria-labelledby="ss-title">
   <h2 class="dtitle" id="ss-title" data-i18n>Saved searches</h2>

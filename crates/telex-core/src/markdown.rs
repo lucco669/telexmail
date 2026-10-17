@@ -69,7 +69,7 @@ fn files(attachments: &[Attachment]) -> String {
 }
 
 /// "34 KB", "1.2 MB" (in Polish "1,2 MB").
-fn size(kb: u32) -> String {
+pub(crate) fn size(kb: u32) -> String {
     if kb < 1024 {
         return format!("{} KB", kb.max(1));
     }
