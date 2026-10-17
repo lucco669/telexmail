@@ -108,7 +108,9 @@ couldn't be protected at rest.
 `Autocrypt:` header for its From address gives Telex that sender's key, unconfirmed; a newer
 message replaces it, two headers count as none, unknown attributes make a header invalid, keys
 over 64 KB or that can't encrypt are ignored. Keys attached to a message (`application/pgp-keys`)
-are offered above it: Import.
+are offered above it: Import. A key that comes by itself (Autocrypt, a message) never replaces a key Telex
+already has, since anyone can send a copy with its revocation left out; a key file the user
+imports does.
 
 ## Writing
 
