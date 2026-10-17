@@ -1239,7 +1239,7 @@ fn forward(
         &draft,
         &Originals {
             forwarded: Some(raw),
-            replied: None,
+            ..Originals::default()
         },
         now,
     )?;
@@ -1408,7 +1408,7 @@ pub(crate) fn auto_reply(
     };
     let originals = Originals {
         replied: Some(raw),
-        forwarded: None,
+        ..Originals::default()
     };
     let composed = smtp::compose_auto_reply(&account, &draft, &originals, now)?;
     store

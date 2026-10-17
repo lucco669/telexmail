@@ -198,13 +198,14 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` (spam going to Trash is marked read first, as with `move_messages`) |
 | `mark_folder_read` | `folder`                   | how many were unread        |
 | `choose_folder`  | `folder`, `kind` (sent, drafts, archive, spam, trash) | – (that server folder is used for it from now on; the one that was becomes the user's own; kept over the server's flags) |
+| `set_sent_copy`  | `account`, `mode` (auto, server, telex) | – (who files sent mail in the server's Sent: auto (the provider list, else found out at the first send), the server itself (Telex uploads nothing), or Telex) |
 | `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
 | `save_attachment`| `id`, `index`, `words`       | the path saved to, or null (cancelled); opens Save |
 | `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
 | `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
-| `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
-| `discard_draft`  | `id`                         | true when that draft (on this PC, in Drafts) was removed for good: compose's Discard drops its autosave |
+| `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files; one the user saved, not an autosave, also goes to the server's Drafts, replacing the version it was edited from there) |
+| `discard_draft`  | `id`                         | true when that draft (in Drafts; on the server too, it leaves it) was removed for good: compose's Discard drops its autosave |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
@@ -278,13 +279,16 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 A draft carries `reply_to`, `forward_of`, `replaces` and `autosaved` (message ids) besides the
 fields the user typed (`to`, `cc`, `bcc`, `subject`): threading headers, forwarded attachments,
-the draft or unsent message it was edited from, and its last autosave (a draft of its own; both
-go once it is saved or sent); and `identity`, who it is from (`null` = the
+the draft or unsent message it was edited from (whose Message-ID a saved draft keeps, and whose
+In-Reply-To and References a message without `reply_to` keeps), and its last autosave (a draft of
+its own; both go once it is saved or sent); `autosave`, true for compose's autosave (it stays on
+this PC and leaves `replaces` as it is); and `identity`, who it is from (`null` = the
 account's default); and `html`, the editor's HTML when it is written in HTML (`null` = plain
 text in `body`). Its `attachments` are files from this PC (`path`, chosen through
 `pick_files` or dropped this session; others are refused) and ones carried over from
 `forward_of` (no `path`, found by name). Accounts in
-`folder_tree` carry their `identities`. The changing commands (and `send_message`) apply locally at once; for server
+`folder_tree` carry their `identities`, `sent_copy` (auto, server, telex) and `server_files_sent`
+(what Telex knows in auto: true, false, or null until the first send). The changing commands (and `send_message`) apply locally at once; for server
 mail the store also queues the change, and the UI calls `push_changes` 2.5 s after the last
 one. `busy: true` means another check or push was running and nothing started; the UI
 retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progress` events
@@ -491,6 +495,34 @@ renumber at merge):
   saying why. Done, the message gets a note and every message of the list (List-Id, else the
   sender) says "Unsubscribed 17.10"; then a line offers to move the sender's mail to Trash (Z
   brings it back).
+- Drafts on the server, and servers that keep their own sent mail (schema version 15:
+  `accounts.sent_copy`, `accounts.server_saves_sent`; one-way, as usual):
+  - A draft the user saves (Save, Esc, closing compose, New or Reply over it) of an account whose
+    Drafts is on the server goes there too, through the change queue: APPEND with \Seen \Draft
+    (`pending_ops.value` bit 4). Autosaves stay on this PC (`OutgoingDraft.autosave`): every 15 s
+    would be an APPEND and an expunge on the server each time, and the user's phone would see a
+    draft flicker; what the user saves is what other devices should see. Right after the APPEND
+    Telex looks up the copy's UID by Message-ID (`newest_unknown`), so the next version expunges
+    exactly that one: a draft keeps its Message-ID from save to save (`Originals::edited`), so
+    versions share it. Replacing a draft (a new save, Send, Discard) removes the old version
+    locally and, when it is on the server, by an expunge (`drop_replaced`); a version replaced
+    while its upload was on the way leaves the server again (`change_appended` with the change's
+    Message-ID and the UID it got). Drafts written on another device come down with the Drafts
+    folder, show in the drafts list and open with E; editing one replaces it on the server, keeps
+    its Message-ID and its In-Reply-To and References (also when it is sent), and its files come
+    along as before (`forward_of`). Mail moved into Drafts from this PC goes up with \Draft; a
+    draft moved to this PC before its upload goes nowhere; when another folder becomes Drafts,
+    drafts waiting for their upload go there with it. A restore drops every queued change, so
+    drafts waiting for an upload (and the Outbox mail moved to Drafts) stay on this PC until their
+    next save.
+  - Copies of sent mail (`set_sent_copy`, Settings › Accounts › Folders › Copy of sent mail):
+    Gmail, Outlook.com and Microsoft 365 file mail sent through their SMTP in Sent themselves
+    (`autoconfig::files_sent_mail`, by IMAP host); for them Telex queues no APPEND and the local
+    Sent copy is adopted by the next download (by Message-ID). For other servers in auto, the push
+    looks for the message in Sent before the APPEND goes (`sent_copy_needed`): found, the server
+    keeps its own (remembered in `server_saves_sent`; a copy downloaded meanwhile isn't kept
+    twice); not found within 30 s of the send (`SENT_COPY_WAIT`), Telex uploads and remembers
+    that. The user can say either for good.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
@@ -925,8 +957,8 @@ renumber at merge):
   plain text, or for HTML multipart/alternative with the cleaned HTML and its plain text,
   In-Reply-To/References for replies, forwarded attachments from the original's raw), puts it in the account's local Outbox and sends the Outbox at once; `check_mail`
   sends it too. Accepted mail moves to Sent and its exact bytes go to the server's Sent
-  folder through the change queue (APPEND, kind `append`); the next download adopts the copy
-  by Message-ID. A server refusal (5xx, except login errors) stays in the Outbox with the
+  folder through the change queue (APPEND, kind `append`), unless the server keeps its own
+  (see Not released yet); the next download adopts the copy by Message-ID. A server refusal (5xx, except login errors) stays in the Outbox with the
   reason and isn't retried; anything else is retried at every check. E reopens a draft or an
   unsent message; saving or sending replaces the old one. Drafts are saved as whole messages
   (`smtp::compose_draft`, half-typed recipients allowed), so their HTML and forwarded files
@@ -1051,8 +1083,8 @@ then daily like `daily`),
 1b. ~~**Write back.**~~ Done; see Current state. Not yet: CONDSTORE/QRESYNC (flag changes are
    found by asking for the flags of every stored message, fine for thousands, not millions).
 2. ~~**Sending.**~~ Done; see Current state, with attaching files, Bcc and undo send in
-   0.5.0. Not yet: drafts on the server's Drafts folder, and skipping the Sent copy for servers
-   that save one themselves (Gmail and Outlook.com do; matters with step 5).
+   0.5.0. Drafts on the server's Drafts folder and no Sent copy for servers that keep their own
+   (Gmail, Outlook.com; matters with step 5): see Not released yet.
 3. ~~**HTML mail.**~~ Done; see Current state, with opening and saving attachments in
    0.5.0. Not yet: `<style>` blocks (dropped, since CSS can load from the network; keeping
    them needs a CSS sanitizer).

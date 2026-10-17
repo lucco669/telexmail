@@ -14,7 +14,8 @@ use crate::list;
 use crate::mime::parse_message_id;
 use crate::model::{
     account_of, split_folder_key, Account, AccountSetup, Attachment, Folder, FolderKind, Identity,
-    ImapSettings, Message, MessageId, MessageSummary, OutgoingDraft, SmtpSecurity, SmtpSettings,
+    ImapSettings, Message, MessageId, MessageSummary, OutgoingDraft, SentCopy, SmtpSecurity,
+    SmtpSettings,
 };
 use crate::tr;
 
@@ -37,6 +38,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/014_spam_filter.sql"),
     include_str!("migrations/015_rule_schedules.sql"),
     include_str!("migrations/016_unsubscribed.sql"),
+    include_str!("migrations/017_server_drafts.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -54,13 +56,13 @@ const ENSURE_LOCAL: &str = "
     INSERT OR IGNORE INTO folders (account, id, position, name, kind) VALUES ('local', 'archive', 0, 'Archive', 'archive');
     INSERT OR IGNORE INTO folders (account, id, position, name, kind) VALUES ('local', 'trash', 1, 'Trash', 'trash');";
 
-/// Delete a message that exists only here (a draft, an unsent message). Server mail and
-/// unknown ids are left alone: replacing never deletes anything on a server.
-const REMOVE_LOCAL: &str = "DELETE FROM messages WHERE id = ?1 AND srv_folder IS NULL";
-/// Delete a draft that exists only here, in an account's Drafts.
-const DISCARD_DRAFT: &str =
-    "DELETE FROM messages WHERE id = ?1 AND srv_folder IS NULL AND folder IN
-     (SELECT account || '/' || id FROM folders WHERE kind = 'drafts')";
+/// The bits of an 'append' in `pending_ops.value` (NULL: a copy of sent mail, always read).
+const APPEND_SEEN: i64 = 1;
+const APPEND_DRAFT: i64 = 4;
+
+/// How long after a send Telex waits for a server it doesn't know yet to file its own copy
+/// in Sent, before it decides the server doesn't and uploads one.
+const SENT_COPY_WAIT: chrono::TimeDelta = chrono::TimeDelta::seconds(30);
 
 /// The longest name a folder on this PC can have.
 const FOLDER_NAME_MAX: usize = 80;
@@ -200,11 +202,12 @@ pub enum ChangeKind {
     /// Remove for good (Del in Trash).
     Expunge,
     /// Upload the message to this server folder (IMAP APPEND): a copy of sent mail for Sent
-    /// (`flags` None: always read), or mail moved there from this PC with its read state and
-    /// flag, `(seen, flagged)`.
+    /// (`flags` None: always read), mail moved there from this PC with its read state and
+    /// flag, `(seen, flagged)`, or a draft saved here (`draft`: with \Draft).
     Append {
         to: String,
         flags: Option<(bool, bool)>,
+        draft: bool,
     },
 }
 
@@ -629,6 +632,7 @@ impl MailStore {
         } else {
             Vec::new()
         };
+        let to_drafts = self.folder_kind(folder) == Some(FolderKind::Drafts);
         let tx = self.db.transaction()?;
         crate::spam::learn(&tx, &lessons)?;
         // Before the move, so the server hears \Seen where the message still is.
@@ -646,7 +650,7 @@ impl MailStore {
             } else if target_acct == LOCAL_ID {
                 to_this_pc(&tx, *id, srv_folder.as_deref(), folder)?;
             } else {
-                from_this_pc(&tx, *id, folder, &target_acct, on_server)?;
+                from_this_pc(&tx, *id, folder, &target_acct, on_server, to_drafts)?;
             }
         }
         tx.commit()?;
@@ -711,6 +715,10 @@ impl MailStore {
     /// Store a message the user wrote, in Drafts (or, for the sample mailbox, in Sent:
     /// it can't really send). A draft edited from another replaces it. `raw` is the draft
     /// as a whole message (`smtp::compose_draft`), which keeps its HTML and forwarded files.
+    ///
+    /// A draft the user saved (not an autosave) of an account whose Drafts is on the server
+    /// goes there too, through the queue of changes (APPEND with \Seen \Draft); the version it
+    /// replaces leaves the server (expunge), whether Telex put it there or another device did.
     pub fn save_outgoing(
         &mut self,
         draft: OutgoingDraft,
@@ -721,7 +729,7 @@ impl MailStore {
         debug_assert!(kind.is_outgoing(), "outgoing mail goes to Sent or Drafts");
         let account = self.account(&draft.account)?.clone();
         let folder = self.folder_key_of_kind(&account.id, kind)?;
-        let (replaces, autosaved) = (draft.replaces, draft.autosaved);
+        let (replaces, autosaved, autosave) = (draft.replaces, draft.autosaved, draft.autosave);
         let identity = account.identity(draft.identity);
         let body = match &draft.html {
             Some(h) => html::to_text(&html::compose_clean(h)),
@@ -755,27 +763,43 @@ impl MailStore {
             note: None,
             attachments,
             body,
-            message_id: None,
-            refs: Vec::new(),
+            // Found by it on the server: the upload is adopted, an old version expunged.
+            message_id: raw.and_then(parse_message_id),
+            refs: raw.map(crate::mime::answered_ids_of).unwrap_or_default(),
         };
-        // The old version goes only together with the new one coming in.
+        let upload = !autosave
+            && kind == FolderKind::Drafts
+            && raw.is_some()
+            && self.folder(&folder).is_some_and(|f| f.remote.is_some());
+        // The old version goes only together with the new one coming in. An autosave leaves
+        // the draft being edited as it was, and only replaces the autosave before it.
         let tx = self.db.transaction()?;
-        if let Some(old) = replaces {
-            tx.execute(REMOVE_LOCAL, [old as i64])?;
+        if let Some(old) = replaces.filter(|_| !autosave) {
+            drop_replaced(&tx, old, false)?;
         }
         if let Some(old) = autosaved {
-            tx.execute(DISCARD_DRAFT, [old as i64])?;
+            drop_replaced(&tx, old, true)?;
         }
         let id = insert_message(&tx, &folder, None, &message, None, raw)?;
+        if upload {
+            tx.execute(
+                "INSERT INTO pending_ops (account, message, kind, value, target)
+                 VALUES (?1, ?2, 'append', ?3, ?4)",
+                params![account.id, id as i64, APPEND_SEEN | APPEND_DRAFT, folder],
+            )?;
+        }
         tx.commit()?;
         Ok(id)
     }
 
     /// Delete a draft for good: an autosave the user discarded or saved over. Only a draft
-    /// that exists only here, in an account's Drafts; anything else is left alone. True when
-    /// one was removed.
+    /// in an account's Drafts; anything else is left alone. One on the server leaves it too.
+    /// True when one was removed.
     pub fn discard_draft(&mut self, id: MessageId) -> Result<bool, StoreError> {
-        Ok(self.db.execute(DISCARD_DRAFT, [id as i64])? > 0)
+        let tx = self.db.transaction()?;
+        let removed = drop_replaced(&tx, id, true)?;
+        tx.commit()?;
+        Ok(removed)
     }
 
     // ---- Sending ----
@@ -800,7 +824,7 @@ impl MailStore {
             serde_json::to_string(env_to).map_err(|e| StoreError::Database(e.to_string()))?;
         let tx = self.db.transaction()?;
         if let Some(old) = replaces {
-            tx.execute(REMOVE_LOCAL, [old as i64])?;
+            drop_replaced(&tx, old, false)?;
         }
         let id = insert_message(&tx, &outbox, None, message, None, Some(raw))?;
         tx.execute(
@@ -880,10 +904,12 @@ impl MailStore {
     }
 
     /// The SMTP server took the message: file it in Sent and queue a copy for the server's
-    /// Sent folder. Without a Sent folder it stays in the Outbox, marked as sent.
+    /// Sent folder, unless the server keeps its own: then the next download adopts that one
+    /// by Message-ID. Without a Sent folder it stays in the Outbox, marked as sent.
     pub fn outgoing_sent(&mut self, id: MessageId, at: NaiveDateTime) -> Result<(), StoreError> {
         let (folder, _) = self.locate(id)?;
         let account = account_of(&folder).to_owned();
+        let keeps_own = self.account(&account)?.server_keeps_sent() == Some(true);
         let sent = self
             .account(&account)?
             .folder_of_kind(FolderKind::Sent)
@@ -897,7 +923,9 @@ impl MailStore {
                     "UPDATE messages SET folder = ?1, date = ?2, note = NULL WHERE id = ?3",
                     params![key, at, id as i64],
                 )?;
-                if on_server {
+                if on_server && keeps_own {
+                    set_server_location(&tx, id, &key, None)?;
+                } else if on_server {
                     tx.execute(
                         "INSERT INTO pending_ops (account, message, kind, target) VALUES (?1, ?2, 'append', ?3)",
                         params![account, id as i64, key],
@@ -1043,6 +1071,70 @@ impl MailStore {
             .flatten())
     }
 
+    /// Who files sent mail in the account's Sent folder from now on (Settings › Accounts ›
+    /// Folders). Mail already sent keeps its queued copy, unless the push finds the server
+    /// keeps its own after all.
+    pub fn set_sent_copy(&mut self, account: &str, mode: SentCopy) -> Result<(), StoreError> {
+        self.account(account)?;
+        self.db.execute(
+            "UPDATE accounts SET sent_copy = ?2 WHERE id = ?1",
+            params![account, mode.as_str()],
+        )?;
+        self.reload_accounts()
+    }
+
+    /// What Telex found out after a send: the server had filed the message in Sent itself
+    /// (`true`), or it hadn't. Used while the account's choice is automatic.
+    pub fn found_sent_copy(&mut self, account: &str, server_files: bool) -> Result<(), StoreError> {
+        self.db.execute(
+            "UPDATE accounts SET server_saves_sent = ?2 WHERE id = ?1",
+            params![account, server_files],
+        )?;
+        self.reload_accounts()
+    }
+
+    /// True while a message sent at most a moment ago may still be on its way into a server's
+    /// own Sent folder (see [`SENT_COPY_WAIT`]).
+    pub fn sent_just_now(&self, id: MessageId, now: NaiveDateTime) -> Result<bool, StoreError> {
+        let date: Option<NaiveDateTime> = self
+            .db
+            .query_row(
+                "SELECT date FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(date.is_some_and(|d| now - d < SENT_COPY_WAIT))
+    }
+
+    /// The server filed the copy of sent mail in `folder_key` itself, so Telex uploads none:
+    /// the queued upload goes, and the message points at the server's copy (`uid`, else the
+    /// next download adopts it by Message-ID). A copy downloaded meanwhile isn't kept twice.
+    pub fn server_filed_sent(
+        &mut self,
+        op: i64,
+        id: MessageId,
+        folder_key: &str,
+        uid: Option<u32>,
+    ) -> Result<(), StoreError> {
+        let tx = self.db.transaction()?;
+        tx.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
+        let here: Option<(String, Option<String>)> = tx
+            .query_row(
+                "SELECT folder, srv_folder FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((folder, None)) = here {
+            if folder == folder_key {
+                set_server_location(&tx, id, folder_key, uid)?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// The message as it was received or sent, when Telex has it.
     pub fn raw_of(&self, id: MessageId) -> Result<Option<Vec<u8>>, StoreError> {
         Ok(self
@@ -1096,6 +1188,7 @@ impl MailStore {
             )));
         }
         let action = format!("copy:{folder}");
+        let draft = self.kind_of(folder) == Some(FolderKind::Drafts);
         let tx = self.db.transaction()?;
         let recorded = tx.execute(
             "INSERT OR IGNORE INTO rule_actions_done (rule,message,action) VALUES (?1,?2,?3)",
@@ -1106,7 +1199,7 @@ impl MailStore {
         }
         let copy = insert_message(&tx, folder, None, &message, None, raw.as_deref())?;
         if on_server {
-            from_this_pc(&tx, copy, folder, &owner, true)?;
+            from_this_pc(&tx, copy, folder, &owner, true, draft)?;
         }
         tx.commit()?;
         Ok(true)
@@ -2201,11 +2294,11 @@ impl MailStore {
                 "move" => r.get::<_, Option<String>>(4)?.map(ChangeKind::Move),
                 "expunge" => Some(ChangeKind::Expunge),
                 "append" => {
-                    let flags = r
-                        .get::<_, Option<i64>>(3)?
-                        .map(|bits| (bits & 1 != 0, bits & 2 != 0));
+                    let bits = r.get::<_, Option<i64>>(3)?;
+                    let flags = bits.map(|bits| (bits & 1 != 0, bits & 2 != 0));
+                    let draft = bits.is_some_and(|bits| bits & APPEND_DRAFT != 0);
                     r.get::<_, Option<String>>(4)?
-                        .map(|to| ChangeKind::Append { to, flags })
+                        .map(|to| ChangeKind::Append { to, flags, draft })
                 }
                 _ => None,
             };
@@ -2271,40 +2364,44 @@ impl MailStore {
         Ok(())
     }
 
-    /// The server saved the message in `folder_key` (a copy of sent mail, or mail from this
-    /// PC). Its UID comes with the next download, which recognizes it by Message-ID instead of
-    /// storing it twice. When the message moved on (or went) while it was being uploaded, the
-    /// copy on the server is removed again.
+    /// The server saved the message in `folder_key` (a copy of sent mail, mail from this PC,
+    /// a draft). Its UID is `uid` when Telex looked it up right away (drafts), else it comes
+    /// with the next download, which recognizes it by Message-ID instead of storing it twice.
+    /// When the message moved on (or went: a draft saved again, discarded or sent) while it
+    /// was being uploaded, the copy on the server is removed again.
     pub fn change_appended(
         &mut self,
-        op: i64,
+        change: &PendingChange,
         id: MessageId,
         folder_key: &str,
+        uid: Option<u32>,
     ) -> Result<(), StoreError> {
         let tx = self.db.transaction()?;
-        tx.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
-        let now: Option<(String, Option<String>, String)> = tx
+        tx.execute("DELETE FROM pending_ops WHERE id = ?1", [change.op])?;
+        let now: Option<(String, Option<String>, Option<String>, String)> = tx
             .query_row(
-                "SELECT folder, message_id, subject FROM messages WHERE id = ?1",
+                "SELECT folder, srv_folder, message_id, subject FROM messages WHERE id = ?1",
                 [id as i64],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
-        match now {
-            Some((folder, ..)) if folder == folder_key => {
-                tx.execute(
-                    "UPDATE messages SET srv_folder = ?1 WHERE id = ?2 AND srv_folder IS NULL",
-                    params![folder_key, id as i64],
-                )?;
+        let (message_id, subject) = match now {
+            Some((folder, srv_folder, ..)) if folder == folder_key => {
+                if srv_folder.is_none() {
+                    set_server_location(&tx, id, folder_key, uid)?;
+                }
+                tx.commit()?;
+                return Ok(());
             }
-            Some((_, Some(message_id), subject)) => {
-                tx.execute(
-                    "INSERT INTO pending_ops (account, kind, srv_folder, message_id, subject, origin)
-                     VALUES (?1, 'expunge', ?2, ?3, ?4, ?5)",
-                    params![account_of(folder_key), folder_key, message_id, subject, id as i64],
-                )?;
-            }
-            _ => {}
+            Some((_, _, message_id, subject)) => (message_id, subject),
+            None => (change.message_id.clone(), change.subject.clone()),
+        };
+        if uid.is_some() || message_id.is_some() {
+            tx.execute(
+                "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject, origin)
+                 VALUES (?1, 'expunge', ?2, ?3, ?4, ?5, ?6)",
+                params![account_of(folder_key), folder_key, uid, message_id, subject, id as i64],
+            )?;
         }
         tx.commit()?;
         Ok(())
@@ -2608,13 +2705,15 @@ fn to_this_pc(
 /// Bring a message from this PC to `folder` of the server account `account`. When it left that
 /// account so recently that the server hasn't removed it yet, the expunge is taken back and it
 /// simply moves to `folder` there, with the read state and flag it has now. Otherwise it is
-/// uploaded, with them; to a folder on no server (`on_server` false) it just moves.
+/// uploaded, with them (and \Draft into Drafts: `draft`); to a folder on no server
+/// (`on_server` false) it just moves.
 fn from_this_pc(
     db: &Connection,
     id: MessageId,
     folder: &str,
     account: &str,
     on_server: bool,
+    draft: bool,
 ) -> Result<(), StoreError> {
     let queued: Option<(i64, String, Option<u32>)> = db
         .query_row(
@@ -2656,10 +2755,40 @@ fn from_this_pc(
             params![account, id as i64, "flagged", flagged, None::<String>],
         )?;
     } else if on_server {
-        let flags = i64::from(!unread) | i64::from(flagged) << 1;
+        let flags =
+            i64::from(!unread) | i64::from(flagged) << 1 | if draft { APPEND_DRAFT } else { 0 };
         db.execute(queue, params![account, id as i64, "append", flags, folder])?;
     }
     Ok(())
+}
+
+/// Remove the draft or unsent message a new version replaces (or an autosave): one that
+/// exists only here goes for good, its queued upload with it; a draft on the server (saved
+/// there, or written on another device) leaves it too, by an expunge. Server mail in other
+/// folders, and anything outside Drafts when `only_drafts`, is left alone, as are unknown
+/// ids. True when a message was removed.
+fn drop_replaced(db: &Connection, id: MessageId, only_drafts: bool) -> Result<bool, StoreError> {
+    let found: Option<(Option<String>, bool)> = db
+        .query_row(
+            "SELECT m.srv_folder, EXISTS (SELECT 1 FROM folders f
+                 WHERE f.kind = 'drafts' AND f.account || '/' || f.id = m.folder)
+             FROM messages m WHERE m.id = ?1",
+            [id as i64],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    let Some((srv_folder, in_drafts)) = found else {
+        return Ok(false);
+    };
+    if only_drafts && !in_drafts {
+        return Ok(false);
+    }
+    match srv_folder {
+        None => remove_row(db, id, None)?,
+        Some(srv) if in_drafts => remove_row(db, id, Some(&srv))?,
+        Some(_) => return Ok(false),
+    }
+    Ok(true)
 }
 
 /// Remove one message for good; for server mail, queue the expunge, which remembers where
@@ -2766,7 +2895,7 @@ fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
 fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
     let mut stmt = db.prepare(
         "SELECT id, name, email, imap_host, imap_port, imap_user, smtp_host, smtp_port, smtp_security,
-             imap_security
+             imap_security, sent_copy, server_saves_sent
          FROM accounts ORDER BY id = 'local', position, id",
     )?;
     let mut accounts = stmt
@@ -2792,6 +2921,11 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
                 }),
                 None => None,
             };
+            // What Telex found out after a send, else what the provider list says.
+            let found: Option<bool> = r.get(11)?;
+            let known = imap
+                .as_ref()
+                .is_some_and(|i| crate::autoconfig::files_sent_mail(&i.host));
             Ok(Account {
                 id: r.get(0)?,
                 name: r.get(1)?,
@@ -2800,6 +2934,8 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
                 imap,
                 smtp,
                 identities: Vec::new(),
+                sent_copy: SentCopy::from_name(&r.get::<_, String>(10)?),
+                server_files_sent: found.or(known.then_some(true)),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -2936,8 +3072,9 @@ fn drafts_folder(db: &Connection, account: &str) -> Result<Option<String>, Store
         .optional()?)
 }
 
-/// Drafts written here are on no server: when another server folder becomes Drafts, they
-/// go there too (not what waits for an upload, which knows where it goes).
+/// Drafts written here that aren't on the server yet: when another server folder becomes
+/// Drafts, they go there too, and so do their uploads (not other mail waiting for an
+/// upload, which knows where it goes).
 fn move_local_drafts(
     db: &Connection,
     account: &str,
@@ -2948,10 +3085,17 @@ fn move_local_drafts(
         return Ok(());
     };
     if from != to {
+        let (from, to) = (format!("{account}/{from}"), format!("{account}/{to}"));
         db.execute(
             "UPDATE messages SET folder = ?2 WHERE folder = ?1 AND srv_folder IS NULL
-               AND id NOT IN (SELECT message FROM pending_ops WHERE message IS NOT NULL)",
-            params![format!("{account}/{from}"), format!("{account}/{to}")],
+               AND id NOT IN (SELECT message FROM pending_ops WHERE message IS NOT NULL
+                   AND NOT (kind = 'append' AND COALESCE(value, 0) & ?3 <> 0))",
+            params![from, to, APPEND_DRAFT],
+        )?;
+        db.execute(
+            "UPDATE pending_ops SET target = ?2
+             WHERE kind = 'append' AND target = ?1 AND COALESCE(value, 0) & ?3 <> 0",
+            params![from, to, APPEND_DRAFT],
         )?;
     }
     Ok(())

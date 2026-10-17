@@ -115,9 +115,58 @@ pub struct Account {
     /// user picks another.
     #[serde(default)]
     pub identities: Vec<Identity>,
+    /// How sent mail reaches the server's Sent folder: by itself, or as a copy Telex uploads.
+    #[serde(default)]
+    pub sent_copy: SentCopy,
+    /// Whether the server files sent mail in Sent itself, as far as Telex knows without the
+    /// user's choice: from the provider list or found out after a send. `None`: not yet known.
+    #[serde(default)]
+    pub server_files_sent: Option<bool>,
+}
+
+/// Who puts a copy of sent mail into the server's Sent folder (Settings › Accounts › Folders).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SentCopy {
+    /// Known providers (Gmail, Outlook.com) keep their own; others Telex finds out about
+    /// after the first send, by looking for the message in Sent before uploading it.
+    #[default]
+    Auto,
+    /// The server files sent mail itself; Telex uploads nothing.
+    Server,
+    /// Telex uploads a copy.
+    Telex,
+}
+
+impl SentCopy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Server => "server",
+            Self::Telex => "telex",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "server" => Self::Server,
+            "telex" => Self::Telex,
+            _ => Self::Auto,
+        }
+    }
 }
 
 impl Account {
+    /// Whether the server keeps its own copy of sent mail, so Telex uploads none: the user's
+    /// choice, else what Telex knows. `None`: not known yet (Telex looks after the next send).
+    pub fn server_keeps_sent(&self) -> Option<bool> {
+        match self.sent_copy {
+            SentCopy::Server => Some(true),
+            SentCopy::Telex => Some(false),
+            SentCopy::Auto => self.server_files_sent,
+        }
+    }
+
     /// Full folder key as used on messages: "<account>/<folder>".
     pub fn folder_key(&self, folder_id: &str) -> String {
         format!("{}/{}", self.id, folder_id)
@@ -537,6 +586,10 @@ pub struct OutgoingDraft {
     /// Who it is from; `None` is the account's default identity.
     #[serde(default)]
     pub identity: Option<i64>,
+    /// Saved by compose's autosave: it stays on this PC (the server's Drafts gets explicit
+    /// saves only), and the draft in `replaces` stays as it was.
+    #[serde(default)]
+    pub autosave: bool,
 }
 
 #[cfg(test)]

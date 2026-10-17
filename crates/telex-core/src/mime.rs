@@ -150,6 +150,28 @@ pub fn answered_ids_of(raw: &[u8]) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// What a message answers, as its own In-Reply-To and References say: the first id of
+/// In-Reply-To and every id of References, without angle brackets. A draft edited again
+/// keeps them.
+pub fn reply_headers(raw: &[u8]) -> (Option<String>, Vec<String>) {
+    let Some(p) = MessageParser::default().parse_headers(raw) else {
+        return (None, Vec::new());
+    };
+    let ids = |header: &mail_parser::HeaderValue<'_>| -> Vec<String> {
+        let found = match (header.as_text_list(), header.as_text()) {
+            (Some(list), _) => list.iter().map(|r| r.to_string()).collect(),
+            (None, Some(one)) => vec![one.to_owned()],
+            (None, None) => Vec::new(),
+        };
+        found
+            .into_iter()
+            .map(|id| id.trim().trim_matches(['<', '>']).to_owned())
+            .filter(|id| !id.is_empty())
+            .collect()
+    };
+    (ids(p.in_reply_to()).into_iter().next(), ids(p.references()))
+}
+
 /// Just the Message-ID header, without parsing the body.
 pub fn parse_message_id(raw: &[u8]) -> Option<String> {
     MessageParser::default()
