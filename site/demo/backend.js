@@ -530,7 +530,11 @@ function installTelexDemo(options) {
     if (f.kind !== 'custom') fail('Archive and Trash on this PC stay as they are.', 'Archiwum i Kosz na tym komputerze zostają takie, jakie są.');
     return f;
   }
-  function createLocalFolder({ name }) {
+  // With `account`, a folder of a POP3 account; the demo's accounts are all IMAP.
+  function createLocalFolder({ name, account }) {
+    if (account && account !== LOCAL) {
+      fail('The folders of {email} are on its server: make them there, or on this PC.', 'Foldery konta {email} są na jego serwerze: utwórz je tam albo na tym komputerze.', { email: account });
+    }
     const n = localName(name), pc = thisPc();
     const base = n.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'folder';
     let id = base;

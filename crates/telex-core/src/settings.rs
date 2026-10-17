@@ -1652,6 +1652,34 @@ mod tests {
     }
 
     #[test]
+    fn a_pop3_account_s_server_travels_as_pop3() {
+        let mut old = MailStore::in_memory().unwrap();
+        let keep = crate::model::Pop3Keep {
+            days: Some(30),
+            ..Default::default()
+        };
+        old.upsert_account(&AccountSetup {
+            name: "Piotr".into(),
+            email: "piotr@poczta.pl".into(),
+            host: "pop.poczta.pl".into(),
+            port: 995,
+            username: "piotr".into(),
+            pop3: Some(keep),
+            ..Default::default()
+        })
+        .unwrap();
+        let text = export(&old, &Settings::default(), ALL, "0.9.12", now()).unwrap();
+        assert!(text.contains("\"pop3\""), "{text}");
+        let new = MailStore::in_memory().unwrap();
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        let setup = import.plan.accounts[0].setup.clone().unwrap();
+        assert_eq!(
+            (setup.host.as_str(), setup.pop3),
+            ("pop.poczta.pl", Some(keep))
+        );
+    }
+
+    #[test]
     fn a_yes_to_counting_stays_on_its_pc() {
         let (store, _) = store_with("anna@firma.pl", "faktury");
         let mine = Settings {

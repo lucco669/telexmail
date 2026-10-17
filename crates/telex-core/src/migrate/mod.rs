@@ -8,7 +8,9 @@
 //! its filters. Bringing it in adds the accounts ([`MailStore::add_found_account`]), reads the
 //! chosen folders into folders on this PC ([`import_mail`]), and makes rules of the filters
 //! that Telex can do the same way ([`rules`]). Mail on an IMAP server isn't copied from the
-//! other program: Telex downloads it from the server.
+//! other program: Telex downloads it from the server. A POP3 account's mail is only on this PC:
+//! it comes into that account's own folders, and what the program downloaded already (its
+//! UIDLs) is marked, so Telex doesn't download it again.
 
 pub mod mapi;
 pub mod outlook;

@@ -194,10 +194,20 @@
           <p class="whint" id="a-hint" hidden></p>
           <div class="cf df">
             <label for="a-email" data-i18n>Email</label><input id="a-email" type="email" autocomplete="off" spellcheck="false">
-            <label for="a-host" data-i18n>IMAP server</label>
+            <label for="a-proto" data-i18n>Incoming mail</label>
+            <select id="a-proto"><option value="imap" data-i18n>IMAP: the folders are on the server</option><option value="pop3" data-i18n>POP3: the server keeps only the Inbox</option></select>
+            <label for="a-host" class="imap-only" data-i18n>IMAP server</label><label for="a-host" class="pop-only" data-i18n>POP3 server</label>
             <div class="hostrow"><input id="a-host" placeholder="mail.example.com" autocomplete="off" spellcheck="false"><label for="a-port" data-i18n>Port</label><input id="a-port" type="number" min="1" max="65535" value="993"></div>
-            <label for="a-isec" data-i18n>IMAP security</label>
-            <select id="a-isec"><option value="tls" data-i18n>SSL/TLS (usually port 993)</option><option value="starttls" data-i18n>STARTTLS (usually port 143)</option></select>
+            <label for="a-isec" class="imap-only" data-i18n>IMAP security</label>
+            <select id="a-isec" class="imap-only"><option value="tls" data-i18n>SSL/TLS (usually port 993)</option><option value="starttls" data-i18n>STARTTLS (usually port 143)</option></select>
+            <label for="a-psec" class="pop-only" data-i18n>POP3 security</label>
+            <select id="a-psec" class="pop-only"><option value="tls" data-i18n>SSL/TLS (usually port 995)</option><option value="starttls" data-i18n>STLS (usually port 110)</option></select>
+            <label class="pop-only" data-i18n>On the server</label>
+            <div class="pop-only akeep">
+              <label class="rcheck"><input type="checkbox" id="a-leave" checked> <span data-i18n>Leave mail on the server once it is here</span></label>
+              <label class="rcheck"><input type="checkbox" id="a-days-on"> <span data-i18n>Remove it from there after</span> <input id="a-days" type="number" min="1" max="3650" value="14" aria-label="Days" data-i18n> <span data-i18n>days</span></label>
+              <label class="rcheck"><input type="checkbox" id="a-until" checked> <span data-i18n>Remove it from there once it is deleted here (from Trash)</span></label>
+            </div>
             <label for="a-user" data-i18n>User name</label><input id="a-user" placeholder="Same as email" autocomplete="off" spellcheck="false">
             <label for="a-pass" data-i18n>Password</label><input id="a-pass" type="password" autocomplete="off">
             <label for="a-smtp" data-i18n>SMTP server</label>
@@ -206,7 +216,8 @@
             <select id="a-sec"><option value="tls" data-i18n>SSL/TLS (usually port 465)</option><option value="starttls" data-i18n>STARTTLS (usually port 587)</option></select>
             <label for="a-name" data-i18n>Your name</label><input id="a-name" placeholder="As people will see it" autocomplete="off" data-i18n>
           </div>
-          <p class="dnote" data-i18n>Telex connects only encrypted (SSL/TLS or STARTTLS) and checks both servers before saving. Reading, flagging, moving and deleting here does the same on the server. The first check downloads the newest 300 messages of each folder; older ones come on request. Your password is kept in the system’s password store and used for sending too.</p>
+          <p class="dnote pop-only" data-i18n>Telex connects only encrypted (SSL/TLS or STLS) and checks both servers before saving. A POP3 server keeps only the Inbox: your folders are here, and reading, flagging and moving change nothing there. The first check downloads the newest 300 messages; older ones come on request. Back up this mail now and then: Settings › Backups.</p>
+          <p class="dnote imap-only" data-i18n>Telex connects only encrypted (SSL/TLS or STARTTLS) and checks both servers before saving. Reading, flagging, moving and deleting here does the same on the server. The first check downloads the newest 300 messages of each folder; older ones come on request. Your password is kept in the system’s password store and used for sending too.</p>
           <p class="derr" id="a-err" role="alert"></p>
           <div class="sbtns">
             <button class="btn primary" type="submit" id="a-go"><span>Connect</span> <kbd>Enter</kbd></button>

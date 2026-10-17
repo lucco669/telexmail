@@ -489,6 +489,12 @@ button.ph-who:hover .pn{text-decoration:underline}
 .hostrow{display:flex;align-items:center;gap:6px;min-width:0}
 .hostrow input:first-child{flex:1}
 .hostrow input[type="number"]{width:62px;font-family:var(--font-data);font-size:12px}
+/* The account form: IMAP's fields or POP3's, and what stays on a POP3 server. */
+#acct-form:not(.pop3) .pop-only,#acct-form.pop3 .imap-only{display:none}
+.akeep{display:grid;gap:3px;min-width:0}
+#acct-form .akeep .rcheck{margin:0;padding:0;align-self:center;flex-wrap:wrap}
+#acct-form .akeep input[type="checkbox"]{height:auto;padding:0}
+.akeep input[type="number"]{width:62px;font-family:var(--font-data);font-size:12px}
 .dnote{margin:0;padding:0 14px 10px;font-size:11.5px;color:var(--muted)}
 .derr{margin:0 14px 10px;padding:5px 8px;border-radius:3px;background:var(--note-bg);color:var(--note-fg);font-size:12px;overflow-wrap:anywhere}
 .derr:empty{display:none}

@@ -921,3 +921,26 @@ fn x_uidl_is_read_from_the_headers_only() {
     );
     assert_eq!(x_uidl(b"Subject: a\r\n\r\nX-UIDL: in-the-body\r\n"), None);
 }
+
+#[tokio::test]
+async fn after_a_restore_mail_from_since_the_backup_comes_down_as_old_mail() {
+    let (addr, server) = start(Fake {
+        mail: vec![letter(1)],
+        caps: vec!["USER", "UIDL"],
+        ..Fake::default()
+    })
+    .await;
+    let (store, account) = store_with(Pop3Keep::default());
+    check(addr, &store, &account).await;
+    // The backup knew of one message; the server has another since.
+    server.lock().unwrap().mail.push(letter(2));
+    store.lock().unwrap().after_restore().unwrap();
+    let report = check(addr, &store, &account).await;
+    assert_eq!(report.new.len(), 1);
+    assert!(
+        report.arrived.is_empty(),
+        "no rules, replies or notifications twice"
+    );
+    server.lock().unwrap().mail.push(letter(3));
+    assert_eq!(check(addr, &store, &account).await.arrived.len(), 1);
+}

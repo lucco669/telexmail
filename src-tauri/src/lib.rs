@@ -612,9 +612,10 @@ async fn add_account(
     smtp::check(&setup.smtp_settings(), &setup.username, &password)
         .await
         .map_err(|e| {
+            let incoming = setup.imap_settings().protocol().to_uppercase();
             tr!(
-                "IMAP works, but sending doesn't: {e}.",
-                "IMAP działa, ale wysyłanie nie: {e}."
+                "{incoming} works, but sending doesn't: {e}.",
+                "{incoming} działa, ale wysyłanie nie: {e}."
             )
         })?;
     secrets::save_password(&setup.email, &password)?;

@@ -14,10 +14,18 @@ use telex_core::{tr, StoreError};
 use crate::files::FilesState;
 use crate::{failed, with_store, AppState, CmdResult};
 
-/// Make a folder on this PC. Returns its key.
+/// Make a folder on this PC, or with `account` one of a POP3 account (its folders are all
+/// here too). Returns its key.
 #[tauri::command(async)]
-pub fn create_local_folder(state: State<'_, AppState>, name: String) -> CmdResult<String> {
-    with_store(&state, |s| s.create_local_folder(&name))
+pub fn create_local_folder(
+    state: State<'_, AppState>,
+    name: String,
+    account: Option<String>,
+) -> CmdResult<String> {
+    with_store(&state, |s| match &account {
+        Some(account) => s.create_folder(account, &name),
+        None => s.create_local_folder(&name),
+    })
 }
 
 /// Give a folder on this PC another name.

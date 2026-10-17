@@ -241,7 +241,9 @@ impl MailStore {
     /// them is old news by now: its queued changes are dropped, so at the next check the
     /// servers' state wins (flags, deletions, moves made elsewhere since); mail whose move
     /// hadn't reached the server goes back where the server has it; and mail waiting in an
-    /// Outbox moves to Drafts, since it may have gone out after the backup was made.
+    /// Outbox moves to Drafts, since it may have gone out after the backup was made. A POP3
+    /// account's next check is like its first: what came after the backup and is still on the
+    /// server comes down again as old mail, without rules, replies or notifications.
     pub fn after_restore(&mut self) -> Result<usize, StoreError> {
         let outboxes: Vec<(String, Option<String>)> = self
             .accounts()
@@ -268,6 +270,11 @@ impl MailStore {
             [],
         )?;
         tx.execute("DELETE FROM outbox", [])?;
+        tx.execute(
+            "UPDATE folders SET last_uid = NULL WHERE kind = 'inbox'
+               AND account IN (SELECT id FROM accounts WHERE incoming = 'pop3')",
+            [],
+        )?;
         let mut held = 0;
         for (outbox, drafts) in &outboxes {
             if let Some(drafts) = drafts {
