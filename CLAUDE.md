@@ -157,6 +157,7 @@ scripts/             set-version.mjs: sets the version in every file that has it
                      check-signing-key.mjs: the release key pair belongs together (release.yml).
                      check-contrast.mjs: every theme meets its WCAG level (CI; --json for the site).
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
+                     check-keys.mjs: the help's keys (KEYS in app.js) and the keyboard table here agree (CI).
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/counting.md     Downloads and copies counted: what is sent, what is kept, GDPR, setting up /stats.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
@@ -325,7 +326,7 @@ also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexma
 all, even before the first account. The window keeps only its own state in localStorage
 (`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
 dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
-update check; `telex-look`: a
+update check, whether the status bar has said where the help is (`helpTold`); `telex-look`: a
 copy of theme, language, zoom, account mark, unread style and font for boot.js).
 
 ## Commands
@@ -344,6 +345,7 @@ cargo fmt -p telex-core -p telex -p telex-security
 node scripts/third-party-notices.mjs   # after changing dependencies or fonts (CI checks it)
 node scripts/check-contrast.mjs   # every theme meets its WCAG level (after changing a color)
 node scripts/check-i18n.mjs       # every text has its Polish (after changing a text)
+node scripts/check-keys.mjs       # the help has every key of the table below (after changing a key)
 ```
 
 Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Tools with
@@ -376,7 +378,12 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   language the settings say; test the Polish with `i18n::with`. Notes already written on a
   message stay in the language they were written in. Reasons the UI words itself still cross
   the bridge as codes (autoconfig's notes, the import's `skip`).
-- Keep the keyboard table below and the status-bar hints in `ui/index.html` in sync.
+- Keep the keyboard table below and the status-bar hints in `ui/index.html` in sync. To add a key:
+  its handling (`onKey` in app.js, or the dialog's own), a line in `KEYS` in app.js (group, keys as
+  written on the keycaps, what it does in a few lower-case words with its Polish, `doc`: the table's row
+  it belongs to, `run` when Enter in the help may press it), and the row in the table below (a new
+  row, or the key added to its row). `node scripts/check-keys.mjs` (CI) fails when a row has no key in
+  `KEYS`, a `doc` names no row, or a key isn't written in its row.
 - Run `cargo fmt`, clippy and the core tests before committing.
 - Status text in the UI is short and specific ("Moved to Trash. Press Z to undo.").
   Never claim mail was sent until SMTP actually sends it.
@@ -422,14 +429,24 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | F7           | in compose: the next spelling mistake and its suggestions (also a click on an underlined word, a right-click, or the menu key on one) |
 | Ctrl+= / Ctrl+− / Ctrl+0 | larger / smaller / normal text (everywhere) |
-| ? / F1       | keys and tips (also on hover over the ? in the status bar) |
+| ? / F1       | keys and tips, grouped, the ones for where you are first, with a filter (also Help in the status bar and the toolbar); in it ↓ ↑ Enter use a key, Esc closes |
 | F2, Shift+F10 | in the folder tree: rename a folder on this PC; a folder's or account's menu (also right-click) |
 | Shift+F10, menu key | in the list: the selected message's menu (also right-click a message; the column headings have one too) |
 | Alt+↑ / ↓    | in the folder tree: move an account up or down |
 
 ## Not released yet
 
-Nothing yet.
+- Keys and tips as a panel (no schema change): ? or F1, Help in the status bar (a "? Help" pill
+  instead of the bare "?") and in the toolbar (an icon in Classic), and a link on the welcome
+  panel open a dialog that stays until Esc, a click outside or ×. Keys in eight groups (Moving
+  around, Reading, Selecting, Acting on mail, Writing, Search, Folders and accounts, The window)
+  drawn as keycaps, two columns when wide; the group for where it was opened comes first (compose,
+  the tree, the search box, several messages, the message); tips below. A filter, focused on open,
+  finds keys and tips by words in English and Polish, diacritics ignored ("kosz", "undo");
+  ↓ ↑ Enter (or a click) use the safe keys (N, R, M, G, T, /, Ctrl+, …). The keys come from `KEYS`
+  in app.js, checked against the table above by `scripts/check-keys.mjs` (CI). Once, a few seconds
+  into a start with mail, the status bar says "Press ? or F1 for every key and tip" (`helpTold` in
+  `telex-ui`). The search box rests at 228 px (was 280) so the Polish toolbar keeps its words.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
