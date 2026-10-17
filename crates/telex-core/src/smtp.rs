@@ -426,8 +426,19 @@ pub async fn send_outbox(
         log_send(account, started, &sent);
         match sent {
             Ok(()) => {
-                lock(store)?.outgoing_sent(mail.message, Local::now().naive_local())?;
-                report.sent.push(sent_line(&mail));
+                let at = Local::now().naive_local();
+                lock(store)?.outgoing_sent(mail.message, at)?;
+                report.sent.push(match mail.send_after {
+                    // Telex was closed (or the PC asleep) when it was due.
+                    Some(due) if crate::later::late(due, at) => {
+                        let (line, due) = (sent_line(&mail), crate::later::short(due));
+                        tr!(
+                            "{line}, late: it was due {due}",
+                            "{line}, z opóźnieniem: miała wyjść {due}"
+                        )
+                    }
+                    _ => sent_line(&mail),
+                });
             }
             Err(SendError::Refused(reason)) => {
                 lock(store)?.outgoing_failed(mail.message, &reason, true)?;
@@ -915,6 +926,7 @@ JVBERi0xLjQK\r\n\
             subject: "Re: Wycena".into(),
             to: "\"Kowalska, Anna\" <anna@x.pl>, piotr@y.pl".into(),
             attempts: 0,
+            send_after: None,
         };
         assert_eq!(sent_line(&mail), "\"Re: Wycena\" to Kowalska, Anna");
         assert_eq!(
@@ -1356,6 +1368,118 @@ BCC: d@x.pl\r\n\r\nBcc: in the body stays\r\n";
                 "the held one is never sent"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn mail_sent_later_waits_its_time_and_says_when_it_went_late() {
+        use crate::later::{self, Later};
+        let (port, server) = start_fake_smtp("nobody@").await;
+        let (store, account, _) = store_with_queued(&[]);
+        let queue = |to: &str, at| {
+            let c = compose(&account, &draft(to), &Originals::default(), now()).unwrap();
+            store
+                .lock()
+                .unwrap()
+                .queue_outgoing(
+                    &account.id,
+                    &c.message,
+                    &c.raw,
+                    &c.env_from,
+                    &c.env_to,
+                    None,
+                    Some(at),
+                )
+                .unwrap()
+        };
+        let monday = later::when(Later::Monday, due()).unwrap();
+        let on_monday = queue("anna@kowalska-architekci.pl", monday);
+        // Due an hour ago: Telex was closed then.
+        let missed_at = due() - chrono::TimeDelta::hours(1);
+        let missed = queue("piotr@nowak-meble.pl", missed_at);
+        {
+            let s = store.lock().unwrap();
+            assert_eq!(s.next_scheduled().unwrap(), Some(missed_at));
+            assert_eq!(
+                s.scheduled_due(due()).unwrap(),
+                std::slice::from_ref(&account.id)
+            );
+            assert_eq!(s.goes_at(on_monday).unwrap(), Some(monday));
+            let row = s.summary(on_monday).unwrap();
+            assert_eq!(row.goes, Some(monday), "the Outbox list shows when it goes");
+            assert_eq!(
+                s.inspect_message(on_monday).unwrap().goes,
+                Some(monday),
+                "and so does the open message"
+            );
+        }
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        let due_then = later::short(missed_at);
+        assert_eq!(
+            report.sent,
+            [format!(
+                "\"Wycena – październik\" to piotr@nowak-meble.pl, late: it was due {due_then}"
+            )]
+        );
+        assert_eq!(server.lock().unwrap().accepted.len(), 1, "Monday's waits");
+        {
+            let s = store.lock().unwrap();
+            assert_eq!(s.get(missed).unwrap().folder, account.folder_key("sent"));
+            assert_eq!(s.next_scheduled().unwrap(), Some(monday));
+            assert!(s.scheduled_due(due()).unwrap().is_empty());
+            assert!(s.scheduled_due(monday).unwrap().len() == 1);
+        }
+
+        // Sent now instead: it goes at once, and not late.
+        let owner = store.lock().unwrap().send_now(on_monday).unwrap();
+        assert_eq!(owner, account.id);
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        assert_eq!(
+            report.sent,
+            ["\"Wycena – październik\" to anna@kowalska-architekci.pl"]
+        );
+        let mut s = store.lock().unwrap();
+        assert_eq!(s.next_scheduled().unwrap(), None);
+        assert!(s.send_now(on_monday).is_err(), "it went");
+    }
+
+    #[test]
+    fn held_mail_can_be_sent_now_but_refused_mail_cannot() {
+        let (store, account, ids) = store_with_queued(&["anna@x.pl", "piotr@y.pl"]);
+        let mut s = store.into_inner().unwrap();
+        let later = due() + chrono::TimeDelta::hours(2);
+        let c = compose(&account, &draft("ewa@z.pl"), &Originals::default(), now()).unwrap();
+        let scheduled = s
+            .queue_outgoing(
+                &account.id,
+                &c.message,
+                &c.raw,
+                &c.env_from,
+                &c.env_to,
+                None,
+                Some(later),
+            )
+            .unwrap();
+        s.hold_outgoing(scheduled, due()).unwrap();
+        assert_eq!(s.goes_at(scheduled).unwrap(), None, "held: it doesn't go");
+        assert_eq!(s.summary(scheduled).unwrap().goes, None);
+        assert_eq!(s.next_scheduled().unwrap(), None);
+        s.send_now(scheduled).unwrap();
+        assert!(
+            s.get(scheduled).unwrap().note.is_none(),
+            "the held note goes"
+        );
+        assert!(s.has_outgoing(&account.id, due()).unwrap());
+        s.outgoing_failed(ids[0], "550 no such user", true).unwrap();
+        let error = s.send_now(ids[0]).unwrap_err().to_string();
+        assert!(error.contains("Press E"), "{error}");
+        // A failed try (no connection) may go again now.
+        s.outgoing_failed(ids[1], "connection refused", false)
+            .unwrap();
+        s.send_now(ids[1]).unwrap();
     }
 
     /// Needs the internet: `cargo test -p telex-core -- --ignored`. Checks that lettre's TLS

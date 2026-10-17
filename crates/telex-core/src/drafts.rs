@@ -140,7 +140,7 @@ pub fn start(
 /// The account a draft is from: the original's, or for a new message the one asked for. Mail
 /// on this PC belongs to no server, so a reply to it goes from the account whose address or
 /// identity it was sent to (or from), else from the one asked for, else the first that can.
-fn sender<'s>(
+pub(crate) fn sender<'s>(
     store: &'s MailStore,
     original: Option<&Message>,
     asked: &str,
@@ -176,7 +176,7 @@ fn sender<'s>(
 
 /// The identity a reply or forward is from: the one the message was sent to (an alias),
 /// or for your own messages the one that sent it, else the account's default.
-fn identity_for(account: &Account, m: &Message) -> Identity {
+pub(crate) fn identity_for(account: &Account, m: &Message) -> Identity {
     let addressed: Vec<String> = split_addresses(&format!("{}, {}, {}", m.to, m.cc, m.from_email))
         .iter()
         .map(|a| key(a))

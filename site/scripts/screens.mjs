@@ -35,7 +35,7 @@ const scenes = {
     const ed = document.getElementById('c-html'), at = new Range();
     at.setStart(ed.firstChild, 0); ed.focus(); getSelection().removeAllRanges(); getSelection().addRange(at);
     document.execCommand('insertText', false, 'Thanks, Ewa! My notes on the dates are attached.');
-    document.querySelector('#cform .btn.primary').click(); await ui.wait(300);`,
+    document.querySelector('#cform .csend').click(); await ui.wait(300);`,
   },
   // The launch plan's history: who wrote each part, a bar for each level, the long part folded.
   quotes: { run: `ui.pane(30); ui.row('Re: Launch plan'); await ui.wait(250); ui.list.focus();` },

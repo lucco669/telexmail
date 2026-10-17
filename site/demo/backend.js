@@ -246,7 +246,10 @@ function installTelexDemo(options) {
   const summary = (m) => ({
     id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, subject: m.subject,
     date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged, has_attachments: m.attachments.length > 0,
+    ...(goesOf(m) ? { goes: goesOf(m) } : {}),
   });
+  // Mail sent later (or waiting out its moment): when it goes, as the core says it.
+  const goesOf = (m) => m.out && !m.out.held && m.out.send_after ? fmt(new RealDate(m.out.send_after)) : null;
   // The quick filter's operators: from: to: subject: is: has:file after: before: larger: smaller:.
   function tokens(filter) {
     const out = []; let cur = '', quoted = false;
@@ -889,10 +892,51 @@ function installTelexDemo(options) {
     }
     return lines;
   }
-  function sendMessage({ draft }) {
+  // Send later (later.rs): in an hour, tomorrow or Monday at 08:00, or a time of one's own.
+  function laterWhen(later) {
+    const d = now(), at = (days) => new RealDate(d.getFullYear(), d.getMonth(), d.getDate() + days, 8, 0, 0);
+    if (later.kind === 'hour') { const h = new RealDate(nowMs() + 3600e3); h.setSeconds(0, 0); return h; }
+    if (later.kind === 'tomorrow') return at(1);
+    if (later.kind === 'monday') return at(7 - ((d.getDay() + 6) % 7));
+    const picked = parse(later.at);
+    picked.setSeconds(0, 0);
+    if (picked.getTime() < nowMs() + 60e3) fail('Pick a time later than now.', 'Wybierz godzinę późniejszą niż teraz.');
+    return picked;
+  }
+  function laterChoices() {
+    return ['hour', 'tomorrow', 'monday'].filter((kind) => kind !== 'monday' || now().getDay() !== 0)
+      .map((kind) => ({ kind, when: fmt(laterWhen({ kind })) }));
+  }
+  // Mail sent later goes at its time while the page is open (a timer, as in the app).
+  function sendWhenDue(m) {
+    const at = m.out.send_after, left = at - nowMs();
+    if (left < 2 ** 31 - 1) {
+      setTimeout(() => {
+        if (byId(m.id) !== m || !m.out || m.out.held || m.out.send_after !== at) return;
+        const sent = sendOutbox(acctId(m.folder));
+        if (sent.length) emit('outbox-sent', { queued: 0, sent, errors: [] });
+      }, Math.max(0, left) + 300);
+    }
+  }
+  function sendNow({ id }) {
+    const m = need(id);
+    if (!m.out) fail('This message can\'t go as it is. Press E to change it first.', 'Ta wiadomość nie może wyjść w obecnej postaci. Naciśnij E, żeby ją najpierw zmienić.');
+    m.out = { send_after: null, held: false };
+    m.note = null;
+    return { queued: id, wait: 0, goes: null, sent: sendOutbox(acctId(m.folder)), errors: [] };
+  }
+  function sendMessage({ draft, later = null }) {
     checkFiles(draft.attachments);
     checkRecipients(draft);
     needAccount(draft.account);
+    if (later) {
+      const goes = laterWhen(later);
+      const m = written(draft, 'outbox');
+      m.out = { send_after: goes.getTime(), held: false };
+      msgs.push(m);
+      sendWhenDue(m);
+      return { queued: m.id, wait: 0, goes: fmt(goes), sent: [], errors: [] };
+    }
     const wait = settings.undo_send | 0;
     const m = written(draft, 'outbox');
     m.out = { send_after: wait ? nowMs() + wait * 1000 : null, held: false };
@@ -910,6 +954,37 @@ function installTelexDemo(options) {
     m.out = { send_after: null, held: true };
     m.note = tr('Not sent: you took it back. Press E to change it and send it, or Del to drop it.',
       'Nie wysłano: cofnięto wysyłanie. Naciśnij E, żeby ją zmienić i wysłać, albo Del, żeby ją usunąć.');
+  }
+  /* ---------- unsubscribe (unsubscribe.rs) ---------- */
+  // The demo's lists and how each says to leave it (List-Unsubscribe in real mail).
+  const LISTS = {
+    'newsletter@frontendweekly.news': { method: 'one_click', target: 'frontendweekly.news' },
+    'shop@spokeandchain-cycles.co.uk': { method: 'link', target: 'spokeandchain-cycles.co.uk' },
+    'offers@seo-wizard24.biz': { method: 'mail', target: 'remove@seo-wizard24.biz' },
+  };
+  const unsubscribed = new Map(); // sender -> when
+  function unsubscribeOffer(m) {
+    const list = LISTS[m.from_email], kind = kindOf(m.folder);
+    if (!list || isOutgoing(kind)) return null;
+    return { ...list, done: unsubscribed.get(m.from_email) ?? null, spam: kind === 'spam' };
+  }
+  function unsubscribe({ id }) {
+    const m = need(id), offer = unsubscribeOffer(m);
+    if (!offer) fail('This message doesn\'t say how to unsubscribe.', 'Ta wiadomość nie podaje, jak się wypisać.');
+    if (offer.spam) {
+      fail('Telex doesn\'t unsubscribe from mail in Spam: that would tell the sender your address is read. Delete it instead.',
+        'Telex nie wypisuje z poczty w Spamie: nadawca dowiedziałby się, że ktoś czyta ten adres. Lepiej ją usuń.');
+    }
+    const at = stamp(), when = at.slice(8, 10) + '.' + at.slice(5, 7) + '.' + at.slice(0, 4);
+    unsubscribed.set(m.from_email, at);
+    const note = {
+      one_click: tr('Unsubscribed with one click on {when}.', 'Wypisano jednym kliknięciem {when}.', { when }),
+      mail: tr('Unsubscribed by a mail to {to} on {when}.', 'Wypisano mailem do {to} {when}.', { to: offer.target, when }),
+      link: tr('The unsubscribe page on {server} was opened on {when}.', 'Otwarto stronę wypisania na {server} {when}.', { server: offer.target, when }),
+    }[offer.method];
+    if (!String(m.note || '').includes(note)) m.note = m.note ? m.note + ' ' + note : note;
+    const sent = offer.method === 'mail' ? [tr('"{subject}" to {who}', '„{subject}” do {who}', { subject: 'unsubscribe', who: offer.target })] : [];
+    return { method: offer.method, done: true, sent, errors: [] };
   }
   function saveOutgoing({ draft }) {
     checkFiles(draft.attachments);
@@ -1410,7 +1485,8 @@ function installTelexDemo(options) {
       const m = need(id);
       return { id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, cc: m.cc,
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
-        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk };
+        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk,
+        goes: goesOf(m), unsubscribe: unsubscribeOffer(m) };
     },
     message_markdown: messageMarkdown,
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
@@ -1451,6 +1527,9 @@ function installTelexDemo(options) {
     clean_html: ({ html }) => cleanHtml(html),
     send_message: sendMessage,
     hold_message: holdMessage,
+    send_now: sendNow,
+    send_later_choices: laterChoices,
+    unsubscribe,
     check_mail: checkMail,
     push_changes: () => ({ new: [], new_in: null, sent: [], sorted: 0, errors: [], busy }),
     download_older: downloadOlder,

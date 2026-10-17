@@ -264,6 +264,7 @@ export const featureRows: FeatureRow[] = [
       'SMTP on port 465 (SSL/TLS) or 587 (STARTTLS), same login as IMAP',
       { text: 'Undo send: mail waits 5 seconds (or up to 30), and Z takes it back to change it', since: '0.5.0' },
       { text: 'An Undo button in the status bar counts down the seconds left', since: '0.7.2' },
+      { text: 'Send later: in an hour, tomorrow morning, Monday morning or when you pick; the Outbox says when it goes, and Telex sends it then, or at its next start if it was closed', since: V0912 },
       'An Outbox that retries at every check when the connection fails',
       'A copy of every sent message lands in your server’s Sent folder',
       'Forwarded attachments travel with the forward',
@@ -363,6 +364,7 @@ export const featureRows: FeatureRow[] = [
       'Careful, normal or strict in Settings › Mail, or off; it waits until it has seen 50 of each kind',
       'It runs before your rules, and mail it files away brings no notification',
       { text: 'Spam you throw in the Trash is marked read on the way, so it never counts as unread', since: V0911 },
+      { text: 'Unsubscribe from a newsletter in one click where the list allows it, else by a mail or on its page; never from Spam, where it would tell the sender your address is read', since: V0912 },
     ],
   },
   {
@@ -491,6 +493,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'forward', group: 'Write', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }] },
   { id: 'edit', group: 'Write', keys: [['E']], action: 'Edit a draft or an unsent message', match: [{ key: 'e' }] },
   { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }] },
+  { id: 'sendlater', group: 'Write', keys: [['Ctrl', 'Shift', 'Enter']], action: 'Send later: in an hour, tomorrow, Monday or when you pick', match: [{ key: 'Enter', ctrl: true, shift: true }], since: V0912 },
   { id: 'quotes', group: 'View', keys: [['Q']], action: 'Open or fold the quoted mail of a message', match: [{ key: 'q' }], since: V0910 },
   { id: 'spell', group: 'Write', keys: [['F7']], action: 'The next spelling mistake, with suggestions (compose)', match: [{ key: 'F7' }], since: '0.9.0' },
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },

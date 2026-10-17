@@ -84,7 +84,7 @@ function parseDate(s){
 const fromSummary = s => ({
   id:s.id, f:s.folder, from:s.from_name, email:s.from_email, to:s.to, subj:s.subject,
   date:parseDate(s.date), kb:s.size_kb, unread:s.unread, flagged:s.flagged, hasAtt:s.has_attachments,
-  thread:s.thread ?? null,
+  thread:s.thread ?? null, goes:s.goes ? parseDate(s.goes) : null,
 });
 // Accounts, folders and how many messages each folder holds (the core counts them).
 async function loadTree(){
@@ -118,7 +118,8 @@ const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
 // send_message counts: a sent message's copy for the server's Sent folder is queued too.
 const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'run_rules',
-  'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read', 'mark_spam']);
+  'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read', 'mark_spam',
+  'send_now', 'unsubscribe']);
 async function call(cmd, args){
   try {
     const result = await invoke(cmd, args);
@@ -174,6 +175,15 @@ const fmtSize = kb => kb >= 1048576 ? I18n.decimal(kb / 1048576) + ' GB' : kb >=
 // When something happened: the time today, the day and time before.
 const dm = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1);
 const fmtWhen = d => d.toDateString() === new Date().toDateString() ? hm(d) : dm(d) + ' ' + hm(d);
+// When mail sent later goes: the time today, "tomorrow", the weekday within a week, else the date.
+function fmtGoes(d){
+  const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const ahead = Math.round((day(d) - day(new Date())) / 864e5);
+  if (ahead <= 0) return hm(d);
+  if (ahead === 1) return t('tomorrow') + ' ' + hm(d);
+  if (ahead < 7) return t(DOW[d.getDay()]) + ' ' + hm(d);
+  return dm(d) + ' ' + hm(d);
+}
 const nameOf = addr => {
   const s = String(addr || '').trim();
   if (!s) return t('(no recipient)');
@@ -1153,13 +1163,15 @@ function rowHtml(m, sel, hl, accounts){
   const toggle = head ? `<button type="button" class="thread-toggle" data-thread="${th.id}" aria-expanded="${expanded}" aria-label="${esc(toggleLabel)}" title="${esc(toggleLabel)}">${expanded ? '▾' : '▸'}</button>` : '<span class="thread-slot" aria-hidden="true"></span>';
   const subject = grouped() ? `<span class="thread-subject">${toggle}<span class="subject-text">${marked(m.subj, hl?.subject)}</span>${head ? `<span class="thread-count" title="${esc(count)}" aria-label="${esc(count)}">${num(th.count)}</span>` : ''}</span>` : marked(m.subj, hl?.subject);
   const [where, whose] = whereOf(m, accounts);
+  // Mail sent later says in the Outbox when it goes.
+  const goes = m.goes ? `<span class="goes">${esc(t('Goes {when}', {when:fmtGoes(m.goes)}))}</span> ` : '';
   // The dot and the flag are switches: a click marks read or unread, flags or unflags.
   const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
   const flag = `<b class="mk fl" title="${esc(m.flagged ? t('Remove the flag (F)') : t('Flag (F)'))}">${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : I.flagOff}</b>`;
   return `<tr data-id="${m.id}" class="${cls}" aria-selected="${on}">
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${marked(whoOf(m), hl?.[out ? 'to' : 'from'])}</td>
-<td class="c-subj" title="${esc(m.subj)}">${subject}</td>
+<td class="c-subj" title="${esc(m.subj)}">${goes}${subject}</td>
 <td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(whose ? where + ' · ' + whose : where)}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
@@ -2172,6 +2184,117 @@ function paintReadButton(){
   b.innerHTML = m.unread ? I.mailOpen : I.mail;
   b.title = readTip(m); b.setAttribute('aria-label', b.title);
 }
+/* ---------- send later, in the open message ---------- */
+// Mail sent later says when it goes, with Send now and Hold; E changes it.
+function goesBar(m){
+  if (!m.goes || kindOf(m.folder) !== 'outbox') return '';
+  return `<div class="bar quiet goesbar"><span>${esc(t('Goes {when}.', {when:fmtFull(parseDate(m.goes))}))}</span>`
+    + `<button type="button" class="linkbtn" data-act="send-now">${esc(t('Send now'))}</button>`
+    + `<button type="button" class="linkbtn" data-act="hold">${esc(t('Hold'))}</button>`
+    + `<span>${esc(t('E changes it.'))}</span></div>`;
+}
+async function sendNow(m){
+  say(t('Sending…'), 0);
+  let r;
+  try { r = await call('send_now', {id:m.id}); } catch { return; }
+  bodies.delete(m.id);
+  await refresh();
+  const sent = sentText(r.sent);
+  if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
+  else say(sent || t('In the Outbox. It goes out with the next check.'), 6000);
+}
+async function holdLater(m){
+  try { await invoke('hold_message', {id:m.id}); } catch (e){ say(tr(e), 8000); return; }
+  bodies.delete(m.id);
+  await refresh();
+  if (!state.compose) renderPreview();
+  say(t('Held. It stays in the Outbox: press E to change it and send it.'), 6000);
+}
+
+/* ---------- unsubscribe ---------- */
+// Mail from a list offers a quiet Unsubscribe above it: one click where the list takes it (the
+// core posts the request), else a mail to the list or its page in the browser, each after a
+// line that says where it goes. Never in Spam. Once done, every message of the list says so,
+// and the sender's mail can go to Trash in one go (Z brings it back).
+let unsubAsk = null;   // the message whose confirmation line is open
+let unsubOffer = null; // {id, email, n}: after unsubscribing, the sender's mail to Trash
+function unsubButton(m){
+  const u = m.unsubscribe;
+  if (!u) return '';
+  if (u.spam){
+    const why = t('Not offered in Spam: unsubscribing would tell the sender your address is read. Delete the message instead.');
+    return `<button type="button" class="pbtn ptext" aria-disabled="true" title="${esc(why)}" aria-label="${esc(t('Unsubscribe') + '. ' + why)}">${esc(t('Unsubscribe'))}</button>`;
+  }
+  if (u.done){
+    const when = dmy(parseDate(u.done)), tip = t('You left this list on {date}. Click to ask again.', {date:when});
+    return `<button type="button" class="pbtn ptext" data-act="unsub" title="${esc(tip)}">${esc(t('Unsubscribed {date}', {date:dm(parseDate(u.done))}))}</button>`;
+  }
+  const tip = {one_click:t('Leave this mailing list with one click: Telex asks {target} to take you off.', u),
+    mail:t('Leave this mailing list: Telex mails {target} from your account.', u),
+    link:t('Leave this mailing list on its page at {target}, in your browser.', u)}[u.method];
+  return `<button type="button" class="pbtn ptext" data-act="unsub" title="${esc(tip)}">${esc(t('Unsubscribe'))}</button>`;
+}
+function unsubBar(m){
+  if (unsubAsk === m.id && m.unsubscribe){
+    const u = m.unsubscribe;
+    const what = u.method === 'mail' ? t('Telex sends an unsubscribe mail to {target} from your account.', u)
+      : t('The list’s page at {target} opens in your browser, where you finish unsubscribing.', u);
+    return `<div class="bar quiet unsubbar" role="alert"><span>${esc(what)}</span>`
+      + `<button type="button" class="btn primary" data-act="unsub-go">${esc(u.method === 'mail' ? t('Send it') : t('Open the page'))}</button>`
+      + `<button type="button" class="btn" data-act="unsub-no">${esc(t('Cancel'))}</button></div>`;
+  }
+  if (unsubOffer?.id === m.id && unsubOffer.n){
+    const o = unsubOffer;
+    return `<div class="bar quiet unsubbar"><span>${esc(tn(o.n, 'Move the {n} message from {email} to Trash?', 'Move the {n} messages from {email} to Trash?', {n:num(o.n), email:o.email}))}</span>`
+      + `<button type="button" class="btn" data-act="unsub-trash">${esc(t('Move to Trash'))}</button>`
+      + `<button type="button" class="linkbtn" data-act="unsub-keep">${esc(t('Keep them'))}</button></div>`;
+  }
+  return '';
+}
+async function startUnsubscribe(m){
+  const u = m.unsubscribe;
+  if (!u || u.spam) return;
+  unsubOffer = null;
+  if (u.method === 'one_click' || unsubAsk === m.id){ unsubAsk = null; unsubscribeNow(m); return; }
+  unsubAsk = m.id; renderPreview();
+}
+// The sender's mail in every folder but Spam and Trash: the list the trash offer works on.
+const senderView = email => ({folder:null, sort:'date', ascending:false, filter:'from:' + email, bodies:false, thread:null, unread:false, keep:[]});
+async function unsubscribeNow(m){
+  const u = m.unsubscribe;
+  say(u.method === 'mail' ? t('Sending…') : t('Unsubscribing…'), 0);
+  let r;
+  try { r = await call('unsubscribe', {id:m.id}); } catch { renderPreview(); return; }
+  bodies.delete(m.id);
+  if (!r.done){ // the mail waits in the Outbox: it isn't done until it goes
+    say([t('The unsubscribe mail waits in the Outbox.'), r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
+    await refresh(); renderPreview(); return;
+  }
+  say(r.method === 'one_click' ? t('Unsubscribed. Mail already on its way may still arrive.')
+    : r.method === 'mail' ? t('Sent the unsubscribe mail to {target}.', u)
+    : t('The list’s page is open in your browser.'), 8000);
+  const email = m.from_email;
+  try {
+    const n = (await invoke('list_page', {view:senderView(email), at:'first', limit:1})).total;
+    unsubOffer = n ? {id:m.id, email, n} : null;
+  } catch { unsubOffer = null; }
+  await refresh();
+  if (current()?.id === m.id && !state.compose) renderPreview();
+}
+async function trashSenderMail(){
+  const o = unsubOffer; unsubOffer = null;
+  if (!o) return;
+  let ids, r;
+  try { ids = await invoke('list_ids', {view:senderView(o.email), from:null, to:null}); } catch (e){ say(tr(e), 8000); return; }
+  if (!ids.length){ renderPreview(); return; }
+  try { r = await call('delete_messages', {ids}); } catch { return; }
+  ids.forEach(id => bodies.delete(id));
+  setUndo(r.trashed.length ? {kind:'move', items:r.trashed.map(([id, from]) => ({id, from}))} : null);
+  say(tn(ids.length, 'Moved {n} message to Trash. Press Z to undo.', 'Moved {n} messages to Trash. Press Z to undo.', {n:num(ids.length)}));
+  await refresh();
+  if (!state.compose) renderPreview();
+}
+
 let pvSeq = 0;
 function riskHtml(m){
   const r = m.risk;
@@ -2244,8 +2367,9 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${mdButton()}${paper}${views}`)}
+${headerHtml(m, `${unsubButton(m)}${readButton(s)}${flagButton(s)}${popout}${mdButton()}${paper}${views}`)}
 ${riskHtml(m)}
+${goesBar(m)}${unsubBar(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -2301,6 +2425,16 @@ previewEl.addEventListener('click', async e => {
   if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
   if (act.dataset.act === 'flag' && m){ setFlagged(m, !m.flagged); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
+  if (act.dataset.act === 'unsub' && m && act.getAttribute('aria-disabled') !== 'true'){ startUnsubscribe(await full(m.id)); return; }
+  if (act.dataset.act === 'unsub-go' && m){ unsubAsk = null; unsubscribeNow(await full(m.id)); return; }
+  if (act.dataset.act === 'unsub-no'){ unsubAsk = null; renderPreview(); return; }
+  if (act.dataset.act === 'unsub-trash'){ trashSenderMail(); return; }
+  if (act.dataset.act === 'unsub-keep'){ unsubOffer = null; renderPreview(); return; }
+  if (act.dataset.act === 'send-now' && m){ sendNow(m); return; }
+  if (act.dataset.act === 'hold' && m){ holdLater(m); return; }
+  if (act.dataset.act === 'later' && state.compose){ laterMenu(act); return; }
+  if (act.dataset.act === 'later-at' && state.compose){ sendAtPicked(); return; }
+  if (act.dataset.act === 'later-cancel' && state.compose){ $('c-later').hidden = true; $('c-when-btn')?.focus(); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
     renderPreview();
@@ -2341,9 +2475,13 @@ async function openCompose(kind, preset = {}, of = null){
       bodies.delete(s.id); // its note may have changed (taken back, refused)
       const m = await full(s.id), account = acctId(s.f), ids = ACCT[account]?.identities ?? [];
       const me = ids.find(i => i.email.toLowerCase() === m.from_email.toLowerCase()) ?? ids.find(i => i.is_default) ?? ids[0];
+      // Mail sent later is held while it is changed, so it can't go meanwhile; Send keeps its time.
+      const later = m.goes && parseDate(m.goes) - Date.now() > 60000 ? m.goes : null;
+      if (later){ await invoke('hold_message', {id:s.id}); bodies.delete(s.id); }
       // Attachments come from the old message itself, which Send replaces.
       c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, bcc:m.bcc ?? '', subject:m.subject, body:m.body,
-        html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id};
+        html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id, later};
+      if (later) refresh();
     } else {
       const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder)});
       c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, bcc:'', subject:d.subject, body:d.body, html:null,
@@ -2371,6 +2509,7 @@ async function openCompose(kind, preset = {}, of = null){
   renderCompose();
   c.saved = shapeOf(readCompose()); // as it opened: nothing to autosave yet
   if (kept){ draftsChanged(); say(t('The message you were writing is in Drafts.'), 6000); }
+  else if (c.later) say(t('Held while you change it. Send keeps its time, {when}; Esc keeps it as a draft.', {when:fmtFull(parseDate(c.later))}), 8000);
 }
 const focusCompose = () => $('c-to')?.focus();
 // After a draft was saved or dropped: the Drafts folder's count and list (the main window's).
@@ -2425,8 +2564,10 @@ ${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">
   : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
 ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>`}
 <div class="cask" id="c-ask" role="alert" hidden></div>
+<div class="cask clater" id="c-later" hidden><label for="c-when">${esc(t('Send at'))}</label><input id="c-when" type="datetime-local" step="60">
+  <button class="btn primary" type="button" data-act="later-at">${esc(t('Send later|button'))}</button><button class="btn" type="button" data-act="later-cancel">${esc(t('Cancel'))}</button></div>
 <div class="cbar">
-  <button class="btn primary" type="submit"><span>${esc(t('Send'))}</span> <kbd>Ctrl+Enter</kbd></button>
+  <button class="btn primary csend" type="submit"><span>${esc(laterLabel(c))}</span> <kbd>Ctrl+Enter</kbd></button><button class="btn primary cwhen" id="c-when-btn" type="button" data-act="later" aria-haspopup="menu" title="${esc(t('Send later (Ctrl+Shift+Enter)'))}" aria-label="${esc(t('Send later (Ctrl+Shift+Enter)'))}">${I.clock}</button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
   <button class="btn" type="button" data-act="attach" title="${esc(t('Attach files from this PC. You can also drop them on the window.'))}">${I.clip}<span>${esc(t('Attach…'))}</span></button>
   <button class="btn" type="button" data-act="discard">${esc(t('Discard'))}</button>
@@ -2438,6 +2579,11 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   // Enter in a header field doesn't send: Ctrl+Enter does.
   $('cform').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && e.target.tagName === 'INPUT') e.preventDefault(); });
   $('c-from').addEventListener('change', e => changeIdentity(Number(e.target.value)));
+  // The picked time: Enter sends it then, Esc puts the line away (and doesn't close the message).
+  $('c-when').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey){ e.preventDefault(); e.stopPropagation(); sendAtPicked(); }
+    else if (e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); $('c-later').hidden = true; $('c-when-btn').focus(); }
+  });
   previewEl.querySelector('.cfmt').addEventListener('click', e => { const b = e.target.closest('[data-fmt]'); if (b) setFormat(b.dataset.fmt); });
   ['c-to', 'c-cc', 'c-bcc'].forEach(id => { if ($(id)) wireSuggestions($(id)); });
   const body = html ? $('c-html') : $('c-body');
@@ -3257,7 +3403,53 @@ const sentText = sent => sent.length === 1 ? t('Sent {what}.', {what:sentLine(se
 // Real mail goes to the Outbox and out at once. It's only called sent once the SMTP
 // server has taken it; otherwise it waits in the Outbox and the status says why.
 let askedSubject = 0; // when Send last asked about a missing subject
-async function send(){
+// Send later: `c.later` is the time a message edited from the Outbox was to go, kept by Send.
+const laterKept = c => c.later && parseDate(c.later) - Date.now() > 60000 ? c.later : null;
+const laterLabel = c => laterKept(c) ? t('Send {when}', {when:fmtGoes(parseDate(c.later))}) : t('Send');
+const LATER_NAMES = {hour:N_('In an hour'), tomorrow:N_('Tomorrow morning'), monday:N_('Monday morning')};
+// The clock next to Send (or Ctrl+Shift+Enter): when the message goes, then it waits in the Outbox.
+async function laterMenu(from = $('c-when-btn')){
+  let choices;
+  try { choices = await invoke('send_later_choices'); } catch (e){ say(tr(e), 8000); return; }
+  const c = state.compose;
+  if (!c || !from) return;
+  const items = [
+    ...(laterKept(c) ? [{label:t('Send now'), run:() => send(null)}, {sep:true}] : []),
+    ...choices.map(ch => {
+      const d = parseDate(ch.when), today = d.toDateString() === new Date().toDateString();
+      return {label:t(LATER_NAMES[ch.kind]), key:today ? hm(d) : t(DOW[d.getDay()]) + ' ' + hm(d), run:() => send({kind:ch.kind})};
+    }),
+    {sep:true},
+    {label:t('Pick a date and time…'), run:pickLater},
+  ];
+  const r = from.getBoundingClientRect();
+  openMenu(r.left, r.bottom, items, from);
+  menuEl.style.top = Math.max(4, r.top - menuEl.offsetHeight - 4) + 'px'; // above the bar
+}
+// A time of the user's own: the line above the buttons, a minute from now at the earliest.
+function pickLater(){
+  const box = $('c-later'), input = $('c-when'), c = state.compose;
+  if (!box || !c) return;
+  const local = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${hm(d)}`;
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(8, 0, 0, 0);
+  input.min = local(new Date(Date.now() + 60000));
+  input.value = laterKept(c) ? c.later.slice(0, 16) : local(tomorrow);
+  box.hidden = false;
+  input.focus();
+}
+function sendAtPicked(){
+  const v = $('c-when')?.value;
+  if (!v){ say(t('Pick a date and time.')); $('c-when')?.focus(); return; }
+  send({kind:'at', at:v.length === 16 ? v + ':00' : v});
+}
+// later: undefined sends as the message says (now, or at the time it was to go), null sends now,
+// {kind, at} sends later.
+async function send(later){
+  const sc = state.compose;
+  if (!sc) return;
+  // Send again after a question goes the way the first press chose.
+  if (later === undefined) later = sc.askLater !== undefined ? sc.askLater : laterKept(sc) ? {kind:'at', at:sc.later} : null;
+  sc.askLater = later;
   if (![$('c-to'), $('c-cc'), $('c-bcc')].some(f => trimList(f?.value ?? ''))){ say(t('Add at least one recipient in To.')); $('c-to').focus(); return; }
   if (pref().ask_subject && !$('c-subj').value.trim() && Date.now() - askedSubject > 8000){
     askedSubject = Date.now();
@@ -3267,21 +3459,24 @@ async function send(){
   }
   askedSubject = 0;
   if (!await sendChecks()) return;
-  const btn = document.querySelector('#cform .btn.primary');
+  const btn = document.querySelector('#cform .csend');
   if (!btn || btn.disabled) return;
   const label = btn.querySelector('span');
-  btn.disabled = true; label.textContent = t('Sending…');
-  say(t('Sending…'), 0);
+  btn.disabled = true; label.textContent = later ? t('Saving…') : t('Sending…');
+  say(later ? t('Saving…') : t('Sending…'), 0);
   let r;
   const c = readCompose();
-  try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c)}); c.done = true; return r; }); }
-  catch { btn.disabled = false; label.textContent = t('Send'); return; } // e.g. a bad address: fix it and try again
+  try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c), later}); c.done = true; return r; }); }
+  catch { btn.disabled = false; label.textContent = laterLabel(c); return; } // e.g. a bad address: fix it and try again
   state.compose = null;
   leftCompose();
   forgetRecipients(); // someone new may be in it
+  // Sent later: it waits in the Outbox, where it says when it goes.
+  const scheduled = r.goes ? t('In the Outbox: it goes {when}. E changes it.', {when:fmtFull(parseDate(r.goes))}) : '';
   if (VIEWER){
     const sent = sentText(r.sent);
-    tellMain(r.wait ? {say:t('Sending in {n} s. Press Z to undo.', {n:r.wait}), ms:r.wait * 1000 + 500, undo:{kind:'send', id:r.queued, until:Date.now() + r.wait * 1000}}
+    tellMain(scheduled ? {say:scheduled, ms:8000}
+      : r.wait ? {say:t('Sending in {n} s. Press Z to undo.', {n:r.wait}), ms:r.wait * 1000 + 500, undo:{kind:'send', id:r.queued, until:Date.now() + r.wait * 1000}}
       : {say:r.errors.length ? [sent, r.errors.join(' · ')].filter(Boolean).join(' ') : sent || t('In the Outbox. It goes out with the next check.'), ms:r.errors.length ? 15000 : 6000});
     closeViewer();
     return;
@@ -3289,6 +3484,7 @@ async function send(){
   renderPreview();
   await refresh();
   listEl.focus();
+  if (scheduled){ say(scheduled, 8000); return; }
   if (r.wait){ // it waits a moment in the Outbox, so Z can still take it back
     setUndo({kind:'send', id:r.queued, until:Date.now() + r.wait * 1000});
     say(t('Sending in {n} s. Press Z to undo.', {n:r.wait}), r.wait * 1000 + 500);
@@ -5847,7 +6043,7 @@ const HELP_KEYS = [
     ['Shift+Space', N_('back up; at the top, the previous unread')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
     ['H', N_('HTML or plain text')], ['Q', N_('open or fold the quoted mail')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['← / →', N_('collapse or expand a thread (when enabled)')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
-    ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Esc', N_('save as a draft and close')],
+    ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Ctrl+Shift+Enter', N_('send later: in an hour, tomorrow, Monday or when you pick')], ['Esc', N_('save as a draft and close')],
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or click it')]]],
   [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
@@ -5871,6 +6067,8 @@ const HELP_TIPS = [
   N_('Shift+click selects a range, Ctrl+click one more message.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),
+  N_('The clock next to Send sends a message later; it waits in the Outbox, which says when it goes. Telex sends it then, or at its next start if it was closed.'),
+  N_('Mail from a mailing list has Unsubscribe above it: one click where the list takes it, else a mail or the list’s page, after saying where. Never in Spam.'),
   N_('A click on an underlined word shows its suggestions. Spelling checks every ticked language at once; the end of the compose bar shows them.'),
   N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
   N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),
@@ -5923,7 +6121,8 @@ function onKey(e){
   if (document.querySelector('dialog[open]')) return; // dialogs handle their own Enter and Esc
   if (mod && e.key === ','){ e.preventDefault(); openSettings(); return; }
   const tg = e.target;
-  if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
+  if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.shiftKey){ e.preventDefault(); laterMenu(); return; }
+  if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); if (e.target.id === 'c-when') sendAtPicked(); else send(); return; }
   if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
   if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
