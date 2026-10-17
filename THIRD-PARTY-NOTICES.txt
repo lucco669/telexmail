@@ -21,7 +21,7 @@ argon2 0.5.3: MIT OR Apache-2.0 (https://github.com/RustCrypto/password-hashes/t
 async-broadcast 0.7.2: MIT OR Apache-2.0 (https://github.com/smol-rs/async-broadcast) [T19, T20]
 async-channel 1.9.0: Apache-2.0 OR MIT (https://github.com/smol-rs/async-channel) [T4, T3]
 async-channel 2.5.0: Apache-2.0 OR MIT (https://github.com/smol-rs/async-channel) [T4, T3]
-async-compression 0.4.50: MIT OR Apache-2.0 (https://github.com/Nullus157/async-compression) [T4, T21]
+async-compression 0.4.51: MIT OR Apache-2.0 (https://github.com/Nullus157/async-compression) [T4, T21]
 async-executor 1.14.0: Apache-2.0 OR MIT (https://github.com/smol-rs/async-executor) [T4, T3]
 async-imap 0.11.3: MIT OR Apache-2.0 (https://github.com/async-email/async-imap) [T4, T22]
 async-io 2.6.0: Apache-2.0 OR MIT (https://github.com/smol-rs/async-io) [T4, T3]
@@ -80,9 +80,9 @@ cipher 0.4.4: MIT OR Apache-2.0 (https://github.com/RustCrypto/traits) [T4, T52]
 cmac 0.7.2: MIT OR Apache-2.0 (https://github.com/RustCrypto/MACs) [T4, T53]
 cms 0.2.3: Apache-2.0 OR MIT (https://github.com/RustCrypto/formats/tree/master/cms)
 color_quant 1.1.0: MIT (https://github.com/image-rs/color_quant.git) [T54]
-combine 4.6.8: MIT (https://github.com/Marwes/combine) [T55]
-compression-codecs 0.4.45: MIT OR Apache-2.0 (https://github.com/Nullus157/async-compression) [T4, T21]
-compression-core 0.4.33: MIT OR Apache-2.0 (https://github.com/Nullus157/async-compression) [T4, T21]
+combine 4.6.9: MIT (https://github.com/Marwes/combine) [T55]
+compression-codecs 0.4.46: MIT OR Apache-2.0 (https://github.com/Nullus157/async-compression) [T4, T21]
+compression-core 0.4.34: MIT OR Apache-2.0 (https://github.com/Nullus157/async-compression) [T4, T21]
 concurrent-queue 2.5.0: Apache-2.0 OR MIT (https://github.com/smol-rs/concurrent-queue) [T4, T3]
 const-oid 0.9.6: Apache-2.0 OR MIT (https://github.com/RustCrypto/formats/tree/master/const-oid) [T4, T56]
 convert_case 0.10.0: MIT (https://github.com/rutrum/convert-case) [T57]
@@ -120,12 +120,12 @@ data-encoding 2.11.1: MIT (https://github.com/ia0/data-encoding) [T73]
 dbl 0.3.2: MIT OR Apache-2.0 (https://github.com/RustCrypto/utils) [T4, T33]
 dbus 0.9.12: Apache-2.0/MIT (https://github.com/diwic/dbus-rs) [T74, T75]
 dbus-secret-service 4.1.0: MIT OR Apache-2.0 (https://github.com/brotskydotcom/dbus-secret-service.git) [T4, T76]
-defmt 1.1.1: MIT OR Apache-2.0 (https://github.com/knurling-rs/defmt) [T4, T77]
-defmt-macros 1.1.1: MIT OR Apache-2.0 (https://github.com/knurling-rs/defmt) [T4, T77]
-defmt-parser 1.0.0: MIT OR Apache-2.0 (https://github.com/knurling-rs/defmt)
+defmt 1.2.0: MIT OR Apache-2.0 (https://github.com/knurling-rs/defmt) [T4, T77]
+defmt-macros 1.2.0: MIT OR Apache-2.0 (https://github.com/knurling-rs/defmt) [T4, T77]
+defmt-parser 1.1.0: MIT OR Apache-2.0 (https://github.com/knurling-rs/defmt) [T4, T77]
 der 0.7.10: Apache-2.0 OR MIT (https://github.com/RustCrypto/formats/tree/master/der) [T4, T78]
 der_derive 0.7.3: Apache-2.0 OR MIT (https://github.com/RustCrypto/formats/tree/master/der/derive) [T4, T56]
-deranged 0.5.8: MIT OR Apache-2.0 (https://github.com/jhpratt/deranged) [T79, T80]
+deranged 0.5.9: MIT OR Apache-2.0 (https://github.com/jhpratt/deranged) [T79, T80]
 derive_builder 0.20.2: MIT OR Apache-2.0 (https://github.com/colin-kiegel/rust-derive-builder) [T13, T81]
 derive_builder_core 0.20.2: MIT OR Apache-2.0 (https://github.com/colin-kiegel/rust-derive-builder) [T13, T81]
 derive_builder_macro 0.20.2: MIT OR Apache-2.0 (https://github.com/colin-kiegel/rust-derive-builder) [T13, T81]
@@ -158,7 +158,7 @@ embed_plist 1.2.2: MIT OR Apache-2.0 (https://github.com/nvzqz/embed-plist-rs) [
 endi 1.1.1: MIT (https://github.com/zeenix/endi) [T3]
 enumflags2 0.7.12: MIT OR Apache-2.0 (https://github.com/meithecatte/enumflags2) [T100, T101]
 enumflags2_derive 0.7.12: MIT OR Apache-2.0 (https://github.com/meithecatte/enumflags2) [T102, T103]
-equivalent 1.0.2: Apache-2.0 OR MIT (https://github.com/indexmap-rs/equivalent) [T4, T104]
+equivalent 1.0.3: Apache-2.0 OR MIT (https://github.com/indexmap-rs/equivalent) [T4, T104]
 erased-serde 0.4.10: MIT OR Apache-2.0 (https://github.com/dtolnay/erased-serde) [T17, T3]
 errno 0.3.14: MIT OR Apache-2.0 (https://github.com/lambda-fairy/rust-errno) [T4, T105]
 event-listener 2.5.3: Apache-2.0 OR MIT (https://github.com/smol-rs/event-listener) [T4, T3]
@@ -289,7 +289,7 @@ lazy_static 1.5.1: MIT OR Apache-2.0 (https://github.com/rust-lang-nursery/lazy-
 lettre 0.11.23: MIT (https://github.com/lettre/lettre) [T173]
 libappindicator 0.9.0: Apache-2.0 OR MIT [T4, T174]
 libappindicator-sys 0.9.0: Apache-2.0 OR MIT
-libc 0.2.190: MIT OR Apache-2.0 (https://github.com/rust-lang/libc) [T17, T175]
+libc 0.2.191: MIT OR Apache-2.0 (https://github.com/rust-lang/libc) [T17, T175]
 libdbus-sys 0.2.7: Apache-2.0/MIT (https://github.com/diwic/dbus-rs) [T74, T75]
 libloading 0.7.4: ISC (https://github.com/nagisa/rust_libloading/) [T176]
 libm 0.2.16: MIT (https://github.com/rust-lang/compiler-builtins) [T177]
@@ -309,7 +309,7 @@ memchr 2.8.3: Unlicense OR MIT (https://github.com/BurntSushi/memchr) [T9, T10, 
 memoffset 0.9.1: MIT (https://github.com/Gilnaa/memoffset) [T184]
 mime 0.3.17: MIT OR Apache-2.0 (https://github.com/hyperium/mime) [T4, T185]
 minimal-lexical 0.2.1: MIT/Apache-2.0 (https://github.com/Alexhuszagh/minimal-lexical) [T4, T3, T186]
-minisign-verify 0.2.5: MIT (https://github.com/jedisct1/rust-minisign-verify) [T187]
+minisign-verify 0.3.0: MIT (https://github.com/jedisct1/rust-minisign-verify) [T187]
 miniz_oxide 0.8.9: MIT OR Zlib OR Apache-2.0 (https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) [T188, T17, T188, T189]
 miniz_oxide 0.9.1: MIT OR Zlib OR Apache-2.0 (https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide) [T188, T17, T188, T189]
 mio 1.2.4: MIT (https://github.com/tokio-rs/mio) [T190]
@@ -451,7 +451,7 @@ rusqlite 0.40.2: MIT (https://github.com/rusqlite/rusqlite) [T179]
 rustc-hash 2.1.3: Apache-2.0 OR MIT (https://github.com/rust-lang/rustc-hash) [T17, T3]
 rustix 1.1.5: Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT (https://github.com/bytecodealliance/rustix) [T253, T4, T181, T3]
 rustls 0.23.46: Apache-2.0 OR ISC OR MIT (https://github.com/rustls/rustls) [T4, T145, T146]
-rustls-native-certs 0.8.4: Apache-2.0 OR ISC OR MIT (https://github.com/rustls/rustls-native-certs) [T254, T4, T145, T146]
+rustls-native-certs 0.8.5: Apache-2.0 OR ISC OR MIT (https://github.com/rustls/rustls-native-certs) [T254, T4, T145, T146]
 rustls-pki-types 1.15.1: MIT OR Apache-2.0 (https://github.com/rustls/pki-types) [T255, T256]
 rustls-platform-verifier 0.7.1: MIT OR Apache-2.0 (https://github.com/rustls/rustls-platform-verifier) [T4, T257]
 rustls-platform-verifier-android 0.2.0: MIT OR Apache-2.0 (https://github.com/rustls/rustls-platform-verifier)
@@ -459,10 +459,10 @@ rustls-webpki 0.103.15: ISC (https://github.com/rustls/webpki) [T258]
 rustversion 1.0.23: MIT OR Apache-2.0 (https://github.com/dtolnay/rustversion) [T17, T3]
 salsa20 0.10.2: MIT OR Apache-2.0 (https://github.com/RustCrypto/stream-ciphers) [T4, T259]
 same-file 1.0.6: Unlicense/MIT (https://github.com/BurntSushi/same-file) [T9, T260, T11]
-schannel 0.1.29: MIT (https://github.com/steffengy/schannel-rs) [T261]
+schannel 0.1.30: MIT (https://github.com/steffengy/schannel-rs) [T261]
 schemars 0.8.22: MIT (https://github.com/GREsau/schemars) [T262]
 schemars 0.9.0: MIT (https://github.com/GREsau/schemars) [T262]
-schemars 1.2.2: MIT (https://github.com/GREsau/schemars) [T262]
+schemars 1.2.3: MIT (https://github.com/GREsau/schemars) [T262]
 schemars_derive 0.8.22: MIT (https://github.com/GREsau/schemars) [T262]
 scopeguard 1.2.0: MIT OR Apache-2.0 (https://github.com/bluss/scopeguard) [T4, T263]
 scrypt 0.11.0: MIT OR Apache-2.0 (https://github.com/RustCrypto/password-hashes/tree/master/scrypt) [T4, T216]
@@ -478,7 +478,7 @@ serde 1.0.229: MIT OR Apache-2.0 (https://github.com/serde-rs/serde) [T17, T3]
 serde_core 1.0.229: MIT OR Apache-2.0 (https://github.com/serde-rs/serde) [T17, T3]
 serde_derive 1.0.229: MIT OR Apache-2.0 (https://github.com/serde-rs/serde) [T17, T3]
 serde_derive_internals 0.29.1: MIT OR Apache-2.0 (https://github.com/serde-rs/serde) [T17, T3]
-serde_json 1.0.151: MIT OR Apache-2.0 (https://github.com/serde-rs/json) [T17, T3]
+serde_json 1.0.154: MIT OR Apache-2.0 (https://github.com/serde-rs/json) [T17, T3]
 serde_repr 0.1.21: MIT OR Apache-2.0 (https://github.com/dtolnay/serde-repr) [T17, T3]
 serde_spanned 0.6.9: MIT OR Apache-2.0 (https://github.com/toml-rs/toml) [T13, T267]
 serde_spanned 1.1.2: MIT OR Apache-2.0 (https://github.com/toml-rs/toml) [T268, T267]
@@ -519,10 +519,10 @@ string_cache 0.11.0: MIT OR Apache-2.0 (https://github.com/servo/string-cache) [
 string_cache 0.9.0: MIT OR Apache-2.0 (https://github.com/servo/string-cache) [T4, T60]
 strsim 0.11.1: MIT (https://github.com/rapidfuzz/strsim-rs) [T286]
 subtle 2.6.1: BSD-3-Clause (https://github.com/dalek-cryptography/subtle) [T287]
-swift-rs 1.0.8: MIT OR Apache-2.0 (https://github.com/Brendonovich/swift-rs) [T288, T289]
+swift-rs 1.0.9: MIT OR Apache-2.0 (https://github.com/Brendonovich/swift-rs) [T288, T289]
 syn 1.0.109: MIT OR Apache-2.0 (https://github.com/dtolnay/syn) [T4, T3]
 syn 2.0.119: MIT OR Apache-2.0 (https://github.com/dtolnay/syn) [T17, T3]
-syn 3.0.7: MIT OR Apache-2.0 (https://github.com/dtolnay/syn) [T17, T3]
+syn 3.0.9: MIT OR Apache-2.0 (https://github.com/dtolnay/syn) [T17, T3]
 sync_wrapper 1.0.2: Apache-2.0 (https://github.com/Actyx/sync_wrapper) [T17]
 synstructure 0.14.0: MIT (https://github.com/mystor/synstructure) [T290]
 system-configuration 0.7.0: MIT OR Apache-2.0 (https://github.com/mullvad/system-configuration-rs) [T4, T291]
@@ -532,18 +532,18 @@ tao 0.37.1: Apache-2.0 (https://github.com/tauri-apps/tao) [T13, T294]
 tao-macros 0.1.4: MIT OR Apache-2.0 (https://github.com/tauri-apps/tao) [T4, T295, T296]
 tap 1.0.1: MIT (https://github.com/myrrlyn/tap) [T297]
 tar 0.4.46: MIT OR Apache-2.0 (https://github.com/composefs/tar-rs) [T4, T298]
-tauri 2.12.2: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
-tauri-codegen 2.7.1: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
-tauri-macros 2.7.1: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
-tauri-plugin-dialog 2.8.1: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
-tauri-plugin-fs 2.6.0: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
-tauri-plugin-notification 2.6.0: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
-tauri-plugin-opener 2.7.0: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
-tauri-plugin-single-instance 2.5.3: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T301]
-tauri-plugin-updater 2.13.2: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
-tauri-runtime 2.12.1: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
-tauri-runtime-wry 2.12.1: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
-tauri-utils 2.10.1: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
+tauri 2.12.4: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
+tauri-codegen 2.7.3: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
+tauri-macros 2.7.3: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
+tauri-plugin-dialog 2.8.3: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
+tauri-plugin-fs 2.7.1: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
+tauri-plugin-notification 2.7.0: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
+tauri-plugin-opener 2.7.2: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
+tauri-plugin-single-instance 2.5.4: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T301]
+tauri-plugin-updater 2.14.0: Apache-2.0 OR MIT (https://github.com/tauri-apps/plugins-workspace) [T300, T17, T299]
+tauri-runtime 2.12.2: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
+tauri-runtime-wry 2.12.2: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
+tauri-utils 2.10.2: Apache-2.0 OR MIT (https://github.com/tauri-apps/tauri) [T17, T299]
 tauri-winrt-notification 0.8.1: MIT OR Apache-2.0 (https://github.com/tauri-apps/winrt-notification) [T302, T17, T299]
 tempfile 3.27.0: MIT OR Apache-2.0 (https://github.com/Stebalien/tempfile) [T4, T303]
 tendril 0.5.1: MIT OR Apache-2.0 (https://github.com/servo/html5ever) [T4, T304]
@@ -558,7 +558,7 @@ tinystr 0.8.4: Unicode-3.0 (https://github.com/unicode-org/icu4x) [T151]
 tinyvec 1.13.3: Zlib OR Apache-2.0 OR MIT (https://github.com/Lokathor/tinyvec) [T4, T3, T41]
 tls_codec 0.4.2: Apache-2.0 OR MIT (https://github.com/RustCrypto/formats) [T4, T92]
 tls_codec_derive 0.4.2: Apache-2.0 OR MIT (https://github.com/RustCrypto/formats) [T4, T92]
-tokio 1.53.2: MIT (https://github.com/tokio-rs/tokio) [T306]
+tokio 1.53.3: MIT (https://github.com/tokio-rs/tokio) [T306]
 tokio-macros 2.7.2: MIT (https://github.com/tokio-rs/tokio) [T307]
 tokio-rustls 0.26.6: MIT OR Apache-2.0 (https://github.com/rustls/tokio-rustls) [T308, T309]
 tokio-util 0.7.20: MIT (https://github.com/tokio-rs/tokio) [T306]
@@ -583,13 +583,13 @@ twofish 0.7.1: MIT OR Apache-2.0 (https://github.com/RustCrypto/block-ciphers) [
 typeid 1.0.3: MIT OR Apache-2.0 (https://github.com/dtolnay/typeid) [T17, T3]
 typenum 1.20.1: MIT OR Apache-2.0 (https://github.com/paholg/typenum) [T316, T317, T318]
 uds_windows 1.2.1: MIT (https://github.com/haraldh/rust_uds_windows) [T319]
-unicode-ident 1.0.26: (MIT OR Apache-2.0) AND Unicode-3.0 (https://github.com/dtolnay/unicode-ident) [T17, T3, T320]
+unicode-ident 1.0.27: (MIT OR Apache-2.0) AND Unicode-3.0 (https://github.com/dtolnay/unicode-ident) [T17, T3, T320]
 unicode-segmentation 1.13.3: MIT OR Apache-2.0 (https://github.com/unicode-rs/unicode-segmentation) [T61, T4, T133]
 unicode-xid 0.2.6: MIT OR Apache-2.0 (https://github.com/unicode-rs/unicode-xid) [T61, T4, T133]
 universal-hash 0.5.1: MIT OR Apache-2.0 (https://github.com/RustCrypto/traits) [T4, T321]
 untrusted 0.9.0: ISC (https://github.com/briansmith/untrusted) [T322]
 ureq 3.4.2: MIT OR Apache-2.0 (https://github.com/algesten/ureq) [T4, T323]
-ureq-proto 0.6.4: MIT OR Apache-2.0 (https://github.com/algesten/ureq-proto) [T4, T324]
+ureq-proto 0.6.5: MIT OR Apache-2.0 (https://github.com/algesten/ureq-proto) [T4, T324]
 url 2.5.8: MIT OR Apache-2.0 (https://github.com/servo/rust-url) [T4, T153]
 urlpattern 0.6.0: MIT (https://github.com/denoland/rust-urlpattern) [T325]
 utf8_iter 1.0.4: Apache-2.0 OR MIT (https://github.com/hsivonen/utf8_iter) [T326, T4, T327]
@@ -686,10 +686,10 @@ zbus 5.19.0: MIT (https://github.com/z-galaxy/zbus/) [T344]
 zbus_macros 4.4.0: MIT (https://github.com/dbus2/zbus/) [T344]
 zbus_macros 5.19.0: MIT (https://github.com/z-galaxy/zbus/) [T344]
 zbus_names 3.0.0: MIT (https://github.com/dbus2/zbus/) [T3]
-zbus_names 4.3.4: MIT (https://github.com/z-galaxy/zbus/) [T344]
+zbus_names 4.3.5: MIT (https://github.com/z-galaxy/zbus/) [T344]
 zcheapstr 1.1.0: MIT (https://github.com/z-galaxy/zcheapstr/) [T345]
-zerocopy 0.8.62: BSD-2-Clause OR Apache-2.0 OR MIT (https://github.com/google/zerocopy) [T346, T347, T348]
-zerocopy-derive 0.8.62: BSD-2-Clause OR Apache-2.0 OR MIT (https://github.com/google/zerocopy) [T346, T347, T348]
+zerocopy 0.8.63: BSD-2-Clause OR Apache-2.0 OR MIT (https://github.com/google/zerocopy) [T346, T347, T348]
+zerocopy-derive 0.8.63: BSD-2-Clause OR Apache-2.0 OR MIT (https://github.com/google/zerocopy) [T346, T347, T348]
 zerofrom 0.1.8: Unicode-3.0 (https://github.com/unicode-org/icu4x) [T151]
 zerofrom-derive 0.1.8: Unicode-3.0 (https://github.com/unicode-org/icu4x) [T151]
 zeroize 1.9.1: Apache-2.0 OR MIT (https://github.com/RustCrypto/utils) [T4, T349]
@@ -702,9 +702,9 @@ zmij 1.0.23: MIT (https://github.com/dtolnay/zmij) [T3]
 zune-core 0.5.3: MIT OR Apache-2.0 OR Zlib (https://github.com/etemesi254/zune-image) [T4, T351, T352]
 zune-jpeg 0.5.15: MIT OR Apache-2.0 OR Zlib (https://github.com/etemesi254/zune-image/tree/dev/crates/zune-jpeg) [T4, T351, T352]
 zvariant 4.2.0: MIT (https://github.com/dbus2/zbus/) [T344]
-zvariant 5.15.0: MIT (https://github.com/z-galaxy/zbus/) [T344]
+zvariant 5.15.1: MIT (https://github.com/z-galaxy/zbus/) [T344]
 zvariant_derive 4.2.0: MIT (https://github.com/dbus2/zbus/) [T344]
-zvariant_derive 5.15.0: MIT (https://github.com/z-galaxy/zbus/) [T344]
+zvariant_derive 5.15.1: MIT (https://github.com/z-galaxy/zbus/) [T344]
 zvariant_utils 2.1.0: MIT (https://github.com/dbus2/zbus/) [T3]
 zvariant_utils 4.2.0: MIT (https://github.com/z-galaxy/zbus/) [T3]
 
@@ -939,7 +939,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 
----------- T3: proc-macro2 1.0.107, unicode-ident 1.0.26, quote 1.0.47, syn 3.0.7, pin-project-lite 0.2.17, once_cell 1.21.4 and 112 more ----------
+---------- T3: proc-macro2 1.0.107, unicode-ident 1.0.27, quote 1.0.47, syn 3.0.9, pin-project-lite 0.2.17, once_cell 1.21.4 and 112 more ----------
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -965,7 +965,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
----------- T4: core-foundation-sys 0.8.7, js-sys 0.3.106, cfg-if 1.0.5, wasm-bindgen 0.2.129, once_cell 1.21.4, critical-section 1.2.0 and 241 more ----------
+---------- T4: core-foundation-sys 0.8.7, js-sys 0.3.106, cfg-if 1.0.5, wasm-bindgen 0.2.129, once_cell 1.21.4, critical-section 1.2.0 and 242 more ----------
 
 Apache License
                         Version 2.0, January 2004
@@ -1619,7 +1619,7 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----------- T17: libc 0.2.190, proc-macro2 1.0.107, unicode-ident 1.0.26, quote 1.0.47, syn 3.0.7, pin-project-lite 0.2.17 and 60 more ----------
+---------- T17: libc 0.2.191, proc-macro2 1.0.107, unicode-ident 1.0.27, quote 1.0.47, syn 3.0.9, pin-project-lite 0.2.17 and 60 more ----------
 
 Apache License
                         Version 2.0, January 2004
@@ -2043,7 +2043,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----------- T21: async-compression 0.4.50, compression-codecs 0.4.45, compression-core 0.4.33 ----------
+---------- T21: async-compression 0.4.51, compression-codecs 0.4.46, compression-core 0.4.34 ----------
 
 The MIT License (MIT)
 
@@ -3918,7 +3918,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----------- T55: combine 4.6.8 ----------
+---------- T55: combine 4.6.9 ----------
 
 The MIT License (MIT)
 
@@ -5803,7 +5803,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
----------- T77: defmt 1.1.1, defmt-macros 1.1.1 ----------
+---------- T77: defmt 1.2.0, defmt-macros 1.2.0, defmt-parser 1.1.0 ----------
 
 Copyright (c) Ferrous Systems
 
@@ -5859,7 +5859,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
----------- T79: deranged 0.5.8 ----------
+---------- T79: deranged 0.5.9 ----------
 
 Apache License
                            Version 2.0, January 2004
@@ -6063,7 +6063,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
----------- T80: deranged 0.5.8 ----------
+---------- T80: deranged 0.5.9 ----------
 
 Copyright (c) 2024 Jacob Pratt et al.
 
@@ -7417,7 +7417,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
----------- T104: equivalent 1.0.2 ----------
+---------- T104: equivalent 1.0.3 ----------
 
 Copyright (c) 2016--2023
 
@@ -9159,7 +9159,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----------- T145: hyper-rustls 0.27.10, rustls 0.23.46, rustls-native-certs 0.8.4 ----------
+---------- T145: hyper-rustls 0.27.10, rustls 0.23.46, rustls-native-certs 0.8.5 ----------
 
 ISC License (ISC)
 Copyright (c) 2016, Joseph Birr-Pixton <jpixton@gmail.com>
@@ -9177,7 +9177,7 @@ PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS
 ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
----------- T146: hyper-rustls 0.27.10, rustls 0.23.46, rustls-native-certs 0.8.4 ----------
+---------- T146: hyper-rustls 0.27.10, rustls 0.23.46, rustls-native-certs 0.8.5 ----------
 
 Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
 
@@ -10647,7 +10647,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----------- T175: libc 0.2.190 ----------
+---------- T175: libc 0.2.191 ----------
 
 Copyright (c) The Rust Project Developers
 
@@ -11392,7 +11392,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----------- T187: minisign-verify 0.2.5 ----------
+---------- T187: minisign-verify 0.3.0 ----------
 
 Copyright (c) 2019-2025 Frank Denis
 
@@ -15187,7 +15187,7 @@ is licensed under:
 
 at your option.
 
----------- T254: rustls-native-certs 0.8.4 ----------
+---------- T254: rustls-native-certs 0.8.5 ----------
 
 Rustls is distributed under the following three licenses:
 
@@ -15529,7 +15529,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
----------- T261: schannel 0.1.29 ----------
+---------- T261: schannel 0.1.30 ----------
 
 Copyright (c) 2015 steffengy
 
@@ -15539,7 +15539,7 @@ The above copyright notice and this permission notice shall be included in all c
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
----------- T262: schemars 0.8.22, schemars_derive 0.8.22, schemars 0.9.0, schemars 1.2.2 ----------
+---------- T262: schemars 0.8.22, schemars_derive 0.8.22, schemars 0.9.0, schemars 1.2.3 ----------
 
 MIT License
 
@@ -17051,7 +17051,7 @@ LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----------- T288: swift-rs 1.0.8 ----------
+---------- T288: swift-rs 1.0.9 ----------
 
 Apache License
                            Version 2.0, January 2004
@@ -17255,7 +17255,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
----------- T289: swift-rs 1.0.8 ----------
+---------- T289: swift-rs 1.0.9 ----------
 
 Copyright (c) 2023 The swift-rs Developers
 
@@ -17474,7 +17474,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
----------- T299: tauri 2.12.2, tauri-macros 2.7.1, tauri-codegen 2.7.1, tauri-utils 2.10.1, tauri-runtime 2.12.1, tauri-runtime-wry 2.12.1 and 6 more ----------
+---------- T299: tauri 2.12.4, tauri-macros 2.7.3, tauri-codegen 2.7.3, tauri-utils 2.10.2, tauri-runtime 2.12.2, tauri-runtime-wry 2.12.2 and 6 more ----------
 
 MIT License
 
@@ -17498,7 +17498,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----------- T300: tauri-plugin-dialog 2.8.1, tauri-plugin-fs 2.6.0, tauri-plugin-notification 2.6.0, tauri-plugin-opener 2.7.0, tauri-plugin-single-instance 2.5.3, tauri-plugin-updater 2.13.2 ----------
+---------- T300: tauri-plugin-dialog 2.8.3, tauri-plugin-fs 2.7.1, tauri-plugin-notification 2.7.0, tauri-plugin-opener 2.7.2, tauri-plugin-single-instance 2.5.4, tauri-plugin-updater 2.14.0 ----------
 
 SPDXVersion: SPDX-2.1
 DataLicense: CC0-1.0
@@ -17521,7 +17521,7 @@ PackageDownloadLocation: git+https://github.com/tauri-apps/tauri.git
 PackageDownloadLocation: git+ssh://github.com/tauri-apps/tauri.git
 Creator: Person: Daniel Thompson-Yvetot
 
----------- T301: tauri-plugin-single-instance 2.5.3 ----------
+---------- T301: tauri-plugin-single-instance 2.5.4 ----------
 
 MIT License
 
@@ -17645,7 +17645,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----------- T306: tokio 1.53.2, tokio-util 0.7.20 ----------
+---------- T306: tokio 1.53.3, tokio-util 0.7.20 ----------
 
 MIT License
 
@@ -18339,7 +18339,7 @@ MIT License
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
     SOFTWARE
 
----------- T320: unicode-ident 1.0.26 ----------
+---------- T320: unicode-ident 1.0.27 ----------
 
 UNICODE LICENSE V3
 
@@ -18449,7 +18449,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
----------- T324: ureq-proto 0.6.4 ----------
+---------- T324: ureq-proto 0.6.5 ----------
 
 Copyright 2022 Martin Algesten
 
@@ -19398,7 +19398,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
 IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 
----------- T346: zerocopy 0.8.62, zerocopy-derive 0.8.62 ----------
+---------- T346: zerocopy 0.8.63, zerocopy-derive 0.8.63 ----------
 
 Apache License
                            Version 2.0, January 2004
@@ -19602,7 +19602,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
----------- T347: zerocopy 0.8.62, zerocopy-derive 0.8.62 ----------
+---------- T347: zerocopy 0.8.63, zerocopy-derive 0.8.63 ----------
 
 Copyright 2019 The Fuchsia Authors.
 
@@ -19629,7 +19629,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
----------- T348: zerocopy 0.8.62, zerocopy-derive 0.8.62 ----------
+---------- T348: zerocopy 0.8.63, zerocopy-derive 0.8.63 ----------
 
 Copyright 2023 The Fuchsia Authors
 

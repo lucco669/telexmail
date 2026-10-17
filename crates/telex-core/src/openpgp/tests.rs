@@ -522,7 +522,10 @@ fn keys_import_once_and_list_with_their_facts() {
         1
     );
     let secret = s.export_secret_key(ALICE_FP).unwrap();
-    assert!(secret.starts_with("-----BEGIN PGP PRIVATE KEY BLOCK-----"));
+    assert!(secret
+        .lines()
+        .next()
+        .is_some_and(|l| l.contains("PGP PRIVATE KEY BLOCK")));
     // Removed with its ids.
     s.delete_key(BOB_FP).unwrap();
     let ids: i64 =

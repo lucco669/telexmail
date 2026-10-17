@@ -1,0 +1,12 @@
+# The secret scan (npm run security): Gitleaks' own rules, and one exception.
+#
+# The OpenPGP and S/MIME tests decrypt and verify mail that real GnuPG and OpenSSL made
+# (fixtures/README.md, openpgp/tests.rs). That needs the private keys the vectors were made
+# for, so they are in the repository: throwaway keys made for these tests, published on
+# purpose, never used for anything else. Nothing else is allowed; a key anywhere else fails.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Published test keys of the OpenPGP and S/MIME known-answer vectors"
+paths = ['''crates[/\\]telex-core[/\\]src[/\\](openpgp|smime)[/\\]fixtures[/\\]''']

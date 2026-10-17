@@ -768,15 +768,15 @@ fn a_pop3_account_keeps_all_its_folders_here() {
     assert!(account.folders.iter().all(|f| f.remote.is_none()));
     assert!(account.is_pop3());
     // The user's own folders, as on this PC.
-    let key = s.create_folder(&account.id, "Klienci").unwrap();
-    assert_eq!(key, "poczta/klienci");
+    let folder = s.create_folder(&account.id, "Klienci").unwrap();
+    assert_eq!(folder, "poczta/klienci");
     assert!(
         s.create_folder(&account.id, "klienci").is_err(),
         "one of each name"
     );
-    s.rename_local_folder(&key, "Klienci 2026").unwrap();
+    s.rename_local_folder(&folder, "Klienci 2026").unwrap();
     assert!(s.rename_local_folder("poczta/inbox", "Poczta").is_err());
-    assert_eq!(s.delete_local_folder(&key).unwrap(), 0);
+    assert_eq!(s.delete_local_folder(&folder).unwrap(), 0);
     // An IMAP account's folders are its server's.
     let imap = s
         .upsert_account(&AccountSetup {
