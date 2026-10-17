@@ -9,6 +9,7 @@ const V098 = '0.9.8';
 const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
+const V0912 = '0.9.12';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -238,6 +239,9 @@ export const featureRows: FeatureRow[] = [
       'Opened files carry the Mark of the Web, so Windows treats them with care',
       'Bcc behind one click; blind copies never show in what goes out',
       'Suggestions: people you write to first, then those who write most; no-reply robots left out',
+      { text: 'An address book (B): contacts with several addresses, a phone, an organization and a note, and groups you type in To by name, which go in as their people', since: V0912 },
+      { text: 'Contacts come first in the suggestions and above messages, by the names you saved; people you write to are offered, never added on their own', since: V0912 },
+      { text: 'vCard files in and out, from Google, Apple, Outlook or old Polish exports, and Thunderbird’s and Outlook’s contacts when you move in', since: V0912 },
       'A warning before you send more than 20 MB',
     ],
   },
@@ -501,6 +505,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'scope', group: 'Find', keys: [['Tab']], action: 'In the filter: this folder / all mail', match: [{ key: 'Tab', shift: false }] },
   { id: 'view', group: 'Find', keys: [['H']], action: 'HTML / plain text view', match: [{ key: 'h' }] },
   { id: 'esc', group: 'Find', keys: [['Esc']], action: 'Clear the filter, the selection or the conversation · save draft and close', match: [{ key: 'Escape' }] },
+  { id: 'book', group: 'View', keys: [['B']], action: 'The address book: contacts and groups (/ searches, N adds, Del removes, Z puts back)', match: [{ key: 'b' }], since: V0912 },
   { id: 'settings', group: 'View', keys: [['Ctrl', ',']], action: 'Settings', match: [{ key: ',', ctrl: true }] },
   { id: 'larger', group: 'View', keys: [['Ctrl', '='], ['−']], action: 'Larger / smaller text', match: [{ key: '=', ctrl: true }, { key: '+', ctrl: true }, { key: '-', ctrl: true }] },
   { id: 'normal', group: 'View', keys: [['Ctrl', '0']], action: 'Normal text size', match: [{ key: '0', ctrl: true }] },

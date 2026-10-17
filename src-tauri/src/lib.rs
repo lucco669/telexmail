@@ -3,6 +3,7 @@
 
 mod away;
 mod backup;
+mod contacts;
 mod count;
 mod files;
 mod folders;
@@ -1089,6 +1090,17 @@ pub fn run() {
             list_ids,
             next_unread,
             recipients,
+            contacts::contacts,
+            contacts::contact_groups,
+            contacts::save_contact,
+            contacts::delete_contacts,
+            contacts::restore_contacts,
+            contacts::save_group,
+            contacts::delete_group,
+            contacts::restore_group,
+            contacts::suggested_contacts,
+            contacts::import_vcards,
+            contacts::export_vcards,
             hold_message,
             download_older,
             files::open_attachment,

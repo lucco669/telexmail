@@ -552,6 +552,60 @@ button.ph-who:hover .pn{text-decoration:underline}
 .pklist li.none:hover{background:none}
 .pknote{padding-top:4px}
 
+/* Address book (B): groups and contacts on the left, the one chosen on the right */
+.dlg.ab{width:min(780px,calc(100vw - 32px))}
+.abbody{display:grid;grid-template-columns:minmax(200px,38%) minmax(0,1fr);height:min(520px,calc(100vh - 150px));margin-top:8px;border-top:1px solid var(--line-soft)}
+.ablist{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line-soft)}
+.abq{position:relative;padding:8px 8px 6px}
+.abq input{width:100%;height:26px;padding:0 30px 0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.abq input:focus{border-color:var(--accent);outline:0}
+.abq kbd{position:absolute;right:14px;top:13px;pointer-events:none}
+.abitems{flex:1;min-height:0;margin:0;padding:0 6px 6px;overflow:auto;list-style:none}
+.abitems:focus{outline:0}
+.abitems:focus-visible [aria-selected="true"]{outline:2px solid var(--accent);outline-offset:-2px}
+.abitems li[data-k]{display:flex;align-items:center;gap:7px;min-height:24px;padding:0 8px;border-radius:3px;font-size:12.5px;cursor:pointer}
+.abitems li[data-k]:hover{background:var(--hover)}
+.abitems li[aria-selected="true"]{background:var(--sel)}
+.abitems li svg{flex:none;width:14px;height:14px;color:var(--muted)}
+.abitems .nm{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.abitems .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11.5px var(--font-data);color:var(--muted)}
+.abitems .linkbtn{flex:none;margin-left:auto;color:var(--accent);font-size:11.5px;font-weight:500;text-decoration:none}
+.abitems .abh{margin:8px 8px 3px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.abitems .abh small{font-weight:400;letter-spacing:0}
+.abitems .none{padding:8px;font-size:12px;color:var(--muted)}
+.abedit{min-width:0;min-height:0;padding:4px 0 8px;overflow:auto}
+.abedit .rh{margin:10px 14px 2px}
+.abedit .sbtns{margin:4px 14px 8px}
+.abedit .dnote{padding-top:2px}
+.abempty{padding:16px 14px}
+.cf.df.abform{padding-top:6px}
+.abmails{display:flex;flex-direction:column;gap:4px;min-width:0}
+.abmail{display:flex;align-items:center;gap:6px;min-width:0}
+.abmail input{flex:1;font-family:var(--font-data);font-size:12px}
+.abmail .linkbtn,.abmails .radd{flex:none;margin:0;font-size:11.5px;font-weight:500;color:var(--accent);text-decoration:none}
+.abmails .radd{align-self:flex-start}
+.abtag{flex:none;padding:0 6px;border-radius:8px;background:var(--chip-bg);color:var(--chip-fg);font-size:11px;line-height:17px}
+.abgroups{display:flex;flex-wrap:wrap;gap:2px 12px;padding-top:3px}
+.abadd{position:relative;min-width:0}
+.abadd input{width:100%}
+.abadd .sugg{left:0;right:0;top:calc(100% + 2px)}
+.abmembers{max-height:220px;margin:0 14px 8px;padding:0;overflow:auto;list-style:none;border:1px solid var(--line-soft);border-radius:4px}
+.abmembers li{display:flex;align-items:center;gap:8px;min-height:26px;padding:0 3px 0 8px;border-bottom:1px solid var(--line-soft);font-size:12.5px}
+.abmembers li:last-child{border-bottom:0}
+.abmembers .nm{flex:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.abmembers .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11.5px var(--font-data);color:var(--muted)}
+.abmembers .btn.icon{width:22px;height:22px;margin-left:auto}
+.abmembers .none{color:var(--muted);font-size:12px}
+.abperson{margin:4px 14px 8px;font-size:13px}
+.abperson .em{font:12px var(--font-data);color:var(--muted)}
+.abmsg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted)}
+/* The person button by a sender, and the marks of contacts and groups in compose's suggestions */
+.pbtn.ph-ab{align-self:center;width:20px;height:18px;margin-left:-8px}
+.pbtn.ph-ab svg{width:13px;height:13px}
+.pbtn.ph-ab.known{color:var(--accent)}
+.sugg .ct{display:inline-flex;margin-right:4px;vertical-align:-2px;color:var(--muted)}
+.sugg .ct svg{width:12px;height:12px}
+
 /* Update dialog */
 .u-brand{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
 .u-brand .dtitle{padding:0;margin:0;border:0}
