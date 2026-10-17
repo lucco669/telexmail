@@ -750,3 +750,37 @@ fn user_ids_give_their_addresses() {
     );
     assert_eq!(email_of_user_id("Anna Kowalska"), None);
 }
+
+#[test]
+fn a_key_that_comes_by_itself_never_replaces_one_telex_has() {
+    let mut s = store();
+    import(&mut s, BOB_PUB);
+    // Bob's certificate without its encryption subkey, as anyone could send it.
+    let (mut stripped, _) = SignedPublicKey::from_string(BOB_PUB).unwrap();
+    stripped.public_subkeys.clear();
+    let mut db_tx = s.db.transaction().unwrap();
+    let (_, saved) = save_key(
+        &db_tx,
+        &PublicOrSecret::Public(stripped.clone()),
+        Source::Autocrypt,
+        now(),
+    )
+    .unwrap();
+    assert_eq!(saved, Saved::Unchanged);
+    db_tx.commit().unwrap();
+    assert!(
+        s.key_for("bob@gnupg.test").is_some(),
+        "still encrypts to Bob"
+    );
+    // The user's own import of a newer copy does replace it.
+    db_tx = s.db.transaction().unwrap();
+    let (_, saved) = save_key(
+        &db_tx,
+        &PublicOrSecret::Public(stripped),
+        Source::File,
+        now(),
+    )
+    .unwrap();
+    assert_eq!(saved, Saved::Updated);
+    db_tx.commit().unwrap();
+}

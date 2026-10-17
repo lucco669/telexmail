@@ -561,14 +561,17 @@ pub(crate) fn save_key(
         None => Saved::Added,
         Some((old, had_secret)) => {
             let gains_secret = secret_bytes.is_some() && !had_secret;
-            if *old == public_bytes && !gains_secret {
+            // A copy that came by itself (an Autocrypt header, a key in a message) never
+            // replaces one Telex has: anyone can send a copy with its revocation left out.
+            let automatic = matches!(source, Source::Autocrypt | Source::Message);
+            if (*old == public_bytes || automatic) && !gains_secret {
                 return Ok((reference, Saved::Unchanged));
             }
             Saved::Updated
         }
     };
-    // A certificate merged with the stored one would keep signatures this one dropped; the
-    // newer copy is the owner's word, so it replaces the stored one whole.
+    // A copy the user brought (a file, a pasted key, their own) replaces the stored one
+    // whole: rPGP doesn't merge certificates, and the user chose this one.
     db.execute(
         "INSERT INTO pgp_keys (fingerprint, public, secret, user_ids, emails, created, expires,
              source, verified, added)
