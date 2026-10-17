@@ -84,6 +84,9 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
                      auto-replies with RFC 3834 safeguards (shared with the away reply), previews.
   src/saved_searches.rs  Saved list queries (schema 13); one unreadable row is left out alone.
+  src/tags.rs        Tags (schema 15): colored labels kept as IMAP keywords (Thunderbird's $label1–5
+                     built in, the user's own keyed from their names as Thunderbird keys them),
+                     `messages.keywords`, queued 'keyword' changes, merging the server's keywords.
   src/risk.rs        Scam warning signs of an opened message, offline (docs/mail-risk.md): brand
                      lookalikes, disguised links, hidden characters. Advisory points, not a filter.
   src/spam.rs        Telex's own spam filter, offline: tokens, Robinson/Fisher scores (as SpamBayes),
@@ -177,7 +180,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
-| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}, away: [{account, place, starts, ends}], quota: {"<account>": {used_kb, limit_kb}}, synced: {"<account>": time}}` (empty folders left out; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed; `quota` and `synced`: the server's storage and the last good check, for the status bar and Settings › Accounts) |
+| `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}, away: [{account, place, starts, ends}], quota: {"<account>": {used_kb, limit_kb}}, synced: {"<account>": time}, tags: [{keyword, name, color, count}], tags_here?: [account]}` (empty folders left out; `tags`: every tag in order, Thunderbird's five named in the interface's language; `tags_here`: accounts whose server can't keep tags; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed; `quota` and `synced`: the server's storage and the last good check, for the status bar and Settings › Accounts) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
@@ -186,6 +189,10 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
 | `set_unread_many`, `set_flagged_many` | `ids`, `unread` / `flagged` | how many changed (others are left alone) |
+| `set_tag_many`   | `ids`, `keyword`, `on`       | how many changed: the tag added (`on`) or taken off, here at once and queued for the server |
+| `save_tag`       | `tag` `{keyword, name, color}` (keyword "" = new) | the saved tag, or a sentence saying what's wrong (a new one gets its keyword from its name) |
+| `delete_tag`     | `keyword`                    | how many messages lost it (it comes off every message, here and on the server) |
+| `move_tag`       | `keyword`, `delta` (-1 up, 1 down) | – (the first five have keys 1–5) |
 | `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none; within an account, or to and from the folders on this PC (server mail moved there leaves the server; moved back, it is uploaded); into or out of Spam, the spam filter learns from it |
 | `mark_spam`      | `ids`, `spam`                | `[[id, from]]` for undo: to each account's Spam folder (true) or back to its Inbox (false), learned from; all or none (mail on this PC can't) |
 | `spam_status`    | –                            | `{spam, ham, needed}`: messages the spam filter learned from, and how many of each it needs before it moves anything |
@@ -398,6 +405,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | N            | new message                    |
 | E            | edit a draft or an unsent message in the Outbox |
 | F            | flag / unflag (the selection: flag all, or unflag all when all are flagged) |
+| 1 – 5        | the first five tags on / off (the selection: on for all, or off when all have it); every tag in the message menu's Tags… and the tag button above a message |
 | U            | toggle unread (the selection: all read, or all unread when all are read) |
 | click the dot / flag | at the start of a row: that message read or unread, flagged or not |
 | Shift+U      | mark everything in the folder read |
@@ -409,7 +417,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | → / ←        | with threads on (Settings › Reading): expand / collapse the selected thread |
 | O            | only the unread mail of the list (also the dot above the list's dots, or "n unread" in the status bar); O again or Esc: all of it. In Unread (top of the tree) O goes back to the folder before |
 | Z            | undo the last delete, move or Discard; within the moment after Send, take the message back (also the Undo button in the status bar) |
-| /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
+| /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `tag:` `is:tagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
 | ↓ ↑ Enter    | in the search box: choose a suggestion (a recent search, a person, an operator); Enter or ↓ with none chosen goes to the results |
 | Tab          | in the quick filter: this folder / all mail |
 | Enter, double-click | open the message in a window of its own (Esc closes it); in all-mail results and conversations Enter opens the message's folder |
@@ -429,7 +437,33 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- Tags (schema version 15: `messages.keywords`, `tags`, `accounts.local_tags`; one-way upgrade, as
+  every schema step): colored labels, several to a message, like The Bat!'s colored mail and
+  Thunderbird's tags (`tags.rs`). On a server a tag is an IMAP keyword: Thunderbird's five come
+  built in (`$label1` Important, `$label2` Work, `$label3` Personal, `$label4` To do, `$label5`
+  Later; named in the interface's language until renamed), a new tag's keyword comes from its name
+  as Thunderbird makes one ("Projekt X" → `projekt_x`, non-ASCII in lowercased modified UTF-7), so
+  a tag made in both programs is one tag. Only keywords that are tags here are kept. Sync both ways:
+  FLAGS brings the server's keywords with the flags (only what differs is written; a keyword whose
+  change is still queued keeps its value here), changes queue as kind 'keyword' (`target` the
+  keyword, `value` on/off, one per message and keyword) and go as one `UID STORE ±FLAGS.SILENT
+  (keyword)` per keyword and sign. A folder whose PERMANENTFLAGS has neither `\*` nor the keyword
+  makes the account keep its tags on this PC (`local_tags`; said once as a check problem; the
+  server's empty keywords then never take them away; Settings › Tags names such accounts). Folders on
+  this PC keep tags in the mail base; moves keep them; mail uploaded from this PC takes them in its
+  APPEND (again without them if the server minds); mail moved back before the server heard sends
+  only the tags that changed meanwhile (the expunge's `target` remembers what the server copy had).
+  Deleting a tag takes it off every message at once, here and on the server (asked first, with the
+  count), so nothing lingers in other programs and nothing needs cleaning later. The window: chips
+  before the subject in every list (three, then +n; `--tag-<color>` and `--tag-<color>-fg` per
+  theme for the eight `tags::COLORS`, checked by check-contrast.mjs), under the subject above a
+  message, keys 1–5, the message menu's Tags… and a tag button above a message (ticked menus), and
+  Settings › Tags (name in place, color from the palette, order, New tag, Delete). Search
+  `tag:work` (name or keyword, diacritics ignored, else names that start so) and `is:tagged` /
+  `is:untagged`; saved searches keep them. Rules: condition Tag has / doesn't have / has any / has
+  none, actions Add a tag / Take a tag off, with notes ("tagged it Later"); a rule whose tag was
+  deleted says so when it runs. Copy as Markdown lists a message's tags; the settings file carries
+  the tags with the rules ("Rules and tags"), by keyword.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
@@ -810,7 +844,7 @@ Nothing yet.
 
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, a settings window, eight themes, English and Polish.
-- Settings (`settings.rs`, a dialog with tabs Appearance, Language, Accounts, Mail, Reading,
+- Settings (`settings.rs`, a dialog with tabs Appearance, Language, Accounts, Mail, Reading, Tags,
   Writing, Usage, Connections, Backups, Updates, Import and export; toolbar button and Ctrl+,): every change is saved
   at once and shows at once. Accounts holds the list (servers, last check), the add-account
   wizard, the server form and each account's identities; "Add account" anywhere opens it.

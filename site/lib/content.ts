@@ -9,6 +9,7 @@ const V098 = '0.9.8';
 const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
+const V0912 = '0.9.12';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -132,6 +133,7 @@ export const featureRows: FeatureRow[] = [
       'Right-click a message (or Shift+F10) for reply, move, flag, read, the conversation and a rule, each with its key',
       'Shift+Space pages back, then goes to the previous unread',
       { text: 'Copy as Markdown: a message, a selection or a whole conversation, oldest first, ready for notes or an AI chat (Ctrl+C, the menu, or the button above a message)', since: V0911 },
+      { text: 'Tags: colored labels, several to a message, on keys 1–5 and in the menu. They are IMAP keywords, so Thunderbird shows the same tags; name and color them in Settings › Tags', since: V0912 },
     ],
   },
   {
@@ -318,6 +320,7 @@ export const featureRows: FeatureRow[] = [
       'Esc clears the filter and puts you back in the list',
       { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: '0.7.1' },
       { text: 'What matched is marked in the list', since: '0.7.1' },
+      { text: 'tag:work finds a tag by its name, is:tagged any tagged mail; saved searches keep them', since: V0912 },
     ],
   },
   {
@@ -406,6 +409,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Preview an unsaved rule on the current folder or search: total matches, sample messages and each condition’s result, without changing or sending mail', since: V095 },
       'Automatic forwarding and replies run only on new arrivals; running rules by hand does not send old mail',
       { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
+      { text: 'Tags in rules: a condition on a tag, any tag or none, and actions that add or take one off', since: V0912 },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
       { text: 'An away reply per account, kept on your server where it can be, so it answers while Telex is closed', since: '0.9.0' },
     ],
@@ -492,6 +496,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
   { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }] },
   { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread (or click the dot in the row)', match: [{ key: 'u' }] },
+  { id: 'tags', group: 'Organize', keys: [['1'], ['2'], ['3'], ['4'], ['5']], action: 'The first five tags on or off (the whole selection)', match: ['1', '2', '3', '4', '5'].map((key) => ({ key })), since: V0912 },
   { id: 'folderread', group: 'Organize', keys: [['Shift', 'U']], action: 'Mark everything in the folder read', match: [{ key: 'U', shift: true }], since: '0.5.0' },
   { id: 'delete', group: 'Organize', keys: [['Del']], action: 'Move to Trash (in Trash: two separate presses delete for good)', match: [{ key: 'Delete' }], home: true },
   { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: '0.5.0', home: true },
