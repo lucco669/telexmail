@@ -57,6 +57,8 @@ const TEXT = [
   ['note-fg', 'note-bg', 'Invitation card: cancelled, or in Spam'],
   ['accent-fg', 'accent', 'Invitation card: the answer chosen'],
   ['faint', 'surface', 'Invitation card: the comment field’s placeholder'],
+  ...[1, 2, 3, 4, 5, 6].map((i) => [`pal-${i}`, 'surface', `Text color ${i} in the HTML editor`]),
+  ...[1, 2, 3, 4].map((i) => ['fg', `mark-${i}`, `Text under highlight ${i} in the HTML editor`]),
 ];
 const UI = [
   ['accent', 'line-soft', 'Update download progress'],

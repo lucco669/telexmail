@@ -550,6 +550,35 @@ td.c-subj .goes{font-weight:600}
 .hedit blockquote.cfold{max-height:calc(3 * 1.55em);overflow:hidden;cursor:pointer;-webkit-mask-image:linear-gradient(#000 45%,transparent);mask-image:linear-gradient(#000 45%,transparent)}
 .hedit ul,.hedit ol{margin:2px 0;padding-left:24px}
 .hedit p{margin:0 0 8px}
+/* The palette: what is sent is made for white paper (html::TEXT_COLORS, MARK_COLORS); the editor
+   shows each in the theme's own readable shade (--pal-*, --mark-*), whichever way it is written:
+   as saved (color:#c00000) or as the browser wrote it just now (color: rgb(192, 0, 0)). The text
+   and highlight colors differ, so "color:" never matches a highlight's "background-color:". */
+.hedit [style*="color:#c00000"],.hedit [style*="color: rgb(192, 0, 0)"]{color:var(--pal-1)!important}
+.hedit [style*="color:#b45309"],.hedit [style*="color: rgb(180, 83, 9)"]{color:var(--pal-2)!important}
+.hedit [style*="color:#15803d"],.hedit [style*="color: rgb(21, 128, 61)"]{color:var(--pal-3)!important}
+.hedit [style*="color:#1d4ed8"],.hedit [style*="color: rgb(29, 78, 216)"]{color:var(--pal-4)!important}
+.hedit [style*="color:#7e22ce"],.hedit [style*="color: rgb(126, 34, 206)"]{color:var(--pal-5)!important}
+.hedit [style*="color:#6b7280"],.hedit [style*="color: rgb(107, 114, 128)"]{color:var(--pal-6)!important}
+.hedit [style*="background-color:#fff59d"],.hedit [style*="background-color: rgb(255, 245, 157)"]{background-color:var(--mark-1)!important}
+.hedit [style*="background-color:#c8f7c5"],.hedit [style*="background-color: rgb(200, 247, 197)"]{background-color:var(--mark-2)!important}
+.hedit [style*="background-color:#cfe8ff"],.hedit [style*="background-color: rgb(207, 232, 255)"]{background-color:var(--mark-3)!important}
+.hedit [style*="background-color:#ffd6e7"],.hedit [style*="background-color: rgb(255, 214, 231)"]{background-color:var(--mark-4)!important}
+.hedit [style*="font-size: small"],.hedit [style*="font-size:12px"]{font-size:12px!important}
+.hedit [style*="font-size: x-large"],.hedit [style*="font-size:18px"]{font-size:18px!important}
+.hedit [style*="font-size: medium"]{font-size:inherit!important}
+/* Automatic and No highlight: stand-in colors (NO_COLOR, NO_MARK in app.js) the core leaves out. */
+.hedit [style*="color: rgb(1, 2, 3)"]{color:inherit!important}
+.hedit [style*="background-color: rgb(1, 2, 4)"]{background-color:transparent!important}
+.hedit img{max-width:100%;height:auto;vertical-align:bottom}
+.hedit img:hover{outline:1px dashed var(--field)}
+.hedit table{border-collapse:collapse;max-width:100%}
+.hedit td,.hedit th{padding:2px 6px;vertical-align:top}
+.hedit .telex-signature{color:var(--fg)}
+.fb .sw{width:14px;height:4px;margin-top:1px;border-radius:1px;background:var(--pal-1)}
+.fb.fcolor,.fb.fmark{grid-template-rows:auto auto;gap:0;line-height:1}
+.fb.fmark .sw{background:var(--mark-1)}
+.fsep{width:1px;align-self:stretch;margin:3px 3px;background:var(--line)}
 /* Dialogs */
 .dlg{width:min(460px,calc(100vw - 32px));padding:0;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);box-shadow:0 12px 32px var(--shadow)}
 .dlg::backdrop{background:var(--scrim)}
@@ -749,6 +778,21 @@ td.c-subj .goes{font-weight:600}
 .sig textarea{width:100%;min-height:58px;padding:5px 7px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data);resize:vertical}
 .sig textarea:focus{border-color:var(--accent);outline:0}
 .sig textarea::placeholder{color:var(--muted)}
+/* A signature's editor (Settings › Writing, the identity form): compose's bar and editor, small. */
+.cf .lab{align-self:start;padding-top:4px;color:var(--muted);font-size:12px}
+.sigedit{display:flex;flex-direction:column;min-width:0;border:1px solid var(--field);border-radius:3px;overflow:hidden;background:var(--surface)}
+.sigedit:focus-within{border-color:var(--accent)}
+.sigedit .fbar{padding:2px 4px}
+.sigedit .fb{min-width:22px;height:22px;padding:0 3px}
+.sigedit .hedit{min-height:58px;max-height:260px;padding:5px 8px;font-size:12.5px}
+.sigedit .hedit:focus{box-shadow:none}
+.hedit[data-placeholder]:empty::before{content:attr(data-placeholder);color:var(--muted)}
+/* A folder's templates (Settings › Writing). */
+.ftpl .ffields{display:grid;grid-template-columns:minmax(110px,max-content) minmax(0,1fr);gap:4px 8px;align-items:start;font-size:12px}
+.ftpl .ffields label{padding-top:5px;color:var(--muted)}
+.ftpl textarea,.ftpl input{width:100%;min-width:0;padding:4px 7px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data);resize:vertical}
+.ftpl input{height:24px}
+.ftpl textarea:focus,.ftpl input:focus{border-color:var(--accent);outline:0}
 .sopt{display:flex;align-items:center;gap:8px;min-height:26px;font-size:12.5px;cursor:pointer}
 .sopt input{flex:none;margin:0}
 .sopt .sinline{min-width:0;height:24px}
@@ -1082,6 +1126,11 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
 .cmenu li[aria-disabled="true"]:hover{background:none}
 .cmenu .msep{height:1px;margin:4px 0;background:var(--line-soft)}
 .cmenu .tick{display:inline-block;width:18px;font-style:normal;font-weight:700;color:var(--accent)}
+.cmenu .sw{display:inline-block;width:12px;height:12px;margin-right:8px;border:1px solid var(--field);border-radius:2px;vertical-align:-2px}
+.cmenu .sw.p1{background:var(--pal-1)}.cmenu .sw.p2{background:var(--pal-2)}.cmenu .sw.p3{background:var(--pal-3)}.cmenu .sw.p4{background:var(--pal-4)}.cmenu .sw.p5{background:var(--pal-5)}.cmenu .sw.p6{background:var(--pal-6)}
+.cmenu .sw.m1{background:var(--mark-1)}.cmenu .sw.m2{background:var(--mark-2)}.cmenu .sw.m3{background:var(--mark-3)}.cmenu .sw.m4{background:var(--mark-4)}
+.cmenu .sw.none{background:linear-gradient(135deg,transparent 45%,var(--note-fg) 45% 55%,transparent 55%)}
+.cmenu .fs-small{font-size:11px}.cmenu .fs-large{font-size:15px}
 .cmenu kbd{flex:none}
 @media (forced-colors: active){
   .cmenu{border-color:CanvasText}

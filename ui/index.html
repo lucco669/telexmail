@@ -258,11 +258,13 @@
           <div class="cf df">
             <label for="i-name" data-i18n>Name</label><input id="i-name" autocomplete="off" placeholder="The name people see" data-i18n>
             <label for="i-email" data-i18n>Email</label><input id="i-email" type="email" autocomplete="off" spellcheck="false">
-            <label for="i-sig" data-i18n>Signature</label><textarea id="i-sig" rows="4"></textarea>
+            <span class="lab" id="i-sig-label" data-i18n>Signature</span><div class="sigedit" id="i-sigedit"></div>
+            <label for="i-newt" data-i18n>New messages open with</label><textarea id="i-newt" rows="2" spellcheck="false" placeholder="Hello," data-i18n></textarea>
+            <label for="i-replyt" data-i18n>Replies open with</label><textarea id="i-replyt" rows="2" spellcheck="false" placeholder="Hello {first}," data-i18n></textarea>
             <label for="i-reply" data-i18n>Reply header</label><input id="i-reply" autocomplete="off" spellcheck="false">
             <label for="i-fwd" data-i18n>Forward header</label><textarea id="i-fwd" rows="4" spellcheck="false"></textarea>
           </div>
-          <p class="dnote" data-i18n>In the headers, these are filled in from the original message: {name} {email} {from} {date} {time} {subject}.</p>
+          <p class="dnote" data-i18n>In the templates and headers, these are filled in from the original message: {name} {first} {email} {from} {date} {time} {subject}. A new message has only {date} and {time}, today’s.</p>
           <label class="rcheck"><input type="checkbox" id="i-default"> <span data-i18n>Default for this account</span></label>
           <p class="derr" id="i-form-err" role="alert"></p>
           <div class="sbtns">
@@ -348,7 +350,18 @@
           <div class="sopts">
             <label class="sopt"><input type="checkbox" id="s-signrep"><span data-i18n>Sign replies and forwards too</span></label>
           </div>
-          <p class="dnote snote" data-i18n>Saved as you type. Reply and forward headers are with each identity: Edit identity.</p>
+          <p class="dnote snote" data-i18n>Saved as you type, with its formatting and a picture if you like; plain-text messages get its text. Greetings and reply and forward headers are with each identity: Edit identity.</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Folder templates</legend>
+          <div class="sigs" id="s-ftpl"></div>
+          <div class="sopts"><select id="s-ftpl-add" class="sselect" aria-label="Add templates for a folder" data-i18n></select></div>
+          <p class="dnote snote" data-i18n>A folder’s own greeting for new messages written while it is open and for replies to mail in it, and its own reply header. What is left empty comes from the identity. Also from a folder’s menu: Templates…</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Pictures</legend>
+          <div class="sopts" id="s-imgsize"></div>
+          <p class="dnote snote" data-i18n>Pictures pasted, dropped or inserted into an HTML message are made this size. A photo made smaller also loses its hidden details, such as where it was taken.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Spelling</legend>

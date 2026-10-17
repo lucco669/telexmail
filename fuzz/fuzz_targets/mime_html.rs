@@ -11,5 +11,8 @@ fuzz_target!(|data: &[u8]| {
     let _ = html::render(data, &HashMap::new(), &html::Paper::Dark(html::Palette::default()));
     let text = String::from_utf8_lossy(data);
     let _ = html::compose_clean(&text);
+    let _ = html::inline_images(&html::compose_clean(&text), "fuzz@telex.invalid");
+    let _ = html::editable(data);
+    let _ = html::quotable(data);
     let _ = html::to_text(&text);
 });

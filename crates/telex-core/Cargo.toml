@@ -44,6 +44,9 @@ regex-syntax = "0.8.11"
 # Calendar invitations: the IANA time zones (and Windows' names mapped to them), compiled in,
 # so an invite shows in local time without a system database.
 chrono-tz = "0.10.4"
+# Pictures put into a message being written: read, turned upright and made smaller. Only PNG,
+# JPEG, GIF and WebP are compiled in.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 
 # MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver;
 # Windows' display languages for the interface language; Outlook's accounts in the registry.

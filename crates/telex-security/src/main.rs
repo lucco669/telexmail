@@ -29,6 +29,9 @@ fn main() {
             let _ = html::render(&raw, &HashMap::new(), &html::Paper::Light);
             let text = String::from_utf8_lossy(&raw);
             let _ = html::compose_clean(&text);
+            let _ = html::inline_images(&html::compose_clean(&text), "fuzz@telex.invalid");
+            let _ = html::editable(&raw);
+            let _ = html::quotable(&raw);
             let _ = html::to_text(&text);
         }
         Some("pst") => {

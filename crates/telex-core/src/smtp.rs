@@ -266,12 +266,10 @@ fn build(
         }
     }
 
-    // HTML goes out cleaned, with a plain-text version for mail programs that show only text.
+    // HTML goes out cleaned, with a plain-text version for mail programs that show only text,
+    // and its pictures as parts of their own beside it (multipart/related, `cid:`).
     let body = match draft.html.as_deref().map(html::compose_clean) {
-        Some(clean) => Body::Html(MultiPart::alternative_plain_html(
-            html::to_text(&clean),
-            html::compose_document(&clean),
-        )),
+        Some(clean) => Body::Html(html_body(&clean, &message_id)),
         None => Body::Plain(SinglePart::plain(draft.body.clone())),
     };
     let body = match (body, calendar) {
@@ -345,6 +343,27 @@ fn build(
         env_to: envelope.to().iter().map(ToString::to_string).collect(),
         raw,
     })
+}
+
+/// The text of an HTML message: its plain text, then the HTML, with the pictures it shows
+/// related to the HTML. Each picture's Content-ID is its number at the message's own id.
+fn html_body(clean: &str, message_id: &str) -> MultiPart {
+    let (html, pictures) = html::inline_images(clean, message_id);
+    let text = html::to_text(&html);
+    let document = html::compose_document(&html);
+    if pictures.is_empty() {
+        return MultiPart::alternative_plain_html(text, document);
+    }
+    let mut related = MultiPart::related().singlepart(SinglePart::html(document));
+    for picture in pictures {
+        let content_type = ContentType::parse(&picture.mime)
+            .unwrap_or(ContentType::parse("application/octet-stream").expect("valid type"));
+        related = related
+            .singlepart(MimeAttachment::new_inline(picture.cid).body(picture.data, content_type));
+    }
+    MultiPart::alternative()
+        .singlepart(SinglePart::plain(text))
+        .multipart(related)
 }
 
 /// lettre couldn't put the message together; its reason stays as it wrote it.
@@ -757,6 +776,67 @@ mod tests {
         // The local copy shows the text, and the HTML view finds the HTML.
         assert!(composed.message.body.starts_with("Dzień dobry,"));
         assert!(html::render(&composed.raw, &Default::default(), &html::Paper::Light).is_some());
+    }
+
+    #[test]
+    fn pictures_go_as_related_parts_and_come_back_for_the_editor() {
+        let png = "data:image/png;base64,iVBORw0KGgo=";
+        let mut d = draft("anna@kowalska-architekci.pl");
+        d.html = Some(format!(
+            "<div>Plan <span style=\"color:#c00000\">pilny</span>:</div><img src=\"{png}\" alt=\"plan\">\
+             <div class=\"telex-signature\">Anna<br><img src=\"{png}\"></div>\
+             <img src=\"https://t.pl/x.gif\">"
+        ));
+        let composed = compose(&account(), &d, &Originals::default(), now()).unwrap();
+        let raw = String::from_utf8_lossy(&composed.raw).replace("\r\n", "\n");
+        let alternative = raw.find("multipart/alternative").unwrap();
+        let related = raw.find("multipart/related").unwrap();
+        assert!(
+            alternative < related,
+            "the pictures go with the HTML: {raw}"
+        );
+        assert_eq!(
+            raw.matches("Content-ID: <").count(),
+            1,
+            "one part for one picture"
+        );
+        assert!(!raw.contains("t.pl"), "no remote pictures");
+        let parsed = MessageParser::default().parse(&composed.raw).unwrap();
+        let html = parsed.body_html(0).unwrap();
+        let id = parsed.message_id().unwrap();
+        assert!(
+            html.contains(&format!("src=\"cid:1.{id}\" alt=\"plan\"")),
+            "{html}"
+        );
+        assert!(html.contains("style=\"color:#c00000\""));
+        assert!(html.contains("<div class=\"telex-signature\">"));
+        assert_eq!(
+            parsed
+                .body_text(0)
+                .unwrap()
+                .replace("\r\n", "\n")
+                .trim_end(),
+            "Plan pilny:\nAnna"
+        );
+        assert!(
+            composed.message.attachments.is_empty(),
+            "pictures in the text aren't files: {:?}",
+            composed.message.attachments
+        );
+        // Shown in Telex, and opened again with E, the picture is in the message itself.
+        let shown = html::render(&composed.raw, &Default::default(), &html::Paper::Light).unwrap();
+        assert!(shown.document.contains(png) && shown.blocked == 0);
+        let editable = html::editable(&composed.raw).unwrap();
+        assert!(
+            editable.contains(&format!("<img src=\"{png}\" alt=\"plan\">")),
+            "{editable}"
+        );
+        let draft_raw = compose_draft(&account(), &d, &Originals::default(), now()).unwrap();
+        assert_eq!(
+            html::editable(&draft_raw).unwrap(),
+            editable,
+            "a draft keeps them too"
+        );
     }
 
     #[test]

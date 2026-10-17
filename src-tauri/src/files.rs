@@ -15,8 +15,10 @@ use tauri::{AppHandle, DragDropEvent, Emitter, Manager, State, WebviewWindow, Wi
 use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::attachments::{self, is_risky};
+use telex_core::images::{self, Picture};
 use telex_core::{tr, Attachment, FolderKind, MessageId};
 
+use crate::settings::SettingsState;
 use crate::{with_store, AppState, CmdResult};
 
 /// Files the user chose this session.
@@ -156,6 +158,9 @@ pub fn open_attachment(
 #[derive(Debug, Deserialize)]
 pub struct DialogWords {
     title: String,
+    /// Set (the filter's name, "Pictures"): the Open dialog shows only pictures.
+    #[serde(default)]
+    pictures: String,
 }
 
 /// Save one attachment where the user picks. `null` when they cancel.
@@ -234,13 +239,17 @@ pub async fn pick_files(
     words: DialogWords,
 ) -> CmdResult<Vec<Attachment>> {
     let (tx, rx) = mpsc::channel();
-    app.dialog()
+    let mut dialog = app
+        .dialog()
         .file()
         .set_parent(&window)
-        .set_title(words.title)
-        .pick_files(move |paths| {
-            let _ = tx.send(paths);
-        });
+        .set_title(words.title);
+    if !words.pictures.is_empty() {
+        dialog = dialog.add_filter(words.pictures, &["png", "jpg", "jpeg", "gif", "webp"]);
+    }
+    dialog.pick_files(move |paths| {
+        let _ = tx.send(paths);
+    });
     let paths = tauri::async_runtime::spawn_blocking(move || rx.recv().ok().flatten())
         .await
         .ok()
@@ -251,6 +260,45 @@ pub async fn pick_files(
         .filter_map(|p| p.into_path().ok())
         .filter_map(|p| files.remember(&p))
         .collect())
+}
+
+/// Larger files aren't read to be put in a message as a picture.
+const MAX_PICTURE_FILE: u64 = 64 * 1024 * 1024;
+
+/// A picture for the HTML editor (`images::prepare`): a file chosen in Telex's Open dialog or
+/// dropped this session (`path`), or one the window read itself, pasted (`data`, base64). Made
+/// the size Settings › Writing says, or for a signature (`signature`) smaller still.
+#[tauri::command]
+pub async fn editor_image(
+    files: State<'_, FilesState>,
+    settings: State<'_, SettingsState>,
+    path: Option<String>,
+    data: Option<String>,
+    signature: bool,
+) -> CmdResult<Picture> {
+    let size = settings.get().image_size;
+    let bytes = match (path, data) {
+        (Some(path), _) => {
+            let path = PathBuf::from(path);
+            files.check_paths(std::slice::from_ref(&path))?;
+            let too_large = std::fs::metadata(&path).map_or(true, |m| m.len() > MAX_PICTURE_FILE);
+            if too_large {
+                return Err(images::too_large());
+            }
+            std::fs::read(&path).map_err(|e| e.to_string())?
+        }
+        (None, Some(data)) => images::pasted(&data)?,
+        (None, None) => return Err(images::not_a_picture()),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        if signature {
+            images::prepare_for_signature(&bytes)
+        } else {
+            images::prepare(&bytes, size)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Files dropped on a window, and where (physical pixels from its top left): attached to the

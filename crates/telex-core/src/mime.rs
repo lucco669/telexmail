@@ -87,8 +87,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         _ => false,
     });
 
-    let attachments = p
-        .attachments()
+    let attachments = files(&p)
         .map(|a| Attachment {
             name: file_name(a),
             size_kb: kb(a.contents().len()),
@@ -229,14 +228,50 @@ pub fn attachments_of(raw: &[u8]) -> Vec<FileAttachment> {
     let Some(p) = MessageParser::default().parse(raw) else {
         return Vec::new();
     };
-    p.attachments().map(file_attachment).collect()
+    files(&p).map(file_attachment).collect()
 }
 
 /// One attachment, by its place in the message's list (as [`parse_message`] lists them).
 pub fn attachment_at(raw: &[u8], index: usize) -> Option<FileAttachment> {
     let p = MessageParser::default().parse(raw)?;
-    let found = p.attachments().nth(index).map(file_attachment);
+    let found = files(&p).nth(index).map(file_attachment);
     found
+}
+
+/// A message's files: its attachments, without the pictures its HTML shows in the text
+/// (`cid:`, as in multipart/related), which belong to the text, not to the files.
+pub(crate) fn files<'a>(
+    p: &'a mail_parser::Message<'a>,
+) -> impl Iterator<Item = &'a MessagePart<'a>> + 'a {
+    let html = p
+        .html_bodies()
+        .filter_map(|part| match &part.body {
+            PartType::Html(html) => Some(html.to_ascii_lowercase()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(
+            "
+",
+        );
+    p.attachments()
+        .filter(move |part| !in_the_text(part, &html))
+}
+
+fn in_the_text(part: &MessagePart<'_>, html: &str) -> bool {
+    if part
+        .content_disposition()
+        .is_some_and(|d| d.is_attachment())
+    {
+        return false;
+    }
+    let Some(cid) = part.content_id() else {
+        return false;
+    };
+    let cid = cid.trim().trim_start_matches('<').trim_end_matches('>');
+    !cid.is_empty()
+        && mime_type(part).starts_with("image/")
+        && html.contains(&format!("cid:{}", cid.to_ascii_lowercase()))
 }
 
 fn file_attachment(part: &MessagePart<'_>) -> FileAttachment {

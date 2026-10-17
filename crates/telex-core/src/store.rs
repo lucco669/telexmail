@@ -42,6 +42,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/018_invites.sql"),
     include_str!("migrations/019_address_book.sql"),
     include_str!("migrations/020_tags.sql"),
+    include_str!("migrations/021_compose_templates.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -1365,7 +1366,7 @@ impl MailStore {
     /// Add an identity (id 0) or update one. Making it the default takes that from the
     /// account's other identities.
     pub fn save_identity(&mut self, identity: &Identity) -> Result<Identity, StoreError> {
-        identity.check().map_err(StoreError::Invalid)?;
+        let identity = &identity.prepared().map_err(StoreError::Invalid)?;
         self.account(&identity.account)?;
         let tx = self.db.transaction()?;
         let id = if identity.id == 0 {
@@ -1378,7 +1379,8 @@ impl MailStore {
         } else {
             let changed = tx.execute(
                 "UPDATE identities SET name = ?2, email = ?3, signature = ?4, reply_header = ?5,
-                     forward_header = ?6, is_default = ?7
+                     forward_header = ?6, is_default = ?7, signature_html = ?9,
+                     new_template = ?10, reply_template = ?11
                  WHERE id = ?1 AND account = ?8",
                 params![
                     identity.id,
@@ -1388,7 +1390,10 @@ impl MailStore {
                     identity.reply_header,
                     identity.forward_header,
                     identity.is_default,
-                    identity.account
+                    identity.account,
+                    identity.signature_html,
+                    identity.new_template,
+                    identity.reply_template
                 ],
             )?;
             if changed == 0 {
@@ -2088,6 +2093,10 @@ impl MailStore {
         }
         self.db.execute(
             "DELETE FROM folders WHERE account = ?1 AND id = ?2",
+            params![LOCAL_ID, folder.id],
+        )?;
+        self.db.execute(
+            "DELETE FROM folder_templates WHERE account = ?1 AND folder = ?2",
             params![LOCAL_ID, folder.id],
         )?;
         self.reload_accounts()?;
@@ -3066,7 +3075,8 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
         })?
         .collect::<Result<Vec<_>, _>>()?;
     let mut stmt = db.prepare(
-        "SELECT id, account, name, email, signature, reply_header, forward_header, is_default
+        "SELECT id, account, name, email, signature, reply_header, forward_header, is_default,
+                signature_html, new_template, reply_template
          FROM identities ORDER BY position, id",
     )?;
     let identities = stmt.query_map([], |r| {
@@ -3079,6 +3089,9 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
             reply_header: r.get(5)?,
             forward_header: r.get(6)?,
             is_default: r.get(7)?,
+            signature_html: r.get(8)?,
+            new_template: r.get(9)?,
+            reply_template: r.get(10)?,
         })
     })?;
     for identity in identities {
@@ -3138,8 +3151,8 @@ fn ensure_a_default(db: &Connection, account: &str) -> Result<(), StoreError> {
 fn insert_identity(db: &Connection, i: &Identity, position: usize) -> Result<i64, StoreError> {
     db.execute(
         "INSERT INTO identities (account, position, name, email, signature, reply_header,
-             forward_header, is_default)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             forward_header, is_default, signature_html, new_template, reply_template)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             i.account,
             position as i64,
@@ -3148,7 +3161,10 @@ fn insert_identity(db: &Connection, i: &Identity, position: usize) -> Result<i64
             i.signature,
             i.reply_header,
             i.forward_header,
-            i.is_default
+            i.is_default,
+            i.signature_html,
+            i.new_template,
+            i.reply_template
         ],
     )?;
     Ok(db.last_insert_rowid())
@@ -3273,6 +3289,8 @@ pub(crate) fn insert_message(
     crate::calendar::invites::index(db, id as MessageId, raw)?;
     Ok(id as MessageId)
 }
+
+mod templates;
 
 #[cfg(test)]
 mod tests;

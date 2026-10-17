@@ -12,7 +12,9 @@
    counts, focus, the selected row in the focused list), sel (selected row and folder), hover, flag,
    warn-*, note-* (errors, notes in Spam), chip-* (rule notes), tag-<color> and tag-<color>-fg (a tag's
    chip and its text, for each of tags::COLORS; the -fg also draws its dot), img-a/img-b (loaded image
-   stand-ins), acct-0 to acct-5 (one dot color per account, by position), scrim and shadow
+   stand-ins), acct-0 to acct-5 (one dot color per account, by position), pal-1 to pal-6
+   and mark-1 to mark-4 (the HTML editor's text colors and highlights as the editor shows them; what is sent is
+   html::TEXT_COLORS and MARK_COLORS, made for white paper), scrim and shadow
   (behind and under dialogs). */
 
 :root,[data-theme="light"]{
@@ -28,6 +30,7 @@
   --tag-yellow:#f4e5bd; --tag-yellow-fg:#7a5800; --tag-green:#d0f1d0; --tag-green-fg:#1d6d27;
   --tag-teal:#bdf3ee; --tag-teal-fg:#006b67; --tag-blue:#cee9ff; --tag-blue-fg:#225ea5;
   --tag-purple:#efdeff; --tag-purple-fg:#734a9b; --tag-gray:#e6e6e6; --tag-gray-fg:#5f5d5e;
+  --pal-1:#c00000; --pal-2:#b45309; --pal-3:#15803d; --pal-4:#1d4ed8; --pal-5:#7e22ce; --pal-6:#6b7280; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(15 20 28 / .32); --shadow:rgb(15 20 28 / .22);
 }
 
@@ -44,6 +47,7 @@
   --tag-yellow:#463600; --tag-yellow-fg:#c3ab68; --tag-green:#1e4120; --tag-green-fg:#88bc89;
   --tag-teal:#004340; --tag-teal-fg:#62c0ba; --tag-blue:#1d395b; --tag-blue-fg:#86b0e5;
   --tag-purple:#402e55; --tag-purple-fg:#ba9fdb; --tag-gray:#383838; --tag-gray-fg:#adadad;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(0 0 0 / .5); --shadow:rgb(0 0 0 / .5);
 }
 
@@ -61,6 +65,7 @@
   --tag-yellow:#f4e5bd; --tag-yellow-fg:#7a5800; --tag-green:#d0f1d0; --tag-green-fg:#1d6d27;
   --tag-teal:#bdf3ee; --tag-teal-fg:#006b67; --tag-blue:#cee9ff; --tag-blue-fg:#225ea5;
   --tag-purple:#efdeff; --tag-purple-fg:#734a9b; --tag-gray:#e6e6e6; --tag-gray-fg:#5f5d5e;
+  --pal-1:#c00000; --pal-2:#b45309; --pal-3:#15803d; --pal-4:#1d4ed8; --pal-5:#7e22ce; --pal-6:#6c707a; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(42 38 32 / .3); --shadow:rgb(42 38 32 / .22);
 }
 
@@ -78,6 +83,7 @@
   --tag-yellow:#f4e5bd; --tag-yellow-fg:#7a5800; --tag-green:#d0f1d0; --tag-green-fg:#1d6d27;
   --tag-teal:#bdf3ee; --tag-teal-fg:#006b67; --tag-blue:#cee9ff; --tag-blue-fg:#225ea5;
   --tag-purple:#efdeff; --tag-purple-fg:#734a9b; --tag-gray:#e6e6e6; --tag-gray-fg:#5f5d5e;
+  --pal-1:#c00000; --pal-2:#b45309; --pal-3:#15803d; --pal-4:#1d4ed8; --pal-5:#7e22ce; --pal-6:#6b7280; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(34 29 46 / .32); --shadow:rgb(34 29 46 / .22);
 }
 
@@ -95,6 +101,7 @@
   --tag-yellow:#463600; --tag-yellow-fg:#c3ab68; --tag-green:#1e4120; --tag-green-fg:#88bc89;
   --tag-teal:#004340; --tag-teal-fg:#62c0ba; --tag-blue:#1d395b; --tag-blue-fg:#86b0e5;
   --tag-purple:#402e55; --tag-purple-fg:#ba9fdb; --tag-gray:#383838; --tag-gray-fg:#adadad;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(5 10 16 / .55); --shadow:rgb(0 0 0 / .5);
 }
 
@@ -112,6 +119,7 @@
   --tag-yellow:#463600; --tag-yellow-fg:#c3ab68; --tag-green:#1e4120; --tag-green-fg:#88bc89;
   --tag-teal:#004340; --tag-teal-fg:#62c0ba; --tag-blue:#1d395b; --tag-blue-fg:#86b0e5;
   --tag-purple:#402e55; --tag-purple-fg:#ba9fdb; --tag-gray:#383838; --tag-gray-fg:#adadad;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(0 0 0 / .6); --shadow:rgb(0 0 0 / .6);
 }
 
@@ -129,6 +137,7 @@
   --tag-yellow:#f9eed1; --tag-yellow-fg:#634500; --tag-green:#dff6de; --tag-green-fg:#095717;
   --tag-teal:#d1f8f4; --tag-teal-fg:#005552; --tag-blue:#ddf0ff; --tag-blue-fg:#114a89;
   --tag-purple:#f5e8ff; --tag-purple-fg:#5d3881; --tag-gray:#efeeee; --tag-gray-fg:#4b4a4b;
+  --pal-1:#991b1b; --pal-2:#9a3412; --pal-3:#166534; --pal-4:#1e40af; --pal-5:#6b21a8; --pal-6:#4b5563; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(0 0 0 / .45); --shadow:rgb(0 0 0 / .3);
 }
 
@@ -146,5 +155,6 @@
   --tag-yellow:#322400; --tag-yellow-fg:#c9b784; --tag-green:#112e13; --tag-green-fg:#9dc59d;
   --tag-teal:#002f2d; --tag-teal-fg:#83c8c2; --tag-blue:#102743; --tag-blue-fg:#9abbe5;
   --tag-purple:#2d1e3e; --tag-purple-fg:#c3aedd; --tag-gray:#272626; --tag-gray-fg:#b8b8b8;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(0 0 0 / .7); --shadow:rgb(255 255 255 / .12);
 }

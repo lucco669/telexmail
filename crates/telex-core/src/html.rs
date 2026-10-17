@@ -388,19 +388,358 @@ const COMPOSE_TAGS: [&str; 22] = [
     "hr",
 ];
 
+/// Besides those: pictures, and the tables, small print and headings of a quoted message.
+const RICH_TAGS: [&str; 14] = [
+    "img", "table", "thead", "tbody", "tfoot", "tr", "td", "th", "caption", "sub", "sup", "h4",
+    "h5", "h6",
+];
+
+/// Text colors the editor offers, as they are sent: dark enough on white paper (AA). Pasted
+/// or quoted text keeps its color only when it is one of these.
+pub const TEXT_COLORS: [&str; 6] = [
+    "#c00000", "#b45309", "#15803d", "#1d4ed8", "#7e22ce", "#6b7280",
+];
+/// Highlights, light enough under black text.
+pub const MARK_COLORS: [&str; 4] = ["#fff59d", "#c8f7c5", "#cfe8ff", "#ffd6e7"];
+/// Small and large text; normal text has no size of its own.
+pub const FONT_SIZES: [&str; 2] = ["12px", "18px"];
+/// The class of the signature's block, so another identity's can take its place.
+pub const SIGNATURE_CLASS: &str = "telex-signature";
+
+/// What pictures in one message may take, as data: URIs in the editor (decoded bytes).
+#[derive(Debug, Clone, Copy)]
+pub struct ImageLimits {
+    pub each: usize,
+    pub total: usize,
+    pub count: usize,
+}
+
+impl Default for ImageLimits {
+    fn default() -> Self {
+        Self {
+            each: 5 * 1024 * 1024,
+            total: 15 * 1024 * 1024,
+            count: 40,
+        }
+    }
+}
+
+/// The original's pictures a quote takes along: fewer, so a reply to a newsletter stays light.
+const QUOTE_IMAGES: ImageLimits = ImageLimits {
+    each: 2 * 1024 * 1024,
+    total: 5 * 1024 * 1024,
+    count: 20,
+};
+
+/// A signature's pictures (a logo): small, since every identity's signature travels with the
+/// folder tree to the window.
+pub const SIGNATURE_IMAGES: ImageLimits = ImageLimits {
+    each: 100 * 1024,
+    total: 200 * 1024,
+    count: 4,
+};
+
+/// An HTML signature, cleaned as sent mail is, within [`SIGNATURE_IMAGES`].
+pub fn clean_signature(html: &str) -> String {
+    clean_with(html, SIGNATURE_IMAGES)
+}
+
+/// Picture types a message written in Telex may carry. No SVG: it is a document, not a picture.
+const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
 /// The editor's HTML, cleaned to what Telex sends. Also takes a whole document (a saved
 /// draft) and keeps only its body's content.
+///
+/// Kept: text formatting, links (http, https, mailto), lists, quotes, tables, the signature's
+/// block, colors and sizes from the editor's palette ([`TEXT_COLORS`], [`MARK_COLORS`],
+/// [`FONT_SIZES`]: no other style), and pictures as `data:` (PNG, JPEG, GIF, WebP in base64,
+/// within [`ImageLimits`]) or `cid:` (the parts [`inline_images`] makes of them). Nothing
+/// else: no classes, ids, scripts, forms, remote pictures or fonts.
 pub fn compose_clean(html: &str) -> String {
+    clean_with(html, ImageLimits::default())
+}
+
+fn clean_with(html: &str, limits: ImageLimits) -> String {
+    let budget = Arc::new(ImageBudget {
+        limits,
+        bytes: AtomicUsize::new(0),
+        count: AtomicUsize::new(0),
+    });
     let mut builder = Builder::empty();
     builder
         .add_tags(COMPOSE_TAGS)
+        .add_tags(RICH_TAGS)
+        .add_generic_attributes(&["style"])
         .add_tag_attributes("a", &["href"])
-        .url_schemes(HashSet::from(["http", "https", "mailto"]))
+        .add_tag_attributes("img", &["src", "alt", "width", "height"])
+        .add_tag_attributes("table", &["border", "cellpadding", "cellspacing"])
+        .add_tag_attributes("td", &["colspan", "rowspan"])
+        .add_tag_attributes("th", &["colspan", "rowspan"])
+        .add_allowed_classes("div", &[SIGNATURE_CLASS])
+        // data: and cid: must pass ammonia's scheme check to reach the filter, which allows
+        // them only on pictures.
+        .url_schemes(HashSet::from(["http", "https", "mailto", "data", "cid"]))
         .url_relative(UrlRelative::Deny)
         .link_rel(None)
         .strip_comments(true)
-        .clean_content_tags(HashSet::from(["script", "style", "head", "title"]));
-    builder.clean(html).to_string().trim().to_owned()
+        .clean_content_tags(HashSet::from(["script", "style", "head", "title"]))
+        .attribute_filter(move |element, attribute, value| {
+            compose_filter(&budget, element, attribute, value)
+        });
+    tidy(builder.clean(html).to_string().trim())
+}
+
+/// How much picture a message has taken so far while it is cleaned.
+struct ImageBudget {
+    limits: ImageLimits,
+    bytes: AtomicUsize,
+    count: AtomicUsize,
+}
+
+impl ImageBudget {
+    /// Room for one more picture of `bytes`: taken, or `false` when it is too large.
+    fn take(&self, bytes: usize) -> bool {
+        if bytes > self.limits.each
+            || self.count.fetch_add(1, Ordering::Relaxed) >= self.limits.count
+        {
+            return false;
+        }
+        let before = self.bytes.fetch_add(bytes, Ordering::Relaxed);
+        before + bytes <= self.limits.total
+    }
+}
+
+fn compose_filter<'u>(
+    budget: &ImageBudget,
+    element: &str,
+    attribute: &str,
+    value: &'u str,
+) -> Option<Cow<'u, str>> {
+    let digits = |max: usize| {
+        let v = value.trim();
+        (!v.is_empty() && v.len() <= max && v.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| Cow::Owned(v.to_owned()))
+    };
+    match (element, attribute) {
+        ("a", "href") => {
+            let lower = value.trim().to_ascii_lowercase();
+            ["http://", "https://", "mailto:"]
+                .iter()
+                .any(|s| lower.starts_with(s))
+                .then_some(Cow::Borrowed(value))
+        }
+        ("img", "src") => {
+            let v = value.trim();
+            if let Some(bytes) = data_image_size(v) {
+                return budget.take(bytes).then(|| Cow::Owned(v.to_owned()));
+            }
+            let cid = v.strip_prefix("cid:").or_else(|| v.strip_prefix("CID:"))?;
+            let fine = !cid.is_empty()
+                && cid.len() <= 200
+                && cid
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b".@_-$".contains(&b));
+            fine.then(|| Cow::Owned(v.to_owned()))
+        }
+        ("img", "width" | "height") => digits(4),
+        ("td" | "th", "colspan" | "rowspan") => digits(2),
+        ("table", "border" | "cellpadding" | "cellspacing") => digits(2),
+        (_, "style") => compose_style(value).map(Cow::Owned),
+        _ => Some(Cow::Borrowed(value)),
+    }
+}
+
+/// A `data:` picture Telex may send: its decoded size, or `None`.
+fn data_image_size(src: &str) -> Option<usize> {
+    let rest = src
+        .get(..5)?
+        .eq_ignore_ascii_case("data:")
+        .then(|| &src[5..])?;
+    let (mime, payload) = rest.split_once(";base64,")?;
+    let mime = mime.to_ascii_lowercase();
+    if !IMAGE_TYPES.contains(&mime.as_str()) || payload.is_empty() {
+        return None;
+    }
+    let ok = payload
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=');
+    ok.then(|| payload.len() / 4 * 3)
+}
+
+/// The editor's styles, down to the palette: `color`, `background-color` and `font-size`
+/// with the values Telex offers, written the one way the editor's CSS recognizes them.
+fn compose_style(style: &str) -> Option<String> {
+    let mut kept: Vec<(&str, String)> = Vec::new();
+    for declaration in style.split(';') {
+        let Some((property, value)) = declaration.split_once(':') else {
+            continue;
+        };
+        let property = property.trim().to_ascii_lowercase();
+        let value = value.trim().trim_end_matches("!important").trim();
+        let found = match property.as_str() {
+            "color" => colors::opaque_hex(value)
+                .filter(|c| TEXT_COLORS.contains(&c.as_str()))
+                .map(|c| ("color", c)),
+            "background-color" | "background" => colors::opaque_hex(value)
+                .filter(|c| MARK_COLORS.contains(&c.as_str()))
+                .map(|c| ("background-color", c)),
+            // The editor writes the browser's words for its two sizes (execCommand's 2 and 5).
+            "font-size" => match value.to_ascii_lowercase().as_str() {
+                "small" => Some(FONT_SIZES[0]),
+                "x-large" => Some(FONT_SIZES[1]),
+                v => FONT_SIZES.iter().copied().find(|s| *s == v),
+            }
+            .map(|s| ("font-size", s.to_owned())),
+            _ => None,
+        };
+        if let Some((name, value)) = found {
+            kept.retain(|(n, _)| *n != name);
+            kept.push((name, value));
+        }
+    }
+    (!kept.is_empty()).then(|| {
+        kept.iter()
+            .map(|(n, v)| format!("{n}:{v}"))
+            .collect::<Vec<_>>()
+            .join(";")
+    })
+}
+
+/// What ammonia leaves behind: pictures whose source was refused go whole, not as empty
+/// frames, and a class that had none allowed goes.
+fn tidy(html: &str) -> String {
+    let mut out = String::with_capacity(html.len());
+    let mut rest = html;
+    while let Some(i) = rest.find('<') {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        let end = tag_end(after);
+        let tag = &after[..end];
+        rest = after.get(end + 1..).unwrap_or_default();
+        if tag.starts_with("img") && !tag.contains(" src=\"") {
+            continue;
+        }
+        out.push('<');
+        out.push_str(&tag.replace(" class=\"\"", ""));
+        out.push('>');
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A picture of a message written in Telex, as a part of its own (multipart/related).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineImage {
+    /// Without angle brackets; the HTML says `cid:` and this.
+    pub cid: String,
+    pub mime: String,
+    pub data: Vec<u8>,
+}
+
+/// Cleaned HTML ([`compose_clean`]) ready to send: each `data:` picture becomes a part of
+/// its own, referenced as `cid:<n>.<cid_base>` (the same picture twice is one part). A `cid:`
+/// that names none of these (pasted from elsewhere) is left out.
+pub fn inline_images(clean: &str, cid_base: &str) -> (String, Vec<InlineImage>) {
+    let mut parts: Vec<InlineImage> = Vec::new();
+    let mut out = String::with_capacity(clean.len());
+    let mut rest = clean;
+    while let Some(i) = rest.find("<img") {
+        out.push_str(&rest[..i]);
+        let after = &rest[i + 1..];
+        let end = tag_end(after);
+        let tag = &after[..end];
+        rest = after.get(end + 1..).unwrap_or_default();
+        let Some(at) = tag.find(" src=\"") else {
+            continue;
+        };
+        let value_start = at + 6;
+        let Some(len) = tag[value_start..].find('"') else {
+            continue;
+        };
+        let src = &tag[value_start..value_start + len];
+        let Some((mime, payload)) = src
+            .get(5..)
+            .filter(|_| data_image_size(src).is_some())
+            .and_then(|r| r.split_once(";base64,"))
+        else {
+            continue; // a cid: of someone else's message, or nothing usable
+        };
+        let Ok(data) = STANDARD.decode(payload) else {
+            continue;
+        };
+        let cid = match parts.iter().find(|p| p.data == data) {
+            Some(p) => p.cid.clone(),
+            None => {
+                let cid = format!("{}.{cid_base}", parts.len() + 1);
+                parts.push(InlineImage {
+                    cid: cid.clone(),
+                    mime: mime.to_ascii_lowercase(),
+                    data,
+                });
+                cid
+            }
+        };
+        out.push('<');
+        out.push_str(&tag[..value_start]);
+        out.push_str("cid:");
+        out.push_str(&cid);
+        out.push_str(&tag[value_start + len..]);
+        out.push('>');
+    }
+    out.push_str(rest);
+    (out, parts)
+}
+
+/// A stored message's HTML for the editor: its own pictures as `data:`, remote ones left out,
+/// cleaned to what Telex sends ([`compose_clean`]). For editing a draft again, or `None` for
+/// plain-text mail.
+pub fn editable(raw: &[u8]) -> Option<String> {
+    editable_with(raw, ImageLimits::default())
+}
+
+/// Larger than this, a quote of the original's HTML would weigh down the editor: the reply
+/// quotes its text instead.
+const MAX_QUOTE_HTML: usize = 2 * 1024 * 1024;
+
+/// The original's HTML for a reply's or a forward's quote: like [`editable`] (its pictures
+/// within lighter limits, the rest of its styles gone), or `None` when it has none or is too
+/// large to edit comfortably.
+pub fn quotable(raw: &[u8]) -> Option<String> {
+    let html = editable_with(raw, QUOTE_IMAGES)?;
+    (html.len() <= MAX_QUOTE_HTML && !html.trim().is_empty()).then_some(html)
+}
+
+fn editable_with(raw: &[u8], limits: ImageLimits) -> Option<String> {
+    let body = html_body(raw)?;
+    if body.html.len() > 4 * MAX_QUOTE_HTML {
+        return None;
+    }
+    let inline = body
+        .inline
+        .iter()
+        .filter(|(_, (mime, _))| IMAGE_TYPES.contains(&mime.to_ascii_lowercase().as_str()))
+        .map(|(cid, (mime, data))| (cid.clone(), data_uri(mime, data)))
+        .collect();
+    let (html, _) = sanitize(&body.html, inline, HashMap::new(), None);
+    Some(clean_with(&html, limits))
+}
+
+/// Cleaned HTML with nothing but lines: a signature typed without any formatting.
+pub fn is_plain(clean: &str) -> bool {
+    let mut rest = clean;
+    while let Some(i) = rest.find('<') {
+        let after = &rest[i + 1..];
+        let end = tag_end(after);
+        let name = after[..end]
+            .trim_start_matches('/')
+            .trim_end_matches('/')
+            .trim();
+        if !matches!(name, "div" | "br" | "p") {
+            return false;
+        }
+        rest = after.get(end + 1..).unwrap_or_default();
+    }
+    true
 }
 
 /// The text/html part of a message written in Telex: the cleaned HTML in a small document,
@@ -411,7 +750,8 @@ pub fn compose_document(clean: &str) -> String {
         "<blockquote type=\"cite\" style=\"margin:0 0 0 .8ex;border-left:2px solid #ccc;padding-left:1ex\">",
     );
     format!(
-        "<!doctype html><html><head><meta charset=\"utf-8\"></head>\
+        "<!doctype html><html><head><meta charset=\"utf-8\">\
+         <style>img{{max-width:100%;height:auto}}</style></head>\
          <body><div style=\"font-family:Segoe UI,Arial,sans-serif;font-size:14px\">{body}</div></body></html>"
     )
 }
@@ -1395,6 +1735,119 @@ iVBORw0KGgo=\r\n";
              <div>Pozdrawiam</div>"
         );
         assert_eq!(to_text(&compose_clean(&html)), text);
+    }
+
+    const PNG: &str = "data:image/png;base64,iVBORw0KGgo=";
+
+    #[test]
+    fn colors_and_sizes_keep_only_the_palette() {
+        let clean = compose_clean(concat!(
+            "<span style=\"color: rgb(192, 0, 0); background-color: #FFF59D; font-size: 18px\">a</span>",
+            "<span style=\"color:#123456;font-family:Comic Sans;position:fixed\">b</span>",
+            "<span style=\"font-size:72px;background:url(https://t.pl/x.gif) #c8f7c5\">c</span>",
+            "<p style=\"color:#1d4ed8 !important;width:expression(alert(1))\">d</p>",
+            "<div style=\"behavior:url(x.htc);color:red\">e</div>",
+            "<span style=\"font-size: x-large;\">f</span><span style=\"font-size: small\">g</span>",
+            "<span style=\"font-size: medium;\">h</span>",
+        ));
+        assert_eq!(
+            clean,
+            concat!(
+                "<span style=\"color:#c00000;background-color:#fff59d;font-size:18px\">a</span>",
+                "<span>b</span><span>c</span><p style=\"color:#1d4ed8\">d</p><div>e</div>",
+                "<span style=\"font-size:18px\">f</span><span style=\"font-size:12px\">g</span><span>h</span>",
+            )
+        );
+    }
+
+    #[test]
+    fn pictures_go_in_only_as_data_or_cid_and_within_limits() {
+        let clean = compose_clean(&format!(
+            "<img src=\"{PNG}\" alt=\"logo\" width=\"120\" height=\"40px\" onerror=\"x()\">\
+             <img src=\"https://t.pl/open.gif\"><img src=\"data:image/svg+xml;base64,PHN2Zz4=\">\
+             <img src=\"data:text/html;base64,PGI+\"><img src=\"cid:1.abc@twojastudio.pl\">\
+             <img src=\"cid:a&quot;b\"><img src=\"file:///C:/x.png\"><img>\
+             <a href=\"data:text/html;base64,PGI+\">x</a>"
+        ));
+        assert_eq!(
+            clean,
+            format!(
+                "<img src=\"{PNG}\" alt=\"logo\" width=\"120\"><img src=\"cid:1.abc@twojastudio.pl\"><a>x</a>"
+            )
+        );
+        // Too many, or too large together: the ones past the limit stay out.
+        let limits = ImageLimits {
+            each: 100,
+            total: 15,
+            count: 40,
+        };
+        let two = format!("<img src=\"{PNG}\"><img src=\"{PNG}\">");
+        assert_eq!(clean_with(&two, limits).matches("<img").count(), 1);
+        let big = format!("<img src=\"data:image/png;base64,{}\">", "A".repeat(400));
+        assert_eq!(clean_with(&big, limits), "");
+    }
+
+    #[test]
+    fn the_signature_keeps_its_block_and_nothing_else_keeps_a_class() {
+        let clean = compose_clean(
+            "<div class=\"telex-signature evil\"><b>Anna</b></div><div class=\"x\" id=\"y\">z</div>",
+        );
+        assert_eq!(
+            clean,
+            "<div class=\"telex-signature\"><b>Anna</b></div><div>z</div>"
+        );
+        assert!(is_plain(
+            "<div>Pozdrawiam</div><div><br></div><div>Anna</div>"
+        ));
+        assert!(!is_plain("<div><b>Anna</b></div>"));
+        assert!(!is_plain(&clean));
+    }
+
+    #[test]
+    fn data_pictures_become_parts_of_their_own() {
+        let html = format!(
+            "<div>Logo:</div><img src=\"{PNG}\" alt=\"a\"><img src=\"{PNG}\">\
+             <img src=\"data:image/jpeg;base64,/9j/\"><img src=\"cid:someone-else@x.pl\">"
+        );
+        let (out, parts) = inline_images(&compose_clean(&html), "abc@twojastudio.pl");
+        assert_eq!(
+            out,
+            "<div>Logo:</div><img src=\"cid:1.abc@twojastudio.pl\" alt=\"a\">\
+             <img src=\"cid:1.abc@twojastudio.pl\"><img src=\"cid:2.abc@twojastudio.pl\">"
+        );
+        assert_eq!(parts.len(), 2, "the same picture twice is one part");
+        assert_eq!(parts[0].mime, "image/png");
+        assert_eq!(parts[0].data, b"\x89PNG\r\n\x1a\n");
+        assert_eq!(parts[1].mime, "image/jpeg");
+    }
+
+    #[test]
+    fn the_originals_html_is_quoted_with_its_own_pictures_only() {
+        let png = "--r\r\n\
+Content-Type: image/png\r\n\
+Content-ID: <logo@sklep.pl>\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+iVBORw0KGgo=\r\n";
+        let raw = html_mail(
+            "<style>p{color:red}</style><table bgcolor=\"#000\" width=\"600\"><tr>\
+             <td colspan=\"2\" style=\"color:#ffffff;background:#000;font-family:Arial\">\
+             <b>Oferta</b> <font color=\"red\">dziś</font></td></tr></table>\
+             <img src=\"cid:logo@sklep.pl\"><img src=\"https://track.sklep.pl/o.gif\">\
+             <script>alert(1)</script><a href=\"https://sklep.pl\" onclick=\"x\">sklep</a>",
+            png,
+        );
+        let quote = quotable(&raw).unwrap();
+        assert_eq!(
+            quote,
+            "<table><tbody><tr><td colspan=\"2\"><b>Oferta</b> dziś</td></tr></tbody></table>\
+             <img src=\"data:image/png;base64,iVBORw0KGgo=\"><a href=\"https://sklep.pl\">sklep</a>"
+        );
+        assert_eq!(editable(&raw).as_deref(), Some(quote.as_str()));
+        assert!(quotable(b"Subject: x\r\n\r\nplain\r\n").is_none());
+        // Sent again, the picture goes as a part of the reply.
+        let (_, parts) = inline_images(&compose_clean(&quote), "r@x.pl");
+        assert_eq!(parts.len(), 1);
     }
 
     /// A tiny HTTP server: /logo.png, /page (HTML), /big (too large), /moved (to /logo.png).

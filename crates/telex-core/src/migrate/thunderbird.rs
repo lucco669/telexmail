@@ -537,7 +537,9 @@ fn read_identity(prefs: &Prefs, id: &str) -> Option<Identity> {
     let p = |key: &str| format!("mail.identity.{id}.{key}");
     let email = prefs.text(&p("useremail"))?.trim().to_owned();
     let name = prefs.text(&p("fullName")).unwrap_or(&email).to_owned();
+    // An HTML signature stays HTML (cleaned as Telex sends it), with its text for plain mail.
     let mut signature = String::new();
+    let mut signature_html = None;
     if prefs.flag(&p("attach_signature")) {
         if let Some(file) = prefs.text(&p("sig_file")) {
             if let Ok(text) = std::fs::read(file) {
@@ -545,24 +547,30 @@ fn read_identity(prefs: &Prefs, id: &str) -> Option<Identity> {
                 let html = file.to_lowercase().ends_with(".htm")
                     || file.to_lowercase().ends_with(".html")
                     || text.trim_start().starts_with('<');
-                signature = if html {
-                    crate::html::to_text(&text)
+                if html {
+                    signature_html = Some(text);
                 } else {
-                    text
-                };
+                    signature = text;
+                }
             }
         }
     }
-    if signature.trim().is_empty() {
+    if signature.trim().is_empty() && signature_html.is_none() {
         if let Some(text) = prefs.text(&p("htmlSigText")) {
-            signature = if prefs.flag(&p("htmlSigFormat")) {
-                crate::html::to_text(text)
+            if prefs.flag(&p("htmlSigFormat")) {
+                signature_html = Some(text.to_owned());
             } else {
-                text.to_owned()
-            };
+                signature = text.to_owned();
+            }
         }
     }
-    Some(identity(&name, &email, &signature))
+    let mut found = identity(&name, &email, &signature);
+    if let Some(html) = signature_html {
+        let clean = crate::html::clean_signature(&html);
+        found.signature = crate::html::to_text(&clean);
+        found.signature_html = (!crate::html::is_plain(&clean)).then_some(clean);
+    }
+    Some(found)
 }
 
 fn read_account(
@@ -1215,6 +1223,11 @@ condition="AND (subject,contains,x)"
         assert_eq!(
             studio.identities[0].signature,
             "Anna Kowalska\nTwoja Studio łódź"
+        );
+        assert_eq!(
+            studio.identities[0].signature_html.as_deref(),
+            Some("<b>Anna Kowalska</b><br>Twoja Studio łódź"),
+            "an HTML signature stays HTML"
         );
         assert_eq!(studio.identities[1].email, "faktury@twojastudio.pl");
         assert!(studio.blocked.is_none());

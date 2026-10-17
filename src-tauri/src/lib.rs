@@ -42,8 +42,8 @@ use telex_core::tr;
 use telex_core::unsubscribe::Method;
 use telex_core::usage::Usage;
 use telex_core::{
-    Account, AccountSetup, DeleteReport, FolderKind, FolderTree, Identity, ListView, MailStore,
-    MessageId, OutgoingDraft, Page, PageAt, SentCopy, StoreError, UnreadAt,
+    Account, AccountSetup, DeleteReport, FolderKind, FolderTemplate, FolderTree, Identity,
+    ListView, MailStore, MessageId, OutgoingDraft, Page, PageAt, SentCopy, StoreError, UnreadAt,
 };
 
 use crate::files::FilesState;
@@ -342,10 +342,7 @@ fn discard_draft(state: State<'_, AppState>, id: MessageId) -> CmdResult<bool> {
 #[tauri::command(async)]
 fn draft_html(state: State<'_, AppState>, id: MessageId) -> CmdResult<Option<String>> {
     let raw = with_store(&state, |s| s.raw_of(id))?;
-    Ok(raw
-        .as_deref()
-        .and_then(telex_core::mime::html_body)
-        .map(|b| html::compose_clean(&b.html)))
+    Ok(raw.as_deref().and_then(html::editable))
 }
 
 /// Compose switches from HTML to plain text: the text the plain version would have.
@@ -367,7 +364,8 @@ fn text_to_html(text: String) -> String {
     html::from_text(&text)
 }
 
-/// HTML pasted into the editor, cleaned to what Telex sends: no styles, scripts or images.
+/// HTML pasted into the editor, cleaned to what Telex sends: no scripts, no styles but the
+/// palette's, pictures only as data: (remote ones are left out, never fetched).
 #[tauri::command(async)]
 fn clean_html(html: String) -> String {
     html::compose_clean(&html)
@@ -475,11 +473,24 @@ fn start_draft(
     kind: DraftKind,
     of: Option<MessageId>,
     account: String,
+    folder: Option<String>,
 ) -> CmdResult<DraftStart> {
     let sign_replies = settings.get().sign_replies;
     with_store(&state, |s| {
-        drafts::start(s, kind, of, &account, sign_replies)
+        drafts::start(s, kind, of, &account, folder.as_deref(), sign_replies)
     })
+}
+
+/// Every folder's own templates (Settings › Writing).
+#[tauri::command(async)]
+fn folder_templates(state: State<'_, AppState>) -> CmdResult<Vec<FolderTemplate>> {
+    with_store(&state, |s| s.folder_templates())
+}
+
+/// Keep a folder's templates; all empty takes them away.
+#[tauri::command(async)]
+fn save_folder_template(state: State<'_, AppState>, template: FolderTemplate) -> CmdResult<()> {
+    with_store(&state, |s| s.save_folder_template(&template))
 }
 
 /// Add (id 0) or update an identity. Mistakes come back as sentences.
@@ -1410,6 +1421,9 @@ pub fn run() {
             run_rules,
             run_scheduled_rules,
             start_draft,
+            folder_templates,
+            save_folder_template,
+            files::editor_image,
             save_identity,
             delete_identity,
             settings::get_settings,

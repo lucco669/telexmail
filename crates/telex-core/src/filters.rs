@@ -844,7 +844,7 @@ impl<'a> Folded<'a> {
                         self.raw
                             .and_then(|raw| mail_parser::MessageParser::default().parse(raw))
                             .map(|p| {
-                                p.attachments()
+                                crate::mime::files(&p)
                                     .map(|a| {
                                         use mail_parser::MimeHeaders;
                                         a.content_type()
@@ -1272,6 +1272,7 @@ fn forward(
         crate::drafts::DraftKind::Forward,
         Some(message.id),
         &account.id,
+        None,
         true,
     )
     .map_err(|e| e.to_string())?;
