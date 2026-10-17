@@ -996,7 +996,8 @@ fn mail_from_this_pc_is_uploaded_with_its_flags() {
         changes[0].kind,
         ChangeKind::Append {
             to: account.folder_key("archive"),
-            flags: Some((false, true))
+            flags: Some((false, true)),
+            draft: false
         },
         "unread as it is, and flagged"
     );
@@ -1011,7 +1012,7 @@ fn mail_from_this_pc_is_uploaded_with_its_flags() {
     );
     // Uploaded: the next download adopts the server's copy instead of storing it twice.
     store
-        .change_appended(changes[0].op, id, &account.folder_key("inbox"))
+        .change_appended(&changes[0], id, &account.folder_key("inbox"), None)
         .unwrap();
     let mut copy = synced(9, "Poprawki");
     copy.message.message_id = Some("7.Poprawki@kowalska-architekci.pl".into());
@@ -1045,11 +1046,11 @@ fn mail_that_moved_on_while_it_was_uploading_leaves_the_server_again() {
     store
         .move_many(&[id], &account.folder_key("inbox"))
         .unwrap();
-    let append = store.pending_changes(&account.id).unwrap()[0].op;
+    let append = store.pending_changes(&account.id).unwrap()[0].clone();
     // While the upload was on its way, the message went back to this PC.
     store.move_many(&[id], "local/archive").unwrap();
     store
-        .change_appended(append, id, &account.folder_key("inbox"))
+        .change_appended(&append, id, &account.folder_key("inbox"), None)
         .unwrap();
     let changes = store.pending_changes(&account.id).unwrap();
     assert_eq!(changes.len(), 1);
@@ -1562,4 +1563,287 @@ fn errors_speak_the_chosen_language() {
         refused.to_string(),
         "Konto potrzebuje co najmniej jednej tożsamości. Zmień tę zamiast ją usuwać."
     );
+}
+
+/// [`store_with_server_account`] with a Drafts folder on the server too.
+fn store_with_server_drafts() -> (MailStore, Account) {
+    let (mut store, account) = store_with_server_account();
+    let mut folders: Vec<Folder> = account
+        .folders
+        .iter()
+        .filter(|f| f.remote.is_some())
+        .cloned()
+        .collect();
+    folders.push(Folder {
+        id: "drafts".into(),
+        name: "drafts".into(),
+        kind: FolderKind::Drafts,
+        remote: Some("DRAFTS".into()),
+    });
+    store.set_folders(&account.id, &folders).unwrap();
+    let account = store.account(&account.id).unwrap().clone();
+    (store, account)
+}
+
+/// Save a draft as the window does: built whole, keeping what it was edited from.
+fn save_draft(store: &mut MailStore, account: &Account, d: OutgoingDraft) -> MessageId {
+    let edited = d
+        .replaces
+        .or(d.autosaved)
+        .and_then(|id| store.raw_of(id).unwrap());
+    let originals = crate::smtp::Originals {
+        edited,
+        ..Default::default()
+    };
+    let raw = crate::smtp::compose_draft(account, &d, &originals, chrono::Local::now()).unwrap();
+    store
+        .save_outgoing(d, Some(&raw), FolderKind::Drafts, now())
+        .unwrap()
+}
+
+#[test]
+fn saved_drafts_go_to_the_server_and_autosaves_stay_here() {
+    let (mut store, account) = store_with_server_drafts();
+    let drafts = account.folder_key("drafts");
+    let d = draft(&account.id);
+    let first = save_draft(&mut store, &account, d.clone());
+    let mid = store.get(first).unwrap().message_id.expect("a Message-ID");
+    assert_eq!(
+        kinds(&store, &account),
+        [ChangeKind::Append {
+            to: drafts.clone(),
+            flags: Some((true, false)),
+            draft: true
+        }]
+    );
+
+    // An autosave stays on this PC, and leaves the draft being edited as it is.
+    let auto = OutgoingDraft {
+        replaces: Some(first),
+        autosave: true,
+        body: "Dzień dobry,\n\nwdrożę do piątku.\n".into(),
+        ..d.clone()
+    };
+    let auto = save_draft(&mut store, &account, auto);
+    assert!(store.get(first).is_ok());
+    assert_eq!(store.get(auto).unwrap().message_id.as_deref(), Some(&*mid));
+    assert_eq!(kinds(&store, &account).len(), 1, "no upload of an autosave");
+
+    // Saved again before the upload went: the old version and its upload simply go.
+    let again = OutgoingDraft {
+        replaces: Some(first),
+        autosaved: Some(auto),
+        ..d.clone()
+    };
+    let second = save_draft(&mut store, &account, again);
+    assert!(store.get(first).is_err() && store.get(auto).is_err());
+    let changes = store.pending_changes(&account.id).unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].message, Some(second));
+    assert_eq!(
+        changes[0].message_id.as_deref(),
+        Some(&*mid),
+        "the same Message-ID"
+    );
+
+    // Uploaded, its UID known: the next version expunges exactly that copy.
+    store
+        .change_appended(&changes[0], second, &drafts, Some(4))
+        .unwrap();
+    assert_eq!(store.local_uids(&drafts).unwrap(), HashSet::from([4]));
+    let third = OutgoingDraft {
+        replaces: Some(second),
+        ..d.clone()
+    };
+    let third = save_draft(&mut store, &account, third);
+    let changes = store.pending_changes(&account.id).unwrap();
+    assert_eq!(changes.len(), 2);
+    assert_eq!(
+        (&changes[0].kind, changes[0].folder.as_str(), changes[0].uid),
+        (&ChangeKind::Expunge, drafts.as_str(), Some(4))
+    );
+    assert_eq!(changes[1].message, Some(third));
+
+    // Discarding a draft on the server removes it there too.
+    let up = changes[1].clone();
+    store.change_done(changes[0].op).unwrap();
+    store.change_appended(&up, third, &drafts, Some(5)).unwrap();
+    assert!(store.discard_draft(third).unwrap());
+    let changes = store.pending_changes(&account.id).unwrap();
+    assert_eq!(
+        (&changes[0].kind, changes[0].uid),
+        (&ChangeKind::Expunge, Some(5))
+    );
+}
+
+#[test]
+fn a_sent_draft_leaves_the_servers_drafts() {
+    let (mut store, account) = store_with_server_drafts();
+    let drafts = account.folder_key("drafts");
+    let written = save_draft(&mut store, &account, draft(&account.id));
+    let up = store.pending_changes(&account.id).unwrap()[0].clone();
+    store
+        .change_appended(&up, written, &drafts, Some(8))
+        .unwrap();
+    let raw = store.raw_of(written).unwrap().unwrap();
+    let message = crate::mime::parse_message(&raw, "", None);
+    store
+        .queue_outgoing(
+            &account.id,
+            &message,
+            &raw,
+            "biuro@twojastudio.pl",
+            &["anna@kowalska-architekci.pl".into()],
+            Some(written),
+            None,
+        )
+        .unwrap();
+    let changes = store.pending_changes(&account.id).unwrap();
+    assert_eq!(
+        (&changes[0].kind, changes[0].folder.as_str(), changes[0].uid),
+        (&ChangeKind::Expunge, drafts.as_str(), Some(8))
+    );
+    // Mail elsewhere on the server is never removed by a replace.
+    let inbox = one_in_inbox(&mut store, &account, 3);
+    let bad = OutgoingDraft {
+        replaces: Some(inbox),
+        ..draft(&account.id)
+    };
+    save_draft(&mut store, &account, bad);
+    assert!(store.get(inbox).is_ok());
+}
+
+#[test]
+fn drafts_stay_consistent_through_this_pc_folder_changes_and_restores() {
+    let (mut store, account) = store_with_server_drafts();
+    let drafts = account.folder_key("drafts");
+    let id = save_draft(&mut store, &account, draft(&account.id));
+    // To a folder on this PC before it went up: nothing goes up.
+    store.move_many(&[id], "local/archive").unwrap();
+    assert!(!store.has_pending_changes(&account.id).unwrap());
+    // Back into Drafts: uploaded, as a draft.
+    store.move_many(&[id], &drafts).unwrap();
+    assert_eq!(
+        kinds(&store, &account),
+        [ChangeKind::Append {
+            to: drafts.clone(),
+            flags: Some((true, false)),
+            draft: true
+        }]
+    );
+
+    // Another server folder becomes Drafts: the draft and its upload go there.
+    let mut folders: Vec<Folder> = account.folders.clone();
+    folders.retain(|f| f.remote.is_some());
+    folders.push(Folder {
+        id: "robocze".into(),
+        name: "Robocze".into(),
+        kind: FolderKind::Custom,
+        remote: Some("Robocze".into()),
+    });
+    store.set_folders(&account.id, &folders).unwrap();
+    store
+        .choose_folder(&account.folder_key("robocze"), FolderKind::Drafts)
+        .unwrap();
+    let robocze = account.folder_key("robocze");
+    assert_eq!(store.get(id).unwrap().folder, robocze);
+    assert!(matches!(
+        &kinds(&store, &account)[0],
+        ChangeKind::Append { to, draft: true, .. } if to == &robocze
+    ));
+
+    // A restore forgets every queued change: the draft stays on this PC, as does mail that
+    // was waiting in the Outbox, and the next save puts it on the server.
+    store.after_restore().unwrap();
+    assert!(!store.has_pending_changes(&account.id).unwrap());
+    assert_eq!(store.get(id).unwrap().folder, robocze);
+    let again = OutgoingDraft {
+        replaces: Some(id),
+        ..draft(&account.id)
+    };
+    let again = save_draft(&mut store, &account, again);
+    assert!(store.get(id).is_err());
+    assert_eq!(
+        store.pending_changes(&account.id).unwrap()[0].message,
+        Some(again)
+    );
+}
+
+#[test]
+fn servers_that_keep_sent_mail_get_no_copy() {
+    let (mut store, account) = store_with_server_account();
+    assert_eq!(account.sent_copy, SentCopy::Auto);
+    assert_eq!(account.server_keeps_sent(), None, "not known yet");
+    let send = |store: &mut MailStore, n: u32| {
+        let raw = format!(
+            "Message-ID: <wyslana.{n}@twojastudio.pl>\r\nFrom: biuro@twojastudio.pl\r\n\
+             To: anna@kowalska-architekci.pl\r\nSubject: Oferta {n}\r\n\r\nTekst.\r\n"
+        );
+        let message = crate::mime::parse_message(raw.as_bytes(), "", None);
+        let id = store
+            .queue_outgoing(
+                &account.id,
+                &message,
+                raw.as_bytes(),
+                "biuro@twojastudio.pl",
+                &["anna@kowalska-architekci.pl".into()],
+                None,
+                None,
+            )
+            .unwrap();
+        store.outgoing_sent(id, now()).unwrap();
+        id
+    };
+    // Not known: a copy is queued, and the push decides.
+    send(&mut store, 1);
+    assert_eq!(kinds(&store, &account).len(), 1);
+    let op = store.pending_changes(&account.id).unwrap()[0].op;
+    store.change_done(op).unwrap();
+
+    // The user says the server keeps its own: none is queued, and the server's is adopted.
+    store.set_sent_copy(&account.id, SentCopy::Server).unwrap();
+    assert_eq!(
+        store.account(&account.id).unwrap().server_keeps_sent(),
+        Some(true)
+    );
+    let id = send(&mut store, 2);
+    assert!(!store.has_pending_changes(&account.id).unwrap());
+    let mut copy = synced(12, "Oferta 2");
+    copy.message.message_id = Some("wyslana.2@twojastudio.pl".into());
+    let new = store
+        .add_synced(&account.folder_key("sent"), &[copy])
+        .unwrap();
+    assert!(new.is_empty(), "the server's copy is this message");
+    assert_eq!(
+        store.local_uids(&account.folder_key("sent")).unwrap(),
+        HashSet::from([12])
+    );
+    assert_eq!(store.get(id).unwrap().folder, account.folder_key("sent"));
+
+    // Telex uploads one when told to; what it found out counts only in automatic.
+    store.set_sent_copy(&account.id, SentCopy::Telex).unwrap();
+    store.found_sent_copy(&account.id, true).unwrap();
+    send(&mut store, 3);
+    assert_eq!(kinds(&store, &account).len(), 1);
+    store.set_sent_copy(&account.id, SentCopy::Auto).unwrap();
+    let a = store.account(&account.id).unwrap();
+    assert_eq!(
+        (a.server_files_sent, a.server_keeps_sent()),
+        (Some(true), Some(true))
+    );
+
+    // Gmail and Outlook.com are known to keep their own.
+    let gmail = store
+        .upsert_account(&AccountSetup {
+            name: "Gmail".into(),
+            email: "studio@gmail.com".into(),
+            host: "imap.gmail.com".into(),
+            port: 993,
+            username: "studio@gmail.com".into(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(gmail.server_keeps_sent(), Some(true));
+    assert!(crate::autoconfig::files_sent_mail("Outlook.Office365.com"));
+    assert!(!crate::autoconfig::files_sent_mail("mail.twojastudio.pl"));
 }

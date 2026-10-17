@@ -111,6 +111,20 @@ struct Provider {
 const TLS: SmtpSecurity = SmtpSecurity::Tls;
 const STARTTLS: SmtpSecurity = SmtpSecurity::StartTls;
 
+/// IMAP servers of providers that file mail sent through their SMTP server in Sent
+/// themselves (Gmail, Outlook.com and Microsoft 365): Telex uploads no copy of its own.
+const FILES_SENT_MAIL: &[&str] = &[
+    "imap.gmail.com",
+    "outlook.office365.com",
+    "imap-mail.outlook.com",
+];
+
+/// Whether the provider behind this IMAP server keeps its own copy of sent mail.
+pub fn files_sent_mail(imap_host: &str) -> bool {
+    let host = imap_host.trim().trim_end_matches('.');
+    FILES_SENT_MAIL.iter().any(|h| h.eq_ignore_ascii_case(host))
+}
+
 /// Checked against Mozilla's provider database and with a TLS connection to each server.
 const PROVIDERS: &[Provider] = &[
     Provider {

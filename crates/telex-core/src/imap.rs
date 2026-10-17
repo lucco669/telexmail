@@ -628,10 +628,11 @@ async fn push_queued_after<T: ImapStream>(
         .partition(|c| matches!(c.kind, ChangeKind::Append { .. }));
     let mut refused = Vec::new();
 
-    // Copies of sent mail for the Sent folder, and mail moved here from this PC. APPEND needs
-    // no selected folder.
+    // Copies of sent mail for the Sent folder, mail moved here from this PC, and drafts saved
+    // here. APPEND needs no selected folder.
     for change in &appends {
-        let (ChangeKind::Append { to, flags }, Some(id)) = (&change.kind, change.message) else {
+        let (ChangeKind::Append { to, flags, draft }, Some(id)) = (&change.kind, change.message)
+        else {
             continue;
         };
         let raw = lock(store)?.raw_of(id)?;
@@ -639,17 +640,33 @@ async fn push_queued_after<T: ImapStream>(
             lock(store)?.change_done(change.op)?; // nothing to save, or nowhere to save it
             continue;
         };
-        let flags = match flags {
-            None | Some((true, false)) => Some("(\\Seen)"),
-            Some((true, true)) => Some("(\\Seen \\Flagged)"),
-            Some((false, true)) => Some("(\\Flagged)"),
-            Some((false, false)) => None,
+        if flags.is_none()
+            && !sent_copy_needed(session, account, store, change, id, to, &remote).await?
+        {
+            continue;
+        }
+        let flags = match (flags, draft) {
+            (_, true) => Some("(\\Seen \\Draft)"),
+            (None | Some((true, false)), _) => Some("(\\Seen)"),
+            (Some((true, true)), _) => Some("(\\Seen \\Flagged)"),
+            (Some((false, true)), _) => Some("(\\Flagged)"),
+            (Some((false, false)), _) => None,
         };
         let result = timeout(FETCH_TIMEOUT, session.append(&remote, flags, None, &raw))
             .await
             .map_err(|_| SyncError::Timeout)?;
         match result {
-            Ok(()) => lock(store)?.change_appended(change.op, id, to)?,
+            Ok(()) => {
+                // A draft is replaced again and again: its UID is looked up now, so the
+                // next version can expunge exactly this one (they share a Message-ID).
+                let uid = if *draft {
+                    newest_unknown(session, store, to, &remote, change.message_id.as_deref())
+                        .await?
+                } else {
+                    None
+                };
+                lock(store)?.change_appended(change, id, to, uid)?;
+            }
             Err(ImapError::No(reason) | ImapError::Bad(reason)) => {
                 note_refusal(store, change, &reason, &mut refused)?;
             }
@@ -827,6 +844,83 @@ async fn push_queued_after<T: ImapStream>(
         }
     }
     Ok(refused)
+}
+
+/// Before Telex uploads a copy of sent mail to Sent: is one needed, or does the server keep
+/// its own? The account's choice or the provider list may say; else Telex looks for the
+/// message in Sent and remembers what it found. When the server has its own, the upload goes
+/// and the message points at the server's copy. False: no upload (now). A server Telex
+/// doesn't know yet gets a moment after the send to file its copy before Telex decides.
+async fn sent_copy_needed<T: ImapStream>(
+    session: &mut Session<T>,
+    account: &Account,
+    store: &Mutex<MailStore>,
+    change: &PendingChange,
+    id: MessageId,
+    to: &str,
+    remote: &str,
+) -> Result<bool, SyncError> {
+    let into_sent = account
+        .folder_of_kind(FolderKind::Sent)
+        .is_some_and(|f| account.folder_key(&f.id) == to);
+    if !into_sent {
+        return Ok(true); // moved on from Sent before it went up: it goes where it is now
+    }
+    let keeps = lock(store)?.account(&account.id)?.server_keeps_sent();
+    match keeps {
+        Some(false) => return Ok(true),
+        Some(true) => {
+            lock(store)?.server_filed_sent(change.op, id, to, None)?;
+            return Ok(false);
+        }
+        None => {}
+    }
+    let Some(mid) = change.message_id.as_deref() else {
+        return Ok(true);
+    };
+    match timeout(COMMAND_TIMEOUT, session.examine(remote))
+        .await
+        .map_err(|_| SyncError::Timeout)?
+    {
+        Ok(_) => {}
+        Err(ImapError::No(_)) => return Ok(true),
+        Err(e) => return Err(e.into()),
+    }
+    let found = find_by_message_id(session, mid).await?.into_iter().max();
+    let mut s = lock(store)?;
+    if let Some(uid) = found {
+        s.found_sent_copy(&account.id, true)?;
+        s.server_filed_sent(change.op, id, to, Some(uid))?;
+        return Ok(false);
+    }
+    if s.sent_just_now(id, Local::now().naive_local())? {
+        return Ok(false);
+    }
+    s.found_sent_copy(&account.id, false)?;
+    Ok(true)
+}
+
+/// The UID of the newest message with this Message-ID in a server folder that this PC
+/// doesn't know yet: the one just uploaded there (UIDs only grow).
+async fn newest_unknown<T: ImapStream>(
+    session: &mut Session<T>,
+    store: &Mutex<MailStore>,
+    folder_key: &str,
+    remote: &str,
+    mid: Option<&str>,
+) -> Result<Option<u32>, SyncError> {
+    let Some(mid) = mid else { return Ok(None) };
+    match timeout(COMMAND_TIMEOUT, session.examine(remote))
+        .await
+        .map_err(|_| SyncError::Timeout)?
+    {
+        Ok(_) => {}
+        Err(ImapError::No(_)) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    }
+    let found = find_by_message_id(session, mid).await?;
+    let known = lock(store)?.local_uids(folder_key)?;
+    Ok(found.into_iter().filter(|u| !known.contains(u)).max())
 }
 
 // ---- Connection ----
@@ -2808,6 +2902,9 @@ mod tests {
 To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85czeniu.\r\n";
         let id = {
             let mut s = store.lock().unwrap();
+            // A server that files no copy itself (finding that out has its own test).
+            s.set_sent_copy(&account.id, crate::model::SentCopy::Telex)
+                .unwrap();
             let message = parse_message(raw, "", None);
             let id = s
                 .queue_outgoing(
@@ -3401,5 +3498,400 @@ Subject: {subject}
         connect(&settings, "imap.gmail.com", &mut trace)
             .await
             .unwrap();
+    }
+
+    use crate::model::OutgoingDraft;
+
+    // ---- Drafts on the server, and servers that file sent mail themselves ----
+
+    /// A draft started on the phone, in the server's Drafts ("Robocze"): a reply to m1.
+    const PHONE_DRAFT: &[u8] = b"From: Studio <biuro@twojastudio.pl>\r\n\
+To: anna@kowalska-architekci.pl\r\n\
+Subject: Szkic z telefonu\r\n\
+Message-ID: <telefon.1@twojastudio.pl>\r\n\
+In-Reply-To: <m1@kowalska-architekci.pl>\r\n\
+References: <m1@kowalska-architekci.pl>\r\n\
+Date: Fri, 09 Oct 2026 14:30:00 +0200\r\n\
+Content-Type: text/plain; charset=utf-8\r\n\r\n\
+Started on the phone.\r\n";
+
+    /// [`synced_once`] on a server that also has Drafts, holding the phone's draft.
+    async fn synced_with_drafts() -> (Shared, Mutex<MailStore>, Account, Session<TcpStream>) {
+        let (addr, server) = start_fake_server("IMAP4rev1 MOVE UIDPLUS").await;
+        let phone = FakeMail {
+            uid: 1,
+            flags: vec!["\\Draft".into(), "\\Seen".into()],
+            raw: PHONE_DRAFT.to_vec(),
+        };
+        server.lock().unwrap().boxes.push(fake_box(
+            "Robocze",
+            "\\HasNoChildren \\Drafts",
+            vec![phone],
+        ));
+        let (store, account) = store_with_account();
+        let mut session = login(addr, "secret").await.unwrap();
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        let account = store.lock().unwrap().account(&account.id).unwrap().clone();
+        (server, store, account, session)
+    }
+
+    /// Save a draft as the window does: built whole, keeping what it was edited from.
+    fn save_draft(store: &Mutex<MailStore>, account: &Account, d: OutgoingDraft) -> MessageId {
+        let mut s = store.lock().unwrap();
+        let edited = d
+            .replaces
+            .or(d.autosaved)
+            .and_then(|id| s.raw_of(id).unwrap());
+        let originals = crate::smtp::Originals {
+            edited,
+            ..Default::default()
+        };
+        let raw = crate::smtp::compose_draft(account, &d, &originals, Local::now()).unwrap();
+        s.save_outgoing(
+            d,
+            Some(&raw),
+            FolderKind::Drafts,
+            Local::now().naive_local(),
+        )
+        .unwrap()
+    }
+
+    fn written(account: &Account, subject: &str, body: &str) -> OutgoingDraft {
+        OutgoingDraft {
+            account: account.id.clone(),
+            to: "anna@kowalska-architekci.pl".into(),
+            subject: subject.into(),
+            body: body.into(),
+            ..OutgoingDraft::default()
+        }
+    }
+
+    async fn sync(session: &mut Session<TcpStream>, account: &Account, store: &Mutex<MailStore>) {
+        let report = sync_all(session, account, store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(report.refused.is_empty(), "{report:?}");
+    }
+
+    fn drafts_on(server: &Shared, subject: &str) -> Vec<FakeMail> {
+        let s = server.lock().unwrap();
+        s.find("Robocze")
+            .unwrap()
+            .mail
+            .iter()
+            .filter(|m| m.subject() == subject)
+            .cloned()
+            .collect()
+    }
+
+    fn text(mail: &FakeMail) -> String {
+        String::from_utf8_lossy(&mail.raw).into_owned()
+    }
+
+    #[tokio::test]
+    async fn drafts_live_on_the_servers_drafts_too() {
+        let (server, store, account, mut session) = synced_with_drafts().await;
+        let drafts = account.folder_key("robocze");
+        assert_eq!(
+            account.folder_of_kind(FolderKind::Drafts).unwrap().id,
+            "robocze"
+        );
+        let phone = id_of(&store, &account, "robocze", "Szkic z telefonu");
+
+        // Saved here: it goes up as a draft, and the download doesn't bring it back twice.
+        let first = save_draft(&store, &account, written(&account, "Oferta", "First."));
+        sync(&mut session, &account, &store).await;
+        let up = drafts_on(&server, "Oferta");
+        assert_eq!(up.len(), 1);
+        assert!(
+            up[0].has("\\Draft") && up[0].has("\\Seen"),
+            "{:?}",
+            up[0].flags
+        );
+        let mid = store
+            .lock()
+            .unwrap()
+            .get(first)
+            .unwrap()
+            .message_id
+            .unwrap();
+        assert!(text(&up[0]).contains(&format!("Message-ID: <{mid}>")));
+        {
+            let s = store.lock().unwrap();
+            assert_eq!(s.list(&drafts).unwrap().len(), 2);
+            assert_eq!(s.local_uids(&drafts).unwrap().len(), 2, "its UID is known");
+        }
+
+        // An autosave stays here; saving again replaces the server's copy, same Message-ID.
+        let autosaved = save_draft(
+            &store,
+            &account,
+            OutgoingDraft {
+                replaces: Some(first),
+                autosave: true,
+                ..written(&account, "Oferta", "Second, typing.")
+            },
+        );
+        sync(&mut session, &account, &store).await;
+        assert!(text(&drafts_on(&server, "Oferta")[0]).contains("First."));
+        let second = save_draft(
+            &store,
+            &account,
+            OutgoingDraft {
+                replaces: Some(first),
+                autosaved: Some(autosaved),
+                ..written(&account, "Oferta", "Second.")
+            },
+        );
+        sync(&mut session, &account, &store).await;
+        let up = drafts_on(&server, "Oferta");
+        assert_eq!(up.len(), 1, "the old version left the server");
+        assert!(text(&up[0]).contains("Second.") && text(&up[0]).contains(&mid));
+        assert_eq!(store.lock().unwrap().list(&drafts).unwrap().len(), 2);
+
+        // The phone's draft, finished here: replaced on the server, still in its thread.
+        let finished = save_draft(
+            &store,
+            &account,
+            OutgoingDraft {
+                replaces: Some(phone),
+                forward_of: Some(phone),
+                ..written(&account, "Szkic z telefonu", "Finished in Telex.")
+            },
+        );
+        sync(&mut session, &account, &store).await;
+        let up = drafts_on(&server, "Szkic z telefonu");
+        assert_eq!(up.len(), 1);
+        assert_ne!(up[0].uid, 1, "the phone's copy is gone");
+        let raw = text(&up[0]);
+        assert!(raw.contains("Finished in Telex."), "{raw}");
+        assert!(
+            raw.contains("Message-ID: <telefon.1@twojastudio.pl>"),
+            "{raw}"
+        );
+        assert!(
+            raw.contains("In-Reply-To: <m1@kowalska-architekci.pl>"),
+            "{raw}"
+        );
+
+        // Sent from there: the draft leaves the server's Drafts.
+        {
+            let mut s = store.lock().unwrap();
+            let d = OutgoingDraft {
+                replaces: Some(finished),
+                ..written(&account, "Szkic z telefonu", "Finished in Telex.")
+            };
+            let originals = crate::smtp::Originals {
+                edited: s.raw_of(finished).unwrap(),
+                ..Default::default()
+            };
+            let composed = crate::smtp::compose(&account, &d, &originals, Local::now()).unwrap();
+            assert!(
+                String::from_utf8_lossy(&composed.raw)
+                    .contains("In-Reply-To: <m1@kowalska-architekci.pl>"),
+                "the sent message stays in the thread"
+            );
+            s.queue_outgoing(
+                &account.id,
+                &composed.message,
+                &composed.raw,
+                &composed.env_from,
+                &composed.env_to,
+                Some(finished),
+                None,
+            )
+            .unwrap();
+        }
+        sync(&mut session, &account, &store).await;
+        assert!(drafts_on(&server, "Szkic z telefonu").is_empty());
+
+        // Discarded: gone from the server too.
+        assert!(store.lock().unwrap().discard_draft(second).unwrap());
+        sync(&mut session, &account, &store).await;
+        assert!(server.lock().unwrap().subjects("Robocze").is_empty());
+        assert!(store.lock().unwrap().list(&drafts).unwrap().is_empty());
+        logout(&mut session).await;
+        let commands = server.lock().unwrap().commands.clone();
+        assert!(commands
+            .iter()
+            .any(|c| c.starts_with("APPEND \"Robocze\" (\\Seen \\Draft)")));
+    }
+
+    #[tokio::test]
+    async fn a_draft_saved_again_during_its_upload_leaves_no_old_copy() {
+        let (server, store, account, mut session) = synced_with_drafts().await;
+        let drafts = account.folder_key("robocze");
+        let first = save_draft(&store, &account, written(&account, "Oferta", "First."));
+        let upload = store.lock().unwrap().pending_changes(&account.id).unwrap()[0].clone();
+        // The upload reached the server, and meanwhile the user saved again.
+        let uid = {
+            let raw = store.lock().unwrap().raw_of(first).unwrap().unwrap();
+            let mut s = server.lock().unwrap();
+            let b = s.boxes.iter_mut().find(|b| b.name == "Robocze").unwrap();
+            let uid = b.next_uid;
+            b.next_uid += 1;
+            b.mail.push(FakeMail {
+                uid,
+                flags: vec!["\\Seen".into(), "\\Draft".into()],
+                raw,
+            });
+            uid
+        };
+        save_draft(
+            &store,
+            &account,
+            OutgoingDraft {
+                replaces: Some(first),
+                ..written(&account, "Oferta", "Second.")
+            },
+        );
+        store
+            .lock()
+            .unwrap()
+            .change_appended(&upload, first, &drafts, Some(uid))
+            .unwrap();
+        sync(&mut session, &account, &store).await;
+        let up = drafts_on(&server, "Oferta");
+        assert_eq!(up.len(), 1, "{:?}", up.iter().map(text).collect::<Vec<_>>());
+        assert!(text(&up[0]).contains("Second."));
+        assert_eq!(store.lock().unwrap().list(&drafts).unwrap().len(), 2);
+        logout(&mut session).await;
+    }
+
+    /// Send a message as `smtp::send_outbox` leaves it: filed in Sent, maybe a copy queued.
+    fn sent_here(store: &Mutex<MailStore>, account: &Account, n: u32) -> (MessageId, Vec<u8>) {
+        let raw = format!(
+            "Message-ID: <wyslana.{n}@twojastudio.pl>\r\nFrom: biuro@twojastudio.pl\r\n\
+             To: anna@kowalska-architekci.pl\r\nSubject: Oferta {n}\r\n\r\nTekst.\r\n"
+        )
+        .into_bytes();
+        let mut s = store.lock().unwrap();
+        let message = parse_message(&raw, "", None);
+        let id = s
+            .queue_outgoing(
+                &account.id,
+                &message,
+                &raw,
+                "biuro@twojastudio.pl",
+                &["anna@kowalska-architekci.pl".into()],
+                None,
+                None,
+            )
+            .unwrap();
+        s.outgoing_sent(id, Local::now().naive_local()).unwrap();
+        (id, raw)
+    }
+
+    /// The server files the message in Sent itself, as Gmail does.
+    fn filed_by_server(server: &Shared, raw: &[u8]) {
+        let mut s = server.lock().unwrap();
+        let b = s
+            .boxes
+            .iter_mut()
+            .find(|b| b.name == "Wys&AUI-ane")
+            .unwrap();
+        let uid = b.next_uid;
+        b.next_uid += 1;
+        b.mail.push(FakeMail {
+            uid,
+            flags: vec!["\\Seen".into()],
+            raw: raw.to_vec(),
+        });
+    }
+
+    fn appends(server: &Shared) -> usize {
+        let s = server.lock().unwrap();
+        s.commands
+            .iter()
+            .filter(|c| c.starts_with("APPEND"))
+            .count()
+    }
+
+    #[tokio::test]
+    async fn a_server_that_files_sent_mail_itself_gets_no_copy() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        let sent = account.folder_key("wysłane");
+        // Not known yet: Telex looks in Sent before uploading, finds the server's own copy.
+        let (id, raw) = sent_here(&store, &account, 1);
+        filed_by_server(&server, &raw);
+        sync(&mut session, &account, &store).await;
+        assert_eq!(appends(&server), 0);
+        assert_eq!(server.lock().unwrap().subjects("Wys&AUI-ane").len(), 2);
+        {
+            let s = store.lock().unwrap();
+            assert_eq!(
+                s.account(&account.id).unwrap().server_files_sent,
+                Some(true)
+            );
+            let list = s.list(&sent).unwrap();
+            assert_eq!(list.len(), 2, "the old one and this one, not twice");
+            assert!(list.iter().any(|m| m.id == id));
+            assert_eq!(s.local_uids(&sent).unwrap().len(), 2);
+            assert!(!s.has_pending_changes(&account.id).unwrap());
+        }
+
+        // From now on nothing is queued; the download adopts the server's copy.
+        let (id, raw) = sent_here(&store, &account, 2);
+        assert!(!store
+            .lock()
+            .unwrap()
+            .has_pending_changes(&account.id)
+            .unwrap());
+        filed_by_server(&server, &raw);
+        sync(&mut session, &account, &store).await;
+        assert_eq!(appends(&server), 0);
+        {
+            let s = store.lock().unwrap();
+            let list = s.list(&sent).unwrap();
+            assert_eq!(list.len(), 3);
+            assert!(list.iter().any(|m| m.id == id));
+            assert_eq!(s.local_uids(&sent).unwrap().len(), 3);
+        }
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn a_server_that_files_nothing_gets_a_moment_then_a_copy() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        let (id, raw) = sent_here(&store, &account, 1);
+        // Just sent: not in Sent yet, but the server may still be filing it.
+        sync(&mut session, &account, &store).await;
+        assert_eq!(appends(&server), 0);
+        assert!(store
+            .lock()
+            .unwrap()
+            .has_pending_changes(&account.id)
+            .unwrap());
+        // A minute later it still isn't there: Telex uploads it and remembers.
+        {
+            let s = store.lock().unwrap();
+            let earlier = Local::now().naive_local() - chrono::TimeDelta::minutes(1);
+            s.db.execute(
+                "UPDATE messages SET date = ?1 WHERE id = ?2",
+                rusqlite::params![earlier, id as i64],
+            )
+            .unwrap();
+        }
+        sync(&mut session, &account, &store).await;
+        assert_eq!(appends(&server), 1);
+        assert_eq!(
+            server.lock().unwrap().mail("Wys&AUI-ane", "Oferta 1").raw,
+            raw
+        );
+        {
+            let s = store.lock().unwrap();
+            assert_eq!(
+                s.account(&account.id).unwrap().server_files_sent,
+                Some(false)
+            );
+            assert!(!s.has_pending_changes(&account.id).unwrap());
+        }
+        // The next one goes up at once.
+        sent_here(&store, &account, 2);
+        sync(&mut session, &account, &store).await;
+        assert_eq!(appends(&server), 2);
+        logout(&mut session).await;
     }
 }

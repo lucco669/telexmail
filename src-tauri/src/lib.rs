@@ -37,7 +37,7 @@ use telex_core::tr;
 use telex_core::usage::Usage;
 use telex_core::{
     Account, AccountSetup, DeleteReport, FolderKind, FolderTree, Identity, ListView, MailStore,
-    MessageId, OutgoingDraft, Page, PageAt, StoreError, UnreadAt,
+    MessageId, OutgoingDraft, Page, PageAt, SentCopy, StoreError, UnreadAt,
 };
 
 use crate::files::FilesState;
@@ -216,6 +216,12 @@ fn choose_folder(state: State<'_, AppState>, folder: String, kind: FolderKind) -
     with_store(&state, |s| s.choose_folder(&folder, kind))
 }
 
+/// Who files sent mail in the account's Sent folder: automatic, the server, or Telex.
+#[tauri::command(async)]
+fn set_sent_copy(state: State<'_, AppState>, account: String, mode: SentCopy) -> CmdResult<()> {
+    with_store(&state, |s| s.set_sent_copy(&account, mode))
+}
+
 /// The messages of a list between two (Shift selection), or all of it (Ctrl+A).
 #[tauri::command(async)]
 fn list_ids(
@@ -244,13 +250,15 @@ fn recipients(state: State<'_, AppState>) -> CmdResult<Vec<Recipient>> {
     with_store(&state, |s| s.recipients())
 }
 
-/// The account a draft is from, and the raw messages it replies to and forwards.
+/// The account a draft is from, and the raw messages it replies to and forwards, and the
+/// draft it was edited from (whose Message-ID and thread it keeps).
 fn draft_context(s: &MailStore, draft: &OutgoingDraft) -> Result<(Account, Originals), StoreError> {
     let account = s.account(&draft.account)?.clone();
     let raw = |id: Option<MessageId>| id.map(|id| s.raw_of(id)).transpose();
     let originals = Originals {
         replied: raw(draft.reply_to)?.flatten(),
         forwarded: raw(draft.forward_of)?.flatten(),
+        edited: raw(draft.replaces.or(draft.autosaved))?.flatten(),
     };
     Ok((account, originals))
 }
@@ -1086,6 +1094,7 @@ pub fn run() {
             delete_messages,
             mark_folder_read,
             choose_folder,
+            set_sent_copy,
             list_ids,
             next_unread,
             recipients,

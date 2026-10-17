@@ -861,7 +861,8 @@ function installTelexDemo(options) {
     const clean = d.html != null ? cleanHtml(d.html) : null;
     const body = clean != null ? toText(clean) : String(d.body || '');
     const attachments = (d.attachments || []).map((x) => ({ name: x.name, size_kb: Math.max(1, x.size_kb | 0) }));
-    const orig = d.reply_to != null ? byId(d.reply_to) : null, replaced = d.replaces != null ? removeLocal(d.replaces) : null;
+    // An autosave (store.rs: stays on this PC) leaves the draft being edited as it is.
+    const orig = d.reply_to != null ? byId(d.reply_to) : null, replaced = d.replaces == null ? null : d.autosave ? byId(d.replaces) : removeLocal(d.replaces);
     if (d.autosaved != null) discardDraft({ id: d.autosaved });
     let thread = replaced?.thread ?? null;
     if (orig) thread = orig.thread ??= `t${orig.id}`;
@@ -1379,6 +1380,13 @@ function installTelexDemo(options) {
       if (!a?.imap || f.kind === 'inbox' || f.kind === 'outbox' || !['sent', 'drafts', 'archive', 'spam', 'trash'].includes(kind)) fail('folder "{k}" does not exist', 'folder „{k}” nie istnieje', { k: folder });
       for (const x of a.folders) if (x.kind === kind) x.kind = 'custom';
       f.kind = kind;
+      return null;
+    },
+    // store.rs's set_sent_copy: who files sent mail in Sent (auto, server, telex).
+    set_sent_copy: ({ account: id, mode }) => {
+      const a = account(id);
+      if (!a?.imap) fail('account "{a}" does not exist', 'konto „{a}” nie istnieje', { a: id });
+      a.sent_copy = ['server', 'telex'].includes(mode) ? mode : 'auto';
       return null;
     },
     mark_folder_read: ({ folder }) => { needFolder(folder); return setMany(msgs.filter((m) => m.folder === folder).map((m) => m.id), 'unread', false); },

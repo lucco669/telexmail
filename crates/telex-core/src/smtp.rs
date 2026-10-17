@@ -18,7 +18,10 @@ use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message as Email, Tokio1Executor};
 
 use crate::html;
-use crate::mime::{attachments_of, content_type_for, parse_message, thread_ids, FileAttachment};
+use crate::mime::{
+    attachments_of, content_type_for, parse_message, parse_message_id, reply_headers, thread_ids,
+    FileAttachment,
+};
 use crate::model::{Account, Message, OutgoingDraft, SmtpSecurity, SmtpSettings};
 use crate::servers::{self, LOG};
 use crate::store::{MailStore, OutgoingMail, StoreError};
@@ -48,6 +51,10 @@ pub struct Originals {
     pub replied: Option<Vec<u8>>,
     /// The message forwarded, whose attachments go along.
     pub forwarded: Option<Vec<u8>>,
+    /// The draft (or unsent message) this was edited from: a draft saved again keeps its
+    /// Message-ID, and without `replied` the new message answers what that one answered
+    /// (a reply begun on a phone stays in its thread).
+    pub edited: Option<Vec<u8>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -191,6 +198,14 @@ fn build(
         .rsplit_once('@')
         .map_or("telex.invalid", |(_, d)| d);
 
+    // A draft keeps its Message-ID from one save to the next; what is sent gets its own.
+    let message_id = originals
+        .edited
+        .as_deref()
+        .filter(|_| purpose == Purpose::Draft)
+        .and_then(parse_message_id)
+        .filter(|id| !id.is_empty() && id.bytes().all(|b| (0x21..0x7f).contains(&b)))
+        .unwrap_or_else(|| new_message_id(domain));
     // Bcc stays in Telex's own copy (the Outbox, Sent, drafts); `send_raw` leaves it out of
     // what the recipients get.
     let mut builder = Email::builder()
@@ -200,7 +215,7 @@ fn build(
         ))
         .subject(draft.subject.clone())
         .date(SystemTime::from(now))
-        .message_id(Some(format!("<{}>", new_message_id(domain))))
+        .message_id(Some(format!("<{message_id}>")))
         .keep_bcc();
     if purpose == Purpose::Draft {
         // A draft goes nowhere, but lettre wants an envelope: the sender to itself.
@@ -222,6 +237,15 @@ fn build(
         if let Some(id) = id {
             builder = builder.in_reply_to(format!("<{id}>"));
             references.push(id);
+        }
+        if !references.is_empty() {
+            let refs: Vec<String> = references.iter().map(|r| format!("<{r}>")).collect();
+            builder = builder.references(refs.join(" "));
+        }
+    } else if let Some(raw) = &originals.edited {
+        let (in_reply_to, references) = reply_headers(raw);
+        if let Some(id) = in_reply_to {
+            builder = builder.in_reply_to(format!("<{id}>"));
         }
         if !references.is_empty() {
             let refs: Vec<String> = references.iter().map(|r| format!("<{r}>")).collect();
@@ -802,7 +826,7 @@ JVBERi0xLjQK\r\n\
 
         let replied = Originals {
             replied: Some(original.clone()),
-            forwarded: None,
+            ..Originals::default()
         };
         let reply = compose(
             &account(),
@@ -829,8 +853,8 @@ JVBERi0xLjQK\r\n\
             path: None,
         }];
         let forwarded = Originals {
-            replied: None,
             forwarded: Some(original.clone()),
+            ..Originals::default()
         };
         let forward = compose(&account(), &fwd, &forwarded, now()).unwrap();
         let files = attachments_of(&forward.raw);
@@ -845,6 +869,7 @@ JVBERi0xLjQK\r\n\
         let both = Originals {
             replied: Some(original.clone()),
             forwarded: Some(original),
+            ..Originals::default()
         };
         let reply = compose(&account(), &with_files, &both, now()).unwrap();
         let parsed = MessageParser::default().parse(&reply.raw).unwrap();
@@ -1107,7 +1132,8 @@ JVBERi0xLjQK\r\n\
             changes[0].kind,
             ChangeKind::Append {
                 to: account.folder_key("sent"),
-                flags: None
+                flags: None,
+                draft: false
             }
         );
         assert!(!s.has_outgoing(&account.id, due()).unwrap());

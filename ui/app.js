@@ -116,8 +116,9 @@ function initialsOf(accounts){
 // The core's errors and notes come in the interface's language already (its tr! macro).
 const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
-// send_message counts: a sent message's copy for the server's Sent folder is queued too.
-const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'run_rules',
+// send_message counts: a sent message's copy for the server's Sent folder is queued too, and
+// save_outgoing: a saved draft goes to the server's Drafts (autosaves stay here).
+const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'save_outgoing', 'run_rules',
   'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read', 'mark_spam']);
 async function call(cmd, args){
   try {
@@ -3179,7 +3180,9 @@ let draftSaves = Promise.resolve();
 function inTurn(fn){ const p = draftSaves.then(fn); draftSaves = p.catch(() => {}); return p; }
 // Autosave: while a message is being written, what changed is kept every few seconds as a draft
 // of its own, each replacing the one before, so a crash or a frozen window loses little. The
-// draft it was opened from stays as it was until Esc, Save draft or Send.
+// draft it was opened from stays as it was until Esc, Save draft or Send. Autosaves stay on
+// this PC; what the user saves goes to the server's Drafts too (the core keeps the draft's
+// Message-ID and thread from the one it was opened from).
 const AUTOSAVE_MS = 15000;
 async function autosave(){
   const c = state.compose;
@@ -3188,7 +3191,7 @@ async function autosave(){
     await inTurn(async () => {
       if (state.compose !== c || c.done) return; // closed meanwhile, and saved or discarded
       const shape = shapeOf(c);
-      c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), replaces:null}});
+      c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), autosave:true}});
       c.saved = shape;
       const note = previewEl.querySelector('.csaved');
       if (note && state.compose === c) note.textContent = t('Draft saved {time}', {time:hm(new Date())});
@@ -4219,6 +4222,15 @@ $('st-away').addEventListener('click', () => { const a = AWAY.find(x => awayOn(x
 // Per account, the server folder Telex uses for sent mail, drafts, archive, spam and trash.
 // The core finds them (the server's flags, the names, which holds mail); a choice here wins.
 const CHOOSABLE = [['sent', N_('Sent mail')], ['drafts', N_('Drafts')], ['archive', N_('Archive')], ['spam', N_('Spam')], ['trash', N_('Trash')]];
+// Who puts a copy of sent mail into the server's Sent: Gmail and Outlook.com file it themselves.
+const SENT_COPY = [['auto', N_('Automatically')], ['server', N_('The server keeps one')], ['telex', N_('Telex uploads one')]];
+function sentCopyNote(a){
+  if (a.sent_copy === 'server') return t('Telex uploads no copy of the mail you send; the server’s own shows in Sent after the next check.');
+  if (a.sent_copy === 'telex') return t('Telex uploads a copy of every message you send to Sent.');
+  return a.server_files_sent === true ? t('This server files the mail you send in Sent itself, so Telex uploads no copy.')
+    : a.server_files_sent === false ? t('This server doesn’t file the mail you send, so Telex uploads a copy to Sent.')
+    : t('Telex finds out with the first message you send: when the server files it in Sent itself, Telex uploads no copy.');
+}
 let foldersOf = null;
 function openFolderChoices(account){
   foldersOf = account;
@@ -4240,7 +4252,10 @@ function showFolderChoices(){
     const opts = (now ? '' : `<option value="" selected disabled>${esc(t('None on the server'))}</option>`)
       + server.map(f => `<option value="${esc(a.id + '/' + f.id)}"${f === now ? ' selected' : ''}>${esc(label(f))}</option>`).join('');
     return `<label for="f-${kind}">${esc(t(name))}</label><select id="f-${kind}" class="sselect" data-kind="${kind}">${opts}</select>`;
-  }).join('');
+  }).join('')
+    + `<label for="f-sentcopy">${esc(t('Copy of sent mail'))}</label><select id="f-sentcopy" class="sselect">`
+    + SENT_COPY.map(([mode, name]) => `<option value="${mode}"${(a.sent_copy ?? 'auto') === mode ? ' selected' : ''}>${esc(t(name))}</option>`).join('') + '</select>';
+  $('f-sentnote').textContent = sentCopyNote(a);
 }
 async function chooseFolder(key, kind){
   const name = folderOf(key)?.name ?? key;
@@ -4256,6 +4271,14 @@ $('f-list').addEventListener('change', async e => {
   if (await chooseFolder(sel.value, sel.dataset.kind)) showFolderChoices();
   else $('f-err').textContent = t('That didn’t work. Try again.');
   $('f-' + sel.dataset.kind)?.focus();
+});
+$('f-list').addEventListener('change', async e => {
+  if (e.target.id !== 'f-sentcopy') return;
+  try { await invoke('set_sent_copy', {account:foldersOf, mode:e.target.value}); }
+  catch (err){ $('f-err').textContent = tr(err); return; }
+  await loadTree();
+  showFolderChoices();
+  $('f-sentcopy')?.focus();
 });
 $('f-close').addEventListener('click', () => showAccountView('home'));
 

@@ -9,6 +9,7 @@ const V098 = '0.9.8';
 const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
+const V0912 = '0.9.12';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -221,6 +222,8 @@ export const featureRows: FeatureRow[] = [
       'E reopens a draft or a message still in the Outbox',
       { text: 'Drafts save themselves while you write; New or Reply in the middle of a message puts it in Drafts first', since: '0.7.2' },
       { text: 'Discard can be undone: Z or the Undo button brings the message back', since: '0.7.2' },
+      { text: 'Drafts you save go to the server’s Drafts too, for your phone; a draft begun on the phone opens here with E and stays in its thread', since: V0912 },
+      { text: 'Gmail and Outlook.com file sent mail themselves, so Telex adds no second copy to Sent; other servers are checked after the first send', since: V0912 },
       { text: 'Spelling in your languages, Polish and English together: right-click a word or press F7 for suggestions', since: '0.9.0' },
       { text: 'The languages spelling checks show at the end of the compose bar, and a click there changes them', since: '0.9.1' },
       { text: 'Click an underlined word for its suggestions, ranked across your languages: “Wycene” offers “Wycenę” first', since: V099 },
