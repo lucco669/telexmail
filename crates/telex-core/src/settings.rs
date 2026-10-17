@@ -631,6 +631,18 @@ struct Bundle<'a> {
     accounts: Vec<AccountEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     rules: Vec<RuleEntry>,
+    /// The tags, with the rules: rules use them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<TagEntry>,
+}
+
+/// A tag by its keyword; `name` is left out while one of Thunderbird's five has its own.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TagEntry {
+    keyword: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    color: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -710,6 +722,12 @@ enum ActionEntry {
     },
     MarkRead,
     Flag,
+    AddTag {
+        tag: String,
+    },
+    RemoveTag {
+        tag: String,
+    },
     Delete,
     AutoReply {
         body: String,
@@ -763,6 +781,8 @@ fn rule_entry(rule: &Rule, accounts: &[Account]) -> RuleEntry {
             Action::Forward { to } => ActionEntry::Forward { to: to.clone() },
             Action::MarkRead => ActionEntry::MarkRead,
             Action::Flag => ActionEntry::Flag,
+            Action::AddTag { tag } => ActionEntry::AddTag { tag: tag.clone() },
+            Action::RemoveTag { tag } => ActionEntry::RemoveTag { tag: tag.clone() },
             Action::Delete => ActionEntry::Delete,
             Action::AutoReply { body } => ActionEntry::AutoReply { body: body.clone() },
         })
@@ -818,6 +838,20 @@ pub fn export(
     } else {
         Vec::new()
     };
+    let tags = if choice.rules {
+        store
+            .tags()?
+            .into_iter()
+            .map(|t| TagEntry {
+                name: (crate::tags::default_name(&t.keyword).as_deref() != Some(&t.name))
+                    .then_some(t.name),
+                keyword: t.keyword,
+                color: t.color,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     // Where backups go, and whether this copy is counted, are this PC's own business.
     let portable = Settings {
         backup_dir: String::new(),
@@ -832,6 +866,7 @@ pub fn export(
         settings: choice.settings.then_some(&portable),
         accounts: entries,
         rules,
+        tags,
     };
     serde_json::to_string_pretty(&bundle)
         .map(|text| text + "\n")
@@ -927,6 +962,8 @@ pub struct ImportPlan {
     pub settings_ignored: Vec<String>,
     pub identities: Vec<PlanItem>,
     pub rules: Vec<PlanItem>,
+    /// The file's tags, which come with the rules (`name` is the tag's).
+    pub tags: Vec<PlanItem>,
     pub accounts: Vec<AccountPlan>,
 }
 
@@ -947,6 +984,8 @@ pub struct ImportReport {
     pub identities_updated: usize,
     pub rules_added: usize,
     pub rules_updated: usize,
+    pub tags_added: usize,
+    pub tags_updated: usize,
     /// One line per rule or identity that failed to save after all.
     pub problems: Vec<String>,
 }
@@ -959,6 +998,7 @@ pub struct Import {
     settings: Settings,
     identities: Vec<(Status, Identity)>,
     rules: Vec<(Status, Rule)>,
+    tags: Vec<(Status, crate::tags::Tag)>,
 }
 
 #[derive(Deserialize)]
@@ -977,6 +1017,8 @@ struct RawBundle {
     accounts: Vec<Value>,
     #[serde(default)]
     rules: Vec<Value>,
+    #[serde(default)]
+    tags: Vec<Value>,
 }
 
 fn same_text(a: &str, b: &str) -> bool {
@@ -1093,6 +1135,7 @@ impl Import {
         }
 
         let (rule_items, rules) = plan_rules(&raw.rules, store);
+        let (tag_items, tags) = plan_tags(&raw.tags, store);
 
         let account_plans = entries
             .iter()
@@ -1128,11 +1171,13 @@ impl Import {
                 settings_ignored,
                 identities: identity_items,
                 rules: rule_items,
+                tags: tag_items,
                 accounts: account_plans,
             },
             settings,
             identities,
             rules,
+            tags,
         })
     }
 
@@ -1159,6 +1204,14 @@ impl Import {
             }
         }
         if choice.rules {
+            // Tags first: the rules use them.
+            for (status, tag) in &self.tags {
+                match store.import_tag(tag) {
+                    Ok(_) if *status == Status::Add => report.tags_added += 1,
+                    Ok(_) => report.tags_updated += 1,
+                    Err(e) => report.problems.push(format!("{}: {e}", tag.name)),
+                }
+            }
             for (status, rule) in &self.rules {
                 match store.save_rule(rule) {
                     Ok(_) if *status == Status::Add => report.rules_added += 1,
@@ -1169,6 +1222,61 @@ impl Import {
         }
         (settings, report)
     }
+}
+
+/// Tags as a settings file holds them, matched by keyword: new ones, and ones whose name or
+/// color differ here.
+fn plan_tags(
+    values: &[Value],
+    store: &MailStore,
+) -> (Vec<PlanItem>, Vec<(Status, crate::tags::Tag)>) {
+    let here = store.tags().unwrap_or_default();
+    let mut items = Vec::new();
+    let mut tags = Vec::new();
+    for value in values {
+        let entry = serde_json::from_value::<TagEntry>(value.clone())
+            .ok()
+            .filter(|e| crate::tags::is_keyword(&e.keyword.to_ascii_lowercase()));
+        let Some(entry) = entry else {
+            items.push(skipped(name_of(value), None, Skip::Unreadable));
+            continue;
+        };
+        let keyword = entry.keyword.to_ascii_lowercase();
+        let name = entry
+            .name
+            .clone()
+            .or_else(|| crate::tags::default_name(&keyword))
+            .unwrap_or_else(|| keyword.clone());
+        let tag = crate::tags::Tag {
+            keyword: keyword.clone(),
+            name: name.clone(),
+            color: entry.color.clone(),
+            count: 0,
+        };
+        let status = match here.iter().find(|t| t.keyword == keyword) {
+            None => Status::Add,
+            Some(t) if t.name == tag.name && t.color == tag.color => Status::Same,
+            Some(_) => Status::Update,
+        };
+        if !crate::tags::COLORS.contains(&tag.color.as_str()) {
+            let detail = crate::tr!(
+                "Pick one of the tag colors.",
+                "Wybierz jeden z kolorów etykiet."
+            );
+            items.push(skipped(name, None, Skip::Invalid { detail }));
+            continue;
+        }
+        items.push(PlanItem {
+            name,
+            account: None,
+            status,
+            skip: None,
+        });
+        if status != Status::Same {
+            tags.push((status, tag));
+        }
+    }
+    (items, tags)
 }
 
 /// Rules as a settings file holds them, matched against this store: what happens to each,
@@ -1246,6 +1354,8 @@ pub fn plan_rules(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<(S
                 ActionEntry::Forward { to } => Action::Forward { to: to.clone() },
                 ActionEntry::MarkRead => Action::MarkRead,
                 ActionEntry::Flag => Action::Flag,
+                ActionEntry::AddTag { tag } => Action::AddTag { tag: tag.clone() },
+                ActionEntry::RemoveTag { tag } => Action::RemoveTag { tag: tag.clone() },
                 ActionEntry::Delete => Action::Delete,
                 ActionEntry::AutoReply { body } => Action::AutoReply { body: body.clone() },
             });
@@ -1722,6 +1832,68 @@ mod tests {
         );
         let again = Import::read(&text, &new, &Settings::default()).unwrap();
         assert_eq!(again.plan.rules[0].status, Status::Same);
+    }
+
+    #[test]
+    fn tags_travel_with_the_rules_that_use_them() {
+        let (mut old, account) = store_with("anna@firma.pl", "faktury");
+        let projekt = old
+            .save_tag(&crate::tags::Tag {
+                keyword: String::new(),
+                name: "Projekt X".into(),
+                color: "teal".into(),
+                count: 0,
+            })
+            .unwrap();
+        let mut work = old.tags().unwrap()[1].clone();
+        work.color = "gray".into();
+        old.save_tag(&work).unwrap();
+        let mut rule = invoices_rule(&account, "faktury");
+        rule.conditions = vec![Condition {
+            field: Field::Tag,
+            header: None,
+            op: Op::Is,
+            value: "$label1".into(),
+        }];
+        rule.actions = vec![
+            Action::AddTag {
+                tag: projekt.keyword.clone(),
+            },
+            Action::RemoveTag {
+                tag: "$label1".into(),
+            },
+        ];
+        old.save_rule(&rule).unwrap();
+        let text = export(&old, &Settings::default(), ALL, "0.9.12", now()).unwrap();
+        assert!(text.contains("\"keyword\": \"projekt_x\""), "{text}");
+        assert!(
+            !text.contains("\"name\": \"Work\""),
+            "a default tag's own name isn't written"
+        );
+        let (mut new, _) = store_with("anna@firma.pl", "faktury");
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        let status = |name: &str| {
+            import
+                .plan
+                .tags
+                .iter()
+                .find(|t| t.name == name)
+                .map(|t| t.status)
+        };
+        assert_eq!(status("Projekt X"), Some(Status::Add));
+        assert_eq!(status("Work"), Some(Status::Update), "its color");
+        assert_eq!(status("Later"), Some(Status::Same));
+        let (_, report) = import.apply(&mut new, EVERYTHING);
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!((report.tags_added, report.tags_updated), (1, 1));
+        let tags = new.tags().unwrap();
+        assert!(tags
+            .iter()
+            .any(|t| t.keyword == "projekt_x" && t.name == "Projekt X" && t.color == "teal"));
+        assert_eq!(tags[1].color, "gray");
+        assert_eq!(new.rules().unwrap()[0].actions, rule.actions);
+        let again = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert!(again.plan.tags.iter().all(|t| t.status == Status::Same));
     }
 
     #[test]

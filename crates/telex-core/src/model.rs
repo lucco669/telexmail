@@ -429,6 +429,9 @@ pub struct Message {
     pub unread: bool,
     #[serde(default)]
     pub flagged: bool,
+    /// Its tags: keywords of `tags::Tag`s, lowercase, A to Z.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// The HTML references remote images. Telex blocks them until the user allows it.
     #[serde(default)]
     pub remote_images: bool,
@@ -461,6 +464,9 @@ pub struct MessageSummary {
     pub unread: bool,
     pub flagged: bool,
     pub has_attachments: bool,
+    /// Keywords of its tags; left out when it has none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread: Option<ThreadRow>,
 }
@@ -489,6 +495,7 @@ impl From<&Message> for MessageSummary {
             unread: m.unread,
             flagged: m.flagged,
             has_attachments: !m.attachments.is_empty(),
+            tags: m.tags.clone(),
             thread: None,
         }
     }

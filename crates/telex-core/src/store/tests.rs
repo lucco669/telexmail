@@ -95,6 +95,7 @@ fn synced(uid: u32, subject: &str) -> SyncedMessage {
             size_kb: 1,
             unread: true,
             flagged: false,
+            tags: Vec::new(),
             remote_images: false,
             note: None,
             attachments: vec![],
@@ -606,8 +607,14 @@ fn server_flags_win_unless_a_local_change_is_queued() {
     let a = one_in_inbox(&mut store, &account, 1);
     let b = one_in_inbox(&mut store, &account, 2);
     store.set_flagged(b, true).unwrap(); // queued, not sent yet
+    let flags = |uid, seen, flagged| ServerFlags {
+        uid,
+        seen,
+        flagged,
+        keywords: Vec::new(),
+    };
     let changed = store
-        .refresh_flags(&key, &[(1, true, true), (2, true, false)])
+        .refresh_flags(&key, &[flags(1, true, true), flags(2, true, false)])
         .unwrap();
     assert_eq!(changed, 3, "a: read and flagged; b: read");
     let a = store.get(a).unwrap();
@@ -1562,4 +1569,237 @@ fn errors_speak_the_chosen_language() {
         refused.to_string(),
         "Konto potrzebuje co najmniej jednej tożsamości. Zmień tę zamiast ją usuwać."
     );
+}
+
+fn tag(store: &mut MailStore, ids: &[MessageId], keyword: &str, on: bool) -> usize {
+    store.set_tag_many(ids, keyword, on).unwrap()
+}
+
+fn keyword(k: &str, on: bool) -> ChangeKind {
+    ChangeKind::Keyword {
+        keyword: k.into(),
+        on,
+    }
+}
+
+#[test]
+fn tags_change_here_at_once_and_queue_one_change_per_keyword() {
+    let (mut store, account) = store_with_server_account();
+    let a = one_in_inbox(&mut store, &account, 1);
+    let b = one_in_inbox(&mut store, &account, 2);
+    assert_eq!(tag(&mut store, &[a, b], "$label2", true), 2);
+    assert_eq!(tag(&mut store, &[a, b], "$label2", true), 0, "already so");
+    assert_eq!(tag(&mut store, &[a], "$label4", true), 1);
+    assert_eq!(store.get(a).unwrap().tags, ["$label2", "$label4"]);
+    let rows = store.list(&account.folder_key("inbox")).unwrap();
+    assert!(rows.iter().any(|r| r.tags == ["$label2", "$label4"]));
+    assert_eq!(
+        kinds(&store, &account),
+        [
+            keyword("$label2", true),
+            keyword("$label2", true),
+            keyword("$label4", true)
+        ]
+    );
+    // Taken off again before the server heard: one change per message and keyword.
+    tag(&mut store, &[a], "$label2", false);
+    assert_eq!(
+        kinds(&store, &account),
+        [
+            keyword("$label2", true),
+            keyword("$label4", true),
+            keyword("$label2", false)
+        ]
+    );
+    assert!(store.set_tag_many(&[a], "nosuchtag", true).is_err());
+    // Mail on this PC keeps them in the mail base only.
+    store.move_many(&[b], "local/archive").unwrap();
+    assert_eq!(store.get(b).unwrap().tags, ["$label2"], "a move keeps tags");
+    let before = store.pending_changes(&account.id).unwrap().len();
+    tag(&mut store, &[b], "$label1", true);
+    assert_eq!(store.pending_changes(&account.id).unwrap().len(), before);
+    assert_eq!(store.get(b).unwrap().tags, ["$label1", "$label2"]);
+}
+
+#[test]
+fn the_server_s_tags_come_down_unless_a_change_is_queued() {
+    let (mut store, account) = store_with_server_account();
+    let key = account.folder_key("inbox");
+    let a = one_in_inbox(&mut store, &account, 1);
+    let b = one_in_inbox(&mut store, &account, 2);
+    tag(&mut store, &[b], "$label1", true); // queued, not sent yet
+    let server = |uid, keywords: &[&str]| ServerFlags {
+        uid,
+        seen: false,
+        flagged: false,
+        keywords: keywords.iter().map(|k| (*k).to_owned()).collect(),
+    };
+    let changed = store
+        .refresh_flags(
+            &key,
+            &[
+                server(1, &["$Label3", "$Forwarded"]),
+                server(2, &["$label5"]),
+            ],
+        )
+        .unwrap();
+    assert_eq!(changed, 2);
+    assert_eq!(
+        store.get(a).unwrap().tags,
+        ["$label3"],
+        "only tags, lowercase"
+    );
+    assert_eq!(
+        store.get(b).unwrap().tags,
+        ["$label1", "$label5"],
+        "the queued tag stays"
+    );
+    // Nothing changed: nothing written.
+    assert_eq!(
+        store
+            .refresh_flags(&key, &[server(1, &["$label3"])])
+            .unwrap(),
+        0
+    );
+    // A server that can't keep tags never takes them away.
+    assert!(store.keep_tags_here(&account.id).unwrap());
+    assert!(!store.keep_tags_here(&account.id).unwrap(), "news once");
+    store.refresh_flags(&key, &[server(1, &[])]).unwrap();
+    assert_eq!(store.get(a).unwrap().tags, ["$label3"]);
+    assert_eq!(
+        store.accounts_keeping_tags_here().unwrap(),
+        std::slice::from_ref(&account.id)
+    );
+    // New mail keeps only what are tags here.
+    let mut tagged = synced(9, "Nowa");
+    tagged.message.tags = vec!["$label2".into(), "$mdnsent".into()];
+    let id = store.add_synced(&key, &[tagged]).unwrap()[0];
+    assert_eq!(store.get(id).unwrap().tags, ["$label2"]);
+}
+
+#[test]
+fn mail_back_from_this_pc_says_only_the_tags_that_changed() {
+    let (mut store, account) = store_with_server_account();
+    let id = one_in_inbox(&mut store, &account, 7);
+    tag(&mut store, &[id], "$label1", true);
+    tag(&mut store, &[id], "$label2", true);
+    for c in store.pending_changes(&account.id).unwrap() {
+        store.change_done(c.op).unwrap(); // the server has both
+    }
+    store.move_many(&[id], "local/archive").unwrap();
+    tag(&mut store, &[id], "$label1", false);
+    tag(&mut store, &[id], "$label3", true);
+    store
+        .move_many(&[id], &account.folder_key("inbox"))
+        .unwrap();
+    let tags: Vec<ChangeKind> = kinds(&store, &account)
+        .into_iter()
+        .filter(|k| matches!(k, ChangeKind::Keyword { .. }))
+        .collect();
+    assert_eq!(tags, [keyword("$label3", true), keyword("$label1", false)]);
+}
+
+#[test]
+fn deleting_a_tag_takes_it_off_every_message_here_and_on_the_server() {
+    let (mut store, account) = store_with_server_account();
+    let a = one_in_inbox(&mut store, &account, 1);
+    let b = one_in_inbox(&mut store, &account, 2);
+    tag(&mut store, &[a, b], "$label5", true);
+    tag(&mut store, &[a], "$label1", true);
+    for c in store.pending_changes(&account.id).unwrap() {
+        store.change_done(c.op).unwrap();
+    }
+    let later = store
+        .tags()
+        .unwrap()
+        .into_iter()
+        .find(|t| t.keyword == "$label5");
+    assert_eq!(later.unwrap().count, 2);
+    assert_eq!(store.delete_tag("$label5").unwrap(), 2);
+    assert!(store.tags().unwrap().iter().all(|t| t.keyword != "$label5"));
+    assert_eq!(store.get(a).unwrap().tags, ["$label1"]);
+    assert!(store.get(b).unwrap().tags.is_empty());
+    assert_eq!(kinds(&store, &account), vec![keyword("$label5", false); 2]);
+}
+
+#[test]
+fn rules_find_tags_and_add_or_take_them_off_saying_so() {
+    use crate::filters::{run, Condition, Field, Op, Rule, Trigger};
+    let (mut store, account) = store_with_server_account();
+    let a = one_in_inbox(&mut store, &account, 1);
+    let b = one_in_inbox(&mut store, &account, 2);
+    tag(&mut store, &[a], "$label4", true);
+    let rule = |name: &str, op, value: &str, actions| Rule {
+        id: 0,
+        name: name.into(),
+        enabled: true,
+        account: None,
+        match_all: true,
+        conditions: vec![Condition {
+            field: Field::Tag,
+            op,
+            value: value.into(),
+            header: None,
+        }],
+        actions,
+        stop: false,
+    };
+    let done = rule(
+        "Zrobione",
+        Op::Is,
+        "$label4",
+        vec![
+            Action::RemoveTag {
+                tag: "$label4".into(),
+            },
+            Action::AddTag {
+                tag: "$label5".into(),
+            },
+        ],
+    );
+    let untagged = rule(
+        "Bez etykiet",
+        Op::NotExists,
+        "",
+        vec![Action::AddTag {
+            tag: "$label2".into(),
+        }],
+    );
+    let mut missing = untagged.clone();
+    missing.actions = vec![Action::AddTag {
+        tag: "nosuchtag".into(),
+    }];
+    assert!(matches!(
+        store.save_rule(&missing),
+        Err(StoreError::Invalid(_))
+    ));
+    store.save_rule(&done).unwrap();
+    store.save_rule(&untagged).unwrap();
+    let report = crate::i18n::with(crate::i18n::Lang::En, || {
+        run(&mut store, &[a, b], Trigger::OnDemand, chrono::Local::now()).unwrap()
+    });
+    assert_eq!(report.matched, 2);
+    let a = store.get(a).unwrap();
+    assert_eq!(a.tags, ["$label5"]);
+    assert_eq!(
+        a.note.as_deref(),
+        Some("Rule \"Zrobione\" took the tag To do off it and tagged it Later.")
+    );
+    let b = store.get(b).unwrap();
+    assert_eq!(b.tags, ["$label2"]);
+    assert!(!untagged.matches(&b), "b has a tag now");
+    // In Polish.
+    let c = one_in_inbox(&mut store, &account, 3);
+    crate::i18n::with(crate::i18n::Lang::Pl, || {
+        run(&mut store, &[c], Trigger::OnDemand, chrono::Local::now()).unwrap()
+    });
+    assert_eq!(
+        store.get(c).unwrap().note.as_deref(),
+        Some("Reguła „Bez etykiet” oznaczyła ją etykietą Praca.")
+    );
+    // A rule whose tag was deleted says so when it runs.
+    store.delete_tag("$label2").unwrap();
+    let d = one_in_inbox(&mut store, &account, 4);
+    let report = run(&mut store, &[d], Trigger::OnDemand, chrono::Local::now()).unwrap();
+    assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
 }

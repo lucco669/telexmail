@@ -164,6 +164,38 @@ fn set_flagged_many(
     with_store(&state, |s| s.set_flagged_many(&ids, flagged))
 }
 
+/// Add a tag to messages (`on`) or take it off. Returns how many changed.
+#[tauri::command(async)]
+fn set_tag_many(
+    state: State<'_, AppState>,
+    ids: Vec<MessageId>,
+    keyword: String,
+    on: bool,
+) -> CmdResult<usize> {
+    with_store(&state, |s| s.set_tag_many(&ids, &keyword, on))
+}
+
+/// Save a tag (empty keyword: a new one). Returns it as saved.
+#[tauri::command(async)]
+fn save_tag(
+    state: State<'_, AppState>,
+    tag: telex_core::tags::Tag,
+) -> CmdResult<telex_core::tags::Tag> {
+    with_store(&state, |s| s.save_tag(&tag))
+}
+
+/// Delete a tag; it comes off every message. Returns how many lost it.
+#[tauri::command(async)]
+fn delete_tag(state: State<'_, AppState>, keyword: String) -> CmdResult<usize> {
+    with_store(&state, |s| s.delete_tag(&keyword))
+}
+
+/// Move a tag up (-1) or down (1).
+#[tauri::command(async)]
+fn move_tag(state: State<'_, AppState>, keyword: String, delta: i64) -> CmdResult<()> {
+    with_store(&state, |s| s.move_tag(&keyword, delta))
+}
+
 /// Messages as Markdown, oldest first, for the clipboard (Copy as Markdown).
 #[tauri::command(async)]
 fn message_markdown(state: State<'_, AppState>, ids: Vec<MessageId>) -> CmdResult<String> {
@@ -1080,6 +1112,10 @@ pub fn run() {
             set_flagged,
             set_unread_many,
             set_flagged_many,
+            set_tag_many,
+            save_tag,
+            delete_tag,
+            move_tag,
             move_messages,
             mark_spam,
             spam_status,

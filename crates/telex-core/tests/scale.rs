@@ -436,6 +436,7 @@ fn message(
             size_kb,
             unread: !outgoing && rng.chance(3),
             flagged: rng.chance(1),
+            tags: Vec::new(),
             remote_images: false,
             note: None,
             attachments,

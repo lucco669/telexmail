@@ -36,6 +36,7 @@ pub mod smtp;
 pub mod spam;
 pub mod spell;
 pub mod store;
+pub mod tags;
 pub mod usage;
 
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey, UnreadAt};
