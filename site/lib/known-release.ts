@@ -5,7 +5,7 @@ import { site } from './site';
 // asked while the site is built (or in `npm run dev` offline); a live site keeps its last good answer
 // from GitHub instead (lib/release.ts). Update it after each release (README, "After a release").
 
-const version = '0.9.10';
+const version = '0.9.11';
 const file = (name: string, size: number) => ({
   name,
   size,
@@ -14,11 +14,11 @@ const file = (name: string, size: number) => ({
 
 export const knownRelease: Release | null = {
   version,
-  date: '2026-10-16T10:31:42Z',
+  date: '2026-10-17T15:50:31Z',
   pageUrl: `https://github.com/${site.releasesRepo}/releases/tag/v${version}`,
-  exe: file(`Telex_${version}_x64-setup.exe`, 5044056),
-  msi: file(`Telex_${version}_x64_en-US.msi`, 6918144),
-  appimage: file(`Telex_${version}_amd64.AppImage`, 85535224),
-  deb: file(`Telex_${version}_amd64.deb`, 7374410),
-  sums: null,
+  exe: file(`Telex_${version}_x64-setup.exe`, 5127687),
+  msi: file(`Telex_${version}_x64_en-US.msi`, 7061504),
+  appimage: file(`Telex_${version}_amd64.AppImage`, 85670392),
+  deb: file(`Telex_${version}_amd64.deb`, 7514552),
+  sums: file('SHA256SUMS', 832),
 };
