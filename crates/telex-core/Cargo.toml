@@ -37,6 +37,9 @@ cfb = "0.14.0"
 # SHA-256 a fetched dictionary must match (ring is here for TLS already).
 spellbook = "0.4.2"
 ring = "0.17"
+# Calendar invitations: the IANA time zones (and Windows' names mapped to them), compiled in,
+# so an invite shows in local time without a system database.
+chrono-tz = "0.10.4"
 
 # MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver;
 # Windows' display languages for the interface language; Outlook's accounts in the registry.

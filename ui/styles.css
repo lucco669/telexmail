@@ -350,6 +350,39 @@ button.ph-who:hover .pn{text-decoration:underline}
 .risk-details li span{flex:1;min-width:0}
 .risk-details li>b{font:12px var(--font-data);color:var(--muted)}
 .risk-details p{margin:3px 0;color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
+/* A calendar invitation above the text (inviteHtml): what, when, where, who, the answer. */
+.invite{padding:6px 14px 7px;background:var(--panel);color:var(--fg);border-bottom:1px solid var(--line-soft);font:12.5px/1.45 var(--font-ui)}
+.iv-top{display:flex;align-items:center;gap:8px;min-height:22px}
+.iv-top>svg{flex:none;width:16px;height:16px;color:var(--accent)}
+.iv-kind{flex:none;color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+.iv-what{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.invite.off .iv-what{text-decoration:line-through}
+.iv-tools{flex:none;display:inline-flex;align-items:center;gap:6px}
+.iv-tools .btn{height:22px;padding:0 8px}
+.iv-grid{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:1px 12px;margin:3px 0 0}
+.iv-grid dt{color:var(--muted);font-size:12px}
+.iv-grid dd{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px;margin:0;min-width:0;overflow-wrap:anywhere}
+.iv-grid small{color:var(--muted);font-size:12px}
+.iv-when{font-weight:500;font-variant-numeric:tabular-nums}
+.iv-link{font-weight:500}
+.iv-people{display:flex;flex-wrap:wrap;gap:0 12px}
+.iv-p{white-space:nowrap}
+.iv-p i{display:inline-block;width:1.1em;font-style:normal;font-weight:700}
+.iv-p[data-a="declined"],.iv-p[data-a="needs_action"]{color:var(--muted)}
+.iv-p small{color:var(--muted);font-size:inherit}
+.iv-people:not(.open) .iv-extra{display:none}
+.iv-desc{max-height:8.7em;overflow:auto;white-space:pre-wrap}
+.iv-line{width:fit-content;margin:5px 0 0;padding:1px 7px;border-radius:3px}
+.iv-line q{color:var(--muted)}
+.iv-you{background:var(--chip-bg);color:var(--chip-fg)}
+.iv-warn{background:var(--warn-bg);color:var(--warn-fg)}
+.iv-warn.iv-off{background:var(--note-bg);color:var(--note-fg)}
+.iv-answer{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:6px}
+.iv-answer .seg button{height:22px;padding:0 10px;font-size:11px}
+.iv-answer .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg)}
+.iv-answer .seg button:disabled{cursor:progress}
+.iv-comment{flex:1;min-width:160px;max-width:440px;height:24px;padding:0 7px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:12px var(--font-ui)}
+.iv-comment::placeholder{color:var(--faint)}
 /* The address under the pointer, like a browser's status bubble: Telex's, outside the mail, never in the way. */
 .linktip{position:fixed;z-index:3;display:flex;align-items:baseline;gap:8px;min-width:0;padding:2px 8px;background:var(--panel);color:var(--muted);border:1px solid var(--field);border-radius:3px 3px 0 0;box-shadow:0 1px 4px var(--shadow);font:11.5px/1.5 var(--font-ui);pointer-events:none;white-space:nowrap;overflow:hidden}
 .linktip .lt-host{flex:none;color:var(--fg);font:600 11.5px var(--font-data);direction:ltr;unicode-bidi:isolate}

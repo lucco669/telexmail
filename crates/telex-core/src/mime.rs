@@ -329,6 +329,9 @@ fn file_name(part: &MessagePart<'_>) -> String {
         || {
             if part.is_message() {
                 "message.eml"
+            } else if mime_type(part) == "text/calendar" {
+                // Outlook's and Google's invitations carry the event as a nameless part.
+                "invite.ics"
             } else {
                 "attachment"
             }

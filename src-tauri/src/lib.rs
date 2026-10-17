@@ -26,6 +26,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::autoconfig::{self, Detected, Step};
+use telex_core::calendar::{invites::Invite, Answer};
 use telex_core::drafts::{self, DraftKind, DraftStart};
 use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits, Palette, Paper};
@@ -913,6 +914,33 @@ fn hold_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<()> {
     with_store(&state, |s| s.hold_outgoing(id, Local::now().naive_local()))
 }
 
+/// What answering an invitation did: the sending, and the card as it is now.
+#[derive(Debug, Default, Serialize)]
+struct InviteAnswer {
+    sent: Vec<String>,
+    errors: Vec<String>,
+    invite: Option<Invite>,
+}
+
+/// Accept, Maybe or Decline a calendar invitation: the reply to the organizer goes at once
+/// (without the moment to undo; another answer can follow it).
+#[tauri::command(async)]
+async fn answer_invite(
+    state: State<'_, AppState>,
+    id: MessageId,
+    answer: Answer,
+    comment: String,
+) -> CmdResult<InviteAnswer> {
+    let replied = with_store(&state, |s| {
+        Ok(s.answer_invite(id, answer, &comment, Local::now()))
+    })??;
+    let account = with_store(&state, |s| s.account(&replied.account).cloned())?;
+    let mut outcome = InviteAnswer::default();
+    send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
+    outcome.invite = with_store(&state, |s| s.invite(id))?;
+    Ok(outcome)
+}
+
 /// Send what is due in the account's Outbox, after any send already running.
 async fn send_account_outbox(
     state: &AppState,
@@ -1090,6 +1118,7 @@ pub fn run() {
             next_unread,
             recipients,
             hold_message,
+            answer_invite,
             download_older,
             files::open_attachment,
             files::save_attachment,

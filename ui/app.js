@@ -58,6 +58,7 @@ const I = {
   link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
   popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
+  cal: sv('<rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/>', 'class="cal"'),
   copy: sv('<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 3.5v-.3a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v6.6a.7.7 0 00.7.7h.3"/>'),
   spell: sv('<path d="M1.8 11.5L4.3 4l2.5 7.5M2.6 9h3.4"/><path d="M8.8 9.6l2 2 3.6-4.6"/>'),
 };
@@ -2202,7 +2203,120 @@ function riskHtml(m){
 }
 previewEl.addEventListener('keydown', e => {
   if (e.target.closest?.('.risk-panel') && ['Enter', ' '].includes(e.key)) e.stopPropagation();
+  if (e.target.closest?.('.invite') && ['Enter', ' '].includes(e.key)) e.stopPropagation();
+  if (e.target.classList?.contains('iv-comment') && e.key === 'Escape'){ e.stopPropagation(); e.target.blur(); }
 });
+
+/* ---------- calendar invitations ---------- */
+// The card above mail that holds an event (calendar/invites.rs): what, when in this PC's time
+// (and in the zone it was written in, when that clock differs), where, who and their answers.
+// Accept, Maybe and Decline send the reply to the organizer at once; Spam can't answer.
+const ANSWER = {accepted:N_('Accepted'), tentative:N_('Maybe'), declined:N_('Declined'), needs_action:N_('No answer yet'), delegated:N_('Delegated')};
+const ANSWER_MARK = {accepted:'✓', tentative:'?', declined:'✕', needs_action:'·', delegated:'→'};
+const IV_BLOCKED = {
+  spam:N_('Invitations in Spam aren’t answered. Move it out of Spam first.'),
+  cancelled:N_('This meeting was cancelled.'),
+  outdated:N_('A newer version of this invitation came. Answer that one.'),
+  organizer:N_('You organize this meeting.'),
+  no_organizer:N_('The invitation doesn’t say who organizes it, so it can’t be answered.'),
+  no_account:N_('Add an account to answer from.'),
+};
+const IV_YOU = {
+  accepted:N_('You accepted on {when}.'), tentative:N_('You answered maybe on {when}.'), declined:N_('You declined on {when}.'),
+};
+const IV_EARLIER = {
+  accepted:N_('You accepted an earlier version on {when}.'), tentative:N_('You answered maybe to an earlier version on {when}.'), declined:N_('You declined an earlier version on {when}.'),
+};
+const IV_THEY = {accepted:N_('{name} accepted.'), tentative:N_('{name} may attend.'), declined:N_('{name} declined.'), delegated:N_('{name} passed it on.'), needs_action:N_('{name} answered.')};
+const utcOffset = min => `UTC${min < 0 ? '−' : '+'}${Math.floor(Math.abs(min) / 60)}${Math.abs(min) % 60 ? ':' + pad(Math.abs(min) % 60) : ''}`;
+const ivDay = d => `${t(DOW[d.getDay()])} ${dmy(d)}`;
+function eventWhen(ev){
+  if (!ev.start) return '';
+  const s = parseDate(ev.start), e = ev.end ? parseDate(ev.end) : null;
+  if (ev.all_day) return (e && dmy(e) !== dmy(s) ? `${ivDay(s)} – ${ivDay(e)}` : ivDay(s)) + ` · ${t('all day')}`;
+  if (!e) return `${ivDay(s)}, ${hm(s)}`;
+  return dmy(e) === dmy(s) ? `${ivDay(s)}, ${hm(s)}–${hm(e)}` : `${ivDay(s)}, ${hm(s)} – ${ivDay(e)}, ${hm(e)}`;
+}
+function zoneWhen(ev){
+  const z = ev.zone;
+  if (!z || !ev.start) return '';
+  const s = parseDate(z.start), e = z.end ? parseDate(z.end) : null;
+  const day = dmy(s) !== dmy(parseDate(ev.start)) ? `${ivDay(s)}, ` : '';
+  return t('{time} in {zone} ({offset})', {time:day + hm(s) + (e ? '–' + hm(e) : ''), zone:z.name, offset:utcOffset(z.offset)});
+}
+const ivName = p => p.name || p.email;
+function ivPerson(a){
+  const answer = t(ANSWER[a.answer] ?? ANSWER.needs_action);
+  const extra = [a.me && t('you'), a.role === 'optional' && t('optional'), a.role === 'chair' && t('organizer'), a.room && t('room')].filter(Boolean);
+  return `<span class="iv-p" data-a="${esc(a.answer)}" title="${esc([answer, a.email].filter(Boolean).join(' · '))}"><i aria-hidden="true">${ANSWER_MARK[a.answer] ?? '·'}</i>${esc(ivName(a))}${extra.length ? ` <small>(${esc(extra.join(', '))})</small>` : ''}<span class="vh"> – ${esc(answer)}</span></span>`;
+}
+const IV_SHOWN = 8; // invited people shown before "n more"
+function inviteHtml(m, spam){
+  const iv = m.invite;
+  if (!iv) return '';
+  const ev = iv.event, off = iv.state === 'cancelled';
+  const kind = {request:t('Invitation'), cancel:t('Cancelled'), reply:t('Answer|invitation'), publish:t('Event'), counter:t('New time proposed'), other:t('Event')}[iv.method] ?? t('Event');
+  const rows = [];
+  const when = eventWhen(ev);
+  if (when) rows.push([t('When'), `<span class="iv-when">${esc(when)}</span>`
+    + (ev.zone ? `<small>${esc(zoneWhen(ev))}</small>` : '')
+    + (ev.repeats ? `<small>${esc(ev.repeats)}</small>` : '')
+    + (ev.one_date ? `<small>${esc(t('One date of a repeating event'))}</small>` : '')]);
+  const links = ev.links.map(l => spam
+    ? `<span class="iv-link">${esc(l.label)}</span>`
+    : `<button type="button" class="linkbtn iv-link" data-meet="${esc(l.url)}" title="${esc(l.url)}">${esc(t('Join on {service}', {service:l.label}))}</button>`).join(' ');
+  if (ev.location || links) rows.push([t('Where'), `${ev.location ? `<span>${esc(ev.location)}</span>` : ''}${links}`]);
+  if (ev.organizer) rows.push([t('Organizer'), `<span title="${esc(ev.organizer.email)}">${esc(ivName(ev.organizer))}</span>`]);
+  const people = ev.attendees.filter(a => !(ev.organizer && a.email === ev.organizer.email && a.role !== 'optional'));
+  if (people.length){
+    const more = people.length - IV_SHOWN + ev.more_attendees;
+    rows.push([t('Invited'), `<span class="iv-people">${people.map((a, i) => i < IV_SHOWN ? ivPerson(a) : ivPerson(a).replace('class="iv-p"', 'class="iv-p iv-extra"')).join('')}`
+      + (more > 0 ? `<button type="button" class="linkbtn iv-morep" data-act="iv-people">${esc(tn(more, '{n} more', '{n} more', {n:num(more)}))}</button>` : '') + '</span>']);
+  }
+  if (!m.body.trim() && ev.description) rows.push([t('Details'), `<span class="iv-desc">${esc(ev.description)}</span>`]);
+  // What the user did, or why they can't.
+  const lines = [];
+  if (iv.method === 'reply' && iv.from) lines.push(`<p class="iv-line">${esc(t(IV_THEY[iv.from.answer] ?? IV_THEY.needs_action, {name:ivName(iv.from)}))}${ev.comment ? ` <q>${esc(ev.comment)}</q>` : ''}</p>`);
+  if (iv.method === 'counter') lines.push(`<p class="iv-line">${esc(t('{name} proposes another time. Telex can’t answer that; answer from your calendar.', {name:ivName(ev.attendees[0] ?? ev.organizer ?? {email:m.from_email})}))}</p>`);
+  const answered = iv.answered && (iv.answered.earlier ? IV_EARLIER : IV_YOU)[iv.answered.answer];
+  if (answered) lines.push(`<p class="iv-line iv-you">${esc(t(answered, {when:`${dmy(parseDate(iv.answered.at))} ${hm(parseDate(iv.answered.at))}`}))}</p>`);
+  else if (iv.method === 'request' && iv.mine && iv.mine !== 'needs_action') lines.push(`<p class="iv-line iv-you">${esc(t('Your answer: {answer}', {answer:t(ANSWER[iv.mine])}))}</p>`);
+  if (iv.blocked && IV_BLOCKED[iv.blocked] && iv.method === 'request') lines.push(`<p class="iv-line iv-warn${iv.blocked === 'cancelled' || iv.blocked === 'spam' ? ' iv-off' : ''}">${esc(t(IV_BLOCKED[iv.blocked]))}</p>`);
+  else if (off) lines.push(`<p class="iv-line iv-warn iv-off">${esc(t('This meeting was cancelled.'))}</p>`);
+  const current = iv.answered && !iv.answered.earlier ? iv.answered.answer : iv.mine;
+  const answer = iv.method === 'request' && !iv.blocked
+    ? `<div class="iv-answer"><span class="seg" role="group" aria-label="${esc(t('Answer the invitation'))}">${[['accepted', N_('Accept')], ['tentative', N_('Maybe|answer')], ['declined', N_('Decline')]].map(([a, l]) =>
+      `<button type="button" data-answer="${a}" aria-pressed="${current === a}">${esc(t(l))}</button>`).join('')}</span>`
+      + `<input class="iv-comment" type="text" maxlength="2000" spellcheck="true" placeholder="${esc(t('Comment for the organizer (optional)'))}" aria-label="${esc(t('Comment for the organizer (optional)'))}"></div>` : '';
+  return `<section class="invite${off ? ' off' : ''}" aria-label="${esc(kind)}">
+  <div class="iv-top">${I.cal}<span class="iv-kind">${esc(kind)}</span><b class="iv-what">${esc(ev.summary || t('(no title)'))}</b>
+    <span class="iv-tools"><button type="button" class="btn" data-act="iv-add" title="${esc(t('Open it in your calendar app'))}">${esc(t('Add to calendar'))}</button><button type="button" class="pbtn" data-act="iv-save" title="${esc(t('Save as .ics…'))}" aria-label="${esc(t('Save as .ics…'))}">${I.get}</button></span></div>
+  ${rows.length ? `<dl class="iv-grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>` : ''}
+  ${lines.join('')}${answer}
+</section>`;
+}
+let answering = false;
+async function answerInvite(answer){
+  const s = current();
+  if (!s || answering) return;
+  const comment = previewEl.querySelector('.iv-comment')?.value ?? '';
+  const buttons = [...previewEl.querySelectorAll('[data-answer]')];
+  answering = true; buttons.forEach(b => b.disabled = true);
+  say(t('Sending your answer…'), 0);
+  let r;
+  try { r = await call('answer_invite', {id:s.id, answer, comment}); }
+  catch { buttons.forEach(b => b.disabled = false); return; }
+  finally { answering = false; }
+  bodies.delete(s.id);
+  const sent = sentText(r.sent);
+  const text = r.errors.length ? [sent, r.errors.join(' · ')].filter(Boolean).join(' ') : sent || t('In the Outbox. It goes out with the next check.');
+  const ms = r.errors.length ? 15000 : 6000;
+  if (VIEWER){ tellMain({say:text, ms}); renderPreview(); return; }
+  schedulePush();
+  await refresh();
+  renderPreview();
+  say(text, ms);
+}
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
   hideLink(); closeMenu(false);
@@ -2245,6 +2359,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
 ${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${mdButton()}${paper}${views}`)}
+${inviteHtml(m, spam)}
 ${riskHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
@@ -2279,6 +2394,9 @@ previewEl.addEventListener('click', async e => {
     else saveAttachments(m.id);
     return;
   }
+  const answer = e.target.closest('[data-answer]'), meet = e.target.closest('[data-meet]');
+  if (answer && !state.compose){ answerInvite(answer.dataset.answer); return; }
+  if (meet){ call('open_link', {url:meet.dataset.meet}).then(() => say(t('Opened in your browser.'), 2500)).catch(() => {}); return; }
   const off = e.target.closest('[data-unattach]');
   if (off && state.compose){ state.compose.attachments.splice(Number(off.dataset.unattach), 1); renderComposeAtts(); return; }
   if (!act) return;
@@ -2298,6 +2416,12 @@ previewEl.addEventListener('click', async e => {
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
   if (act.dataset.act === 'markdown' && m){ copyMarkdown([m.id]); return; }
+  if ((act.dataset.act === 'iv-add' || act.dataset.act === 'iv-save') && m){
+    const iv = (await full(m.id)).invite;
+    if (iv) (act.dataset.act === 'iv-add' ? openAttachment : saveAttachment)(m.id, iv.file);
+    return;
+  }
+  if (act.dataset.act === 'iv-people'){ act.closest('.iv-people').classList.add('open'); act.remove(); return; }
   if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
   if (act.dataset.act === 'flag' && m){ setFlagged(m, !m.flagged); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }

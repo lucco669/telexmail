@@ -66,7 +66,19 @@ pub fn compose(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, Purpose::Send)
+    build(account, draft, originals, now, Purpose::Send, None)
+}
+
+/// An answer to a calendar invitation (RFC 6047): the text, and the iTIP REPLY as a
+/// text/calendar part with method=REPLY beside it, as calendar programs expect.
+pub fn compose_invite_reply(
+    account: &Account,
+    draft: &OutgoingDraft,
+    originals: &Originals,
+    ics: &str,
+    now: DateTime<Local>,
+) -> Result<Composed, String> {
+    build(account, draft, originals, now, Purpose::Send, Some(ics))
 }
 
 /// Like [`compose`], marked `Auto-Submitted: auto-replied` (RFC 3834) so other robots
@@ -77,7 +89,7 @@ pub fn compose_auto_reply(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, Purpose::AutoReply)
+    build(account, draft, originals, now, Purpose::AutoReply, None)
 }
 
 pub fn recipient_emails(to: &str) -> Result<Vec<String>, String> {
@@ -104,7 +116,7 @@ pub fn compose_auto_forward(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, Purpose::AutoForward)
+    build(account, draft, originals, now, Purpose::AutoForward, None)
 }
 
 /// A draft as a whole message, to keep with the draft: its HTML and the forwarded files
@@ -117,7 +129,7 @@ pub fn compose_draft(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Vec<u8>, String> {
-    build(account, draft, originals, now, Purpose::Draft).map(|c| c.raw)
+    build(account, draft, originals, now, Purpose::Draft, None).map(|c| c.raw)
 }
 
 /// Why a message is built: to send, to answer automatically, or to keep as a draft.
@@ -141,6 +153,7 @@ fn build(
     originals: &Originals,
     now: DateTime<Local>,
     purpose: Purpose,
+    calendar: Option<&str>,
 ) -> Result<Composed, String> {
     let identity = account.identity(draft.identity);
     let from_address: lettre::Address = identity.email.parse().map_err(|_| {
@@ -236,6 +249,19 @@ fn build(
             html::compose_document(&clean),
         )),
         None => Body::Plain(SinglePart::plain(draft.body.clone())),
+    };
+    let body = match (body, calendar) {
+        (Body::Plain(text), Some(ics)) => Body::Html(
+            MultiPart::alternative().singlepart(text).singlepart(
+                SinglePart::builder()
+                    .header(
+                        ContentType::parse("text/calendar; charset=utf-8; method=REPLY")
+                            .expect("a valid type"),
+                    )
+                    .body(ics.to_owned()),
+            ),
+        ),
+        (body, _) => body,
     };
     // The forwarded message's attachments that are still listed in the draft, then the
     // files from this PC.

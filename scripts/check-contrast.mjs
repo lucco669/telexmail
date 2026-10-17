@@ -47,6 +47,12 @@ const TEXT = [
   ['chip-fg', 'chip-bg', 'Rule notes, tags, the update chip'],
   ['chip-fg', 'img-a', 'Loaded image stand-ins'],
   ['chip-fg', 'img-b', 'Loaded image stand-ins'],
+  ['muted', 'panel', 'Invitation card: labels, people who declined or haven’t answered'],
+  ['chip-fg', 'chip-bg', 'Invitation card: your answer'],
+  ['warn-fg', 'warn-bg', 'Invitation card: a newer version came'],
+  ['note-fg', 'note-bg', 'Invitation card: cancelled, or in Spam'],
+  ['accent-fg', 'accent', 'Invitation card: the answer chosen'],
+  ['faint', 'surface', 'Invitation card: the comment field’s placeholder'],
 ];
 const UI = [
   ['accent', 'line-soft', 'Update download progress'],
@@ -55,6 +61,7 @@ const UI = [
   ['accent', 'surface', 'Focus ring, unread dot'],
   ['accent', 'panel', 'Focus ring in dialogs'],
   ['accent', 'chrome', 'Focus ring on the toolbar'],
+  ['accent', 'panel', 'The calendar icon on an invitation card'],
   ['accent', 'hover', 'Unread dot under the pointer'],
   ['accent', 'sel', 'Unread dot in the selected row'],
   ['flag', 'surface', 'Flag icon'],

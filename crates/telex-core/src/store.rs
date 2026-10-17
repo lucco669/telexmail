@@ -35,6 +35,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/012_away.sql"),
     include_str!("migrations/013_saved_searches_and_rule_actions.sql"),
     include_str!("migrations/014_spam_filter.sql"),
+    include_str!("migrations/015_invites.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -427,7 +428,12 @@ impl MailStore {
             ).optional()?.flatten();
             crate::risk::analyse(&message, raw.as_deref())
         };
-        Ok(crate::risk::InspectedMessage { message, risk })
+        let invite = self.invite(id)?;
+        Ok(crate::risk::InspectedMessage {
+            message,
+            risk,
+            invite,
+        })
     }
 
     /// One row of the message list.
@@ -2252,6 +2258,9 @@ fn migrate(db: &Connection) -> Result<(), StoreError> {
         if reached == 9 {
             backfill_refs(&tx)?;
         }
+        if reached == 15 {
+            crate::calendar::invites::backfill(&tx)?;
+        }
         tx.pragma_update(None, "user_version", reached as i64)?;
         tx.commit()?;
     }
@@ -2849,6 +2858,7 @@ pub(crate) fn insert_message(
     // The text goes in second: its trigger indexes it together with the summary.
     db.prepare_cached("INSERT INTO message_content (id, body, raw) VALUES (?1, ?2, ?3)")?
         .execute(params![id, m.body, raw])?;
+    crate::calendar::invites::index(db, id as MessageId, raw)?;
     Ok(id as MessageId)
 }
 

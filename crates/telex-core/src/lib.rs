@@ -11,6 +11,7 @@ pub mod attachments;
 pub mod autoconfig;
 pub mod away;
 pub mod backup;
+pub mod calendar;
 mod colors;
 pub mod count;
 pub mod drafts;

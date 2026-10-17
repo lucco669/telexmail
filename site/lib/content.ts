@@ -9,6 +9,7 @@ const V098 = '0.9.8';
 const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
+const V0912 = '0.9.12';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -132,6 +133,7 @@ export const featureRows: FeatureRow[] = [
       'Right-click a message (or Shift+F10) for reply, move, flag, read, the conversation and a rule, each with its key',
       'Shift+Space pages back, then goes to the previous unread',
       { text: 'Copy as Markdown: a message, a selection or a whole conversation, oldest first, ready for notes or an AI chat (Ctrl+C, the menu, or the button above a message)', since: V0911 },
+      { text: 'Invitations from Outlook, Google and Apple show as a card: when in your time (and in theirs), where, the Teams, Meet or Zoom link, who is coming; Accept, Maybe or Decline answers the organizer, and Add to calendar opens it in your calendar app', since: V0912 },
     ],
   },
   {

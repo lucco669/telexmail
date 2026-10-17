@@ -163,9 +163,18 @@ function installTelexDemo(options) {
     bcc: m.bcc || '', subject: m.subject || '', date: m.date, size_kb: Math.max(1, m.size_kb || 1), unread: !!m.unread,
     flagged: !!m.flagged, remote_images: !!m.remote_images, note: (startLang === 'pl' && m.note_pl) || m.note || null,
     attachments: (m.attachments || []).map((a) => ({ name: a.name, size_kb: a.size_kb })), body: m.body || '', html: m.html || null,
-    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, out: null, ...extra,
+    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, invite: m.invite ? clone(m.invite) : null, out: null, ...extra,
   });
-  const msgs = picked.map((m) => message({ ...m, date: shiftDate(m.date), body: shiftText(m.body || '') }));
+  // An invitation's times move with its message; its rule in words follows the language.
+  const shiftInvite = (iv) => {
+    if (!iv) return null;
+    const x = clone(iv), ev = x.event;
+    for (const o of [ev, ev.zone].filter(Boolean)) for (const k of ['start', 'end']) if (o[k]) o[k] = shiftDate(o[k]);
+    if (startLang === 'pl' && ev.repeats_pl) ev.repeats = ev.repeats_pl;
+    delete ev.repeats_pl;
+    return x;
+  };
+  const msgs = picked.map((m) => message({ ...m, date: shiftDate(m.date), body: shiftText(m.body || ''), invite: shiftInvite(m.invite) }));
   const byId = (id) => msgs.find((m) => m.id === id);
   const need = (id) => byId(id) ?? fail('message {id} does not exist', 'wiadomość {id} nie istnieje', { id });
 
@@ -902,6 +911,39 @@ function installTelexDemo(options) {
     setTimeout(() => emit('outbox-sent', { queued: m.id, sent: sendOutbox(acct), errors: [] }), wait * 1000 + 300);
     return { queued: m.id, wait, sent: [], errors: [] };
   }
+  /* ---------- calendar invitations (calendar/invites.rs) ---------- */
+  // What the card says now: no answering from Spam.
+  function inviteNow(m) {
+    const iv = clone(m.invite);
+    iv.spam = kindOf(m.folder) === 'spam';
+    if (iv.method !== 'request') iv.blocked = 'not_invitation';
+    else if (iv.spam) iv.blocked = 'spam';
+    return iv;
+  }
+  // Accept, Maybe, Decline: an answer to the organizer, sent at once, and a note.
+  function answerInvite({ id, answer, comment }) {
+    const m = need(id), iv = inviteNow(m), ev = iv.event;
+    if (!['accepted', 'tentative', 'declined'].includes(answer)) fail('This isn’t an invitation to answer.', 'To nie jest zaproszenie, na które można odpowiedzieć.');
+    if (iv.blocked === 'spam') fail('Invitations in Spam aren’t answered. Move it out of Spam first.', 'Na zaproszenia w Spamie nie można odpowiadać. Najpierw przenieś je ze Spamu.');
+    if (iv.blocked) fail('This isn’t an invitation to answer.', 'To nie jest zaproszenie, na które można odpowiedzieć.');
+    const acct = acctId(m.folder), a = needAccount(acct), me = ev.attendees.find((x) => x.me);
+    const who = me?.name || defaultIdentity(a).name;
+    const subject = { accepted: tr('Accepted: {s}', 'Zaakceptowano: {s}', { s: ev.summary }), tentative: tr('Tentative: {s}', 'Wstępnie zaakceptowano: {s}', { s: ev.summary }), declined: tr('Declined: {s}', 'Odrzucono: {s}', { s: ev.summary }) }[answer];
+    const said = { accepted: tr('{who} accepted the invitation: {s}', '{who} akceptuje zaproszenie: {s}', { who, s: ev.summary }), tentative: tr('{who} may attend: {s}', '{who} może wziąć udział: {s}', { who, s: ev.summary }), declined: tr('{who} declined the invitation: {s}', '{who} odrzuca zaproszenie: {s}', { who, s: ev.summary }) }[answer];
+    const body = said + (String(comment || '').trim() ? '\n\n' + String(comment).trim() : '') + '\n';
+    const org = ev.organizer;
+    const reply = written({ account: acct, to: `${org.name} <${org.email}>`, cc: '', bcc: '', subject, body, reply_to: id, attachments: [{ name: 'invite.ics', size_kb: 1 }] }, 'outbox');
+    reply.out = { send_after: null, held: false };
+    msgs.push(reply);
+    const when = stamp(), d = parse(when), pad2 = (n) => String(n).padStart(2, '0');
+    const at = lang() === 'pl' ? `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+      : `${d.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]} ${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    addNote(m, { accepted: tr('You accepted on {at}.', 'Zaakceptowano {at}.', { at }), tentative: tr('You answered maybe on {at}.', 'Odpowiedziano „może” {at}.', { at }), declined: tr('You declined on {at}.', 'Odrzucono {at}.', { at }) }[answer]);
+    m.invite.answered = { answer, at: when, earlier: false };
+    m.invite.mine = answer;
+    for (const x of m.invite.event.attendees) if (x.me) x.answer = answer;
+    return { sent: sendOutbox(acct), errors: [], invite: inviteNow(m) };
+  }
   function holdMessage({ id }) {
     const m = byId(id);
     if (!m || !m.out || m.out.held || !m.out.send_after || m.out.send_after <= nowMs()) {
@@ -1366,8 +1408,9 @@ function installTelexDemo(options) {
       const m = need(id);
       return { id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, cc: m.cc,
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
-        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk };
+        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk, ...(m.invite ? { invite: inviteNow(m) } : {}) };
     },
+    answer_invite: answerInvite,
     message_markdown: messageMarkdown,
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
