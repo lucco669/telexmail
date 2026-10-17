@@ -17,6 +17,7 @@ pub mod drafts;
 pub mod filters;
 pub mod html;
 pub mod i18n;
+pub mod images;
 pub mod imap;
 pub mod list;
 pub mod mailbox;

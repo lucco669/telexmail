@@ -211,6 +211,12 @@ fn split_top_level(s: &str, sep: char) -> Vec<&str> {
 
 // ---- Reading colors ----
 
+/// An opaque color as `#rrggbb` (lowercase), whatever way CSS wrote it; `None` otherwise.
+pub(crate) fn opaque_hex(s: &str) -> Option<String> {
+    let rgba = parse_color(s)?;
+    (rgba[3] == 255).then(|| hex(rgba))
+}
+
 /// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`, `hsl()`, `hsla()` or a color
 /// name, as red, green, blue and alpha.
 fn parse_color(s: &str) -> Option<[u8; 4]> {

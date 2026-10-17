@@ -40,7 +40,8 @@ docs/counting.md.)
 crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
                      for the server (pending_ops); the folders on this PC (LOCAL_ID "local") and
-                     moves to and from them. Its tests are in src/store/tests.rs.
+                     moves to and from them. Its tests are in src/store/tests.rs; folders' own
+                     templates (schema 15) in src/store/templates.rs.
   src/list.rs        The message list a page at a time: folder counts, keyset pages in every
                      sort, the quick filter (one folder or all mail, with operators such as
                      from: is:unread after:) and its SQL functions, conversations, ranges.
@@ -61,8 +62,12 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/recipients.rs  People to suggest in To, Cc and Bcc, from the mail base itself.
   src/html.rs        HTML mail: sanitize (ammonia) into an inert document for a sandboxed frame,
                      inline cid: images, fetch remote images on request (ureq, public IPs only);
-                     dark paper in a theme's palette; HTML compose: what may be sent, plain text
-                     from HTML and HTML from plain text.
+                     dark paper in a theme's palette; HTML compose: what may be sent (a strict
+                     allowlist: the palette's colors and sizes, pictures as data: within limits,
+                     the signature's block), data: pictures into cid: parts, a stored message's
+                     HTML for the editor and for a reply's quote, plain text from HTML and back.
+  src/images.rs      Pictures put into a message (pasted, dropped, Insert picture…): read, turned
+                     upright and made smaller as Settings › Writing says (image crate), as data:.
   src/colors.rs      CSS colors read and turned around for dark paper (OKLab), for html.rs.
   src/count.rs       The daily count, only after a yes: what it sends (no ID; first this week /
                      month flags), when it is due (UTC days), count.json; docs/counting.md.
@@ -94,7 +99,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/sieve.rs       ManageSieve (RFC 5804, port 4190, STARTTLS before the login) and Telex's
                      marked part of the running Sieve script, put in and taken out whole.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
-                     signature and templates: recipients, subject, quoted text.
+                     signature (text or HTML) and templates, or a folder's own: recipients,
+                     subject, the text and the same in HTML (the original's HTML quoted).
   src/markdown.rs    Messages as Markdown for the clipboard (Copy as Markdown): a heading, who and
                      when as a list, the text (HTML-only mail through html::received_text).
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
@@ -115,6 +121,7 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
                      Manager on Windows, Secret Service (GNOME Keyring, KWallet) on Linux.
   src/files.rs       Attachments opened in their app or saved (dialogs), files chosen or dropped
                      to attach; only files chosen this way can be sent. Drag and drop events.
+                     Pictures for the HTML editor (`editor_image`).
   src/folders.rs     Folders on this PC (make, rename, remove), a folder saved as mbox, mail
                      files read into one (dialogs, "import-progress" events).
   src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
@@ -195,14 +202,15 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
 | `save_attachment`| `id`, `index`, `words`       | the path saved to, or null (cancelled); opens Save |
 | `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
-| `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
+| `pick_files`     | `words` `{title, pictures?}` | `[{name, size_kb, path}]` to attach (empty: cancelled; with `pictures`, the filter's name, only pictures are offered); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
 | `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
 | `discard_draft`  | `id`                         | true when that draft (on this PC, in Drafts) was removed for good: compose's Discard drops its autosave |
-| `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
+| `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor with its pictures as data: (`html::editable`), or null (plain text) |
+| `editor_image`   | `path` (picked or dropped this session) or `data` (base64, pasted), `signature` | `{src, width, height, bytes, smaller}`: a picture for the HTML editor as a data: URI, made the size `image_size` says (a signature's: 600 px, 100 KB), or a sentence (not PNG/JPEG/GIF/WebP, too large) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
-| `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
+| `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends (palette styles, data: pictures; remote pictures left out, never fetched) |
 | `mentions_attachment` | `text`, `signature`    | whether the user's own text (no quotes, forwarded part or signature) says a file is attached (`drafts::mentions_attachment`; Send asks when none is) |
 | `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
@@ -221,8 +229,10 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `preview_rule`   | `rule`, `view`               | how many of the list's first 2,000 messages the rule would match, with samples (`listed`, `read`, `limited`: the list was longer); changes and sends nothing |
 | `list_saved_searches`, `save_search` (`search`, id 0 = new), `delete_search` (`id`) | | saved list queries, A to Z |
 | `run_rules`      | `folder`                     | `{matched, moved, replied, problems}` (no auto-replies on demand) |
-| `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account` | `{account, identity, to, cc, subject, body, attachments, reply_to, forward_of}` |
-| `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
+| `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account`, `folder` (the open one, for its templates) | `{account, identity, to, cc, subject, body, html, caret_line, attachments, reply_to, forward_of}` (`html`: the same start for the HTML editor, the signature in a `telex-signature` block, the original's HTML quoted; `caret_line`: the line after a greeting) |
+| `folder_templates` | –                          | `[{folder, new_template, reply_template, reply_header}]`: folders' own templates (gone folders left out) |
+| `save_folder_template` | `template`             | – (all empty takes them away; a gone folder is a sentence) |
+| `save_identity`  | `identity` (id 0 = new)      | the saved identity (`signature_html` cleaned, `signature` its text; a signature without formatting stays plain, `signature_html` null), or a sentence saying what's wrong |
 | `delete_identity`| `id`                         | – (never the account's last one) |
 | `known_provider` | `email`                      | what the provider list knows (no network), or null |
 | `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help, confirm}` or null; emits `detect-progress` (`confirm`: servers found through DNS outside the address's domain; the wizard asks before sending them the password, RFC 6186) |
@@ -271,7 +281,7 @@ fields the user typed (`to`, `cc`, `bcc`, `subject`): threading headers, forward
 the draft or unsent message it was edited from, and its last autosave (a draft of its own; both
 go once it is saved or sent); and `identity`, who it is from (`null` = the
 account's default); and `html`, the editor's HTML when it is written in HTML (`null` = plain
-text in `body`). Its `attachments` are files from this PC (`path`, chosen through
+text in `body`; its pictures are data: URIs, which go out as multipart/related parts with cid:). Its `attachments` are files from this PC (`path`, chosen through
 `pick_files` or dropped this session; others are refused) and ones carried over from
 `forward_of` (no `path`, found by name). Accounts in
 `folder_tree` carry their `identities`. The changing commands (and `send_message`) apply locally at once; for server
@@ -317,7 +327,7 @@ with scam warning signs; nothing when there are none), `spam_filter` (careful (t
 normal, strict, off: how sure the spam filter must be to move new mail to Spam; off still
 learns; `spam::set_level`, like the language), `compose_format` (html, plain; html by
 default since 0.9.8, an existing settings.json keeps its value), `reply_format` (html (the
-default), same, plain), `sign_replies` (the identity's signature in replies and forwards too), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
+default), same, plain), `sign_replies` (the identity's signature in replies and forwards too), `image_size` (large (the default, 1600 px), medium (800 px), original: pictures put into a message), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
 can take it back), `ask_subject`, `ask_attachment` (Send asks when the text mentions an attachment and none is attached), `ask_many` (Send asks before a reply to all goes to 8 people or more), `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `usage_count` (ask, on, off: the daily count; asked in the status bar after `updates`; this PC's own like `backup_dir`), `backup_every` (off, daily,
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
 leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
@@ -429,7 +439,42 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- Richer HTML compose (schema version 15: `identities.signature_html`, `new_template`,
+  `reply_template`, `folder_templates`; one-way; setting `image_size`):
+  - Pictures: pasted, dropped from Explorer where they should go, or Insert picture… (the Open
+    dialog, pictures only), made smaller by the core (`images.rs`, image crate with PNG, JPEG, GIF,
+    WebP only: Large 1600 px, Medium 800 px or as they are; a photo made smaller is turned upright
+    and loses its EXIF, location included; GIFs stay as they are). In the editor they are data:
+    URIs; `smtp::compose` and `compose_draft` make each a part of a multipart/related beside the
+    HTML (`html::inline_images`, `cid:<n>.<Message-ID>`), and E and drafts turn them back
+    (`html::editable`). Pasted remote pictures are left out, never fetched: fetching would tell
+    their server who pasted, and sending their addresses would let it see who reads; the status
+    bar says how many and to save them and Insert picture. Pictures shown in a message's text
+    (cid: in its HTML) aren't listed as its files any more (`mime::files`), for received mail too.
+  - `html::compose_clean` is a strict allowlist: the old tags plus tables, sub/sup, h4–h6 and
+    img; `style` only `color` from `TEXT_COLORS`, `background-color` from `MARK_COLORS`,
+    `font-size` 12px or 18px (the browser's small and x-large written so); img only as data:
+    (PNG, JPEG, GIF, WebP in base64; 5 MB each, 15 MB and 40 in all) or cid:; the class
+    `telex-signature` on a div; nothing else. Text color, highlight and size come from the bar
+    (`execCommand` with styleWithCSS); the editor shows each palette color in its theme's own
+    readable shade (`--pal-1..6`, `--mark-1..4` in themes.css, checked by check-contrast.mjs) by
+    attribute selectors with !important, so what's sent stays as chosen.
+  - HTML signatures: Settings › Writing and the identity form edit them with compose's editor
+    (formatting, colors, a picture: 600 px, 100 KB each, 200 KB in all). `Identity::prepared`
+    cleans them and keeps their text in `signature` for plain-text mail; one without formatting
+    stays plain. In HTML compose the signature sits in `<div class="telex-signature">`, which
+    another identity's replaces. Thunderbird's HTML signatures come over as HTML.
+  - A reply or forward in HTML quotes the original's own HTML (`html::quotable`: sanitized, its
+    own pictures within 5 MB, remote ones left out, styles down to the palette, at most 2 MB;
+    else its text), in a blockquote that cfold folds as before; `start_draft` returns `html`.
+  - Templates: per identity what new messages (`new_template`, a greeting) and replies
+    (`reply_template`) open with, typing starting below them (`caret_line`); `{first}` (the
+    first name) joins the placeholders, and a new message has only {date} and {time}. Per folder
+    (`FolderTemplate`: new, reply, reply header) from Settings › Writing › Folder templates or a
+    folder's menu › Templates…; each one that isn't empty wins over the identity's (the open
+    folder's for a new message, the original's for a reply). Settings files carry identities'
+    `signature_html` and templates, and folders' templates by account address and folder id,
+    else name, like rules (`templates`; with the identities).
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
@@ -995,8 +1040,8 @@ then daily like `daily`),
 3. ~~**HTML mail.**~~ Done; see Current state, with opening and saving attachments in
    0.5.0. Not yet: `<style>` blocks (dropped, since CSS can load from the network; keeping
    them needs a CSS sanitizer).
-   HTML compose is done (see Current state); not yet: images and colors in it, HTML
-   signatures, quoting a reply's original HTML instead of its text.
+   HTML compose is done (see Current state), with pictures, colors, HTML signatures and the
+   original's HTML in quotes (Not released yet).
 4. ~~**Filters ("Sorting Office").**~~ Done; see Current state, with a rule started from a
    message in 0.5.0. Headers and attachment conditions, copy/forward actions, rule previews and
    saved searches in 0.9.5. Not yet: regular expressions and rules that run on a schedule.
@@ -1004,8 +1049,8 @@ then daily like `daily`),
    for the owner to register OAuth clients with Google (Cloud project; Gmail's scope is
    restricted, so unverified apps stay in testing mode) and Microsoft (Entra app that allows
    personal accounts).
-6. ~~**Templates and identities.**~~ Done; see Current state. Not yet: templates for new
-   messages (a greeting), HTML signatures, per-folder templates.
+6. ~~**Templates and identities.**~~ Done; see Current state, with templates for new messages
+   and replies, HTML signatures and per-folder templates (Not released yet).
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
    AppImage (self-updating) and a .deb. The repository is public and v0.9.0 is released;

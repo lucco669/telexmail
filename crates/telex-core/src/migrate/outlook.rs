@@ -822,7 +822,11 @@ mod tests {
         assert_eq!(parsed.message_id.as_deref(), Some("w1@firma.pl"));
         assert!(parsed.body.contains("w załączniku wycena"));
         let names: Vec<&str> = parsed.attachments.iter().map(|a| a.name.as_str()).collect();
-        assert_eq!(names, ["logo.png", "wycena.pdf"]);
+        assert_eq!(
+            names,
+            ["wycena.pdf"],
+            "the logo shows in the text, it isn't a file"
+        );
         let raw = String::from_utf8_lossy(&read[0].raw);
         assert!(
             raw.contains("Content-ID: <logo@firma.pl>"),

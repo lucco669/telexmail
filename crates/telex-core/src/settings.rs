@@ -19,7 +19,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::filters::{Action, Condition, Rule};
-use crate::model::{split_folder_key, Account, AccountSetup, Identity, ImapSettings, SmtpSettings};
+use crate::model::{
+    split_folder_key, Account, AccountSetup, FolderTemplate, Identity, ImapSettings, SmtpSettings,
+};
 use crate::store::{MailStore, StoreError, LOCAL_ID};
 
 /// Themes in the order the settings show them. "system" follows Windows' light or dark mode;
@@ -141,6 +143,9 @@ pub struct Settings {
     /// Send asks once more when a reply to all goes to many people.
     #[serde(default = "yes")]
     pub ask_many: bool,
+    /// How large pictures put into a message are made (`images::prepare`).
+    #[serde(default)]
+    pub image_size: ImageSize,
     /// Underline misspelt words while writing.
     pub spell_check: bool,
     /// The languages spelling is checked in ("pl-PL"); a word any of them knows is right.
@@ -206,6 +211,18 @@ pub enum ReplyFormat {
     Same,
     Plain,
     Html,
+}
+
+/// How large a picture put into a message is made: as it is, or smaller (its longest side).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageSize {
+    Original,
+    /// 1600 pixels.
+    #[default]
+    Large,
+    /// 800 pixels.
+    Medium,
 }
 
 /// How actions are shown in the top toolbar.
@@ -342,6 +359,7 @@ impl Default for Settings {
             ask_subject: true,
             ask_attachment: true,
             ask_many: true,
+            image_size: ImageSize::Large,
             spell_check: true,
             spell_languages: Vec::new(),
             updates: Updates::Ask,
@@ -631,6 +649,9 @@ struct Bundle<'a> {
     accounts: Vec<AccountEntry>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     rules: Vec<RuleEntry>,
+    /// Folders' own templates, with the identities.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    templates: Vec<TemplateEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -652,6 +673,13 @@ struct IdentityEntry {
     email: String,
     #[serde(default)]
     signature: String,
+    /// The signature in HTML; missing for a plain-text one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    signature_html: Option<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    new_template: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    reply_template: String,
     /// Missing: Telex's usual (Polish) header, as for a new identity.
     #[serde(default)]
     reply_header: Option<String>,
@@ -675,6 +703,25 @@ struct RuleEntry {
     actions: Vec<ActionEntry>,
     #[serde(default)]
     stop: bool,
+}
+
+/// A folder's own templates, the folder found as a rule's is: its account by address (or
+/// `this_pc`), then the folder by id, else by name.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TemplateEntry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    account: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    this_pc: bool,
+    folder: String,
+    #[serde(default)]
+    folder_id: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    new_template: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    reply_template: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    reply_header: String,
 }
 
 fn yes() -> bool {
@@ -721,10 +768,29 @@ fn identity_entry(i: &Identity) -> IdentityEntry {
         name: i.name.clone(),
         email: i.email.clone(),
         signature: i.signature.clone(),
+        signature_html: i.signature_html.clone(),
+        new_template: i.new_template.clone(),
+        reply_template: i.reply_template.clone(),
         reply_header: Some(i.reply_header.clone()),
         forward_header: Some(i.forward_header.clone()),
         is_default: i.is_default,
     }
+}
+
+fn template_entry(t: &FolderTemplate, accounts: &[Account]) -> Option<TemplateEntry> {
+    let (owner, folder_id) = split_folder_key(&t.folder)?;
+    let account = accounts.iter().find(|a| a.id == owner)?;
+    let folder = account.folders.iter().find(|f| f.id == folder_id)?;
+    let this_pc = owner == LOCAL_ID;
+    Some(TemplateEntry {
+        account: (!this_pc).then(|| account.email.clone()),
+        this_pc,
+        folder: folder.name.clone(),
+        folder_id: folder.id.clone(),
+        new_template: t.new_template.clone(),
+        reply_template: t.reply_template.clone(),
+        reply_header: t.reply_header.clone(),
+    })
 }
 
 fn rule_entry(rule: &Rule, accounts: &[Account]) -> RuleEntry {
@@ -818,6 +884,15 @@ pub fn export(
     } else {
         Vec::new()
     };
+    let templates = if choice.identities {
+        store
+            .folder_templates()?
+            .iter()
+            .filter_map(|t| template_entry(t, accounts))
+            .collect()
+    } else {
+        Vec::new()
+    };
     // Where backups go, and whether this copy is counted, are this PC's own business.
     let portable = Settings {
         backup_dir: String::new(),
@@ -832,6 +907,7 @@ pub fn export(
         settings: choice.settings.then_some(&portable),
         accounts: entries,
         rules,
+        templates,
     };
     serde_json::to_string_pretty(&bundle)
         .map(|text| text + "\n")
@@ -893,7 +969,8 @@ pub enum Skip {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PlanItem {
-    /// The rule's name, or the identity's "Name <address>".
+    /// The rule's name, the identity's "Name <address>", or the name of the folder whose
+    /// templates these are.
     pub name: String,
     /// The address of the account it belongs to; none for a rule on every account.
     pub account: Option<String>,
@@ -926,6 +1003,8 @@ pub struct ImportPlan {
     /// Settings this version can't use, by key.
     pub settings_ignored: Vec<String>,
     pub identities: Vec<PlanItem>,
+    /// Folders' own templates; they come with the identities.
+    pub templates: Vec<PlanItem>,
     pub rules: Vec<PlanItem>,
     pub accounts: Vec<AccountPlan>,
 }
@@ -945,6 +1024,8 @@ pub struct ImportReport {
     pub settings: usize,
     pub identities_added: usize,
     pub identities_updated: usize,
+    /// Folders whose templates were set.
+    pub templates: usize,
     pub rules_added: usize,
     pub rules_updated: usize,
     /// One line per rule or identity that failed to save after all.
@@ -958,6 +1039,7 @@ pub struct Import {
     pub plan: ImportPlan,
     settings: Settings,
     identities: Vec<(Status, Identity)>,
+    templates: Vec<FolderTemplate>,
     rules: Vec<(Status, Rule)>,
 }
 
@@ -977,6 +1059,8 @@ struct RawBundle {
     accounts: Vec<Value>,
     #[serde(default)]
     rules: Vec<Value>,
+    #[serde(default)]
+    templates: Vec<Value>,
 }
 
 fn same_text(a: &str, b: &str) -> bool {
@@ -1048,18 +1132,24 @@ impl Import {
                     continue;
                 };
                 let fresh = Identity::new(&account.id, &found.name, &found.email);
-                let mut identity = Identity {
+                let read = Identity {
                     signature: found.signature.clone(),
+                    signature_html: found.signature_html.clone(),
+                    new_template: found.new_template.clone(),
+                    reply_template: found.reply_template.clone(),
                     reply_header: found.reply_header.clone().unwrap_or(fresh.reply_header),
                     forward_header: found.forward_header.clone().unwrap_or(fresh.forward_header),
                     is_default: found.is_default,
                     ..fresh
                 };
-                if let Err(detail) = identity.check() {
-                    let why = Skip::Invalid { detail };
-                    identity_items.push(skipped(label, Some(account.email.clone()), why));
-                    continue;
-                }
+                let mut identity = match read.prepared() {
+                    Ok(identity) => identity,
+                    Err(detail) => {
+                        let why = Skip::Invalid { detail };
+                        identity_items.push(skipped(label, Some(account.email.clone()), why));
+                        continue;
+                    }
+                };
                 let existing = account
                     .identities
                     .iter()
@@ -1070,6 +1160,9 @@ impl Import {
                         identity.id = e.id;
                         let unchanged = e.name.trim() == identity.name.trim()
                             && e.signature == identity.signature
+                            && e.signature_html == identity.signature_html
+                            && e.new_template == identity.new_template
+                            && e.reply_template == identity.reply_template
                             && e.reply_header == identity.reply_header
                             && e.forward_header == identity.forward_header
                             && e.is_default == identity.is_default;
@@ -1093,6 +1186,7 @@ impl Import {
         }
 
         let (rule_items, rules) = plan_rules(&raw.rules, store);
+        let (template_items, templates) = plan_templates(&raw.templates, store);
 
         let account_plans = entries
             .iter()
@@ -1127,11 +1221,13 @@ impl Import {
                 settings: current.changes_to(&settings),
                 settings_ignored,
                 identities: identity_items,
+                templates: template_items,
                 rules: rule_items,
                 accounts: account_plans,
             },
             settings,
             identities,
+            templates,
             rules,
         })
     }
@@ -1157,6 +1253,12 @@ impl Import {
                     Err(e) => report.problems.push(format!("{}: {e}", identity.email)),
                 }
             }
+            for template in &self.templates {
+                match store.save_folder_template(template) {
+                    Ok(()) => report.templates += 1,
+                    Err(e) => report.problems.push(format!("{}: {e}", template.folder)),
+                }
+            }
         }
         if choice.rules {
             for (status, rule) in &self.rules {
@@ -1169,6 +1271,82 @@ impl Import {
         }
         (settings, report)
     }
+}
+
+/// Folders' templates as a settings file holds them, matched against this store: what happens
+/// to each folder's, and the ones to save. The folder is found as a rule's move is.
+fn plan_templates(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<FolderTemplate>) {
+    let accounts = store.accounts();
+    let mut items = Vec::new();
+    let mut found = Vec::new();
+    for value in values {
+        let Ok(entry) = serde_json::from_value::<TemplateEntry>(value.clone()) else {
+            let folder = value.get("folder").and_then(Value::as_str).unwrap_or("?");
+            let account = value
+                .get("account")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            items.push(skipped(folder.to_owned(), account, Skip::Unreadable));
+            continue;
+        };
+        let owner = if entry.this_pc {
+            store.this_pc()
+        } else {
+            let email = entry.account.as_deref().unwrap_or_default();
+            accounts
+                .iter()
+                .find(|a| a.imap.is_some() && a.email.eq_ignore_ascii_case(email))
+        };
+        let Some(owner) = owner else {
+            let email = entry.account.clone().unwrap_or_default();
+            items.push(skipped(
+                entry.folder.clone(),
+                entry.account.clone(),
+                Skip::NoAccount { email },
+            ));
+            continue;
+        };
+        let folder = owner
+            .folders
+            .iter()
+            .find(|f| !entry.folder_id.is_empty() && f.id == entry.folder_id)
+            .or_else(|| {
+                owner
+                    .folders
+                    .iter()
+                    .find(|f| same_text(&f.name, &entry.folder))
+            });
+        let account = entry.account.clone();
+        let Some(folder) = folder else {
+            let why = Skip::NoFolder {
+                folder: entry.folder.clone(),
+            };
+            items.push(skipped(entry.folder.clone(), account, why));
+            continue;
+        };
+        let template = FolderTemplate {
+            folder: owner.folder_key(&folder.id),
+            new_template: entry.new_template,
+            reply_template: entry.reply_template,
+            reply_header: entry.reply_header,
+        };
+        let here = store.folder_template(&template.folder).ok().flatten();
+        let status = match here {
+            None => Status::Add,
+            Some(t) if t == template => Status::Same,
+            Some(_) => Status::Update,
+        };
+        items.push(PlanItem {
+            name: folder.name.clone(),
+            account,
+            status,
+            skip: None,
+        });
+        if status != Status::Same {
+            found.push(template);
+        }
+    }
+    (items, found)
 }
 
 /// Rules as a settings file holds them, matched against this store: what happens to each,
@@ -1776,6 +1954,82 @@ mod tests {
             .identities
             .iter()
             .all(|i| i.status == Status::Same));
+    }
+
+    #[test]
+    fn html_signatures_and_folder_templates_travel_to_another_pc() {
+        let (mut old, account) = store_with("anna@firma.pl", "faktury");
+        let mut sig = account.identity(None);
+        sig.signature_html = Some(
+            "<div><b>Anna Łęcka</b></div><img src=\"data:image/png;base64,iVBORw0KGgo=\">".into(),
+        );
+        sig.new_template = "Dzień dobry,".into();
+        sig.reply_template = "Dzień dobry {first},".into();
+        old.save_identity(&sig).unwrap();
+        old.save_folder_template(&FolderTemplate {
+            folder: account.folder_key("faktury"),
+            reply_header: "On {date}, {name} wrote:".into(),
+            ..FolderTemplate::default()
+        })
+        .unwrap();
+        let text = export(&old, &Settings::default(), ALL, "0.9.12", now()).unwrap();
+        assert!(
+            text.contains("\"signature_html\"") && text.contains("\"templates\""),
+            "{text}"
+        );
+
+        // The folder has another id there: found by its name, as a rule's is.
+        let (mut new, here) = store_with("anna@firma.pl", "inbox-faktury");
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert_eq!(import.plan.templates.len(), 1);
+        assert_eq!(
+            (
+                import.plan.templates[0].name.as_str(),
+                import.plan.templates[0].status
+            ),
+            ("Faktury", Status::Add)
+        );
+        let (_, report) = import.apply(&mut new, EVERYTHING);
+        assert_eq!((report.templates, report.identities_updated), (1, 1));
+        let me = new.account(&here.id).unwrap().identity(None);
+        assert_eq!(me.signature, "Anna Łęcka");
+        assert!(me.signature_html.unwrap().contains("data:image/png"));
+        assert_eq!(
+            (me.new_template.as_str(), me.reply_template.as_str()),
+            ("Dzień dobry,", "Dzień dobry {first},")
+        );
+        let t = new
+            .folder_template(&here.folder_key("inbox-faktury"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(t.reply_header, "On {date}, {name} wrote:");
+
+        let again = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert!(again
+            .plan
+            .templates
+            .iter()
+            .all(|t| t.status == Status::Same));
+        assert!(again
+            .plan
+            .identities
+            .iter()
+            .all(|i| i.status == Status::Same));
+        // A folder that isn't there says so.
+        let (other, _) = store_with("anna@firma.pl", "x");
+        let mut gone = Import::read(
+            &text.replace("\"Faktury\"", "\"Rachunki\""),
+            &other,
+            &Settings::default(),
+        )
+        .unwrap();
+        let item = gone.plan.templates.remove(0);
+        assert_eq!(
+            item.skip,
+            Some(Skip::NoFolder {
+                folder: "Rachunki".into()
+            })
+        );
     }
 
     #[test]

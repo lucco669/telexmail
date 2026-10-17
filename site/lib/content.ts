@@ -9,6 +9,7 @@ const V098 = '0.9.8';
 const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
+const V0912 = '0.9.12';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -216,6 +217,11 @@ export const featureRows: FeatureRow[] = [
       { text: 'A reply offers the original’s files: one click and they go along', since: V0910 },
       'HTML or plain text, as a default or per message; replies can follow the original',
       'Pasted web pages lose their styles and scripts: only formatting goes in',
+      { text: 'Pictures in HTML messages: paste one, drop it where it goes, or Insert picture…; large photos are made smaller and lose their hidden location data', since: V0912 },
+      { text: 'Text color, highlight and three sizes from a short palette, shown readable in dark themes and sent as chosen', since: V0912 },
+      { text: 'Signatures in HTML, with formatting and a logo; plain-text mail gets their text', since: V0912 },
+      { text: 'A reply or forward in HTML quotes the original as it looked, with its own pictures and never remote ones', since: V0912 },
+      { text: 'Templates: what new messages and replies open with, per address (“Dzień dobry {first},”), and a folder’s own that wins', since: V0912 },
       'A From picker with all your identities; the signature follows',
       'Ctrl+Enter sends, Esc saves a draft and closes',
       'E reopens a draft or a message still in the Outbox',

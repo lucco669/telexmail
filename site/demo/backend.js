@@ -590,22 +590,47 @@ function installTelexDemo(options) {
     }
     return (asked !== LOCAL && account(asked)) || servers[0] || needAccount(asked);
   }
-  function startDraft({ kind, of, account: acct }) {
+  // drafts.rs's lay_out: a greeting, room to type, the signature, the quote; the same in HTML.
+  function layOut(draft, greeting, sig, sigHtml, tail) {
+    const g = (greeting || '').trimEnd(), head = g ? `${g}\n\n` : '';
+    draft.caret_line = g ? g.split('\n').length + 1 : 0;
+    draft.body = head + layout(sig, tail ? tail.text : null);
+    draft.html = fromText(head + '\n') + (sig ? `<div><br></div><div class="telex-signature">${sigHtml}</div>` : '') + (tail ? '<div><br></div>' + tail.html : '');
+    return draft;
+  }
+  // Folders' own templates (store/templates.rs): folder key → {folder, new_template, reply_template, reply_header}.
+  const folderTemplates = new Map();
+  function saveFolderTemplate({ template: t }) {
+    if (!folderOf(t.folder)) fail('That folder no longer exists.', 'Ten folder już nie istnieje.');
+    const x = { folder: t.folder, new_template: t.new_template || '', reply_template: t.reply_template || '', reply_header: t.reply_header || '' };
+    if (![x.new_template, x.reply_template, x.reply_header].some((v) => v.trim())) folderTemplates.delete(t.folder);
+    else folderTemplates.set(t.folder, x);
+  }
+  function startDraft({ kind, of, account: acct, folder }) {
     const m = kind === 'new' ? null : of != null ? need(of) : fail('Select a message first.', 'Najpierw wybierz wiadomość.');
     const a = sender(m, acct);
     const me = m ? identityFor(a, m) : defaultIdentity(a);
     const sig = m && settings.sign_replies === false ? '' : (me.signature || '').trimEnd();
-    const draft = { account: a.id, identity: me.id, to: '', cc: '', subject: '', body: layout(sig, null), attachments: [], reply_to: null, forward_of: null };
-    if (!m) return draft;
+    const sigHtml = me.signature_html || fromText(sig);
+    const own = folderTemplates.get(m ? m.folder : folder) || {};
+    const pick = (k) => (own[k] || '').trim() ? own[k].trimEnd() : (me[k] || '').trimEnd();
+    const draft = { account: a.id, identity: me.id, to: '', cc: '', subject: '', body: '', html: '', caret_line: 0, attachments: [], reply_to: null, forward_of: null };
+    const now = new Date();
+    const today = { name: '', first: '', email: '', from: '', subject: '', date: `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`, time: `${pad(now.getHours())}:${pad(now.getMinutes())}` };
+    const fill = (tpl, v) => ['name', 'first', 'email', 'from', 'date', 'time', 'subject'].reduce((s, k) => s.split(`{${k}}`).join(v[k]), tpl || '');
+    if (!m) return layOut(draft, fill(pick('new_template'), today), sig, sigHtml, null);
     const d = parse(m.date);
     const vars = {
-      name: m.from_name.trim() ? m.from_name : m.from_email, email: m.from_email, from: addressLine(m.from_name, m.from_email),
+      name: m.from_name.trim() ? m.from_name : m.from_email, first: (m.from_name.trim().split(/\s+/)[0] || '').replace(/@.*/, ''), email: m.from_email, from: addressLine(m.from_name, m.from_email),
       date: `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}`, subject: m.subject,
     };
-    const expand = (tpl) => ['name', 'email', 'from', 'date', 'time', 'subject'].reduce((s, k) => s.split(`{${k}}`).join(vars[k]), tpl || '');
+    const expand = (tpl) => fill(tpl, vars);
+    // The original's own HTML in the quote (html::quotable): remote pictures left out.
+    const quotable = m.html ? cleanHtml(m.html.replace(/<img\b[^>]*\bsrc\s*=\s*"https?:[^>]*>/gi, '')) : null;
     if (kind === 'forward') {
-      return { ...draft, subject: `Fwd: ${stripPrefixes(m.subject)}`, attachments: m.attachments, forward_of: m.id,
-        body: layout(sig, `${expand(me.forward_header)}\n\n${textLines(m.body).join('\n')}`) };
+      const header = expand(me.forward_header), text = textLines(m.body).join('\n');
+      layOut(draft, '', sig, sigHtml, { text: `${header}\n\n${text}`, html: `${fromText(header)}<blockquote>${quotable ?? fromText(text)}</blockquote>` });
+      return { ...draft, subject: `Fwd: ${stripPrefixes(m.subject)}`, attachments: m.attachments, forward_of: m.id };
     }
     // Replying to your own message goes to its recipients again.
     const outgoing = isOutgoing(kindOf(m.folder));
@@ -623,8 +648,10 @@ function installTelexDemo(options) {
       add(cc, m.cc);
     }
     const quote = textLines(m.body).map((l) => (l.startsWith('>') ? '>' + l : '> ' + l)).join('\n');
-    return { ...draft, to: to.join(', '), cc: cc.join(', '), subject: `Re: ${stripPrefixes(m.subject)}`, reply_to: m.id,
-      body: layout(sig, `${expand(me.reply_header)}\n${quote}`) };
+    const header = expand(pick('reply_header'));
+    layOut(draft, expand(pick('reply_template')), sig, sigHtml,
+      { text: `${header}\n${quote}`, html: fromText(header) + (quotable != null ? `<blockquote>${quotable}</blockquote>` : fromText(quote)) });
+    return { ...draft, to: to.join(', '), cc: cc.join(', '), subject: `Re: ${stripPrefixes(m.subject)}`, reply_to: m.id };
   }
 
   /* ---------- HTML compose (html.rs) ---------- */
@@ -650,7 +677,28 @@ function installTelexDemo(options) {
     return out;
   }
   const COMPOSE_TAGS = new Set(['a', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'br', 'p', 'div', 'span', 'ul', 'ol', 'li', 'blockquote',
-    'pre', 'code', 'h1', 'h2', 'h3', 'hr']);
+    'pre', 'code', 'h1', 'h2', 'h3', 'hr', 'img', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption', 'sub', 'sup', 'h4', 'h5', 'h6']);
+  // html::TEXT_COLORS, MARK_COLORS, FONT_SIZES: the only styles kept.
+  const TEXT_COLORS = ['#c00000', '#b45309', '#15803d', '#1d4ed8', '#7e22ce', '#6b7280'], MARK_COLORS = ['#fff59d', '#c8f7c5', '#cfe8ff', '#ffd6e7'];
+  const hexOf = (v) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(v) || /^#([0-9a-f]{3})$/i.exec(v);
+    if (m) return '#' + (m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1]).toLowerCase();
+    const r = /^rgb\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)\s*\)$/i.exec(v);
+    return r ? '#' + r.slice(1).map((x) => Number(x).toString(16).padStart(2, '0')).join('') : null;
+  };
+  function composeStyle(style) {
+    const kept = new Map();
+    for (const decl of String(style).split(';')) {
+      const at = decl.indexOf(':');
+      if (at < 0) continue;
+      const prop = decl.slice(0, at).trim().toLowerCase(), v = decl.slice(at + 1).replace(/!important/i, '').trim().toLowerCase();
+      if (prop === 'color' && TEXT_COLORS.includes(hexOf(v))) kept.set('color', hexOf(v));
+      else if ((prop === 'background-color' || prop === 'background') && MARK_COLORS.includes(hexOf(v))) kept.set('background-color', hexOf(v));
+      else if (prop === 'font-size') { const f = { small: '12px', 'x-large': '18px', '12px': '12px', '18px': '18px' }[v]; if (f) kept.set('font-size', f); }
+    }
+    return [...kept].map(([k, v]) => `${k}:${v}`).join(';');
+  }
+  const dataPicture = (src) => /^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(src);
   const DROPPED = new Set(['script', 'style', 'head', 'title', 'template', 'iframe', 'object', 'noscript', 'svg', 'math']);
   // html::compose_clean: those tags, links to http(s) and mailto only, nothing else.
   function cleanHtml(html) {
@@ -665,10 +713,18 @@ function installTelexDemo(options) {
           if (!COMPOSE_TAGS.has(tag)) { out += walk(n); continue; }
           if (tag === 'br' || tag === 'hr') { out += `<${tag}>`; continue; }
           let attrs = '';
+          if (tag === 'img') {
+            const src = (n.getAttribute('src') || '').trim();
+            if (dataPicture(src)) out += `<img src="${src}"${n.getAttribute('alt') != null ? ` alt="${escHtml(n.getAttribute('alt'))}"` : ''}>`;
+            continue;
+          }
           if (tag === 'a') {
             const href = (n.getAttribute('href') || '').trim();
             if (/^(https?:|mailto:)/i.test(href)) attrs = ` href="${escHtml(href)}"`;
           }
+          if (tag === 'div' && /\btelex-signature\b/.test(n.getAttribute('class') || '')) attrs += ' class="telex-signature"';
+          const style = composeStyle(n.getAttribute('style') || '');
+          if (style) attrs += ` style="${style}"`;
           out += `<${tag}${attrs}>${walk(n)}</${tag}>`;
         }
       }
@@ -1065,8 +1121,12 @@ function installTelexDemo(options) {
     const ok = at > 0 && email.indexOf('@', at + 1) < 0 && email.slice(at + 1).includes('.') && !/\s/.test(email);
     if (!ok) fail('"{email}" doesn\'t look like an email address.', '„{email}” nie wygląda na adres e-mail.', { email });
     const a = needAccount(i.account);
-    const saved = { id: i.id | 0, account: a.id, name: i.name.trim(), email, signature: i.signature ?? '', reply_header: i.reply_header ?? '',
-      forward_header: i.forward_header ?? '', is_default: !!i.is_default };
+    // Model's Identity::prepared: an HTML signature cleaned, its text made from it; none without formatting.
+    const sigClean = i.signature_html != null ? cleanHtml(i.signature_html) : null;
+    const plainSig = sigClean != null && !/<(?!\/?(div|br|p)>)/.test(sigClean);
+    const saved = { id: i.id | 0, account: a.id, name: i.name.trim(), email, signature: sigClean != null ? toText(sigClean) : i.signature ?? '',
+      signature_html: sigClean != null && !plainSig ? sigClean : null, new_template: i.new_template ?? '', reply_template: i.reply_template ?? '',
+      reply_header: i.reply_header ?? '', forward_header: i.forward_header ?? '', is_default: !!i.is_default };
     if (!saved.id) {
       saved.id = accounts.flatMap((x) => x.identities).reduce((n, x) => Math.max(n, x.id), 0) + 1;
       a.identities.push(saved);
@@ -1399,6 +1459,17 @@ function installTelexDemo(options) {
     wake_server: () => {},
     recipients,
     start_draft: startDraft,
+    folder_templates: () => [...folderTemplates.values()],
+    save_folder_template: saveFolderTemplate,
+    // images::prepare: the demo puts a picture in as it is.
+    editor_image: ({ path, data }) => (data != null ? Promise.resolve(data) : new Promise((ok, no) => {
+      const file = files.get(path);
+      if (!file) { no(tr('Drop "{name}" again: Telex reads only files chosen in it.', 'Upuść plik „{name}” jeszcze raz: Telex czyta tylko pliki wybrane w nim.', { name: path })); return; }
+      const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no('?'); r.readAsDataURL(file);
+    })).then((src) => {
+      if (!dataPicture(src)) return Promise.reject(tr('That isn\'t a picture Telex can put in a message: use PNG, JPEG, GIF or WebP.', 'Tego obrazu Telex nie wstawi do wiadomości: użyj PNG, JPEG, GIF lub WebP.'));
+      return { src, width: 0, height: 0, bytes: Math.round(src.length * 0.75), smaller: false };
+    }),
     save_outgoing: saveOutgoing,
     discard_draft: discardDraft,
     draft_html: ({ id }) => need(id).clean ?? null,

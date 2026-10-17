@@ -57,6 +57,8 @@ const I = {
   quote: sv('<path d="M3 3.5v9"/><path d="M6 5h7M6 8h7M6 11h5"/>'),
   link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
+  mark: sv('<path d="M9.8 2.6l3.6 3.6-5.6 5.6H4.2V8.2z"/><path d="M7.4 5l3.6 3.6"/>'),
+  picture: sv('<rect x="2" y="3" width="12" height="10" rx="1.2"/><circle cx="5.8" cy="6.3" r="1.1"/><path d="M2.6 12.2l3.6-3.6 2.4 2.4 1.9-1.9 2.9 2.9"/>'),
   popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
   copy: sv('<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 3.5v-.3a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v6.6a.7.7 0 00.7.7h.3"/>'),
   spell: sv('<path d="M1.8 11.5L4.3 4l2.5 7.5M2.6 9h3.4"/><path d="M8.8 9.6l2 2 3.6-4.6"/>'),
@@ -304,7 +306,7 @@ const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true, ask_attachment:true, ask_many:true,
-    spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
+    image_size:'large', spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -806,6 +808,8 @@ function folderMenu(key){
     [...(countOf(key).unread ? [{label:t('Mark all as read'), key:'Shift+U', run:() => markFolderRead(key)}] : []),
       ...(local && f.kind !== 'trash' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
       {label:t('Save as mbox…'), run:() => exportFolder(key)}],
+    // Its own greeting and reply header (Settings › Writing).
+    !['outbox', 'drafts', 'trash', 'spam'].includes(f.kind) ? [{label:t('Templates…'), run:() => openFolderTemplates(key)}] : [],
   ];
   return sections.filter(s => s.length).flatMap((s, i) => i ? [{sep:true}, ...s] : s);
 }
@@ -851,7 +855,7 @@ function openMenu(x, y, items, from){
   const ticks = items.some(it => 'checked' in it);
   menuEl.innerHTML = items.map((it, i) => it.sep ? '<li class="msep" role="separator"></li>'
     : `<li role="${'checked' in it ? 'menuitemcheckbox' : 'menuitem'}" tabindex="-1" data-i="${i}"${'checked' in it ? ` aria-checked="${!!it.checked}"` : ''}${it.disabled ? ' aria-disabled="true"' : ''}>`
-      + `<span>${ticks ? `<i class="tick" aria-hidden="true">${it.checked ? '✓' : ''}</i>` : ''}${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
+      + `<span${it.cls ? ` class="${it.cls}"` : ''}>${ticks ? `<i class="tick" aria-hidden="true">${it.checked ? '✓' : ''}</i>` : ''}${it.swatch ? `<i class="sw ${it.swatch}" aria-hidden="true"></i>` : ''}${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
   menuEl.hidden = false;
   const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
   menuEl.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + 'px';
@@ -2345,12 +2349,14 @@ async function openCompose(kind, preset = {}, of = null){
       c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, bcc:m.bcc ?? '', subject:m.subject, body:m.body,
         html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id};
     } else {
-      const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder)});
-      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, bcc:'', subject:d.subject, body:d.body, html:null,
+      // A new message takes the open folder's templates (a reply, its original's folder's).
+      const folder = state.folder && !state.folder.startsWith('*/') ? state.folder : null;
+      const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder), folder});
+      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, bcc:'', subject:d.subject, body:d.body, html:null, caretLine:d.caret_line,
         attachments:d.attachments, replyTo:d.reply_to, forwardOf:d.forward_of, replaces:null};
       if (kind === 'reply' || kind === 'replyall'){
         const [other, orig] = await Promise.all([
-          invoke('start_draft', {kind:kind === 'reply' ? 'reply_all' : 'reply', of:s.id, account:acctId(state.folder)}).catch(() => null),
+          invoke('start_draft', {kind:kind === 'reply' ? 'reply_all' : 'reply', of:s.id, account:acctId(state.folder), folder}).catch(() => null),
           full(s.id).catch(() => null)]);
         const [one, all] = kind === 'reply' ? [d, other] : [other, d];
         // Only when the original had others besides the sender is there a choice to make.
@@ -2361,7 +2367,8 @@ async function openCompose(kind, preset = {}, of = null){
       const p = pref();
       const html = kind === 'new' ? p.compose_format === 'html'
         : p.reply_format === 'same' ? !!(await htmlView(s.id, false)) : p.reply_format === 'html';
-      if (html) c.html = await invoke('text_to_html', {text:c.body});
+      // The core's HTML: the signature as written, a reply's original in its own HTML.
+      if (html) c.html = d.html;
     }
   } catch (e){ say(tr(e), 8000); return; }
   Object.assign(c, preset); // e.g. {to} from a mailto: link
@@ -2385,24 +2392,81 @@ function fromOptions(c){
 async function changeIdentity(id){
   const c = readCompose(), next = allIdentities().find(i => i.id === id);
   if (!next) return;
-  const before = (allIdentities().find(i => i.id === c.identity)?.signature || '').trim(), after = (next.signature || '').trim();
+  const prev = allIdentities().find(i => i.id === c.identity);
+  const before = (prev?.signature || '').trim(), after = (next.signature || '').trim();
   Object.assign(c, {identity:next.id, account:next.account});
   previewEl.querySelector('.cnote').textContent = composeNote(c);
-  if (!before || before === after) return;
   if (c.html == null){
-    if (c.body.includes(before)){ c.body = c.body.replace(before, () => after); $('c-body').value = c.body; }
+    if (before && before !== after && c.body.includes(before)){ c.body = c.body.replace(before, () => after); $('c-body').value = c.body; }
     return;
   }
-  // The signature went into the HTML line by line, the same way: swap those lines.
-  const [b, a] = await Promise.all([invoke('text_to_html', {text:before}), after ? invoke('text_to_html', {text:after}) : '']);
-  const ed = $('c-html');
-  if (state.compose !== c || !ed || !ed.innerHTML.includes(b)) return;
-  ed.innerHTML = ed.innerHTML.replace(b, () => a); // a function: a "$&" in a signature stays as it is
+  // In HTML the signature has a block of its own: its content is swapped, as written.
+  const block = $('c-html')?.querySelector('.telex-signature');
+  if (!block || signatureHtml(prev) === signatureHtml(next)) return;
+  if (after) block.innerHTML = signatureHtml(next); else block.remove();
 }
-// The HTML editor's formatting bar: the browser's own editing commands.
+// The HTML editor's formatting bar: the browser's own editing commands, the palette's colors and
+// sizes, and pictures. Used by compose and by the signature editors (Settings).
 const FORMATS = [['bold', '<b>B</b>', N_('Bold (Ctrl+B)')], ['italic', '<i>I</i>', N_('Italic (Ctrl+I)')], ['underline', '<u>U</u>', N_('Underline (Ctrl+U)')],
-  ['strikeThrough', '<s>S</s>', N_('Strikethrough')], ['insertUnorderedList', I.ul, N_('Bulleted list')], ['insertOrderedList', I.ol, N_('Numbered list')],
-  ['quote', I.quote, N_('Quote')], ['link', I.link, N_('Link (Ctrl+K)')], ['removeFormat', I.clear, N_('Clear formatting')]];
+  ['strikeThrough', '<s>S</s>', N_('Strikethrough')], ['color', '<b>A</b><i class="sw"></i>', N_('Text color')], ['mark', I.mark + '<i class="sw"></i>', N_('Highlight')],
+  ['size', '<span>a<b>A</b></span>', N_('Text size')], ['insertUnorderedList', I.ul, N_('Bulleted list')], ['insertOrderedList', I.ol, N_('Numbered list')],
+  ['quote', I.quote, N_('Quote')], ['link', I.link, N_('Link (Ctrl+K)')], ['picture', I.picture, N_('Insert picture…')], ['removeFormat', I.clear, N_('Clear formatting')]];
+const MENU_CMDS = new Set(['color', 'mark', 'size']);
+function fbarHtml(urlId = ''){
+  return `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
+    `<button type="button" class="fb${cmd === 'color' ? ' fcolor' : cmd === 'mark' ? ' fmark' : ''}" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}"${MENU_CMDS.has(cmd) ? ' aria-haspopup="menu"' : ''}>${label}</button>`).join('')}`
+    + `<span class="flink" hidden><input${urlId ? ` id="${urlId}"` : ''} type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>`;
+}
+// The palette, as the core sends it (html::TEXT_COLORS, MARK_COLORS); the editor shows each in the
+// theme's shade (--pal-n, --mark-n in themes.css). The "none" colors are stand-ins the stylesheet
+// shows as the text's own and the core leaves out.
+const TEXT_COLORS = [['#c00000', N_('Red')], ['#b45309', N_('Orange')], ['#15803d', N_('Green')], ['#1d4ed8', N_('Blue')], ['#7e22ce', N_('Purple')], ['#6b7280', N_('Gray')]];
+const MARK_COLORS = [['#fff59d', N_('Yellow')], ['#c8f7c5', N_('Green')], ['#cfe8ff', N_('Blue')], ['#ffd6e7', N_('Pink')]];
+const NO_COLOR = '#010203', NO_MARK = '#010204';
+// Text in the palette's colors, highlighted or sized. styleWithCSS makes the browser write spans
+// with styles (color, background-color, font-size: small or x-large) instead of <font>.
+function formatWith(ed, kept, cmd, value){
+  ed.focus();
+  if (kept){ const sel = getSelection(); sel.removeAllRanges(); sel.addRange(kept); }
+  document.execCommand('styleWithCSS', false, true);
+  try { document.execCommand(cmd, false, value); } finally { document.execCommand('styleWithCSS', false, false); }
+}
+function paletteMenu(ed, btn, kind){
+  const sel = getSelection(), kept = sel.rangeCount && ed.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+  const items = kind === 'color'
+    ? [{label:t('Automatic|text color'), swatch:'none', run:() => formatWith(ed, kept, 'foreColor', NO_COLOR)},
+      ...TEXT_COLORS.map(([hex, name], i) => ({label:t(name), swatch:'p' + (i + 1), run:() => formatWith(ed, kept, 'foreColor', hex)}))]
+    : kind === 'mark'
+    ? [{label:t('No highlight'), swatch:'none', run:() => formatWith(ed, kept, 'hiliteColor', NO_MARK)},
+      ...MARK_COLORS.map(([hex, name], i) => ({label:t(name), swatch:'m' + (i + 1), run:() => formatWith(ed, kept, 'hiliteColor', hex)}))]
+    : [['2', t('Small|text size'), 'fs-small'], ['3', t('Normal|text size'), ''], ['5', t('Large|text size'), 'fs-large']]
+      .map(([size, label, cls]) => ({label, cls, run:() => formatWith(ed, kept, 'fontSize', size)}));
+  const r = btn.getBoundingClientRect();
+  openMenu(r.left, r.bottom + 2, items, btn);
+}
+// Pictures in the HTML editor, pasted, dropped from Explorer or chosen with Insert picture…: the
+// core makes them the size Settings › Writing says (a signature's smaller) and they go in where
+// the caret is, as data: URIs; sending makes them parts of the message.
+async function insertPictures(ed, sources, signature = false){
+  for (const source of sources){
+    let p;
+    try { p = await invoke('editor_image', {...source, signature}); } catch (e){ say(tr(e), 9000); continue; }
+    if (!ed.isConnected) return;
+    ed.focus();
+    document.execCommand('insertHTML', false, `<img src="${p.src}" alt="">`);
+    if (p.smaller) say(t('Picture made smaller: {width} × {height} pixels.', {width:p.width, height:p.height}), 4000);
+  }
+}
+const isPicture = name => /\.(png|jpe?g|gif|webp)$/i.test(name);
+async function choosePictures(ed, signature){
+  let files;
+  try { files = await invoke('pick_files', {words:{title:t('Insert picture'), pictures:t('Pictures')}}); } catch (e){ say(tr(e), 8000); return; }
+  await insertPictures(ed, files.map(f => ({path:f.path})), signature);
+}
+const fileData = file => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; r.readAsDataURL(file); });
+// A plain-text signature in the editor: a line per <div>, as the core writes it.
+const linesHtml = text => (text || '').split('\n').map(l => `<div>${l ? esc(l) : '<br>'}</div>`).join('');
+const signatureHtml = i => i?.signature_html ?? linesHtml(i?.signature ?? '');
 function renderCompose(){
   const c = state.compose, html = c.html != null;
   const title = {new:t('New message'), reply:t('Reply|compose title'), replyall:t('Reply to all|compose title'), forward:t('Forward|compose title'), edit:t('Edit|compose title')}[c.kind];
@@ -2419,8 +2483,7 @@ function renderCompose(){
   <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
 </div>
 <div id="c-attbox">${composeAttsHtml(c)}</div>
-${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
-    `<button type="button" class="fb" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">${label}</button>`).join('')}<span class="flink" hidden><input id="c-url" type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>
+${html ? `${fbarHtml('c-url')}
 <div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
   : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
 ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>`}
@@ -2445,7 +2508,7 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   ['c-to', 'c-cc', 'c-bcc'].forEach(id => $(id)?.addEventListener('input', paintOthers));
   paintOthers();
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
-  else focusStart(body);
+  else focusStart(body, c.caretLine);
   wireSpelling();
   paintSpellChip();
 }
@@ -2531,7 +2594,7 @@ function attachOriginal(){
 // The text the user wrote: the HTML editor's without its quotes and links, or the plain text.
 function ownText(){
   const ed = $('c-html');
-  return ed ? editorText(ed).text : $('c-body')?.value ?? '';
+  return ed ? editorText(ed, 'blockquote, a, .telex-signature').text : $('c-body')?.value ?? '';
 }
 // Send's questions, in a line above the buttons: a file the text mentions but that isn't
 // attached, and a reply to all that goes to many people. Send again goes ahead.
@@ -2720,31 +2783,42 @@ listenHere('files-over', ({payload}) => {
 });
 listenHere('files-dropped', ({payload}) => {
   fileTarget?.classList.remove('dropok'); fileTarget = null;
-  if (document.querySelector('dialog[open]')) return; // not while a dialog is open
   const p = Array.isArray(payload) ? {files:payload} : payload; // the demo sends just the files
+  if (dropIntoEditor(p)) return; // pictures into an HTML editor, also a signature's in Settings
+  if (document.querySelector('dialog[open]')) return; // not while a dialog is open
   const spot = p.x != null ? dropSpot(p.x, p.y) : null;
   if (spot?.folder){ importInto(spot.folder.dataset.folder, p.files.map(f => f.path)); return; }
   if (spot){ say(t('To bring in mail files (.eml, mbox), drop them on a folder on this PC. Dropped anywhere else, files are attached to a message.'), 9000); return; }
   addFiles(p.files);
 });
-// The caret at the very start, above the quote, as in the plain-text editor.
-function focusStart(body){
+// The caret at the start of the line typing begins on (0, or below a template's greeting), above
+// the quote, as in the plain-text editor.
+function focusStart(body, line = 0){
   body.focus();
-  if (body.setSelectionRange) body.setSelectionRange(0, 0);
-  else { const r = document.createRange(); r.setStart(body, 0); r.collapse(true); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  if (body.setSelectionRange){
+    const at = line ? body.value.split('\n').slice(0, line).join('\n').length + 1 : 0;
+    body.setSelectionRange(at, at);
+  } else {
+    const r = document.createRange(); r.setStart(body.children[line] ?? body, 0); r.collapse(true);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
   body.scrollTop = 0;
 }
-// The HTML editor: formatting buttons, Ctrl+K for a link, pasted HTML cleaned by the core.
-function wireEditor(ed){
+// The HTML editor: formatting buttons, Ctrl+K for a link, colors and sizes from the palette,
+// pictures, pasted HTML cleaned by the core. `bar` is its formatting bar (compose's by default; a
+// signature editor has its own, drawn again with the dialog); the editor's own listeners go on once.
+function wireEditor(ed, bar = previewEl.querySelector('.fbar'), {signature = false} = {}){
   document.execCommand('defaultParagraphSeparator', false, 'div');
   document.execCommand('styleWithCSS', false, false);
-  const bar = previewEl.querySelector('.fbar'), box = bar.querySelector('.flink'), url = $('c-url');
+  const box = bar.querySelector('.flink'), url = box.querySelector('input');
   let kept = null; // the selection while the link box has the focus
   bar.addEventListener('mousedown', e => { if (e.target.closest('.fb')) e.preventDefault(); }); // keeps the selection
   bar.addEventListener('click', e => {
     const b = e.target.closest('[data-cmd]'); if (!b) return;
     ed.focus();
     if (b.dataset.cmd === 'link') openLinkBox();
+    else if (MENU_CMDS.has(b.dataset.cmd)) paletteMenu(ed, b, b.dataset.cmd);
+    else if (b.dataset.cmd === 'picture') choosePictures(ed, signature);
     else if (b.dataset.cmd === 'quote') document.execCommand('formatBlock', false, document.queryCommandValue('formatBlock') === 'blockquote' ? 'div' : 'blockquote');
     else document.execCommand(b.dataset.cmd);
   });
@@ -2770,17 +2844,46 @@ function wireEditor(ed){
     e.preventDefault(); e.stopPropagation(); // Esc here doesn't close the message
     closeLinkBox(e.key === 'Enter');
   });
+  ed.linkBox = openLinkBox; // the bar drawn last
+  if (ed.dataset.wired) return;
+  ed.dataset.wired = '1';
   ed.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'){ e.preventDefault(); openLinkBox(); }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'){ e.preventDefault(); ed.linkBox(); }
   });
-  // A pasted web page brings styles, scripts and images: only what Telex sends goes in.
+  // A pasted picture goes in made the right size. A pasted web page brings styles, scripts and
+  // pictures: only what Telex sends goes in, and pictures from the web are left out, not fetched
+  // (fetching would tell their server; sending their addresses would let it see who reads).
   ed.addEventListener('paste', async e => {
+    const pictures = [...(e.clipboardData?.files ?? [])].filter(f => f.type.startsWith('image/'));
     const pasted = e.clipboardData?.getData('text/html'), plain = e.clipboardData?.getData('text/plain') ?? '';
+    if (pictures.length){
+      e.preventDefault();
+      const read = await Promise.all(pictures.map(f => fileData(f).catch(() => null)));
+      await insertPictures(ed, read.filter(Boolean).map(data => ({data})), signature);
+      return;
+    }
     if (!pasted) return;
     e.preventDefault();
+    const remote = (pasted.match(/<img\b[^>]*\bsrc\s*=\s*["']?\s*https?:/gi) ?? []).length;
     try { document.execCommand('insertHTML', false, await invoke('clean_html', {html:pasted})); }
     catch { document.execCommand('insertText', false, plain); }
+    if (remote) say(tn(remote, 'A picture from the web was left out: save it, then use Insert picture.', '{n} pictures from the web were left out: save them, then use Insert picture.'), 9000);
   });
+}
+// Files dropped from Explorer onto an HTML editor (compose's, or a signature's in Settings): the
+// pictures go in where they were dropped. True when it took them; other files are the caller's.
+function dropIntoEditor(p){
+  const dpr = devicePixelRatio || 1, x = p.x / dpr, y = p.y / dpr;
+  const ed = p.x != null ? document.elementFromPoint(x, y)?.closest?.('.hedit[contenteditable="true"]') : null;
+  const pictures = p.files.filter(f => isPicture(f.name));
+  if (!ed || !pictures.length) return false;
+  const r = document.caretRangeFromPoint?.(x, y);
+  ed.focus();
+  if (r && ed.contains(r.startContainer)){ const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  insertPictures(ed, pictures.map(f => ({path:f.path})), ed.dataset.signature === '1');
+  const others = p.files.filter(f => !isPicture(f.name));
+  if (others.length && ed.id === 'c-html') addFiles(others);
+  return true;
 }
 /* ---------- spelling ---------- */
 // Telex's own checker (spell.rs), in the languages of Settings › Writing: the words none of them
@@ -2798,11 +2901,13 @@ const spellSuggested = new Map(); // word → suggestions, until the languages c
 const spellMarks = window.Highlight && CSS.highlights ? new Highlight() : null;
 if (spellMarks) CSS.highlights.set('spell', spellMarks);
 const spellFields = () => ['c-subj', 'c-body', 'c-html'].map($).filter(Boolean);
+// An HTML editor (compose's or a signature's): its marks are highlights, not a layer.
+const rich = el => el.getAttribute?.('contenteditable') === 'true';
 const spellResize = new ResizeObserver(entries => entries.forEach(e => syncLayer(e.target)));
 // Telex's checking for one field. An input or textarea gets a box with the layer of lines.
 function spellField(el){
   if (!el || spellOf.has(el)) return;
-  if (el.id !== 'c-html' && !el.parentElement.classList.contains('spellfield')){
+  if (!rich(el) && !el.parentElement.classList.contains('spellfield')){
     const box = document.createElement('div');
     box.className = 'spellfield';
     el.before(box); box.append(el);
@@ -2817,7 +2922,7 @@ function spellField(el){
   el.addEventListener('pointerdown', () => { spellOf.get(el).typing = false; });
   el.addEventListener('click', () => { paintSpelling(el); spellTipAt(el); });
   el.addEventListener('blur', () => { spellOf.get(el).typing = false; paintSpelling(el); hideSpellTip(); });
-  if (el.id !== 'c-html'){
+  if (!rich(el)){
     // An input scrolls sideways with the caret, without a scroll event.
     for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => scrollLayer(el));
     el.addEventListener('scroll', hideSpellTip);
@@ -2852,12 +2957,12 @@ function scheduleSpelling(el, ms = 400){
 }
 // The HTML editor's words as one text, each text node on a line of its own (quotes and links
 // left out), and where each node starts in it.
-function editorText(ed){
+function editorText(ed, skip = 'blockquote, a'){
   const nodes = [];
   let text = '';
   const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()){
-    if (n.parentElement.closest('blockquote, a')) continue;
+    if (n.parentElement.closest(skip)) continue;
     if (text) text += '\n';
     nodes.push({node:n, at:text.length});
     text += n.data;
@@ -2867,7 +2972,7 @@ function editorText(ed){
 async function checkSpelling(el){
   const st = spellOf.get(el);
   if (!st || !el.isConnected) return;
-  const seq = ++st.seq, html = el.id === 'c-html';
+  const seq = ++st.seq, html = rich(el);
   const {text, nodes} = html ? editorText(el) : {text:el.value, nodes:null};
   let found = [];
   if (pref().spell_check && text.trim()){
@@ -2891,7 +2996,7 @@ function spellEdited(el){
   const st = spellOf.get(el);
   st.typing = true;
   if (!st.found.length) return;
-  if (el.id === 'c-html'){
+  if (rich(el)){
     st.found = st.found.filter(m => m.range && m.range.toString() === m.word);
   } else {
     const old = st.text, now = el.value, max = Math.min(old.length, now.length);
@@ -2907,7 +3012,7 @@ function spellEdited(el){
 // The mistake the caret is in or at the end of, in the text the checker got.
 function mistakeAtCaret(el){
   const found = spellOf.get(el)?.found ?? [];
-  if (el.id === 'c-html'){
+  if (rich(el)){
     const sel = getSelection();
     if (!sel.rangeCount || !el.contains(sel.anchorNode)) return null;
     return found.find(m => { try { return m.range?.comparePoint(sel.anchorNode, sel.anchorOffset) === 0; } catch { return false; } }) ?? null;
@@ -2921,10 +3026,12 @@ function paintSpelling(el){
   if (!st || !el.isConnected) return;
   const held = st.typing && document.activeElement === el ? mistakeAtCaret(el) : null;
   const shown = st.found.filter(m => m !== held);
-  if (el.id === 'c-html'){
+  if (rich(el)){
     if (!spellMarks) return;
-    spellMarks.clear();
-    for (const m of shown) if (m.range) spellMarks.add(m.range);
+    // One highlight for every editor: only this one's ranges change.
+    for (const r of st.painted ?? []) spellMarks.delete(r);
+    st.painted = shown.map(m => m.range).filter(Boolean);
+    for (const r of st.painted) spellMarks.add(r);
   } else paintLayer(el, shown);
 }
 function paintLayer(el, found){
@@ -2960,14 +3067,14 @@ function scrollLayer(el){
 }
 // Where a mistake is on screen.
 function mistakeRect(el, m){
-  if (el.id === 'c-html') return m.range?.getClientRects()[0] ?? null;
+  if (rich(el)) return m.range?.getClientRects()[0] ?? null;
   return el.parentElement.querySelector(`.spellmarks mark[data-s="${m.s}"]`)?.getClientRects()[0] ?? null;
 }
 const within = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 // The marked word under the pointer, if there is one.
 function spellHit(el, x, y){
   const found = spellOf.get(el)?.found ?? [];
-  if (el.id === 'c-html') return found.find(m => m.range && [...m.range.getClientRects()].some(r => within(r, x, y)));
+  if (rich(el)) return found.find(m => m.range && [...m.range.getClientRects()].some(r => within(r, x, y)));
   const mark = [...(el.parentElement.querySelector('.spellmarks')?.querySelectorAll('mark') ?? [])]
     .find(mk => [...mk.getClientRects()].some(r => within(r, x, y)));
   return mark ? found.find(m => m.s === Number(mark.dataset.s)) : null;
@@ -2987,7 +3094,7 @@ spellTip.className = 'spelltip'; spellTip.hidden = true; spellTip.setAttribute('
 document.body.append(spellTip);
 let spellTipFor = null;
 async function spellTipAt(el){
-  const sel = el.id === 'c-html' ? getSelection() : null;
+  const sel = rich(el) ? getSelection() : null;
   if (sel ? !sel.isCollapsed : el.selectionStart !== el.selectionEnd) return hideSpellTip();
   const m = mistakeAtCaret(el);
   if (!m || spellTipFor?.m === m) return m ? null : hideSpellTip();
@@ -3043,7 +3150,7 @@ async function openSpellMenu(el, m, x, y){
 // The word as the menu found it, if the text still has it there.
 function selectWord(el, m){
   el.focus();
-  if (el.id === 'c-html'){
+  if (rich(el)){
     if (!m.range || m.range.toString() !== m.word) return false;
     const sel = getSelection(); sel.removeAllRanges(); sel.addRange(m.range);
     return true;
@@ -3070,7 +3177,7 @@ async function addWord(el, word){
 }
 // Where the selection starts (or ends), in the text the checker got.
 function caretAt(el, end){
-  if (el.id !== 'c-html') return (end ? el.selectionEnd : el.selectionStart) ?? 0;
+  if (!rich(el)) return (end ? el.selectionEnd : el.selectionStart) ?? 0;
   const sel = getSelection();
   if (!sel.rangeCount) return 0;
   const r = sel.getRangeAt(0), node = end ? r.endContainer : r.startContainer;
@@ -3107,8 +3214,8 @@ function spellKeys(el, e){
     hideSpellTip();
   }
 }
-// The other fields where people write prose: an identity's signature and the away reply.
-['i-sig', 'away-body'].map($).forEach(spellField);
+// The other fields where people write prose: the away reply (signatures get theirs as they are drawn).
+['away-body'].map($).forEach(spellField);
 // Once a session, when the language Telex speaks has no dictionary yet but one can be fetched.
 let spellNudged = false;
 async function spellNudge(){
@@ -4281,11 +4388,14 @@ function showIdentityList(){
 function showIdentityForm(existing){
   const a = ACCT[idAccount], base = a.identities.find(i => i.is_default) ?? a.identities[0] ?? {};
   identity = existing ? structuredClone(existing) : {id:0, account:idAccount, name:'', email:a.email, signature:base.signature ?? '',
+    signature_html:base.signature_html ?? null, new_template:base.new_template ?? '', reply_template:base.reply_template ?? '',
     reply_header:base.reply_header ?? '', forward_header:base.forward_header ?? '', is_default:false};
   showAccountView('idform');
   $('i-form-err').textContent = '';
   $('i-form-title').textContent = existing ? t('Edit identity') : t('New identity');
-  $('i-name').value = identity.name; $('i-email').value = identity.email; $('i-sig').value = identity.signature; scheduleSpelling($('i-sig'), 0);
+  $('i-name').value = identity.name; $('i-email').value = identity.email;
+  signatureEditor($('i-sigedit'), identity).setAttribute('aria-labelledby', 'i-sig-label');
+  $('i-newt').value = identity.new_template ?? ''; $('i-replyt').value = identity.reply_template ?? '';
   $('i-reply').value = identity.reply_header; $('i-fwd').value = identity.forward_header;
   $('i-default').checked = identity.is_default;
   $('i-default').disabled = existing?.is_default === true; // switch by making another one the default
@@ -4293,7 +4403,8 @@ function showIdentityForm(existing){
 }
 $('i-form').addEventListener('submit', async e => {
   e.preventDefault();
-  Object.assign(identity, {name:$('i-name').value, email:$('i-email').value, signature:$('i-sig').value,
+  Object.assign(identity, {name:$('i-name').value, email:$('i-email').value, signature_html:$('i-sigedit').querySelector('.hedit').innerHTML,
+    new_template:$('i-newt').value, reply_template:$('i-replyt').value,
     reply_header:$('i-reply').value, forward_header:$('i-fwd').value, is_default:$('i-default').checked});
   try { await invoke('save_identity', {identity}); } catch (err){ $('i-form-err').textContent = tr(err); return; }
   await loadTree();
@@ -4311,8 +4422,20 @@ $('i-list').addEventListener('click', async e => {
   await loadTree();
   showIdentityList();
 });
-// Settings › Writing: every identity's signature, edited in place and saved as it is typed.
+// Settings › Writing: every identity's signature, edited in place with the HTML editor (formatting,
+// colors, a picture) and saved as it is typed. One without formatting is kept as plain text.
 const sigSaves = new Map(); // identity id → timer
+// A signature editor: its formatting bar and the editor, for `box` (a .sigedit).
+function signatureEditor(box, identity){
+  box.innerHTML = fbarHtml() + `<div class="hedit" contenteditable="true" role="textbox" aria-multiline="true" data-signature="1" spellcheck="false"
+ aria-label="${esc(t('Signature for {email}', {email:identity.email}))}" data-placeholder="${esc(t('No signature'))}"></div>`;
+  const ed = box.querySelector('.hedit');
+  ed.innerHTML = signatureHtml(identity);
+  if (!ed.textContent.trim() && !ed.querySelector('img')) ed.innerHTML = '';
+  wireEditor(ed, box.querySelector('.fbar'), {signature:true});
+  spellField(ed);
+  return ed;
+}
 function renderSignatures(){
   const el = $('s-sigs');
   const ids = allIdentities();
@@ -4321,17 +4444,18 @@ function renderSignatures(){
   el.innerHTML = ids.map(i => `<div class="sig" data-sig="${i.id}" data-account="${esc(i.account)}">
 <div class="sighead"><b>${esc(i.name || i.email)}</b><span class="sdim">${esc(i.email)}${several && i.email !== ACCT[i.account]?.email ? ' · ' + esc(ACCT[i.account]?.email ?? '') : ''}</span>
 <span class="sigstate" aria-live="polite"></span><button type="button" class="linkbtn" data-sig-edit>${esc(t('Edit identity|button'))}</button></div>
-<textarea rows="3" aria-label="${esc(t('Signature for {email}', {email:i.email}))}" placeholder="${esc(t('No signature'))}">${esc(i.signature || '')}</textarea></div>`).join('');
-  el.querySelectorAll('textarea').forEach(spellField);
+<div class="sigedit"></div></div>`).join('');
+  el.querySelectorAll('.sig').forEach(card => signatureEditor(card.querySelector('.sigedit'), ids.find(i => i.id === Number(card.dataset.sig))));
 }
 async function saveSignature(card){
   clearTimeout(sigSaves.get(card.dataset.sig)); sigSaves.delete(card.dataset.sig);
   const own = ACCT[card.dataset.account]?.identities?.find(i => i.id === Number(card.dataset.sig));
-  const text = card.querySelector('textarea').value, state = card.querySelector('.sigstate');
-  if (!own || own.signature === text) return;
+  const html = card.querySelector('.hedit').innerHTML, state = card.querySelector('.sigstate');
+  if (!own || signatureHtml(own) === html) return;
   try {
-    const saved = await invoke('save_identity', {identity:{...own, signature:text}});
-    own.signature = saved?.signature ?? text; // compose takes it from here, no reload needed
+    const saved = await invoke('save_identity', {identity:{...own, signature_html:html}});
+    // Compose takes it from here, no reload needed.
+    Object.assign(own, {signature:saved?.signature ?? own.signature, signature_html:saved ? saved.signature_html : html});
     state.textContent = t('Saved');
   } catch (err){ state.textContent = tr(err); }
 }
@@ -4342,7 +4466,7 @@ $('s-sigs').addEventListener('input', e => {
   clearTimeout(sigSaves.get(card.dataset.sig));
   sigSaves.set(card.dataset.sig, setTimeout(() => saveSignature(card), 700));
 });
-$('s-sigs').addEventListener('focusout', e => { const card = e.target.closest('.sig'); if (card && e.target.matches('textarea')) saveSignature(card); });
+$('s-sigs').addEventListener('focusout', e => { const card = e.target.closest('.sig'); if (card && e.target.matches('.hedit')) saveSignature(card); });
 $('s-sigs').addEventListener('click', e => {
   const card = e.target.closest('[data-sig-edit]')?.closest('.sig');
   if (!card) return;
@@ -4351,6 +4475,70 @@ $('s-sigs').addEventListener('click', e => {
   openIdentities(card.dataset.account);
   if (i) showIdentityForm(i);
 });
+/* ---------- folder templates ---------- */
+// Settings › Writing: a folder's own greeting for new messages written while it is open and for
+// replies to mail in it, and its own reply header; what is left empty is the identity's. Saved as
+// typed; all empty takes them away. From a folder's menu: Templates….
+let FTPL = null, ftplAsked = null; // [{folder, new_template, reply_template, reply_header}], from the core
+const loadTemplates = () => ftplAsked ??= invoke('folder_templates').catch(() => []).then(r => { FTPL = r; });
+const forgetTemplates = () => { FTPL = null; ftplAsked = null; };
+const ftplSaves = new Map(); // folder key → timer
+const templateFolders = () => [...servers(), ...ACCOUNTS.filter(a => a.id === LOCAL)].flatMap(a => a.folders
+  .filter(f => !['outbox', 'drafts', 'trash', 'spam'].includes(f.kind)).map(f => a.id + '/' + f.id));
+const folderWhere = key => isLocal(key) ? placeName(key) : `${folderName(key)} · ${ACCT[acctId(key)]?.email ?? ''}`;
+async function renderFolderTemplates(focusOn = null){
+  const el = $('s-ftpl'), add = $('s-ftpl-add');
+  await loadTemplates();
+  if (focusOn && !FTPL.some(x => x.folder === focusOn)) FTPL.push({folder:focusOn, new_template:'', reply_template:'', reply_header:''});
+  el.innerHTML = FTPL.map(x => `<div class="sig ftpl" data-ftpl="${esc(x.folder)}">
+<div class="sighead"><b>${esc(placeName(x.folder))}</b><span class="sdim">${esc(isLocal(x.folder) ? '' : ACCT[acctId(x.folder)]?.email ?? '')}</span>
+<span class="sigstate" aria-live="polite"></span><button type="button" class="linkbtn" data-ftpl-drop>${esc(t('Remove|templates'))}</button></div>
+<div class="ffields"><label>${esc(t('New messages open with'))}</label><textarea rows="2" data-k="new_template" spellcheck="false" placeholder="${esc(t('As the identity says'))}">${esc(x.new_template)}</textarea>
+<label>${esc(t('Replies open with'))}</label><textarea rows="2" data-k="reply_template" spellcheck="false" placeholder="${esc(t('As the identity says'))}">${esc(x.reply_template)}</textarea>
+<label>${esc(t('Reply header'))}</label><input data-k="reply_header" autocomplete="off" spellcheck="false" placeholder="${esc(t('As the identity says'))}" value="${esc(x.reply_header)}"></div></div>`).join('')
+    || `<p class="dnote">${esc(t('No folder has templates of its own.'))}</p>`;
+  const taken = new Set(FTPL.map(x => x.folder));
+  add.innerHTML = `<option value="">${esc(t('Templates for a folder…'))}</option>` + templateFolders().filter(k => !taken.has(k))
+    .map(k => `<option value="${esc(k)}">${esc(folderWhere(k))}</option>`).join('');
+  if (focusOn){
+    const card = el.querySelector(`[data-ftpl="${CSS.escape(focusOn)}"]`);
+    card?.scrollIntoView({block:'nearest'}); card?.querySelector('textarea')?.focus();
+  }
+}
+async function saveFolderTemplate(card){
+  const key = card.dataset.ftpl;
+  clearTimeout(ftplSaves.get(key)); ftplSaves.delete(key);
+  const x = FTPL?.find(f => f.folder === key);
+  if (!x) return;
+  const next = {folder:key};
+  card.querySelectorAll('[data-k]').forEach(f => { next[f.dataset.k] = f.value; });
+  if (['new_template', 'reply_template', 'reply_header'].every(k => next[k] === x[k])) return;
+  try { await invoke('save_folder_template', {template:next}); Object.assign(x, next); card.querySelector('.sigstate').textContent = t('Saved'); }
+  catch (err){ card.querySelector('.sigstate').textContent = tr(err); }
+}
+$('s-ftpl').addEventListener('input', e => {
+  const card = e.target.closest('.ftpl');
+  if (!card) return;
+  card.querySelector('.sigstate').textContent = '';
+  clearTimeout(ftplSaves.get(card.dataset.ftpl));
+  ftplSaves.set(card.dataset.ftpl, setTimeout(() => saveFolderTemplate(card), 700));
+});
+$('s-ftpl').addEventListener('focusout', e => { const card = e.target.closest('.ftpl'); if (card && e.target.dataset.k) saveFolderTemplate(card); });
+$('s-ftpl').addEventListener('click', async e => {
+  const card = e.target.closest('[data-ftpl-drop]')?.closest('.ftpl');
+  if (!card) return;
+  const key = card.dataset.ftpl;
+  clearTimeout(ftplSaves.get(key));
+  try { await invoke('save_folder_template', {template:{folder:key, new_template:'', reply_template:'', reply_header:''}}); } catch (err){ card.querySelector('.sigstate').textContent = tr(err); return; }
+  FTPL = FTPL.filter(x => x.folder !== key);
+  renderFolderTemplates();
+});
+$('s-ftpl-add').addEventListener('change', e => { const key = e.target.value; if (key) renderFolderTemplates(key); });
+// A folder's menu › Templates…: Settings › Writing, at that folder's templates.
+function openFolderTemplates(key){
+  openSettings('write');
+  renderFolderTemplates(key);
+}
 $('i-new').addEventListener('click', () => showIdentityForm(null));
 $('i-back').addEventListener('click', showIdentityList);
 $('i-close').addEventListener('click', () => showAccountView('home'));
@@ -4710,6 +4898,7 @@ function renderSettings(keepFocus){
   $('s-format').innerHTML = radios('compose_format', [['html', esc(t('HTML'))], ['plain', esc(t('Plain text'))]], s.compose_format);
   $('s-reply').innerHTML = radios('reply_format', [['html', esc(t('Always HTML'))], ['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))]], s.reply_format);
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
+  $('s-imgsize').innerHTML = radios('image_size', IMAGE_SIZES.map(([v, label]) => [v, esc(t(label))]), s.image_size ?? 'large');
   renderSignatures();
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-askfile').checked = s.ask_attachment !== false; $('s-askmany').checked = s.ask_many !== false;
@@ -4736,7 +4925,7 @@ function paneOpened(tab){
   }
   if (tab === 'read') renderTrusted();
   if (tab === 'mail') renderSpamStatus();
-  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); }
+  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); forgetTemplates(); renderFolderTemplates(); }
   if (tab === 'use') renderUsage();
   if (tab === 'conn') renderConnections();
   if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
@@ -4746,7 +4935,7 @@ function paneOpened(tab){
 function syncSettings(){
   const s = pref();
   const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
+    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, image_size:s.image_size ?? 'large', backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-delay').value = String(s.read_delay);
@@ -4822,6 +5011,7 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'mail_paper'){ state.white.clear(); changeSettings({mail_paper:v}).then(() => { if (!state.compose) renderPreview(); }); }
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
   else if (el.name === 'reply_format') changeSettings({reply_format:v});
+  else if (el.name === 'image_size') changeSettings({image_size:v});
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
   else if (el.id === 's-askfile') changeSettings({ask_attachment:el.checked});
   else if (el.id === 's-askmany') changeSettings({ask_many:el.checked});
@@ -4854,9 +5044,11 @@ sdlg.addEventListener('close', () => {
 
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
+// How large pictures put into a message are made (images::prepare).
+const IMAGE_SIZES = [['large', N_('Large: at most 1600 pixels across')], ['medium', N_('Medium: at most 800 pixels across')], ['original', N_('As they are')]];
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
-  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
+  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), image_size:N_('Pictures'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
@@ -4877,6 +5069,7 @@ function settingValue(key, v){
     case 'updates': return v === 'ask' ? t('Not decided yet') : updatesText(v);
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
+    case 'image_size': return IMAGE_SIZES.find(([id]) => id === v) ? t(IMAGE_SIZES.find(([id]) => id === v)[1]) : v;
     case 'spam_filter': return SPAM_LEVELS.find(([id]) => id === v) ? t(SPAM_LEVELS.find(([id]) => id === v)[1]) : v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
     case 'threaded': case 'risk_checks': case 'sign_replies': case 'ask_subject': case 'ask_attachment': case 'ask_many': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
@@ -4924,7 +5117,7 @@ function renderMove(){
 <div class="sopts">
   <label class="sopt"><input type="checkbox" data-ex="settings" checked><span>${esc(t('Settings: theme, language, rows, mail checks'))}</span></label>
   <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules'))}</span>${n('rules', N_('{n} rule'), '{n} rules')}</label>
-  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities and signatures'))}</span>${n('identities', N_('{n} identity'), '{n} identities')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities, signatures and templates'))}</span>${n('identities', N_('{n} identity'), '{n} identities')}</label>
   <label class="sopt"><input type="checkbox" data-ex="servers" checked><span>${esc(t('Account servers and user names'))}</span>${n('accounts', N_('{n} account'), '{n} accounts')}</label>
 </div>
 <div class="sbtns"><button class="btn primary" type="button" id="s-export">${esc(t('Export…'))}</button>
@@ -4956,12 +5149,15 @@ ${move_.exported ? `<span class="sdone">${esc(t('Saved to {path}.', {path:move_.
     r.rules_updated ? tn(r.rules_updated, '{n} rule updated', '{n} rules updated') : '',
     r.identities_added ? tn(r.identities_added, '{n} identity added', '{n} identities added') : '',
     r.identities_updated ? tn(r.identities_updated, '{n} identity updated', '{n} identities updated') : '',
+    r.templates ? tn(r.templates, 'templates set for {n} folder', 'templates set for {n} folders') : '',
   ].filter(Boolean) : [];
+  // A folder's templates come with the identities.
+  const ids = [...p.identities, ...(p.templates ?? []).map(i => ({...i, name:t('Templates of {folder}', {folder:i.name})}))];
   el.innerHTML = `<h3 class="rh">${esc(r ? t('Imported') : t('Import'))}</h3>
 ${made ? `<p class="dnote">${esc(t('From {made}.', {made}))}</p>` : ''}
 ${p.newer ? `<p class="whint warn">${esc(t('This file comes from a newer Telex. What this version doesn’t know is left out.'))}</p>` : ''}
 ${r ? `<p class="whint">${esc(doneLines.length ? doneLines.join(', ') + '.' : t('Nothing needed changing.'))}</p>` + (r.problems.length ? `<p class="derr">${esc(r.problems.map(tr).join(' · '))}</p>` : '') : ''}
-${r ? accounts : settings + planSection('rules', t('Rules'), p.rules) + planSection('identities', t('Identities and signatures'), p.identities) + accounts}
+${r ? accounts : settings + planSection('rules', t('Rules'), p.rules) + planSection('identities', t('Identities, signatures and templates'), ids) + accounts}
 <p class="derr" role="alert">${esc(move_.error)}</p>
 <div class="sbtns">${r ? `<button class="btn" type="button" id="s-back">${esc(t('Done'))}</button>`
   : `<button class="btn primary" type="button" id="s-apply">${esc(t('Import'))}</button><button class="btn" type="button" id="s-back">${esc(t('Cancel'))}</button>`}</div>`;
@@ -5786,6 +5982,8 @@ const HELP_TIPS = [
   N_('Shift+click selects a range, Ctrl+click one more message.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),
+  N_('In an HTML message, paste a picture or drop one where it should go; it goes in the text, not as a file. Settings › Writing says how large.'),
+  N_('A folder can have its own greeting and reply header: right-click it › Templates….'),
   N_('A click on an underlined word shows its suggestions. Spelling checks every ticked language at once; the end of the compose bar shows them.'),
   N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
   N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),

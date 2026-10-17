@@ -139,8 +139,9 @@ impl Account {
 }
 
 /// Who a message is from: a name and an address, with a signature and the templates for
-/// replying and forwarding. Templates use {name}, {email}, {from}, {date}, {time} and
-/// {subject} of the original message.
+/// what new messages and replies open with, and for replying and forwarding. Templates use
+/// {name}, {first}, {email}, {from}, {date}, {time} and {subject} of the original message (in
+/// a new message only {date} and {time}, today's).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Identity {
     #[serde(default)]
@@ -149,8 +150,19 @@ pub struct Identity {
     pub account: String,
     pub name: String,
     pub email: String,
+    /// Its text, for plain-text messages (made from `signature_html` when that is set).
     #[serde(default)]
     pub signature: String,
+    /// The signature written in HTML, cleaned as sent mail is (`html::compose_clean`), with its
+    /// pictures as `data:`; `None` for a plain-text signature.
+    #[serde(default)]
+    pub signature_html: Option<String>,
+    /// What a new message opens with, above the space to type: a greeting such as "Dzień dobry,".
+    #[serde(default)]
+    pub new_template: String,
+    /// What a reply opens with, above the space to type ("Dzień dobry {first},").
+    #[serde(default)]
+    pub reply_template: String,
     #[serde(default = "default_reply_header")]
     pub reply_header: String,
     #[serde(default = "default_forward_header")]
@@ -179,6 +191,9 @@ impl Identity {
             name: name.to_owned(),
             email: email.to_owned(),
             signature: DEFAULT_SIGNATURE.to_owned(),
+            signature_html: None,
+            new_template: String::new(),
+            reply_template: String::new(),
             reply_header: default_reply_header(),
             forward_header: default_forward_header(),
             is_default: true,
@@ -204,6 +219,50 @@ impl Identity {
             ));
         }
         Ok(())
+    }
+
+    /// Checked, and ready to keep: an HTML signature cleaned as sent mail is, its text made from
+    /// it, and a signature without any formatting kept as plain text.
+    pub fn prepared(&self) -> Result<Identity, String> {
+        self.check()?;
+        let mut identity = self.clone();
+        let Some(html) = self.signature_html.as_deref() else {
+            return Ok(identity);
+        };
+        let limits = crate::html::SIGNATURE_IMAGES;
+        let clean = crate::html::clean_signature(html);
+        if clean.matches("<img").count() < html.matches("<img").count() {
+            let kb = limits.total / 1024;
+            return Err(tr!(
+                "Pictures in a signature can take {kb} KB in all. Use a smaller one.",
+                "Obrazy w podpisie mogą zająć łącznie {kb} KB. Użyj mniejszego."
+            ));
+        }
+        identity.signature = crate::html::to_text(&clean);
+        identity.signature_html = (!crate::html::is_plain(&clean)).then_some(clean);
+        Ok(identity)
+    }
+}
+
+/// A folder's own templates: each one that isn't empty takes the place of the identity's, for
+/// new messages written while the folder is open and for replies to mail in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderTemplate {
+    /// "<account>/<folder>"
+    pub folder: String,
+    #[serde(default)]
+    pub new_template: String,
+    #[serde(default)]
+    pub reply_template: String,
+    #[serde(default)]
+    pub reply_header: String,
+}
+
+impl FolderTemplate {
+    pub fn is_empty(&self) -> bool {
+        [&self.new_template, &self.reply_template, &self.reply_header]
+            .iter()
+            .all(|t| t.trim().is_empty())
     }
 }
 

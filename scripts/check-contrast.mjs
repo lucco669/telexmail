@@ -47,6 +47,8 @@ const TEXT = [
   ['chip-fg', 'chip-bg', 'Rule notes, tags, the update chip'],
   ['chip-fg', 'img-a', 'Loaded image stand-ins'],
   ['chip-fg', 'img-b', 'Loaded image stand-ins'],
+  ...[1, 2, 3, 4, 5, 6].map((i) => [`pal-${i}`, 'surface', `Text color ${i} in the HTML editor`]),
+  ...[1, 2, 3, 4].map((i) => ['fg', `mark-${i}`, `Text under highlight ${i} in the HTML editor`]),
 ];
 const UI = [
   ['accent', 'line-soft', 'Update download progress'],
