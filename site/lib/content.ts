@@ -136,6 +136,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Save a message, or a whole selection, as .eml files with Ctrl+S, or drag them out of the list onto the desktop or into a folder', since: '0.9.12' },
       { text: 'Print a message or save it as a PDF, as it shows on screen; remote images stay blocked unless you loaded them', since: '0.9.12' },
       { text: 'View source (Ctrl+U): the message as it came, its text in the right charset, and all its headers decoded', since: '0.9.12' },
+      { text: 'Invitations from Outlook, Google and Apple show as a card: when in your time (and in theirs), where, the Teams, Meet or Zoom link, who is coming; Accept, Maybe or Decline answers the organizer, and Add to calendar opens it in your calendar app', since: V0912 },
     ],
   },
   {

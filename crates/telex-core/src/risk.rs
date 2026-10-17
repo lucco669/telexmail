@@ -29,6 +29,9 @@ pub struct InspectedMessage {
     pub goes: Option<chrono::NaiveDateTime>,
     /// From a mailing list: how to leave it (`unsubscribe.rs`).
     pub unsubscribe: Option<crate::unsubscribe::Offer>,
+    /// A calendar invitation in it, for the card above the text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invite: Option<crate::calendar::invites::Invite>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

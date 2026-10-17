@@ -107,6 +107,12 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      folder, numbered), its source as text (each part's charset) and all headers
                      decoded, a document to print or save as PDF (header, then HTML or text).
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
+  src/calendar.rs    Calendar invitations: iCalendar (RFC 5545) read with limits (size, line
+                     length, components, depth), events in local time, RRULEs in words, the iTIP
+                     REPLY (RFC 5546/6047). calendar/zones.rs: TZIDs by IANA or Windows name
+                     (chrono-tz, CLDR's table), else the VTIMEZONE's rules. calendar/invites.rs:
+                     the `invites` table (schema 15), outdated and cancelled ones, the user's
+                     answer, answering. Its tests (Outlook, Google, Apple) are in calendar/tests.rs.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
                      the domain's autoconfig file, SRV and MX records (Windows' resolver;
                      hickory-resolver elsewhere), probing.
@@ -194,6 +200,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
 | `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), `goes` (in an Outbox: when it goes, unless held or refused), `unsubscribe` `{method: one_click/mail/link, target, done, spam}` or null (unsubscribe.rs) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), and `invite` when it holds a calendar: `{method, event, file, state, mine, answered, blocked, from, spam}` (calendar/invites.rs; `event` in local time with `zone` when written in another clock; `file`: the attachment Add to calendar opens; `state`: current, outdated, cancelled; `blocked`: not_invitation, spam, cancelled, outdated, organizer, no_organizer, no_account) |
 | `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -227,6 +234,9 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `send_now`       | `id`                         | `{queued, sent, errors}`: mail sent later, held, or whose try failed goes now (not mail the server refused: E first) |
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go, also mail sent later; it stays in the Outbox, held) |
 | `unsubscribe`    | `id`                         | `{method, done, sent, errors}`: leaves the message's list (one click: POSTed by the core, public addresses only; mail: through the account's SMTP, done once it went; link: opened in the browser); refused in Spam; the message gets a note, and the list (List-Id or sender) is remembered |
+| `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
+| `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
+| `answer_invite`  | `id`, `answer` (accepted, tentative, declined), `comment` | `{sent, errors, invite}`: an iTIP REPLY to the organizer from the identity invited, sent at once (no undo moment), the invitation noted ("You accepted on …"); refused in Spam and for cancelled, outdated or own invitations |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
 | `connections`    | –                            | `{servers: [{address, names, sessions: [used, max], watches: [used, max], silences, resting_until}], log: [{id, started, purpose, protocol, user, host, port, address, steps: [{step, ms}], failed, error, ended}]}` newest first (`purpose`: check, push, older, test, watch, send; `step`: lookup, wait, connect, starttls, tls, greeting, login, work; `ended` null: still open) |
@@ -558,6 +568,28 @@ renumber at merge):
   - View source (Ctrl+U) and All headers: a dialog with Source | Headers, Copy and Save as…; the
     raw message as text, lines in the charset of their part (`export::source_text`, the first
     MB), header fields unfolded and RFC 2047-decoded (`export::headers`, `message_source`).
+- Calendar invitations (schema version 15: `invites`; the upgrade reads every stored message once,
+  a one-way upgrade). Mail with a text/calendar part or an .ics file shows a card above the text
+  (`inviteHtml` in app.js): what, when in local time (and in the zone it was written in, when that
+  clock differs: "10:00–11:00 in Pacific Standard Time (UTC−7)"), how it repeats in words, where,
+  the Teams/Meet/Zoom/Webex link (through `open_link`; not clickable in Spam), the organizer, the
+  people invited with their answers (✓ ? ✕), the user's answer. Accept, Maybe and Decline with an
+  optional comment send an iTIP REPLY (`answer_invite`): METHOD:REPLY, the same UID, SEQUENCE and
+  RECURRENCE-ID, only the user's ATTENDEE line, times in UTC, as multipart/alternative text plus
+  text/calendar; method=REPLY, to the ORGANIZER from the identity whose address was invited, through
+  the Outbox and SMTP like any mail; the invitation gets a note ("You accepted on …"). A newer
+  SEQUENCE (or the same with a later DTSTAMP) of the same UID makes older invitations outdated; a
+  CANCEL (or STATUS:CANCELLED) cancels them; the user's own REPLY in the Outbox or Sent, also one
+  written elsewhere, is their answer ("You accepted an earlier version" after an update). A REPLY in
+  the Inbox says who answered the user's meeting. Spam can't answer (the card says why). "Add to
+  calendar" opens the .ics through `open_attachment` (Mark of the Web; asks first in Spam); the
+  arrow saves it. The parser is Telex's own (`calendar.rs`): 1 MiB, 32 KiB lines, 500 components, 6
+  levels, 200 attendees listed; folded lines joined before decoding (Google folds inside UTF-8
+  characters), the part's charset, else Windows-1250. Time zones (`calendar/zones.rs`): IANA names
+  (also behind a path), Windows names through CLDR's table, both with chrono-tz's compiled database
+  (new dependency, MIT/Apache-2.0); other TZIDs from the VTIMEZONE's yearly rules and RDATEs. Wall
+  times in a spring-forward gap move past it, ones that come twice are the first (RFC 5545). A
+  nameless text/calendar part is listed as "invite.ics".
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 

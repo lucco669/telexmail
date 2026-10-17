@@ -205,6 +205,41 @@
     },
     {
       "folder": "studio/inbox",
+      "only": ["invite", "live"],
+      "thread": "shop",
+      "from_name": "Daniel Price",
+      "from_email": "daniel@pricefurniture.co.uk",
+      "to": "Sam Carter <sam@lindenstudio.com>",
+      "cc": "Maya Chen <maya@mayachen.design>",
+      "subject": "Invitation: Shop kickoff",
+      "date": "2026-10-09T18:40:00",
+      "size_kb": 12,
+      "unread": true,
+      "flagged": false,
+      "remote_images": false,
+      "note": null,
+      "attachments": [{ "name": "invite.ics", "size_kb": 3 }],
+      "body": "Let's start the shop with a call: the catalogue, the payment options and a launch date.\n\nJoin on Microsoft Teams: https://teams.microsoft.com/l/meetup-join/linden-demo\n\nDaniel",
+      "invite": {
+        "method": "request", "file": 0, "state": "current", "mine": "needs_action", "answered": null, "blocked": null, "from": null, "spam": false,
+        "event": {
+          "uid": "kickoff-2026@pricefurniture.co.uk", "sequence": 0, "summary": "Shop kickoff", "location": "Microsoft Teams Meeting",
+          "description": "", "comment": "", "start": "2026-10-15T11:00:00", "end": "2026-10-15T12:00:00", "all_day": false,
+          "zone": { "name": "GMT Standard Time", "offset": 60, "start": "2026-10-15T10:00:00", "end": "2026-10-15T11:00:00" },
+          "repeats": "Every 2 weeks on Thursday, 6 times", "repeats_pl": "Co 2 tygodnie w czwartek, 6 razy", "one_date": false,
+          "organizer": { "name": "Daniel Price", "email": "daniel@pricefurniture.co.uk" },
+          "attendees": [
+            { "name": "Daniel Price", "email": "daniel@pricefurniture.co.uk", "answer": "accepted", "role": "chair", "room": false, "me": false },
+            { "name": "Sam Carter", "email": "sam@lindenstudio.com", "answer": "needs_action", "role": "required", "room": false, "me": true },
+            { "name": "Maya Chen", "email": "maya@mayachen.design", "answer": "tentative", "role": "optional", "room": false, "me": false }
+          ],
+          "more_attendees": 0,
+          "links": [{ "label": "Microsoft Teams", "url": "https://teams.microsoft.com/l/meetup-join/linden-demo" }]
+        }
+      }
+    },
+    {
+      "folder": "studio/inbox",
       "thread": "maya",
       "from_name": "Maya Chen",
       "from_email": "maya@mayachen.design",
