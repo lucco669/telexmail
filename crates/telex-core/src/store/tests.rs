@@ -461,6 +461,54 @@ fn moving_back_cancels_the_move() {
 }
 
 #[test]
+fn spam_that_goes_to_trash_is_marked_read_first() {
+    let (mut store, account) = store_with_server_account();
+    let mut folders = store.account(&account.id).unwrap().folders.clone();
+    folders.push(Folder {
+        id: "spam".into(),
+        name: "spam".into(),
+        kind: FolderKind::Spam,
+        remote: Some("SPAM".into()),
+    });
+    store.set_folders(&account.id, &folders).unwrap();
+    let spam = account.folder_key("spam");
+    let ids = store
+        .add_synced(&spam, &[synced(7, "Wygrana"), synced(8, "Kredyt")])
+        .unwrap();
+    let inbox = one_in_inbox(&mut store, &account, 9);
+
+    // Del in Spam, and a move to Trash with mail from elsewhere along.
+    store.delete(ids[0]).unwrap();
+    store
+        .move_many(&[ids[1], inbox], &account.folder_key("trash"))
+        .unwrap();
+    assert!(!store.get(ids[0]).unwrap().unread);
+    assert!(!store.get(ids[1]).unwrap().unread);
+    assert!(store.get(inbox).unwrap().unread, "only spam is marked read");
+    let trash = ChangeKind::Move(account.folder_key("trash"));
+    let changes = store.pending_changes(&account.id).unwrap();
+    let of = |id| -> Vec<_> {
+        changes
+            .iter()
+            .filter(|c| c.message == Some(id))
+            .map(|c| c.kind.clone())
+            .collect()
+    };
+    // \Seen goes where the message still is, then the move.
+    assert_eq!(of(ids[0]), [ChangeKind::Seen(true), trash.clone()]);
+    assert_eq!(of(ids[1]), [ChangeKind::Seen(true), trash.clone()]);
+    assert_eq!(of(inbox), [trash]);
+    assert_eq!(changes[0].folder, spam);
+
+    // Spam moved anywhere else keeps its state.
+    let other = store.add_synced(&spam, &[synced(10, "Paczka")]).unwrap()[0];
+    store
+        .move_to(other, &account.folder_key("archive"))
+        .unwrap();
+    assert!(store.get(other).unwrap().unread);
+}
+
+#[test]
 fn deleting_from_trash_queues_an_expunge_that_outlives_the_row() {
     let (mut store, account) = store_with_server_account();
     let id = one_in_inbox(&mut store, &account, 7);

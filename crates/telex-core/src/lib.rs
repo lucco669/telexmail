@@ -20,6 +20,7 @@ pub mod i18n;
 pub mod imap;
 pub mod list;
 pub mod mailbox;
+pub mod markdown;
 pub mod migrate;
 pub mod mime;
 pub mod model;

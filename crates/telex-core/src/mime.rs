@@ -297,6 +297,22 @@ pub fn html_body(raw: &[u8]) -> Option<HtmlBody> {
     Some(HtmlBody { html, inline })
 }
 
+/// The HTML of mail that has no plain-text part of its own, whose text is HTML turned into
+/// text; `None` when the sender wrote a plain-text part too, or no HTML.
+pub fn html_only(raw: &[u8]) -> Option<String> {
+    let p = MessageParser::default().parse(raw)?;
+    if p.text_bodies()
+        .any(|part| matches!(part.body, PartType::Text(_)))
+    {
+        return None;
+    }
+    let html = p.html_bodies().find_map(|part| match &part.body {
+        PartType::Html(html) => Some(html.to_string()),
+        _ => None,
+    });
+    html
+}
+
 /// "image/png", or application/octet-stream when the part doesn't say.
 fn mime_type(part: &MessagePart<'_>) -> String {
     part.content_type().map_or_else(

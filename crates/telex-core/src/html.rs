@@ -426,6 +426,22 @@ pub fn to_text(html: &str) -> String {
     w.finish()
 }
 
+/// Plain text of received HTML mail, for copying it out (`markdown.rs`): like [`to_text`],
+/// links with their addresses, and each row of a table on a line of its own.
+pub fn received_text(html: &str) -> String {
+    let mut builder = Builder::empty();
+    builder
+        .add_tags(COMPOSE_TAGS)
+        .add_tags(&["table", "tr", "td", "th", "h4", "h5", "h6"])
+        .add_tag_attributes("a", &["href"])
+        .url_schemes(HashSet::from(["http", "https", "mailto"]))
+        .url_relative(UrlRelative::Deny)
+        .link_rel(None)
+        .strip_comments(true)
+        .clean_content_tags(HashSet::from(["script", "style", "head", "title"]));
+    to_text(&builder.clean(html).to_string())
+}
+
 /// HTML for plain text: a line per `<div>`, blank lines kept, `>` quotes as blockquotes,
 /// web addresses as links. How a reply or a plain draft opens in the HTML editor.
 pub fn from_text(text: &str) -> String {
@@ -578,7 +594,8 @@ impl TextWriter {
                 self.block();
                 self.blank = self.blank || closing || !self.lines.is_empty();
             }
-            ("div" | "h1" | "h2" | "h3", _) => self.block(),
+            ("div" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "table" | "tr", _) => self.block(),
+            ("td" | "th", true) => self.text(" "),
             ("pre", false) => {
                 self.block();
                 self.pre += 1;
@@ -668,7 +685,11 @@ impl TextWriter {
         for c in s.chars() {
             if c.is_whitespace() {
                 let at_start = !self.has_text && collapsed.is_empty();
-                if !at_start && !collapsed.ends_with(' ') && !self.line.ends_with(' ') {
+                let after_space = match collapsed.chars().last() {
+                    Some(last) => last == ' ',
+                    None => self.line.ends_with(' '),
+                };
+                if !at_start && !after_space {
                     collapsed.push(' ');
                 }
             } else {
@@ -1313,7 +1334,7 @@ iVBORw0KGgo=\r\n";
     fn html_becomes_readable_plain_text() {
         let text = to_text(&compose_clean(
             "<div>Dzień dobry,</div><div><br></div>\
-             <div>oto <b>lista</b>:</div><ul><li>pierwsza</li><li>druga<ul><li>pod</li></ul></li></ul>\
+             <div>oto <b>lista rzeczy</b>:</div><ul><li>pierwsza</li><li>druga<ul><li>pod</li></ul></li></ul>\
              <ol><li>raz</li><li>dwa</li></ol>\
              <div>Strona: <a href=\"https://firma.pl/oferta\">oferta</a>, \
              <a href=\"https://firma.pl\">https://firma.pl</a>, \
@@ -1326,7 +1347,7 @@ iVBORw0KGgo=\r\n";
             text,
             "Dzień dobry,\n\
              \n\
-             oto lista:\n\
+             oto lista rzeczy:\n\
              - pierwsza\n\
              - druga\n   - pod\n\
              1. raz\n\

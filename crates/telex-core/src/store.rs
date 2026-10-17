@@ -607,8 +607,15 @@ impl MailStore {
         } else {
             Vec::new()
         };
+        let read = if self.folder_kind(folder) == Some(FolderKind::Trash) {
+            self.spam_among(places.iter().map(|(id, f, _)| (*id, f.as_str())))
+        } else {
+            Vec::new()
+        };
         let tx = self.db.transaction()?;
         crate::spam::learn(&tx, &lessons)?;
+        // Before the move, so the server hears \Seen where the message still is.
+        set_flags_in(&tx, &read, Flag::Unread, false, true)?;
         for (id, source, srv_folder) in &places {
             if account_of(source) == target_acct {
                 move_row(
@@ -627,6 +634,15 @@ impl MailStore {
         }
         tx.commit()?;
         Ok(places.into_iter().map(|(id, from, _)| (id, from)).collect())
+    }
+
+    /// Of messages and the folders they are in, those in a Spam folder. Spam that goes to
+    /// Trash is marked read on the way: nobody means to read it, and it shouldn't count.
+    fn spam_among<'a>(&self, places: impl Iterator<Item = (MessageId, &'a str)>) -> Vec<MessageId> {
+        places
+            .filter(|(_, f)| self.folder_kind(f) == Some(FolderKind::Spam))
+            .map(|(id, _)| id)
+            .collect()
     }
 
     /// Delete like a mail client does: first to Trash, and from Trash for good.
@@ -654,8 +670,10 @@ impl MailStore {
             };
             plan.push((id, folder, srv_folder, to_trash));
         }
+        let read = self.spam_among(plan.iter().map(|(id, f, _, _)| (*id, f.as_str())));
         let mut report = DeleteReport::default();
         let tx = self.db.transaction()?;
+        set_flags_in(&tx, &read, Flag::Unread, false, true)?;
         for (id, folder, srv_folder, to_trash) in plan {
             match to_trash {
                 Some((trash, on_server)) => {
@@ -941,6 +959,19 @@ impl MailStore {
             )
             .optional()?
             .flatten())
+    }
+
+    /// Messages as Markdown, oldest first (`markdown.rs`): what Copy as Markdown puts on the
+    /// clipboard. Changes nothing, not even the read state.
+    pub fn markdown(&self, ids: &[MessageId]) -> Result<String, StoreError> {
+        let mut all = ids
+            .iter()
+            .map(|&id| Ok((self.get(id)?, self.raw_of(id)?)))
+            .collect::<Result<Vec<_>, StoreError>>()?;
+        all.sort_by_key(|(m, _)| (m.date, m.id));
+        Ok(crate::markdown::messages(
+            all.iter().map(|(m, raw)| (m, raw.as_deref())),
+        ))
     }
 
     /// Copy and remember this rule action in one transaction. The original stays put.
@@ -2311,11 +2342,24 @@ fn set_flags(
     value: bool,
     only_changed: bool,
 ) -> Result<usize, StoreError> {
+    let tx = db.transaction()?;
+    let done = set_flags_in(&tx, ids, flag, value, only_changed)?;
+    tx.commit()?;
+    Ok(done)
+}
+
+/// [`set_flags`] inside a transaction the caller holds.
+fn set_flags_in(
+    tx: &Connection,
+    ids: &[MessageId],
+    flag: Flag,
+    value: bool,
+    only_changed: bool,
+) -> Result<usize, StoreError> {
     let (column, kind, server_value) = match flag {
         Flag::Unread => ("unread", "seen", !value),
         Flag::Flagged => ("flagged", "flagged", value),
     };
-    let tx = db.transaction()?;
     let mut done = 0;
     {
         let mut update = tx.prepare_cached(&format!(
@@ -2339,7 +2383,6 @@ fn set_flags(
             }
         }
     }
-    tx.commit()?;
     Ok(done)
 }
 

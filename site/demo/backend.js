@@ -445,8 +445,28 @@ function installTelexDemo(options) {
       }
       return [id, m.folder];
     });
-    for (const [id] of places) byId(id).folder = folder;
+    // store.rs: spam that goes to Trash is marked read on the way.
+    const toTrash = kindOf(folder) === 'trash';
+    for (const [id, from] of places) {
+      const m = byId(id);
+      if (toTrash && kindOf(from) === 'spam') m.unread = false;
+      m.folder = folder;
+    }
     return places;
+  }
+  // markdown.rs: messages oldest first, each a heading, its header as a list, then its text.
+  function messageMarkdown({ ids }) {
+    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() === 'pl' ? ',' : '.')} MB`);
+    const line = (s) => String(s ?? '').split(/\s+/).filter(Boolean).join(' ');
+    return ids.map(need).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map((m) => {
+      const from = !m.from_name || m.from_name.toLowerCase() === m.from_email.toLowerCase() ? m.from_email : `${m.from_name} <${m.from_email}>`;
+      const fields = [[tr('From', 'Od'), from], [tr('To', 'Do'), m.to], [tr('Cc', 'DW'), m.cc],
+        [tr('Bcc', 'UDW'), isOutgoing(kindOf(m.folder)) ? m.bcc : ''], [tr('Date', 'Data'), m.date.slice(0, 16).replace('T', ' ')],
+        [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')]];
+      const head = fields.map(([k, v]) => [k, line(v)]).filter(([, v]) => v).map(([k, v]) => `- **${k}:** ${v}\n`).join('');
+      const text = String(m.body || '').replace(/\r\n/g, '\n').replace(/^\n+|\s+$/g, '');
+      return `# ${line(m.subject)}\n\n${head}${text ? `\n${text}\n` : ''}`;
+    }).join('\n---\n\n');
   }
   // The menu's Spam and Not spam (spam.rs's mark_spam): to the account's Spam folder or back to
   // its Inbox. The demo's filter learns nothing; spam_status counts what the folders hold.
@@ -479,7 +499,11 @@ function installTelexDemo(options) {
     });
     const report = { trashed: [], removed: 0 };
     for (const [m, trash] of plan) {
-      if (trash) { report.trashed.push([m.id, m.folder]); m.folder = trash; }
+      if (trash) {
+        report.trashed.push([m.id, m.folder]);
+        if (kindOf(m.folder) === 'spam') m.unread = false;
+        m.folder = trash;
+      }
       else { msgs.splice(msgs.indexOf(m), 1); report.removed++; }
     }
     return report;
@@ -1100,30 +1124,6 @@ function installTelexDemo(options) {
       || (a.email < b.email ? -1 : 1)).slice(0, 2000).map(({ name, email, sent, received: got }) => ({ name, email, sent, received: got }));
   }
 
-  /* ---------- usage (usage.rs) ---------- */
-  function usage() {
-    const t = now(), today = new RealDate(t.getFullYear(), t.getMonth(), t.getDate()), since = addDays(today, -29), sinceDay = fmt(since).slice(0, 10);
-    const quotas = data.quota || {};
-    return {
-      base_bytes: 61_800_000 + msgs.length * 24_000, free_bytes: 0, since: sinceDay,
-      accounts: accounts.map((a) => {
-        const mine = msgs.filter((m) => acctId(m.folder) === a.id);
-        const folders = a.folders.map((f) => {
-          const key = `${a.id}/${f.id}`, ms = mine.filter((m) => m.folder === key);
-          // The demo mailbox is small: sizes are scaled up to look like a real one.
-          return { folder: key, kind: f.kind, count: ms.length, unread: ms.filter((m) => m.unread).length, size_kb: ms.reduce((n, m) => n + m.size_kb, 0) * 40 };
-        }).filter((f) => f.count).sort((x, y) => y.size_kb - x.size_kb);
-        const flow = Array.from({ length: 30 }, (_, i) => {
-          const d = fmt(addDays(since, i)).slice(0, 10), on = mine.filter((m) => m.date.slice(0, 10) === d), k = (m) => kindOf(m.folder);
-          // A steady trickle keeps the chart honest-looking.
-          const base = ((i * 7) % 5) + (i % 7 === 5 || i % 7 === 6 ? 0 : 3);
-          return { received: on.filter((m) => !isOutgoing(k(m)) && k(m) !== 'spam').length + base,
-            sent: on.filter((m) => k(m) === 'sent').length + (i % 3 === 0 ? 1 : 0), spam: on.filter((m) => k(m) === 'spam').length + (i % 4 === 1 ? 1 : 0) };
-        });
-        const counts = new Map();
-        for (const m of mine.filter((x) => !isOutgoing(kindOf(x.folder)) && kindOf(x.folder) !== 'spam')) {
-          const c = counts.get(m.from_email) ?? { name: m.from_name, email: m.from_email, count: 0 };
-          c.count += 6; counts.set(m.from_email, c);
   /* ---------- connections (servers.rs) ---------- */
   // Each server account's last check and its Inbox watched, all fine; addresses from the
   // documentation range.
@@ -1149,6 +1149,30 @@ function installTelexDemo(options) {
     };
   }
 
+  /* ---------- usage (usage.rs) ---------- */
+  function usage() {
+    const t = now(), today = new RealDate(t.getFullYear(), t.getMonth(), t.getDate()), since = addDays(today, -29), sinceDay = fmt(since).slice(0, 10);
+    const quotas = data.quota || {};
+    return {
+      base_bytes: 61_800_000 + msgs.length * 24_000, free_bytes: 0, since: sinceDay,
+      accounts: accounts.map((a) => {
+        const mine = msgs.filter((m) => acctId(m.folder) === a.id);
+        const folders = a.folders.map((f) => {
+          const key = `${a.id}/${f.id}`, ms = mine.filter((m) => m.folder === key);
+          // The demo mailbox is small: sizes are scaled up to look like a real one.
+          return { folder: key, kind: f.kind, count: ms.length, unread: ms.filter((m) => m.unread).length, size_kb: ms.reduce((n, m) => n + m.size_kb, 0) * 40 };
+        }).filter((f) => f.count).sort((x, y) => y.size_kb - x.size_kb);
+        const flow = Array.from({ length: 30 }, (_, i) => {
+          const d = fmt(addDays(since, i)).slice(0, 10), on = mine.filter((m) => m.date.slice(0, 10) === d), k = (m) => kindOf(m.folder);
+          // A steady trickle keeps the chart honest-looking.
+          const base = ((i * 7) % 5) + (i % 7 === 5 || i % 7 === 6 ? 0 : 3);
+          return { received: on.filter((m) => !isOutgoing(k(m)) && k(m) !== 'spam').length + base,
+            sent: on.filter((m) => k(m) === 'sent').length + (i % 3 === 0 ? 1 : 0), spam: on.filter((m) => k(m) === 'spam').length + (i % 4 === 1 ? 1 : 0) };
+        });
+        const counts = new Map();
+        for (const m of mine.filter((x) => !isOutgoing(kindOf(x.folder)) && kindOf(x.folder) !== 'spam')) {
+          const c = counts.get(m.from_email) ?? { name: m.from_name, email: m.from_email, count: 0 };
+          c.count += 6; counts.set(m.from_email, c);
         }
         return {
           account: a.id, quota: quotas[a.id] ?? null, synced_at: lastSync[a.id] ?? null, sync_error: null, folders, flow,
@@ -1344,6 +1368,7 @@ function installTelexDemo(options) {
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
         remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk };
     },
+    message_markdown: messageMarkdown,
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
     set_unread_many: ({ ids, unread }) => setMany(ids, 'unread', !!unread),
@@ -1370,6 +1395,8 @@ function installTelexDemo(options) {
       window.open(u, '_blank', 'noopener,noreferrer');
     },
     usage,
+    connections,
+    wake_server: () => {},
     recipients,
     start_draft: startDraft,
     save_outgoing: saveOutgoing,
@@ -1395,8 +1422,6 @@ function installTelexDemo(options) {
       if (!clean.id) clean.id=Math.max(0,...savedSearches.map(s=>s.id))+1;
       savedSearches=savedSearches.filter(s=>s.id!==clean.id).concat(clean);return clean;
     },
-    connections,
-    wake_server: () => {},
     delete_search: ({id}) => {savedSearches=savedSearches.filter(s=>s.id!==id);},
     preview_rule: ({rule,view}) => {
       checkRule(rule);

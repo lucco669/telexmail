@@ -58,6 +58,7 @@ const I = {
   link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
   popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
+  copy: sv('<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 3.5v-.3a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v6.6a.7.7 0 00.7.7h.3"/>'),
   spell: sv('<path d="M1.8 11.5L4.3 4l2.5 7.5M2.6 9h3.4"/><path d="M8.8 9.6l2 2 3.6-4.6"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder', unread:'unread'};
@@ -472,16 +473,16 @@ function renderSync(){
   const b = $('st-sync'), ids = VIEWER ? [] : ACCOUNTS.filter(a => PROBLEMS[a.id]).map(a => a.id);
   b.hidden = $('st-syncwhy').hidden = !ids.length;
   if (!ids.length) return;
-  b.textContent = ids.length === 1 ? t('Check failed · Retry') : tn(ids.length, '{n} check failed · Retry', '{n} checks failed · Retry', {n:num(ids.length)});
   $('st-syncwhy').title = t('Every step of the last connections: Settings › Connections');
+  b.textContent = ids.length === 1 ? t('Check failed · Retry') : tn(ids.length, '{n} check failed · Retry', '{n} checks failed · Retry', {n:num(ids.length)});
   b.title = ids.map(id => `${acctLabel(id)}: ${PROBLEMS[id]}`).join('\n') + '\n' + t('Click to check again.');
 }
 $('st-sync').addEventListener('click', () => getMail());
-// Mail that didn't go (refused, a failed try, taken back), whichever folder is open; a click shows it.
 $('st-syncwhy').addEventListener('click', () => {
   const ids = ACCOUNTS.filter(a => PROBLEMS[a.id]).map(a => a.id);
   showConnections(ids.length === 1 ? ids[0] : '', ids.length > 1);
 });
+// Mail that didn't go (refused, a failed try, taken back), whichever folder is open; a click shows it.
 function renderUnsent(){
   const n = VIEWER ? 0 : countOf(EVERY + '/outbox').stuck, b = $('st-unsent');
   b.hidden = !n;
@@ -1439,7 +1440,8 @@ function messageMenu(){
     ...(spamOk ? [inSpam ? {label:t('Not spam'), run:() => markSpam(false)} : {label:t('Mark as spam'), run:() => markSpam(true)}] : []),
     {label:trash ? t('Delete for good') : t('Move to Trash'), key:'Del', run:del},
   ];
-  if (many) return sort;
+  const md = {label:t('Copy as Markdown'), key:'Ctrl+C', run:() => copyMarkdown()};
+  if (many) return [...sort, {sep:true}, md];
   const out = isOut(m.f), edit = ['drafts', 'outbox'].includes(kindOf(m.f));
   const to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0];
   // Read or unread always comes first, where the pointer lands.
@@ -1451,6 +1453,7 @@ function messageMenu(){
     {label:t('Reply'), key:'R', run:() => openCompose('reply')},
     {label:t('Reply all'), key:'Shift+R', run:() => openCompose('replyall')},
     {label:t('Forward'), key:'Shift+F', run:() => openCompose('forward')},
+    md,
     {sep:true},
     ...sort.slice(1),
     {sep:true},
@@ -1999,6 +2002,17 @@ async function copyText(text){
     return copied;
   }
 }
+// Copy as Markdown (Ctrl+C, the message menu, the button above a message): the selected
+// messages, or the open one, oldest first, to paste into notes or an AI chat. Reads nothing.
+const MD_MAX = 200;
+async function copyMarkdown(ids = state.picked.size > 1 ? [...state.picked] : current() ? [current().id] : []){
+  if (!ids.length) return;
+  if (ids.length > MD_MAX){ say(t('Copy up to {n} messages at a time.', {n:num(MD_MAX)}), 4000); return; }
+  let md;
+  try { md = await call('message_markdown', {ids}); } catch { return; }
+  if (await copyText(md)) say(tn(ids.length, 'Copied as Markdown.', '{n} messages copied as Markdown.', {n:num(ids.length)}), 2500);
+  else say(t('Couldn’t copy to the clipboard.'), 4000);
+}
 async function copyLink(info){
   if (!info) return;
   if (await copyText(info.href)) say(t('Link address copied.'), 2500);
@@ -2150,6 +2164,8 @@ const readButton = m => `<button type="button" class="pbtn" data-act="read" titl
 // The flag next to it, like F: a switch that shows the flag's color while the message has one.
 const flagTip = m => m.flagged ? t('Remove the flag (F)') : t('Flag (F)');
 const flagButton = m => `<button type="button" class="pbtn pflag" data-act="flag" aria-pressed="${!!m.flagged}" title="${esc(flagTip(m))}" aria-label="${esc(flagTip(m))}">${I.flag}</button>`;
+// Copy as Markdown, like Ctrl+C: the message ready to paste into notes or an AI chat.
+const mdButton = () => `<button type="button" class="pbtn" data-act="markdown" title="${esc(t('Copy as Markdown (Ctrl+C)'))}" aria-label="${esc(t('Copy as Markdown (Ctrl+C)'))}">${I.copy}</button>`;
 function paintReadButton(){
   const b = previewEl.querySelector('[data-act="read"]'), m = current();
   if (!b || !m) return;
@@ -2201,7 +2217,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     return;
   }
   if (state.picked.size > 1){
-    const keys = [['Del', N_('to Trash')], ['M', N_('move')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Esc', N_('clear the selection')]];
+    const keys = [['Del', N_('to Trash')], ['M', N_('move')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Ctrl+C', N_('copy as Markdown')], ['Esc', N_('clear the selection')]];
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div><b>${esc(tn(state.picked.size, '{n} message selected', '{n} messages selected', {n:num(state.picked.size)}))}</b></div>`
       + `<div class="mkeys">${keys.map(([k, l]) => `<span><kbd>${k}</kbd> ${esc(t(l))}</span>`).join('')}</div></div>`;
     return;
@@ -2228,7 +2244,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${paper}${views}`)}
+${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${mdButton()}${paper}${views}`)}
 ${riskHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
@@ -2281,6 +2297,7 @@ previewEl.addEventListener('click', async e => {
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
+  if (act.dataset.act === 'markdown' && m){ copyMarkdown([m.id]); return; }
   if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
   if (act.dataset.act === 'flag' && m){ setFlagged(m, !m.flagged); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
@@ -4092,6 +4109,8 @@ async function connected(account, wasEditing){
   getMail({first:true});
 }
 $('a-list').addEventListener('click', async e => {
+  const why = e.target.closest('[data-conn]');
+  if (why){ showConnections(why.dataset.conn, false); return; }
   const up = e.target.closest('[data-up]'), down = e.target.closest('[data-down]');
   if (up || down){
     const id = (up ?? down).dataset[up ? 'up' : 'down'];
@@ -4109,8 +4128,6 @@ $('a-list').addEventListener('click', async e => {
   if (fo){ openFolderChoices(fo.dataset.folders); return; }
   const aw = e.target.closest('[data-away]');
   if (aw){ openAway(aw.dataset.away); return; }
-  const why = e.target.closest('[data-conn]');
-  if (why){ showConnections(why.dataset.conn, false); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = t('Remove it and its local mail'); return; }
@@ -4721,6 +4738,7 @@ function paneOpened(tab){
   if (tab === 'mail') renderSpamStatus();
   if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); }
   if (tab === 'use') renderUsage();
+  if (tab === 'conn') renderConnections();
   if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
 }
@@ -4738,7 +4756,6 @@ function syncSettings(){
   $('s-threaded').checked = !!s.threaded;
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
   $('s-undo').value = String(s.undo_send);
-  if (tab === 'conn') renderConnections();
   if ($('s-keep')) $('s-keep').value = String(s.backup_keep);
 }
 // How sure the spam filter must be before it moves new mail to Spam (settings' spam_filter).
@@ -5349,23 +5366,6 @@ $('u-usage').addEventListener('click', e => {
   if (o){ sdlg.close(); openMessage(Number(o.dataset.open), o.dataset.folder); }
 });
 
-/* ---------- backups ---------- */
-// Settings › Backups: the mail base (where, how large, compacting it), backing it up now or by
-// itself into a folder that keeps the newest few, and putting a backup back. Restoring keeps
-// the mail base as it was next to it, then the window starts again on the restored mail.
-const BACKUP_KEEP = [3, 5, 10, 20];
-const bk = {state:null, work:'', restore:null, error:''}; // work: 'backup', 'restore' or 'compact' while it runs
-const fmtWhenFull = d => d.toDateString() === new Date().toDateString() ? t('today {time}', {time:hm(d)}) : dmy(d) + ' ' + hm(d);
-async function loadBackups(){
-  try { bk.state = await invoke('backup_state'); bk.error = bk.work ? bk.error : ''; } catch (e){ bk.error = tr(e); }
-  if (sdlg.open && setTab === 'backup') renderBackups();
-  renderTree(); // the folders on this PC say when they aren't backed up
-}
-function renderBackups(){
-  const el = $('s-backup'), s = bk.state, p = pref();
-  if (!s){
-    el.innerHTML = bk.error ? `<p class="derr">${esc(bk.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
-    if (!bk.error && !bk.loading){ bk.loading = true; loadBackups().finally(() => { bk.loading = false; }); }
 /* ---------- connections ---------- */
 // Settings › Connections: every server Telex reached since it started (its places in use, a
 // rest after it stopped answering) and the last connections, each step timed, where one failed
@@ -5501,6 +5501,23 @@ $('s-conn').addEventListener('click', async e => {
   }
 });
 
+/* ---------- backups ---------- */
+// Settings › Backups: the mail base (where, how large, compacting it), backing it up now or by
+// itself into a folder that keeps the newest few, and putting a backup back. Restoring keeps
+// the mail base as it was next to it, then the window starts again on the restored mail.
+const BACKUP_KEEP = [3, 5, 10, 20];
+const bk = {state:null, work:'', restore:null, error:''}; // work: 'backup', 'restore' or 'compact' while it runs
+const fmtWhenFull = d => d.toDateString() === new Date().toDateString() ? t('today {time}', {time:hm(d)}) : dmy(d) + ' ' + hm(d);
+async function loadBackups(){
+  try { bk.state = await invoke('backup_state'); bk.error = bk.work ? bk.error : ''; } catch (e){ bk.error = tr(e); }
+  if (sdlg.open && setTab === 'backup') renderBackups();
+  renderTree(); // the folders on this PC say when they aren't backed up
+}
+function renderBackups(){
+  const el = $('s-backup'), s = bk.state, p = pref();
+  if (!s){
+    el.innerHTML = bk.error ? `<p class="derr">${esc(bk.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
+    if (!bk.error && !bk.loading){ bk.loading = true; loadBackups().finally(() => { bk.loading = false; }); }
     return;
   }
   const newest = s.backups[0], when = b => fmtWhenFull(parseDate(b.made));
@@ -5751,7 +5768,7 @@ const HELP_KEYS = [
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
     ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],
   [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
-    ['Ctrl+A', N_('the whole list')], ['Esc', N_('just the one message again')]]],
+    ['Ctrl+A', N_('the whole list')], ['Ctrl+C', N_('copy as Markdown, for notes or an AI chat')], ['Esc', N_('just the one message again')]]],
   [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
     ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
   [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
@@ -5840,6 +5857,10 @@ function onKey(e){
   // Ctrl+A in the list takes every message; elsewhere it selects text as always.
   if (e.key === 'Enter' && tg.closest?.('[data-thread]')) return;
   if (mod && !e.shiftKey && e.key.toLowerCase() === 'a' && listEl.contains(tg)){ e.preventDefault(); pickAll(); return; }
+  // Ctrl+C with no text selected: the selected messages as Markdown. Selected text copies as always.
+  if (mod && !e.shiftKey && e.key.toLowerCase() === 'c' && !state.compose && !(tg.ownerDocument ?? document).getSelection?.()?.toString()){
+    e.preventDefault(); copyMarkdown(); return;
+  }
   // The menu key (or Shift+F10) in the list: the selected message's menu, at its row.
   if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && listEl.contains(tg)){
     e.preventDefault();

@@ -164,6 +164,12 @@ fn set_flagged_many(
     with_store(&state, |s| s.set_flagged_many(&ids, flagged))
 }
 
+/// Messages as Markdown, oldest first, for the clipboard (Copy as Markdown).
+#[tauri::command(async)]
+fn message_markdown(state: State<'_, AppState>, ids: Vec<MessageId>) -> CmdResult<String> {
+    with_store(&state, |s| s.markdown(&ids))
+}
+
 /// Move several messages to a folder of their account, all or none. Returns where each
 /// one was, for undo.
 #[tauri::command(async)]
@@ -327,12 +333,6 @@ fn usage(state: State<'_, AppState>) -> CmdResult<Usage> {
     with_store(&state, |s| s.usage(Local::now().date_naive()))
 }
 
-/// Senders whose images load without asking, for Settings.
-#[tauri::command(async)]
-fn trusted_senders(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
-    with_store(&state, |s| s.trusted_senders())
-}
-
 #[derive(Debug, Serialize)]
 struct Connections {
     servers: Vec<servers::ServerState>,
@@ -353,6 +353,12 @@ fn connections() -> Connections {
 #[tauri::command(async)]
 fn wake_server(address: String) {
     servers::SERVERS.answered(&address);
+}
+
+/// Senders whose images load without asking, for Settings.
+#[tauri::command(async)]
+fn trusted_senders(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
+    with_store(&state, |s| s.trusted_senders())
 }
 
 #[derive(Debug, Serialize)]
@@ -1065,14 +1071,15 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             folder_tree,
+            connections,
+            wake_server,
             list_page,
             get_message,
+            message_markdown,
             set_unread,
             set_flagged,
             set_unread_many,
             set_flagged_many,
-            connections,
-            wake_server,
             move_messages,
             mark_spam,
             spam_status,
