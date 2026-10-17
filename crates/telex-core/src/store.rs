@@ -35,6 +35,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/012_away.sql"),
     include_str!("migrations/013_saved_searches_and_rule_actions.sql"),
     include_str!("migrations/014_spam_filter.sql"),
+    include_str!("migrations/015_address_book.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -427,7 +428,19 @@ impl MailStore {
             ).optional()?.flatten();
             crate::risk::analyse(&message, raw.as_deref())
         };
-        Ok(crate::risk::InspectedMessage { message, risk })
+        // The address book's names for the people on it.
+        let mut addresses = vec![message.from_email.clone()];
+        addresses.extend(
+            crate::smtp::split_addresses(&format!("{}, {}", message.to, message.cc))
+                .iter()
+                .map(|a| crate::smtp::mailbox_parts(a).1),
+        );
+        let contacts = self.contact_names(addresses.iter().map(String::as_str))?;
+        Ok(crate::risk::InspectedMessage {
+            message,
+            risk,
+            contacts,
+        })
     }
 
     /// One row of the message list.

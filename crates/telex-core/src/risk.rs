@@ -25,6 +25,8 @@ pub struct InspectedMessage {
     #[serde(flatten)]
     pub message: Message,
     pub risk: Report,
+    /// The addresses of From, To and Cc that are in the address book, with the saved names.
+    pub contacts: Vec<crate::contacts::ContactName>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

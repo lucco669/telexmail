@@ -1,6 +1,7 @@
-//! Who the user writes to, for suggestions while typing To, Cc and Bcc. There is no address
-//! book to keep: the people come from the mail base itself. Those the user has written to
-//! come first, then those who write most, each with the name they used last.
+//! Who the user writes to, for suggestions while typing To, Cc and Bcc. The address book's
+//! contacts come first (marked, with the names the user saved), then the people of the mail
+//! base itself: those the user has written to, then those who write most, each with the name
+//! they used last.
 
 use std::collections::{HashMap, HashSet};
 
@@ -23,6 +24,9 @@ pub struct Recipient {
     /// Messages the user sent to them, and received from them.
     pub sent: usize,
     pub received: usize,
+    /// The contact this address belongs to, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact: Option<i64>,
 }
 
 /// Whom the user has written to, and what: for the spam filter, which leaves their mail alone.
@@ -120,9 +124,10 @@ impl MailStore {
         Ok(known)
     }
 
-    /// The people the user mails with, most likely first: everyone they wrote to (Sent,
-    /// Drafts and the Outbox), then everyone who wrote to them (not Spam or Trash). Their
-    /// own addresses and robots' addresses are left out.
+    /// The people the user mails with, most likely first: the contacts (those mailed most
+    /// first, each address of one, the primary first), then everyone they wrote to (Sent,
+    /// Drafts and the Outbox), then everyone who wrote to them (not Spam or Trash). Their own
+    /// addresses, and robots' addresses outside the address book, are left out.
     pub fn recipients(&self) -> Result<Vec<Recipient>, StoreError> {
         let mut own: Vec<String> = Vec::new();
         let (mut outgoing, mut skipped) = (Vec::new(), Vec::new());
@@ -138,12 +143,20 @@ impl MailStore {
                 }
             }
         }
+        let contacts = self.contacts()?;
+        let in_book: HashSet<String> = contacts
+            .iter()
+            .flat_map(|c| c.emails.iter().map(|e| e.to_lowercase()))
+            .collect();
         let mut people: HashMap<String, Tally> = HashMap::new();
         // `count` messages with this person, the last at `at`; `sent`: written by the user.
         let mut note = |name: &str, email: &str, at: NaiveDateTime, count: usize, sent: bool| {
             let email = email.trim();
             let key = email.to_lowercase();
-            if !email.contains('@') || own.contains(&key) || is_robot(&key) {
+            if !email.contains('@')
+                || own.contains(&key)
+                || (is_robot(&key) && !in_book.contains(&key))
+            {
                 return;
             }
             let t = people.entry(key).or_insert_with(|| Tally {
@@ -213,6 +226,36 @@ impl MailStore {
             note(name, &email, at, usize::try_from(count).unwrap_or(1), false);
         }
 
+        // The contacts, with what the mail base knows of each address.
+        let mut book: Vec<(usize, String, Vec<Recipient>)> = Vec::new();
+        for c in &contacts {
+            let mut entries = Vec::new();
+            let mut best = 0;
+            for email in &c.emails {
+                let key = email.to_lowercase();
+                if own.contains(&key) {
+                    continue;
+                }
+                let t = people.remove(&key).unwrap_or_default();
+                best = best.max(t.score());
+                entries.push(Recipient {
+                    name: if c.name.is_empty() {
+                        t.name
+                    } else {
+                        c.name.clone()
+                    },
+                    email: email.clone(),
+                    sent: t.sent,
+                    received: t.received,
+                    contact: Some(c.id),
+                });
+            }
+            if !entries.is_empty() {
+                book.push((best, crate::filters::fold(&c.name), entries));
+            }
+        }
+        book.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+
         let mut list: Vec<Tally> = people.into_values().collect();
         list.sort_by(|a, b| {
             b.score()
@@ -221,14 +264,16 @@ impl MailStore {
                 .then(a.email.cmp(&b.email))
         });
         list.truncate(MAX_RECIPIENTS);
-        Ok(list
+        Ok(book
             .into_iter()
-            .map(|t| Recipient {
+            .flat_map(|(_, _, entries)| entries)
+            .chain(list.into_iter().map(|t| Recipient {
                 name: t.name,
                 email: t.email,
                 sent: t.sent,
                 received: t.received,
-            })
+                contact: None,
+            }))
             .collect())
     }
 }
@@ -261,6 +306,57 @@ mod tests {
         emails.sort();
         emails.dedup();
         assert_eq!(emails.len(), people.len());
+    }
+
+    #[test]
+    fn contacts_come_first_with_their_saved_names() {
+        use crate::contacts::Contact;
+        let mut store = sample_store();
+        let before = store.recipients().unwrap();
+        // Someone far down the list, and someone the mail base never saw.
+        let last = before.last().unwrap().clone();
+        let known = store
+            .save_contact(&Contact {
+                name: "Żaneta Ćwik".into(),
+                emails: vec!["nowa@przyklad.pl".into(), last.email.to_uppercase()],
+                ..Contact::default()
+            })
+            .unwrap();
+        let after = store.recipients().unwrap();
+        assert_eq!(after.len(), before.len() + 1);
+        assert_eq!(
+            after[0].email, "nowa@przyklad.pl",
+            "the primary address first"
+        );
+        assert_eq!(after[0].name, "Żaneta Ćwik");
+        assert_eq!(after[0].contact, Some(known.id));
+        assert_eq!(after[1].email, last.email.to_uppercase());
+        assert_eq!(
+            after[1].name, "Żaneta Ćwik",
+            "the saved name, not the mail's"
+        );
+        assert_eq!(
+            (after[1].sent, after[1].received),
+            (last.sent, last.received),
+            "the counts stay"
+        );
+        assert!(after[2..].iter().all(|r| r.contact.is_none()));
+        assert!(!after[2..]
+            .iter()
+            .any(|r| r.email.eq_ignore_ascii_case(&last.email)));
+        // A robot the user saved is offered too.
+        store
+            .save_contact(&Contact {
+                name: "Biuro".into(),
+                emails: vec!["no-reply@biuro.pl".into()],
+                ..Contact::default()
+            })
+            .unwrap();
+        assert!(store
+            .recipients()
+            .unwrap()
+            .iter()
+            .any(|r| r.email == "no-reply@biuro.pl"));
     }
 
     #[test]

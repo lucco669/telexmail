@@ -20,6 +20,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
+use crate::contacts;
 use crate::mailbox::{self, ImportProgress, ImportReport, Importer};
 use crate::model::{Account, AccountSetup, FolderKind, Identity};
 use crate::settings::{self, PlanItem};
@@ -55,6 +56,30 @@ pub struct Source {
     pub filters: usize,
     #[serde(skip)]
     filter_files: Vec<(String, PathBuf)>,
+    /// Its address books.
+    pub books: Vec<FoundBook>,
+}
+
+/// An address book another program keeps: one of Thunderbird's, the Contacts of an Outlook
+/// data file.
+#[derive(Debug, Clone, Serialize)]
+pub struct FoundBook {
+    pub key: String,
+    pub name: String,
+    /// How many cards it holds (contacts and lists).
+    pub contacts: u64,
+    /// Ticked to begin with: not Thunderbird's collected addresses, which it gathers itself.
+    pub tick: bool,
+    #[serde(skip)]
+    place: BookPlace,
+}
+
+#[derive(Debug, Clone)]
+enum BookPlace {
+    /// Thunderbird's abook.sqlite and its kin.
+    Sqlite(PathBuf),
+    /// A contacts folder of an Outlook data file, by its node.
+    Pst { file: PathBuf, node: u32 },
 }
 
 /// An account another program has.
@@ -121,6 +146,9 @@ pub struct Choice {
     pub folders: Vec<String>,
     #[serde(default)]
     pub filters: bool,
+    /// Keys of the address books to bring.
+    #[serde(default)]
+    pub books: Vec<String>,
 }
 
 /// Programs and their mail on this PC, the most used first.
@@ -217,6 +245,7 @@ fn read_mail_folder(root: &Path, program: Program) -> Option<Source> {
             folders,
             filters: 0,
             filter_files: Vec::new(),
+            books: Vec::new(),
         }
         .numbered(),
     )
@@ -400,13 +429,34 @@ fn found_folder(name: &str, place: Place, bytes: u64) -> FoundFolder {
 }
 
 impl Source {
-    /// Number the folders: keys are what the UI sends back.
+    /// Number the folders and address books: keys are what the UI sends back.
     fn numbered(mut self) -> Self {
         for (i, f) in self.folders.iter_mut().enumerate() {
             f.key = format!("f{i}");
         }
+        for (i, b) in self.books.iter_mut().enumerate() {
+            b.key = format!("b{i}");
+        }
         self
     }
+}
+
+/// Bring the chosen address books of `source` into the address book. A contact that is there
+/// already (same UID or address) is only filled in, so moving in twice brings nothing twice.
+pub fn import_books(
+    store: &mut MailStore,
+    source: &Source,
+    keys: &[String],
+) -> Result<contacts::ImportReport, StoreError> {
+    let mut report = contacts::ImportReport::default();
+    for book in source.books.iter().filter(|b| keys.contains(&b.key)) {
+        let cards = match &book.place {
+            BookPlace::Sqlite(path) => thunderbird::read_book(path)?,
+            BookPlace::Pst { file, node } => outlook::read_pst_contacts(file, *node)?,
+        };
+        report.add(&store.import_cards(&cards)?);
+    }
+    Ok(report)
 }
 
 impl MailStore {

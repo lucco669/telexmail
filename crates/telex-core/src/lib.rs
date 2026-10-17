@@ -12,6 +12,7 @@ pub mod autoconfig;
 pub mod away;
 pub mod backup;
 mod colors;
+pub mod contacts;
 pub mod count;
 pub mod drafts;
 pub mod filters;
@@ -37,6 +38,7 @@ pub mod spam;
 pub mod spell;
 pub mod store;
 pub mod usage;
+pub mod vcard;
 
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey, UnreadAt};
 pub use model::*;
