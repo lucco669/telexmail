@@ -1024,6 +1024,8 @@ const PL = {
   'none ticked': 'nic nie zaznaczono',
   'Each folder comes into a folder on this PC of the same name.': 'Każdy folder trafi do folderu na tym komputerze o tej samej nazwie.',
   'They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.': 'Staną się regułami tam, gdzie Telex umie zrobić to samo; pozostałe pokaże potem z tym, czego Telex nie umie.',
+  'Filters and tags': 'Filtry i etykiety',
+  'Tags keep their keywords, so mail tagged there is tagged here too: on the servers and in the mail brought in.': 'Etykiety zachowają swoje słowa kluczowe, więc poczta oznaczona tam będzie oznaczona i tutaj: na serwerach i w przeniesionej poczcie.',
   'Bring in': 'Przenieś',
   'Moved in from {program}.': 'Przeniesiono z programu {program}.',
   'Bring them all, with their mail': 'Przenieś je wszystkie razem z pocztą',
@@ -1220,6 +1222,7 @@ const PL_N = {
 
   // Failed checks
   '{n} filter': ['{n} filtr', '{n} filtry', '{n} filtrów'],
+  '{n} tag': ['{n} etykieta', '{n} etykiety', '{n} etykiet'],
   'at most once a day': ['najwyżej raz dziennie', 'najwyżej raz na {n} dni', 'najwyżej raz na {n} dni'],
   'Auto-reply on · {n} account': ['Autoodpowiedź · {n} konto', 'Autoodpowiedź · {n} konta', 'Autoodpowiedź · {n} kont'],
   '{program} is on this PC with {n} account.': ['{program} jest na tym komputerze z {n} kontem.', '{program} jest na tym komputerze z {n} kontami.', '{program} jest na tym komputerze z {n} kontami.'],

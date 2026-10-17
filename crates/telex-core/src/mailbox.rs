@@ -6,8 +6,10 @@
 //! message that starts with "From " after any number of ">" gets one more ">", which reading
 //! takes off again. The read state and flag travel in "Status:" and "X-Status:" headers, as
 //! mutt and others write them; Thunderbird's "X-Mozilla-Status" is read too, and a message it
-//! deleted but hasn't compacted away yet stays out. Line ends are LF in the file and CRLF in
-//! the mail base, as IMAP wants them.
+//! deleted but hasn't compacted away yet stays out. Tags travel as keywords: read from
+//! Thunderbird's "X-Mozilla-Keys" and from "X-Keywords" (Dovecot, mutt), the keywords that are
+//! tags here becoming the message's tags; written as "X-Keywords". Line ends are LF in the
+//! file and CRLF in the mail base, as IMAP wants them.
 //!
 //! Besides mbox: .eml (one message), .emlx (Apple Mail), .msg (Outlook, see
 //! `migrate::outlook`), and folders in Maildir (Evolution, KMail, mutt) or MH (Claws Mail)
@@ -45,6 +47,9 @@ pub struct FileMessage {
     pub flagged: bool,
     /// The date of mbox's "From " line, or the file's, for a message without a Date header.
     pub date: Option<NaiveDateTime>,
+    /// IMAP keywords its headers carry (`X-Mozilla-Keys`, `X-Keywords`), lowercase: the ones
+    /// that are tags here become its tags.
+    pub keywords: Vec<String>,
 }
 
 /// What an import did.
@@ -180,21 +185,29 @@ fn file_error(e: std::io::Error) -> StoreError {
 
 /// The messages of `folder`, oldest first, as mbox.
 fn write_mbox(db: &Connection, folder: &str, out: &mut dyn Write) -> Result<usize, StoreError> {
-    let messages: Vec<(i64, String, NaiveDateTime, bool, bool)> = {
+    type Row = (i64, String, NaiveDateTime, bool, bool, String);
+    let messages: Vec<Row> = {
         let mut stmt = db.prepare(
-            "SELECT id, from_email, date, unread, flagged FROM messages
+            "SELECT id, from_email, date, unread, flagged, keywords FROM messages
              WHERE folder = ?1 ORDER BY date, id",
         )?;
         let rows = stmt
             .query_map([folder], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
             })?
             .collect::<Result<_, _>>()?;
         rows
     };
     let mut raw_of = db.prepare("SELECT raw FROM message_content WHERE id = ?1")?;
     let mut written = 0;
-    for (id, from, date, unread, flagged) in messages {
+    for (id, from, date, unread, flagged, keywords) in messages {
         let raw: Option<Vec<u8>> = raw_of.query_row([id], |r| r.get(0)).ok().flatten();
         let Some(raw) = raw else { continue }; // nothing to write
         let sender = if from.trim().is_empty() || from.contains(char::is_whitespace) {
@@ -212,13 +225,22 @@ fn write_mbox(db: &Connection, folder: &str, out: &mut dyn Write) -> Result<usiz
         if flagged {
             text.extend_from_slice(b"X-Status: F\n");
         }
-        let mut in_headers = true;
+        // Its tags, as Dovecot and mutt keep keywords.
+        if !keywords.is_empty() {
+            text.extend_from_slice(format!("X-Keywords: {keywords}\n").as_bytes());
+        }
+        let (mut in_headers, mut dropping) = (true, false);
         for line in lines(&raw) {
             if in_headers {
                 if line.is_empty() {
                     in_headers = false;
+                } else if dropping && line.first().is_some_and(|b| *b == b' ' || *b == b'\t') {
+                    continue; // the rest of a header left out
                 } else if is_status_header(line) {
+                    dropping = true;
                     continue; // ours above say it now
+                } else {
+                    dropping = false;
                 }
             }
             if line
@@ -258,6 +280,8 @@ fn is_status_header(line: &[u8]) -> bool {
         "X-Status",
         "X-Mozilla-Status",
         "X-Mozilla-Status2",
+        "X-Mozilla-Keys",
+        "X-Keywords",
     ]
     .iter()
     .any(|h| header_name_is(line, h))
@@ -270,17 +294,44 @@ const MOZ_MARKED: u32 = 0x0004;
 const MOZ_EXPUNGED: u32 = 0x0008;
 
 /// What a message's own headers say about it.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct HeaderFlags {
     seen: Option<bool>,
     flagged: bool,
     /// Deleted in Thunderbird: it stays out.
     deleted: bool,
+    /// Thunderbird's `X-Mozilla-Keys` and Dovecot's or mutt's `X-Keywords`: keywords apart by
+    /// spaces (or commas), lowercase, each once.
+    keywords: Vec<String>,
 }
+
+/// The headers that carry keywords.
+const KEYWORD_HEADERS: [&str; 2] = ["X-Mozilla-Keys", "X-Keywords"];
 
 fn header_flags(raw: &[u8]) -> HeaderFlags {
     let mut flags = HeaderFlags::default();
+    let mut in_keywords = false;
     for line in lines(raw).take_while(|l| !l.is_empty()) {
+        let folded = line.first().is_some_and(|b| *b == b' ' || *b == b'\t');
+        let keywords = if folded {
+            in_keywords.then_some(line)
+        } else {
+            in_keywords = false;
+            KEYWORD_HEADERS
+                .iter()
+                .find(|h| header_name_is(line, h))
+                .map(|h| &line[h.len() + 1..])
+        };
+        if let Some(text) = keywords {
+            in_keywords = true;
+            for k in String::from_utf8_lossy(text).split([' ', '\t', ',']) {
+                let k = k.to_ascii_lowercase();
+                if crate::tags::is_keyword(&k) && !flags.keywords.contains(&k) {
+                    flags.keywords.push(k);
+                }
+            }
+            continue;
+        }
         let value = |name: &str| {
             header_name_is(line, name).then(|| {
                 String::from_utf8_lossy(&line[name.len() + 1..])
@@ -327,6 +378,7 @@ fn finish(mut raw: Vec<u8>, date: Option<NaiveDateTime>) -> Option<FileMessage> 
         seen: flags.seen.unwrap_or(true),
         flagged: flags.flagged,
         date,
+        keywords: flags.keywords,
     })
 }
 
@@ -570,6 +622,8 @@ pub(crate) struct Importer<'a> {
     store: &'a Mutex<MailStore>,
     folder: String,
     known: HashSet<String>,
+    /// The keywords that are tags here: only those of a message's keywords come along.
+    tags: HashSet<String>,
     batch: Vec<FileMessage>,
     batch_bytes: usize,
     progress: &'a (dyn Fn(ImportProgress) + Send + Sync),
@@ -586,15 +640,16 @@ impl<'a> Importer<'a> {
         folder: &str,
         progress: &'a (dyn Fn(ImportProgress) + Send + Sync),
     ) -> Result<Self, StoreError> {
-        let known = {
+        let (known, tags) = {
             let s = store.lock().map_err(|_| StoreError::poisoned())?;
             check_local(&s, folder)?;
-            s.message_ids_in(folder)?
+            (s.message_ids_in(folder)?, s.tag_keywords()?)
         };
         Ok(Self {
             store,
             folder: folder.to_owned(),
             known,
+            tags,
             batch: Vec::with_capacity(IMPORT_BATCH),
             batch_bytes: 0,
             progress,
@@ -642,6 +697,7 @@ impl<'a> Importer<'a> {
                 let mut message = parse_message(&m.raw, &self.folder, m.date);
                 message.unread = !m.seen;
                 message.flagged = m.flagged;
+                message.tags = crate::tags::only_tags(&m.keywords, &self.tags);
                 message
             })
             .collect();
@@ -863,6 +919,74 @@ mod tests {
             "every line ends in CRLF, as IMAP wants it"
         );
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn keywords_that_are_tags_come_in_and_go_out_as_x_keywords() {
+        let (mut store, _) = store();
+        store
+            .save_tag(&crate::tags::Tag {
+                keyword: String::new(),
+                name: "Projekt X".into(),
+                color: "teal".into(),
+                count: 0,
+            })
+            .unwrap();
+        let path = temp("Inbox");
+        std::fs::write(
+            &path,
+            "From - Sat Oct 10 22:35:00 2026\nX-Mozilla-Status: 0001\nX-Mozilla-Keys: Projekt_X $label1 NonJunk                                \nSubject: Thunderbird\nMessage-ID: <tb@x.pl>\n\nTreść\n\n\
+             From MAILER-DAEMON Sun Oct 11 09:00:00 2026\nStatus: RO\nX-Keywords: $Forwarded,\n $label4\nSubject: Dovecot\nMessage-ID: <dc@x.pl>\n\nTreść\n\n\
+             From - Mon Oct 12 09:00:00 2026\nSubject: Bez\nMessage-ID: <bez@x.pl>\n\nTreść\n",
+        )
+        .unwrap();
+        let store = Mutex::new(store);
+        let report = import_files(
+            &store,
+            "local/archive",
+            std::slice::from_ref(&path),
+            &|_| {},
+        )
+        .unwrap();
+        assert_eq!(report.added, 3);
+        let s = store.lock().unwrap();
+        let all = s.list("local/archive").unwrap();
+        let tags_of = |subject: &str| {
+            let id = all.iter().find(|m| m.subject == subject).unwrap().id;
+            s.keywords_of(id).unwrap()
+        };
+        assert_eq!(tags_of("Thunderbird"), ["$label1", "projekt_x"]);
+        assert_eq!(
+            tags_of("Dovecot"),
+            ["$label4"],
+            "a folded header, commas; $Forwarded isn't a tag"
+        );
+        assert!(tags_of("Bez").is_empty());
+
+        // Out again: one X-Keywords with the tags, the old headers left out.
+        let mut out = Vec::new();
+        s.export_mbox("local/archive", &mut out).unwrap();
+        let text = String::from_utf8(out.clone()).unwrap();
+        assert!(
+            text.contains("Status: RO\nX-Keywords: $label1 projekt_x\nSubject: Thunderbird"),
+            "{text}"
+        );
+        assert!(!text.contains("X-Mozilla-Keys") && !text.contains("NonJunk"));
+        assert!(!text.contains("$Forwarded") && !text.contains("\n $label4"));
+        assert_eq!(text.matches("X-Keywords:").count(), 2, "none for no tags");
+        drop(s);
+
+        // And back in, elsewhere: the same tags.
+        let again = temp("Archive.mbox");
+        std::fs::write(&again, &out).unwrap();
+        let key = store.lock().unwrap().create_local_folder("Kopia").unwrap();
+        import_files(&store, &key, std::slice::from_ref(&again), &|_| {}).unwrap();
+        let s = store.lock().unwrap();
+        let copy = s.list(&key).unwrap();
+        let dovecot = copy.iter().find(|m| m.subject == "Dovecot").unwrap();
+        assert_eq!(s.keywords_of(dovecot.id).unwrap(), ["$label4"]);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        let _ = std::fs::remove_dir_all(again.parent().unwrap());
     }
 
     #[test]

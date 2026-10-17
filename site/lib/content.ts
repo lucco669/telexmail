@@ -189,6 +189,7 @@ export const featureRows: FeatureRow[] = [
       'Rules can file mail from any account there',
       'Drop .eml and mbox files on a folder to bring the mail in; Thunderbird’s read and starred marks come along',
       { text: 'Move in from Thunderbird or Outlook: their local folders and .pst files come over folder by folder, with their accounts and filters', since: '0.9.0' },
+      { text: 'Thunderbird’s tags move in too, with their colors, on its local mail and in its filters; mbox files carry them both ways', since: V0912 },
     ],
   },
   {

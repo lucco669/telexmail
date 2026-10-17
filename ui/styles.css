@@ -748,6 +748,8 @@ button.ph-who:hover .pn{text-decoration:underline}
 .mvpw:disabled{opacity:.5}
 .mvlist .btn{flex:none}
 .mvbar{margin:-6px 0 12px}
+.mvtags{padding:8px 10px 0}
+.mvtags .tgs{flex-wrap:wrap;max-width:none;margin:0}
 /* Settings › Accounts: the list, and the wizard, server form and identities in the pane */
 .spane .cf.df{padding:8px 0 10px}
 .spane .rlist{padding:0 0 6px;max-height:none}

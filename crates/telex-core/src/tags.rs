@@ -172,6 +172,43 @@ fn encode_mutf7(s: &str) -> String {
     out
 }
 
+/// The tag color nearest to a color another program gave its tag ("#FF9900", "#f90"): by hue,
+/// gray when it has hardly any (or is near black or white); gray for one that isn't a color.
+pub fn color_from_hex(hex: &str) -> &'static str {
+    let digits = hex.trim().trim_start_matches('#');
+    let digits: String = match digits.len() {
+        3 => digits.chars().flat_map(|c| [c, c]).collect(),
+        6 => digits.to_owned(),
+        _ => return "gray",
+    };
+    let Ok(rgb) = u32::from_str_radix(&digits, 16) else {
+        return "gray";
+    };
+    let [r, g, b] = [rgb >> 16, rgb >> 8, rgb].map(|c| f64::from(c & 0xff) / 255.0);
+    let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+    let chroma = max - min;
+    if chroma < 0.15 || max < 0.15 {
+        return "gray";
+    }
+    let hue = if max == r {
+        60.0 * ((g - b) / chroma).rem_euclid(6.0)
+    } else if max == g {
+        60.0 * ((b - r) / chroma + 2.0)
+    } else {
+        60.0 * ((r - g) / chroma + 4.0)
+    };
+    match hue {
+        h if h < 18.0 => "red",
+        h if h < 45.0 => "orange",
+        h if h < 70.0 => "yellow",
+        h if h < 160.0 => "green",
+        h if h < 200.0 => "teal",
+        h if h < 260.0 => "blue",
+        h if h < 320.0 => "purple",
+        _ => "red",
+    }
+}
+
 /// The keywords of `messages.keywords`, as a list.
 pub fn split(keywords: &str) -> Vec<String> {
     keywords.split_whitespace().map(str::to_owned).collect()
@@ -539,6 +576,30 @@ mod tests {
         for name in ["Projekt X", "Ważne", "ąęłńóśźż", "日本", "R&D", "{]%*\""] {
             assert!(is_keyword(&keyword_for(name, &none)), "{name}");
         }
+    }
+
+    #[test]
+    fn other_programs_colors_go_to_the_nearest_tag_color() {
+        // Thunderbird's five, then a few of its color picker's.
+        for (hex, color) in [
+            ("#FF0000", "red"),
+            ("#FF9900", "orange"),
+            ("#009900", "green"),
+            ("#3333FF", "blue"),
+            ("#993399", "purple"),
+            ("#ffcc00", "yellow"),
+            ("#f90", "orange"),
+            ("#00CCCC", "teal"),
+            ("#CC0066", "red"),
+            ("#808080", "gray"),
+            ("#000000", "gray"),
+            ("#FFFFFF", "gray"),
+            ("", "gray"),
+            ("blue", "gray"),
+        ] {
+            assert_eq!(color_from_hex(hex), color, "{hex}");
+        }
+        assert!(COLORS.contains(&color_from_hex("#123456")));
     }
 
     #[test]

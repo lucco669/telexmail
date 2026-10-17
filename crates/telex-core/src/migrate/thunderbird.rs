@@ -13,8 +13,10 @@ use super::{
     found_folder, identity, mark_present, Blocked, FoundAccount, FoundFolder, Place, Program,
     Source,
 };
+use crate::filters::fold;
 use crate::model::{Account, AccountSetup, Identity, SmtpSecurity};
 use crate::settings::{PlanItem, Skip, Status};
+use crate::tags::{self, Tag};
 
 /// Where each program keeps its profiles.
 pub fn roots() -> Vec<(PathBuf, Program)> {
@@ -256,6 +258,7 @@ pub fn read(profile: &Path, program: Program, accounts: &[Account]) -> Option<So
     if found.is_empty() && folders.is_empty() {
         return None;
     }
+    let tags = read_tags(&prefs);
     mark_present(&mut found, accounts);
     let name = profile
         .file_name()
@@ -270,10 +273,55 @@ pub fn read(profile: &Path, program: Program, accounts: &[Account]) -> Option<So
             accounts: found,
             folders,
             filters,
+            tags,
             filter_files,
         }
         .numbered(),
     )
+}
+
+/// The tags of `prefs.js`: `mailnews.tags.<keyword>.tag` names one, `.color` gives its color
+/// ("#FF9900") and `.ordinal` its place. Thunderbird's five keep Telex's names (in the
+/// interface's language) while they still have Thunderbird's own, in English or Polish.
+fn read_tags(prefs: &Prefs) -> Vec<Tag> {
+    let mut found: Vec<(String, Tag)> = Vec::new();
+    for (key, value) in &prefs.0 {
+        let Some(own) = key
+            .strip_prefix("mailnews.tags.")
+            .and_then(|k| k.strip_suffix(".tag"))
+        else {
+            continue;
+        };
+        let Pref::Text(name) = value else { continue };
+        let keyword = own.to_ascii_lowercase();
+        if !tags::is_keyword(&keyword) {
+            continue;
+        }
+        let p = |what: &str| format!("mailnews.tags.{own}.{what}");
+        let default = tags::default_name(&keyword);
+        let own_default = [crate::i18n::Lang::En, crate::i18n::Lang::Pl]
+            .into_iter()
+            .filter_map(|lang| crate::i18n::with(lang, || tags::default_name(&keyword)))
+            .any(|d| fold(&d) == fold(name));
+        let name = match default {
+            Some(d) if own_default || name.trim().is_empty() => d,
+            _ => name.trim().chars().take(40).collect(),
+        };
+        if name.is_empty() {
+            continue;
+        }
+        let color = tags::color_from_hex(prefs.text(&p("color")).unwrap_or_default());
+        let ordinal = prefs.text(&p("ordinal")).unwrap_or(&keyword).to_owned();
+        let tag = Tag {
+            keyword,
+            name,
+            color: color.to_owned(),
+            count: 0,
+        };
+        found.push((ordinal, tag));
+    }
+    found.sort_by(|a, b| (&a.0, &a.1.keyword).cmp(&(&b.0, &b.1.keyword)));
+    found.into_iter().map(|(_, tag)| tag).collect()
 }
 
 /// A server's folder: "[ProfD]ImapMail/imap.example.com" is in the profile.
@@ -686,6 +734,23 @@ impl Filter {
         let terms = parse_terms(&self.condition).ok_or_else(|| skip(&self.condition))?;
         let mut conditions = Vec::new();
         for t in &terms {
+            if t.field == "tag" {
+                // Thunderbird's "is" and "contains" both mean the message has the tag.
+                let op = match t.op.as_str() {
+                    "is" | "contains" => "is",
+                    "isn't" | "doesn't contain" => "not_contains",
+                    "is empty" => "not_exists",
+                    "isn't empty" => "exists",
+                    other => return Err(skip(other)),
+                };
+                let value = if op.ends_with("exists") {
+                    String::new()
+                } else {
+                    t.value.trim().to_ascii_lowercase()
+                };
+                conditions.push(json!({"field": "tag", "op": op, "value": value}));
+                continue;
+            }
             let field = match t.field.as_str() {
                 "from" => "from",
                 "to" | "cc" | "to or cc" => "to",
@@ -718,6 +783,20 @@ impl Filter {
                 },
                 "Mark read" => actions.push(json!({"type": "mark_read"})),
                 "Mark flagged" => actions.push(json!({"type": "flag"})),
+                "AddTag" | "Add tag" | "Remove tag" | "RemoveTag" if !value.trim().is_empty() => {
+                    let kind = if action.starts_with("Add") {
+                        "add_tag"
+                    } else {
+                        "remove_tag"
+                    };
+                    let tag = value.trim().to_ascii_lowercase();
+                    actions.push(json!({"type": kind, "tag": tag}));
+                }
+                // Before tags, Thunderbird had five labels: "Label" 1–5 is $label1–5.
+                "Label" if matches!(value.trim(), "1" | "2" | "3" | "4" | "5") => {
+                    let tag = format!("$label{}", value.trim());
+                    actions.push(json!({"type": "add_tag", "tag": tag}));
+                }
                 "Delete" => actions.push(json!({"type": "delete"})),
                 "Stop execution" => stop = true,
                 other => left_out.push(other.to_owned()),
@@ -743,7 +822,7 @@ mod tests {
     use super::*;
     use crate::migrate::tests::temp_dir;
 
-    const PREFS: &str = r#"// Mozilla User Preferences
+    const PREFS: &str = r##"// Mozilla User Preferences
 user_pref("mail.accountmanager.accounts", "account2,account1,account3,account4");
 user_pref("mail.account.account1.server", "server1");
 user_pref("mail.account.account1.identities", "id1,id3");
@@ -784,7 +863,18 @@ user_pref("mail.smtpserver.smtp1.hostname", "smtp.gmail.com");
 user_pref("mail.smtpserver.smtp2.hostname", "smtp.twojastudio.pl");
 user_pref("mail.smtpserver.smtp2.port", 587);
 user_pref("mail.smtpserver.smtp2.try_ssl", 2);
-"#;
+user_pref("mailnews.tags.$label1.tag", "Important");
+user_pref("mailnews.tags.$label1.color", "#FF0000");
+user_pref("mailnews.tags.$label2.tag", "Klienci");
+user_pref("mailnews.tags.$label2.color", "#FF9900");
+user_pref("mailnews.tags.$label4.tag", "To Do");
+user_pref("mailnews.tags.$label4.color", "#3333FF");
+user_pref("mailnews.tags.projekt_x.tag", "Projekt X");
+user_pref("mailnews.tags.projekt_x.color", "#00CCCC");
+user_pref("mailnews.tags.pilne.tag", "Pilne");
+user_pref("mailnews.tags.pilne.color", "#FFCC00");
+user_pref("mailnews.tags.bad word.tag", "Zepsuta");
+"##;
 
     const FILTERS: &str = r#"version="9"
 logging="no"
@@ -818,6 +908,26 @@ enabled="yes"
 type="17"
 action="Delete"
 condition="AND (date,is before,01-Jan-2020)"
+name="Projekty"
+enabled="yes"
+type="17"
+action="AddTag"
+actionValue="projekt_x"
+action="Remove tag"
+actionValue="$label4"
+condition="AND (tag,contains,$label2) AND (tag,isn't,PILNE)"
+name="Bez etykiet"
+enabled="yes"
+type="17"
+action="Label"
+actionValue="1"
+condition="AND (tag,is empty,)"
+name="Nieznana"
+enabled="yes"
+type="17"
+action="AddTag"
+actionValue="nie_ma"
+condition="AND (subject,contains,x)"
 "#;
 
     fn profile() -> PathBuf {
@@ -835,7 +945,13 @@ condition="AND (date,is before,01-Jan-2020)"
         let mbox = |subject: &str, status: &str| {
             format!("From - Sat Oct 10 22:35:00 2026\nX-Mozilla-Status: {status}\nSubject: {subject}\nMessage-ID: <{subject}@x.pl>\n\nTreść\n\n")
         };
-        std::fs::write(local.join("Inbox"), mbox("lokalna", "0001")).unwrap();
+        // Tagged in Thunderbird: two tags and a keyword that isn't one.
+        let tagged = mbox("lokalna", "0001").replacen(
+            "Subject:",
+            "X-Mozilla-Keys: projekt_x $Label2 NonJunk                    \nSubject:",
+            1,
+        );
+        std::fs::write(local.join("Inbox"), tagged).unwrap();
         std::fs::write(local.join("Inbox.msf"), "").unwrap();
         std::fs::write(local.join("Trash"), mbox("wyrzucona", "0001")).unwrap();
         std::fs::write(local.join("Archives"), "").unwrap();
@@ -860,9 +976,33 @@ condition="AND (date,is before,01-Jan-2020)"
         let root = profile();
         let profiles = profiles(&root);
         assert_eq!(profiles.len(), 1, "the profile that exists, once");
-        let source = read(&profiles[0], Program::Thunderbird, &[]).unwrap();
+        let source = crate::i18n::with(crate::i18n::Lang::En, || {
+            read(&profiles[0], Program::Thunderbird, &[]).unwrap()
+        });
         assert_eq!(source.name, "default-release");
-        assert_eq!(source.filters, 5);
+        assert_eq!(source.filters, 8);
+
+        let tags: Vec<(&str, &str, &str)> = source
+            .tags
+            .iter()
+            .map(|t| (t.keyword.as_str(), t.name.as_str(), t.color.as_str()))
+            .collect();
+        assert_eq!(
+            tags,
+            [
+                ("$label1", "Important", "red"),
+                ("$label2", "Klienci", "orange"),
+                // Thunderbird's own name for it: Telex's, in the interface's language.
+                ("$label4", "To do", "blue"),
+                ("pilne", "Pilne", "yellow"),
+                ("projekt_x", "Projekt X", "teal"),
+            ],
+            "the keyword that isn't one is left out"
+        );
+        let pl = crate::i18n::with(crate::i18n::Lang::Pl, || {
+            read(&profiles[0], Program::Thunderbird, &[]).unwrap()
+        });
+        assert_eq!(pl.tags[2].name, "Do zrobienia");
 
         let keys: Vec<&str> = source.accounts.iter().map(|a| a.key.as_str()).collect();
         assert_eq!(
@@ -917,7 +1057,8 @@ condition="AND (date,is before,01-Jan-2020)"
         use std::sync::Mutex;
         let root = profile();
         let path = profiles(&root).remove(0);
-        let source = read(&path, Program::Thunderbird, &[]).unwrap();
+        let en = crate::i18n::Lang::En;
+        let source = crate::i18n::with(en, || read(&path, Program::Thunderbird, &[]).unwrap());
         let store = Mutex::new(crate::store::MailStore::in_memory().unwrap());
         {
             let mut s = store.lock().unwrap();
@@ -944,6 +1085,36 @@ condition="AND (date,is before,01-Jan-2020)"
             )
             .unwrap();
         }
+        // Tags first, as `move_in` brings them: the mail and the rules use them.
+        let tag_items = crate::i18n::with(en, || {
+            super::super::tags(&source, &mut store.lock().unwrap())
+        });
+        let statuses: Vec<(&str, Status)> = tag_items
+            .iter()
+            .map(|i| (i.name.as_str(), i.status))
+            .collect();
+        assert_eq!(
+            statuses,
+            [
+                ("Important", Status::Same),
+                ("Klienci", Status::Update),
+                ("To do", Status::Same),
+                ("Pilne", Status::Add),
+                ("Projekt X", Status::Add),
+            ]
+        );
+        {
+            let s = store.lock().unwrap();
+            let here = crate::i18n::with(en, || s.tags().unwrap());
+            let named = |k: &str| here.iter().find(|t| t.keyword == k).unwrap().clone();
+            assert_eq!(named("$label2").name, "Klienci");
+            assert_eq!(named("projekt_x").color, "teal");
+            assert_eq!(
+                here.last().unwrap().keyword,
+                "projekt_x",
+                "Thunderbird's order"
+            );
+        }
         let keys: Vec<String> = source
             .folders
             .iter()
@@ -953,7 +1124,13 @@ condition="AND (date,is before,01-Jan-2020)"
         let report = super::super::import_mail(&store, &source, &keys, &|_| {}).unwrap();
         assert_eq!(report.added, 3, "{report:?}");
         let mut s = store.lock().unwrap();
-        assert_eq!(s.list("local/inbox").unwrap()[0].subject, "lokalna");
+        let lokalna = s.list("local/inbox").unwrap()[0].clone();
+        assert_eq!(lokalna.subject, "lokalna");
+        assert_eq!(
+            s.keywords_of(lokalna.id).unwrap(),
+            ["$label2", "projekt_x"],
+            "X-Mozilla-Keys: its tags, not NonJunk"
+        );
         let old = s.list("local/archives-2019").unwrap();
         assert_eq!(old.len(), 1, "the message Thunderbird deleted stays out");
 
@@ -991,6 +1168,44 @@ condition="AND (date,is before,01-Jan-2020)"
         let wazne = rules.iter().find(|r| r.name == "Wazne").unwrap();
         assert!(!wazne.enabled, "a filter run only by hand");
         assert!(wazne.stop);
+
+        use crate::filters::{Action, Condition, Field, Op};
+        let tag = |op, value: &str| Condition {
+            field: Field::Tag,
+            op,
+            value: value.into(),
+            header: None,
+        };
+        let projekty = rules.iter().find(|r| r.name == "Projekty").unwrap();
+        assert_eq!(
+            projekty.conditions,
+            [tag(Op::Is, "$label2"), tag(Op::NotContains, "pilne")]
+        );
+        assert_eq!(
+            projekty.actions,
+            [
+                Action::AddTag {
+                    tag: "projekt_x".into()
+                },
+                Action::RemoveTag {
+                    tag: "$label4".into()
+                }
+            ]
+        );
+        let bare = rules.iter().find(|r| r.name == "Bez etykiet").unwrap();
+        assert_eq!(bare.conditions, [tag(Op::NotExists, "")]);
+        assert_eq!(
+            bare.actions,
+            [Action::AddTag {
+                tag: "$label1".into()
+            }],
+            "an old Label action"
+        );
+        assert!(
+            matches!(&by_name("Nieznana").skip, Some(Skip::Invalid { .. })),
+            "a tag that isn't here: {:?}",
+            by_name("Nieznana")
+        );
         drop(s);
         // Again: nothing new.
         let mut s = store.lock().unwrap();
@@ -998,6 +1213,8 @@ condition="AND (date,is before,01-Jan-2020)"
         assert!(again
             .iter()
             .all(|i| i.status == Status::Same || i.status == Status::Skip));
+        let tags_again = crate::i18n::with(en, || super::super::tags(&source, &mut s));
+        assert!(tags_again.iter().all(|i| i.status == Status::Same));
         let _ = std::fs::remove_dir_all(&root);
     }
 

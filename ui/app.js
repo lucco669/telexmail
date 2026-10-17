@@ -5084,10 +5084,11 @@ function counted(items){
   return [[n('add'), N_('{n} new')], [n('update'), N_('{n} updated')], [n('same'), N_('{n} unchanged')], [n('skip'), N_('{n} skipped')]]
     .filter(([c]) => c).map(([c, key]) => tn(c, key, key)).join(', ');
 }
-const why = i => i.status === 'skip' ? skipText(i.skip) : i.account ?? t('All accounts');
-function planItems(items){
+const why = (i, accounts = true) => i.status === 'skip' ? skipText(i.skip) : accounts ? i.account ?? t('All accounts') : '';
+// Items of a plan or report; tags belong to no account, so `accounts` false names none.
+function planItems(items, accounts = true){
   return `<ul class="ilist">${items.map(i => `<li><span class="ist ${i.status}">${esc(t(STATUS[i.status]))}</span><span class="iname">${esc(i.name)}</span>`
-    + `<span class="iwhy" title="${esc(why(i))}">${esc(why(i))}</span></li>`).join('')}</ul>`;
+    + `<span class="iwhy" title="${esc(why(i, accounts))}">${esc(why(i, accounts))}</span></li>`).join('')}</ul>`;
 }
 function planSection(part, title, items){
   if (!items.length) return '';
@@ -5254,7 +5255,8 @@ function sourceSummary(s){
   const mail = s.folders.reduce((n, f) => n + f.bytes, 0);
   return [s.accounts.length ? tn(s.accounts.length, '{n} account', '{n} accounts') : '',
     s.folders.length ? t('{size} of mail', {size:fmtSize(Math.ceil(mail / 1024))}) : '',
-    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : ''].filter(Boolean).join(' · ');
+    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : '',
+    s.tags?.length ? tn(s.tags.length, '{n} tag', '{n} tags') : ''].filter(Boolean).join(' · ');
 }
 function openMoveIn(path){
   openSettings('move');
@@ -5265,7 +5267,7 @@ function chooseSource(s){
   moveIn = {...moveIn, source:s, report:null, running:null, error:'', passwords:{}, choice:{
     accounts:new Set(s.accounts.filter(canAdd).map(a => a.key)),
     folders:new Set(s.folders.filter(f => f.tick).map(f => f.key)),
-    filters:s.filters > 0}};
+    filters:s.filters > 0 || s.tags?.length > 0}};
   renderMove();
   sdlg.querySelector('#s-move input:not([disabled])')?.focus();
 }
@@ -5301,18 +5303,21 @@ function renderSource(el){
   }
   if (r){
     const ok = r.accounts.filter(a => !a.error), bad = r.accounts.filter(a => a.error);
-    const made = r.rules.filter(i => i.status === 'add' || i.status === 'update').length;
+    const changed = items => (items ?? []).filter(i => i.status === 'add' || i.status === 'update').length;
+    const made = changed(r.rules), tagged = changed(r.tags);
     const lines = [ok.length ? tn(ok.length, '{n} account added', '{n} accounts added') : '',
       r.mail.added ? tn(r.mail.added, '{n} message in folders on this PC', '{n} messages in folders on this PC', {n:num(r.mail.added)}) : '',
       r.mail.already ? tn(r.mail.already, '{n} was here already', '{n} were here already', {n:num(r.mail.already)}) : '',
+      tagged ? tn(tagged, '{n} tag', '{n} tags') : '',
       made ? tn(made, '{n} rule', '{n} rules') : ''].filter(Boolean);
     const accounts = r.accounts.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Accounts'))}</b><span>${esc(bad.length ? tn(bad.length, '{n} needs attention', '{n} need attention') : t('all logged in'))}</span></div>`
       + `<ul class="ilist">${r.accounts.map(a => `<li><span class="ist ${a.error ? 'skip' : 'add'}">${esc(a.error ? t('Check|account') : t('Added|account'))}</span><span class="iname">${esc(a.email)}</span>`
       + `<span class="iwhy" title="${esc(a.error ? tr(a.error) : '')}">${esc(a.error ? tr(a.error) : '')}</span></li>`).join('')}</ul>`
       + (bad.length ? `<p class="dnote">${esc(t('Fix these in Settings › Accounts › Edit: the account is there and needs its password or servers.'))}</p>` : '') + '</section>' : '';
+    const tags = r.tags?.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Tags'))}</b><span>${esc(counted(r.tags))}</span></div>${planItems(r.tags, false)}</section>` : '';
     const rules = r.rules.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Filters'))}</b><span>${esc(counted(r.rules))}</span></div>${planItems(r.rules)}</section>` : '';
     el.innerHTML = `${title}<p class="whint">${esc(lines.length ? lines.join(', ') + '.' : t('Nothing needed bringing.'))}</p>
-${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${rules}
+${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${tags}${rules}
 <div class="sbtns"><button class="btn primary" type="button" id="mv-done">${esc(t('Done'))}</button></div>`;
     return;
   }
@@ -5330,8 +5335,13 @@ ${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join('
       `<li><label class="mvpick">${ticked(c.folders.has(f.key), `data-mv="folder" data-key="${esc(f.key)}"`)}<span class="iname">${esc(f.name)}</span></label>`
       + `<span class="iwhy">${esc([f.messages != null ? tn(f.messages, '{n} message', '{n} messages', {n:num(f.messages)}) : '', fmtSize(Math.ceil(f.bytes / 1024))].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`
     + `<p class="dnote">${esc(t('Each folder comes into a folder on this PC of the same name.'))}</p></section>` : '';
-  const filters = s.filters ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(t('Filters'))}</b><span>${esc(tn(s.filters, '{n} filter', '{n} filters'))}</span></label>`
-    + `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p></section>` : '';
+  // The tags come with the filters: filters use them, and so does the mail brought in.
+  const stags = s.tags ?? [];
+  const filters = s.filters || stags.length ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(stags.length ? t('Filters and tags') : t('Filters'))}</b>`
+    + `<span>${esc([s.filters ? tn(s.filters, '{n} filter', '{n} filters') : '', stags.length ? tn(stags.length, '{n} tag', '{n} tags') : ''].filter(Boolean).join(' · '))}</span></label>`
+    + (stags.length ? `<p class="mvtags"><span class="tgs">${stags.map(x => `<span class="tg t-${esc(x.color)}" title="${esc(x.keyword)}">${esc(x.name)}</span>`).join('')}</span></p>` : '')
+    + (s.filters ? `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p>` : '')
+    + (stags.length ? `<p class="dnote">${esc(t('Tags keep their keywords, so mail tagged there is tagged here too: on the servers and in the mail brought in.'))}</p>` : '') + '</section>' : '';
   const nothing = !c.accounts.size && !c.folders.size && !c.filters;
   el.innerHTML = `${title}${accounts}${folders}${filters}<p class="derr" role="alert">${esc(moveIn.error)}</p>
 <div class="sbtns"><button class="btn primary" type="button" id="mv-go"${nothing ? ' disabled' : ''}>${esc(t('Bring in'))}</button><button class="btn" type="button" id="mv-back">${esc(t('Back'))}</button></div>`;

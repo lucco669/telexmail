@@ -48,6 +48,7 @@ pub fn find(accounts: &[Account]) -> Vec<Source> {
                 accounts: profile_accounts,
                 folders: Vec::new(),
                 filters: 0,
+                tags: Vec::new(),
                 filter_files: Vec::new(),
             });
         }
@@ -190,6 +191,7 @@ pub fn read_pst(path: &Path) -> Result<Source, StoreError> {
         accounts: Vec::new(),
         folders,
         filters: 0,
+        tags: Vec::new(),
         filter_files: Vec::new(),
     }
     .numbered())

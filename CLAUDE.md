@@ -68,11 +68,12 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      month flags), when it is due (UTC days), count.json; docs/counting.md.
   src/mailbox.rs     Mail as files: a folder written as mbox; mbox, .eml, .emlx, .msg files and
                      Maildir and MH folders read into a folder on this PC (mboxrd; Status,
-                     X-Status and X-Mozilla-Status flags, Thunderbird's deleted ones left out).
+                     X-Status and X-Mozilla-Status flags, Thunderbird's deleted ones left out;
+                     tags from X-Mozilla-Keys and X-Keywords, written as X-Keywords).
   src/migrate/       Moving in from another mail program, found on this PC only: mod.rs (what a
                      program has, mail into folders on this PC, filters into rules, Maildir/MH
                      folders of Evolution, KMail, Claws, mutt), thunderbird.rs (profiles.ini,
-                     prefs.js accounts and identities, Local Folders, msgFilterRules.dat; also
+                     prefs.js accounts, identities and tags, Local Folders, msgFilterRules.dat; also
                      Betterbird, SeaMonkey, Postbox), outlook.rs (registry accounts on Windows,
                      .pst with outlook-pst, .msg with cfb), mapi.rs (Outlook's properties →
                      RFC 822). Never passwords: the user types them in the dialog.
@@ -255,14 +256,14 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `delete_local_folder` | `folder`              | how many rules lost their move to it; only an empty folder |
 | `export_folder`  | `folder`, `words` `{title, filter, file_name}` | the mbox file written, or null; opens Save |
 | `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC only |
-| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
+| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters, tags: [{keyword, name, color}]}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
 | `open_source`    | `folder` (true: a folder, false: a .pst), `words` | the same for what the user picks, or null (`move_in` takes only sources found or picked this session) |
 | `spell_languages`| –                            | `{languages: [{tag, own}], chosen, auto, downloads: [{tag, bytes}], missing}` (`own`: fetched by Telex; `auto`: chosen from Windows' display languages, its language list, its region and the interface's; `missing`: downloads for those) |
 | `spell_check`    | `text`                       | `[[start, length]]` in UTF-16 units: the words no chosen language knows |
 | `spell_suggest`  | `word`                       | up to 7 suggestions |
 | `spell_add`      | `word`                       | – (right from now on, in every language: words.txt next to the settings) |
 | `spell_download`, `spell_remove` | `tag`          | the languages again; fetches LibreOffice's dictionary (GitHub, pinned, SHA-256 checked) or removes one Telex fetched |
-| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items]}`; "move-progress" events `{step, done, total, name}` |
+| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, tags: [plan items], rules: [plan items]}` (`filters` brings the tags too, before the mail); "move-progress" events `{step, done, total, name}` |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
 | `backup_now`     | –                            | the backup written; the folder keeps the newest `backup_keep` |
@@ -464,6 +465,18 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   none, actions Add a tag / Take a tag off, with notes ("tagged it Later"); a rule whose tag was
   deleted says so when it runs. Copy as Markdown lists a message's tags; the settings file carries
   the tags with the rules ("Rules and tags"), by keyword.
+- Tags moving in from Thunderbird (no schema change): prefs.js `mailnews.tags.<keyword>.tag`,
+  `.color` and `.ordinal` become tags with the same keyword (`thunderbird::read_tags`,
+  `MailStore::import_tag`), Thunderbird's color going to the nearest of `tags::COLORS` by hue
+  (`tags::color_from_hex`; gray when it has little); `$label1`–5 still named as Thunderbird names
+  them (English or Polish) keep Telex's names. They show under the move-in plan's "Filters and
+  tags" and come with that tick, before the mail (`migrate::tags`; the report's `tags`, Add /
+  Update / Same as a settings import). Filters: the condition "tag" (is, contains → Tag has;
+  isn't, doesn't contain → hasn't; is empty, isn't empty) and the actions "AddTag", "Remove tag"
+  and the old "Label" 1–5 become rules instead of being listed as unsupported; a tag that isn't
+  here leaves the rule out with the editor's reason. mbox: `X-Mozilla-Keys` and `X-Keywords`
+  (spaces or commas, folded lines) give a message read in its tags (only keywords that are tags
+  here); a folder saved as mbox writes one `X-Keywords` with its tags and leaves the old two out.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 

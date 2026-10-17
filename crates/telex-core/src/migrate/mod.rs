@@ -24,6 +24,7 @@ use crate::mailbox::{self, ImportProgress, ImportReport, Importer};
 use crate::model::{Account, AccountSetup, FolderKind, Identity};
 use crate::settings::{self, PlanItem};
 use crate::store::{MailStore, StoreError, LOCAL_ID};
+use crate::tags::Tag;
 use crate::tr;
 
 /// The programs Telex can move in from.
@@ -53,6 +54,9 @@ pub struct Source {
     pub folders: Vec<FoundFolder>,
     /// How many filters it has.
     pub filters: usize,
+    /// Its tags, with the keywords it puts on mail (Thunderbird's); they come with the filters,
+    /// which use them.
+    pub tags: Vec<Tag>,
     #[serde(skip)]
     filter_files: Vec<(String, PathBuf)>,
 }
@@ -216,6 +220,7 @@ fn read_mail_folder(root: &Path, program: Program) -> Option<Source> {
             accounts: Vec::new(),
             folders,
             filters: 0,
+            tags: Vec::new(),
             filter_files: Vec::new(),
         }
         .numbered(),
@@ -505,6 +510,46 @@ pub fn import_mail(
         report.add(importer.report);
     }
     Ok(report)
+}
+
+/// Bring the source's tags, with their keywords, so mail tagged there is tagged here: new
+/// ones are added, ones here by the same keyword take the other program's name and color.
+/// Before the mail (whose keywords become tags only when they are tags here) and the rules
+/// (which may use them). Returns what happened to each.
+pub fn tags(source: &Source, store: &mut MailStore) -> Vec<PlanItem> {
+    let here = store.tags().unwrap_or_default();
+    source
+        .tags
+        .iter()
+        .map(|tag| {
+            let status = match here.iter().find(|t| t.keyword == tag.keyword) {
+                None => settings::Status::Add,
+                Some(t) if t.name == tag.name && t.color == tag.color => settings::Status::Same,
+                Some(_) => settings::Status::Update,
+            };
+            let done = if status == settings::Status::Same {
+                Ok(())
+            } else {
+                store.import_tag(tag).map(|_| ())
+            };
+            match done {
+                Ok(()) => PlanItem {
+                    name: tag.name.clone(),
+                    account: None,
+                    status,
+                    skip: None,
+                },
+                Err(e) => PlanItem {
+                    name: tag.name.clone(),
+                    account: None,
+                    status: settings::Status::Skip,
+                    skip: Some(settings::Skip::Invalid {
+                        detail: e.to_string(),
+                    }),
+                },
+            }
+        })
+        .collect()
 }
 
 /// Make rules of the source's filters, where Telex can do what they do, and save them.

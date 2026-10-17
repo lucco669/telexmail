@@ -169,6 +169,7 @@ pub fn file_message(m: &MapiMessage) -> FileMessage {
         seen: m.props.int(MESSAGE_FLAGS).is_some_and(|f| f & 1 != 0),
         flagged: m.props.int(FLAG_STATUS) == Some(2),
         date,
+        keywords: Vec::new(),
     }
 }
 
