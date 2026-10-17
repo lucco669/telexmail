@@ -603,6 +603,7 @@ fn setup(
         smtp_host: smtp.0.to_owned(),
         smtp_port: smtp.1,
         smtp_security: smtp.2,
+        pop3: None,
     }
 }
 

@@ -234,11 +234,17 @@ pub struct ServerCaps {
 
 // ---- Public entry points ----
 
-/// Log in once to check the settings, and return the server's folders.
+/// Log in once to check the settings, and return the server's folders. A POP3 server has
+/// none: the account's folders are all here (`pop3::check_account`).
 pub async fn check_account(
     settings: &ImapSettings,
     password: &str,
 ) -> Result<Vec<RemoteFolder>, SyncError> {
+    if settings.pop3.is_some() {
+        return crate::pop3::check_account(settings, password)
+            .await
+            .map(|()| Vec::new());
+    }
     let (mut session, mut turn) = connect_and_login(settings, password, Purpose::Test).await?;
     let folders = list_folders(&mut session).await;
     logout(&mut session).await;
@@ -270,6 +276,9 @@ pub async fn sync_account(
     let Some(settings) = &account.imap else {
         return Ok(SyncReport::default());
     };
+    if settings.pop3.is_some() {
+        return crate::pop3::sync_account(account, password, store, progress).await;
+    }
     let (mut session, mut turn) = connect_and_login(settings, password, Purpose::Check).await?;
     let result = sync_all(&mut session, account, store, progress, scope).await;
     logout(&mut session).await;
@@ -291,6 +300,9 @@ pub async fn download_older(
     let Some(settings) = &account.imap else {
         return Ok(Vec::new());
     };
+    if settings.pop3.is_some() {
+        return crate::pop3::download_older(account, password, store, limit, progress).await;
+    }
     let (mut session, mut turn) = connect_and_login(settings, password, Purpose::Older).await?;
     let result = download_older_in(&mut session, account, store, folder_key, limit, progress).await;
     logout(&mut session).await;
@@ -359,7 +371,8 @@ pub async fn push_account(
     password: &str,
     store: &Mutex<MailStore>,
 ) -> Result<Vec<String>, SyncError> {
-    let Some(settings) = &account.imap else {
+    // A POP3 account's changes are all here; what leaves its server goes at a check.
+    let Some(settings) = account.imap.as_ref().filter(|i| i.pop3.is_none()) else {
         return Ok(Vec::new());
     };
     if !lock(store)?.has_pending_changes(&account.id)? {
@@ -394,7 +407,30 @@ pub async fn sync_all<T: ImapStream>(
         None
     };
     lock(store)?.set_quota(&account.id, quota)?;
-    let mut arrived = downloaded.arrived;
+    let mut report = SyncReport {
+        new: downloaded.new,
+        refused,
+        ..SyncReport::default()
+    };
+    sort_arrived(store, &account.id, downloaded.arrived, &mut report)?;
+    // Send what the user did during the download, but don't retry what was just refused.
+    // The folder list may have changed, so read the account again.
+    let account = lock(store)?.account(&account.id)?.clone();
+    report
+        .refused
+        .extend(push_queued_after(session, &account, store, caps, queued_before).await?);
+    Ok(report)
+}
+
+/// New Inbox mail that arrived, through the spam filter, the rules and the away reply, as
+/// every check does it (IMAP and POP3). Fills in the report's `arrived`, `spam`, `sorted`,
+/// `answered`, and the rules' and replies' problems in `refused`.
+pub(crate) fn sort_arrived(
+    store: &Mutex<MailStore>,
+    account: &str,
+    mut arrived: Vec<MessageId>,
+    report: &mut SyncReport,
+) -> Result<(), SyncError> {
     // The spam filter first, so the rules and the away reply never see what it caught; then
     // it learns from the mail sorted since the last check.
     let caught = {
@@ -404,13 +440,8 @@ pub async fn sync_all<T: ImapStream>(
         caught
     };
     arrived.retain(|id| !caught.contains(id));
-    let mut report = SyncReport {
-        new: downloaded.new,
-        arrived: arrived.clone(),
-        spam: caught.len(),
-        refused,
-        ..SyncReport::default()
-    };
+    report.arrived = arrived.clone();
+    report.spam = caught.len();
     if !arrived.is_empty() {
         let run = {
             let mut s = lock(store)?;
@@ -420,17 +451,11 @@ pub async fn sync_all<T: ImapStream>(
         report.answered = run.replied;
         report.refused.extend(run.problems);
         // The away reply, where Telex sends it, after the rules have filed the mail.
-        let away = crate::away::answer(&mut *lock(store)?, &account.id, &arrived, Local::now());
+        let away = crate::away::answer(&mut *lock(store)?, account, &arrived, Local::now());
         report.answered += away.replied;
         report.refused.extend(away.problems);
     }
-    // Send what the user did during the download, but don't retry what was just refused.
-    // The folder list may have changed, so read the account again.
-    let account = lock(store)?.account(&account.id)?.clone();
-    report
-        .refused
-        .extend(push_queued_after(session, &account, store, caps, queued_before).await?);
-    Ok(report)
+    Ok(())
 }
 
 /// Download: refresh the folder list, then for every folder drop what was deleted on
@@ -569,6 +594,10 @@ pub async fn watch_inbox(
     password: &str,
     changed: &(dyn Fn() + Send + Sync),
 ) -> Result<Watched, SyncError> {
+    // POP3 has nothing like IDLE: the regular checks bring its mail.
+    if settings.pop3.is_some() {
+        return Ok(Watched::NoIdle);
+    }
     let (session, mut turn) = connect_and_login(settings, password, Purpose::Watch).await?;
     let result = watch_session(session, changed, IDLE_RENEW).await;
     outcome(&mut turn, &result);
@@ -2309,6 +2338,7 @@ mod tests {
             port: 0,
             username: "biuro@twojastudio.pl".into(),
             security: SmtpSecurity::Tls,
+            pop3: None,
         }
     }
 
@@ -3395,6 +3425,7 @@ Subject: {subject}
             port: 993,
             username: String::new(),
             security: SmtpSecurity::Tls,
+            pop3: None,
         };
         // Connecting reads the greeting: it fails if the server says nothing.
         let mut trace = Trace::new(Purpose::Test, "imap", "", "imap.gmail.com", 993);

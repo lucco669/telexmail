@@ -13,7 +13,9 @@ use super::{
     found_folder, identity, mark_present, Blocked, FoundAccount, FoundFolder, Place, Program,
     Source,
 };
-use crate::model::{Account, AccountSetup, Identity, SmtpSecurity};
+use crate::pop3::Seen;
+
+use crate::model::{Account, AccountSetup, Identity, Pop3Keep, SmtpSecurity};
 use crate::settings::{PlanItem, Skip, Status};
 
 /// Where each program keeps its profiles.
@@ -234,16 +236,43 @@ pub fn read(profile: &Path, program: Program, accounts: &[Account]) -> Option<So
             .collect();
         match kind {
             "imap" | "pop3" => {
-                let Some(found_account) = read_account(&prefs, server, kind, &identities) else {
+                let Some(mut found_account) = read_account(&prefs, server, kind, &identities)
+                else {
                     continue;
                 };
                 if kind == "pop3" {
-                    // Its mail is only here: it comes along as folders of its own.
+                    // Its mail is only here: it comes along into the account's folders.
                     let prefix = found_account.setup.email.clone();
-                    mail_folders(&dir, &[prefix], 0, &mut folders);
+                    let start = folders.len();
+                    mail_folders(&dir, std::slice::from_ref(&prefix), 0, &mut folders);
+                    for f in &mut folders[start..] {
+                        f.account = Some(server.to_owned());
+                        f.within = f
+                            .name
+                            .strip_prefix(&format!("{prefix} / "))
+                            .unwrap_or(&f.name)
+                            .to_owned();
+                    }
+                    // What Thunderbird downloaded, so Telex doesn't again. Its mail is in the
+                    // Inbox here, or in the one of the account it is deferred to (Local Folders).
+                    found_account.seen = popstate(&dir.join("popstate.dat"), &found_account.setup);
+                    found_account.seen_in = Some(
+                        match prefs
+                            .text(&p("deferred_to_account"))
+                            .and_then(|a| prefs.text(&format!("mail.account.{a}.server")))
+                        {
+                            Some(other) => {
+                                let kind = prefs
+                                    .text(&format!("mail.server.{other}.type"))
+                                    .unwrap_or_default();
+                                server_dir(profile, &prefs, other, kind).join("Inbox")
+                            }
+                            None => dir.join("Inbox"),
+                        },
+                    );
                 }
                 let rules = dir.join("msgFilterRules.dat");
-                if kind == "imap" && rules.is_file() {
+                if rules.is_file() {
                     filters += count_filters(&rules);
                     filter_files.push((server.to_owned(), rules));
                 }
@@ -367,30 +396,100 @@ fn read_account(
         .map(|i| i.name.clone())
         .or_else(|| prefs.text(&p("name")).map(str::to_owned))
         .unwrap_or_default();
-    let blocked = if kind == "pop3" {
-        Some(Blocked::Pop3)
-    } else if prefs.number(&p("authMethod")) == Some(10) {
+    let blocked = if prefs.number(&p("authMethod")) == Some(10) {
         Some(Blocked::Oauth)
     } else {
         None
     };
+    // What Thunderbird left on the POP3 server, as it did: its defaults (no pref written) are
+    // to remove mail once it is downloaded.
+    let pop3 = (kind == "pop3").then(|| Pop3Keep {
+        leave: prefs.flag(&p("leave_on_server")),
+        days: prefs.flag(&p("delete_by_age_from_server")).then(|| {
+            prefs
+                .number(&p("num_days_to_leave_on_server"))
+                .and_then(|n| u16::try_from(n).ok())
+                .unwrap_or(7)
+        }),
+        until_deleted: prefs.flag(&p("delete_mail_left_on_server")),
+    });
     Some(FoundAccount {
         key: server.to_owned(),
         setup: AccountSetup {
             name,
             email,
             host,
-            port: if kind == "pop3" { 0 } else { port },
+            port,
             username,
             imap_security,
             smtp_host,
             smtp_port,
             smtp_security,
+            pop3,
         },
         identities: identities.to_vec(),
         present: false,
         blocked,
+        seen: Vec::new(),
+        seen_in: None,
     })
+}
+
+/// Thunderbird's popstate.dat: what it downloaded from a POP3 server, as `(uidl, when,
+/// deleted)`. A section starts with "*host user", then a line per message: k (kept on the
+/// server), d (deleted there, to be removed), f or b (only its headers came: Telex downloads
+/// it whole), the UIDL and when it came (seconds since 1970).
+fn popstate(file: &Path, setup: &AccountSetup) -> Vec<Seen> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    let read =
+        std::fs::File::open(file).and_then(|f| f.take(64 * 1024 * 1024).read_to_end(&mut bytes));
+    if read.is_err() {
+        return Vec::new();
+    }
+    let text = String::from_utf8_lossy(&bytes);
+    let mut sections: Vec<(String, String, Vec<Seen>)> = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix('*') {
+            let mut words = rest.split_whitespace();
+            let host = words.next().unwrap_or_default().to_owned();
+            let user = words.next().unwrap_or_default().to_owned();
+            sections.push((host, user, Vec::new()));
+            continue;
+        }
+        let mut words = line.split_whitespace();
+        let (Some(flag), Some(uidl)) = (words.next(), words.next()) else {
+            continue;
+        };
+        let deleted = match flag {
+            "k" => false,
+            "d" => true,
+            _ => continue,
+        };
+        let when = words
+            .next()
+            .and_then(|t| t.parse::<i64>().ok())
+            .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
+            .map(|t| t.with_timezone(&chrono::Local).naive_local());
+        if sections.is_empty() {
+            sections.push((String::new(), String::new(), Vec::new()));
+        }
+        if let Some((_, _, entries)) = sections.last_mut() {
+            entries.push((uidl.to_owned(), when, deleted));
+        }
+    }
+    let one = sections.len() == 1;
+    sections
+        .into_iter()
+        .find(|(host, user, _)| {
+            one || host.eq_ignore_ascii_case(&setup.host)
+                && user.eq_ignore_ascii_case(&setup.username)
+        })
+        .map(|(_, _, entries)| entries)
+        .unwrap_or_default()
 }
 
 /// The outgoing server of the account's first identity, or Thunderbird's default one.
@@ -606,7 +705,14 @@ fn move_target(uri: &str, account: &FoundAccount, source: &Source) -> Option<Val
             && a.setup.host.eq_ignore_ascii_case(&host)
             && a.setup.username.eq_ignore_ascii_case(&user)
     });
-    if scheme != "imap" || !same || other {
+    if !same || other {
+        return None;
+    }
+    // A POP3 account's folders are its mail files, which come along by those names.
+    if scheme == "mailbox" && account.setup.pop3.is_some() {
+        return Some(json!({"type": "move", "folder": parts.join(" / ")}));
+    }
+    if scheme != "imap" {
         return None;
     }
     // As Telex names a server folder: "INBOX / Klienci" is "Klienci".
@@ -769,6 +875,8 @@ user_pref("mail.server.server4.type", "pop3");
 user_pref("mail.server.server4.hostname", "pop.poczta.pl");
 user_pref("mail.server.server4.userName", "piotr");
 user_pref("mail.server.server4.directory-rel", "[ProfD]Mail/pop.poczta.pl");
+user_pref("mail.server.server4.leave_on_server", true);
+user_pref("mail.server.server4.delete_mail_left_on_server", true);
 user_pref("mail.identity.id1.fullName", "Anna Kowalska");
 user_pref("mail.identity.id1.useremail", "biuro@twojastudio.pl");
 user_pref("mail.identity.id1.htmlSigFormat", true);
@@ -848,7 +956,19 @@ condition="AND (date,is before,01-Jan-2020)"
         std::fs::write(local.join("msgFilterRules.dat"), "version=\"9\"\n").unwrap();
         let pop = profile.join("Mail").join("pop.poczta.pl");
         std::fs::create_dir_all(&pop).unwrap();
-        std::fs::write(pop.join("Inbox"), mbox("z-pop3", "0000")).unwrap();
+        // Thunderbird writes the UIDL into mail it leaves on the server.
+        std::fs::write(
+            pop.join("Inbox"),
+            mbox("z-pop3", "0000").replacen("\nX-Mozilla", "\nX-UIDL: UID-0001\nX-Mozilla", 1),
+        )
+        .unwrap();
+        std::fs::write(
+            pop.join("popstate.dat"),
+            "# POP3 State File\n# This is a generated file!  Do not edit.\n\n\
+             *pop.poczta.pl piotr\nk UID-0001 1792000000\nk UID-0002 1792000100\n\
+             d UID-0003 1792000200\nf UID-0004 1792000300\n",
+        )
+        .unwrap();
         let imap = profile.join("ImapMail").join("imap.twojastudio.pl");
         std::fs::create_dir_all(&imap).unwrap();
         std::fs::write(imap.join("msgFilterRules.dat"), FILTERS).unwrap();
@@ -892,7 +1012,27 @@ condition="AND (date,is before,01-Jan-2020)"
         assert_eq!(studio.identities[1].email, "faktury@twojastudio.pl");
         assert!(studio.blocked.is_none());
         assert_eq!(source.accounts[1].blocked, Some(Blocked::Oauth));
-        assert_eq!(source.accounts[2].blocked, Some(Blocked::Pop3));
+        let pop = &source.accounts[2];
+        assert!(pop.blocked.is_none(), "a POP3 account comes along as one");
+        assert_eq!(
+            pop.setup.pop3,
+            Some(Pop3Keep {
+                leave: true,
+                days: None,
+                until_deleted: true
+            }),
+            "what Thunderbird left on the server"
+        );
+        let seen: Vec<(&str, bool)> = pop.seen.iter().map(|(u, _, d)| (u.as_str(), *d)).collect();
+        assert_eq!(
+            seen,
+            [("UID-0001", false), ("UID-0002", false), ("UID-0003", true)],
+            "headers only (f) comes down whole"
+        );
+        assert!(pop.seen[0].1.is_some());
+        let inbox = source.folders.iter().find(|f| f.account.is_some()).unwrap();
+        assert_eq!(inbox.account.as_deref(), Some("server4"));
+        assert_eq!(inbox.within, "Inbox");
 
         let folders: Vec<(&str, bool)> = source
             .folders
@@ -998,6 +1138,55 @@ condition="AND (date,is before,01-Jan-2020)"
         assert!(again
             .iter()
             .all(|i| i.status == Status::Same || i.status == Status::Skip));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_pop3_account_moves_in_with_its_mail_and_what_it_downloaded() {
+        use crate::pop3::State;
+        use std::sync::Mutex;
+        let root = profile();
+        let path = profiles(&root).remove(0);
+        let source = read(&path, Program::Thunderbird, &[]).unwrap();
+        let store = Mutex::new(crate::store::MailStore::in_memory().unwrap());
+        let found = &source.accounts[2];
+        let account = store
+            .lock()
+            .unwrap()
+            .add_found_account(&found.setup.clone().cleaned().unwrap(), &found.identities)
+            .unwrap();
+        assert!(account.is_pop3());
+        let settings = account.imap.clone().unwrap();
+        assert_eq!(
+            (settings.host.as_str(), settings.port, settings.security),
+            ("pop.poczta.pl", 110, SmtpSecurity::StartTls),
+            "Thunderbird's 'STARTTLS if offered' is STARTTLS here"
+        );
+        let keys: Vec<String> = source
+            .folders
+            .iter()
+            .filter(|f| f.account.is_some())
+            .map(|f| f.key.clone())
+            .collect();
+        let report = super::super::import_mail(&store, &source, &keys, &|_| {}).unwrap();
+        assert_eq!(report.added, 1, "{report:?}");
+        let s = store.lock().unwrap();
+        let inbox = s.list(&account.folder_key("inbox")).unwrap();
+        assert_eq!(inbox[0].subject, "z-pop3", "into the account's own Inbox");
+        assert!(s.list("local/inbox").unwrap_or_default().is_empty());
+        let known = s.pop3_known(&account.id).unwrap();
+        assert_eq!(known.len(), 3);
+        assert_eq!(
+            known["UID-0001"].message,
+            Some(inbox[0].id),
+            "by its X-UIDL"
+        );
+        assert_eq!(known["UID-0002"].state, State::Known);
+        assert_eq!(
+            (known["UID-0003"].state, known["UID-0003"].message),
+            (State::Here, None)
+        );
+        drop(s);
         let _ = std::fs::remove_dir_all(&root);
     }
 

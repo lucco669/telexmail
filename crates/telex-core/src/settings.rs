@@ -1113,6 +1113,7 @@ impl Import {
                         smtp_host: smtp.as_ref().map(|s| s.host.clone()).unwrap_or_default(),
                         smtp_port: smtp.as_ref().map_or(0, |s| s.port),
                         smtp_security: smtp.map(|s| s.security).unwrap_or_default(),
+                        pop3: imap.pop3,
                     }
                 }),
             })
@@ -1337,6 +1338,7 @@ mod tests {
                 smtp_host: "smtp.firma.pl".into(),
                 smtp_port: 587,
                 smtp_security: SmtpSecurity::StartTls,
+                pop3: None,
             })
             .unwrap();
         let folder = |id: &str, name: &str, kind| Folder {
