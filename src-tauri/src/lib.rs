@@ -4,9 +4,11 @@
 mod away;
 mod backup;
 mod count;
+mod export;
 mod files;
 mod folders;
 mod migrate;
+mod native;
 mod secrets;
 mod settings;
 mod spell;
@@ -1095,6 +1097,11 @@ pub fn run() {
             files::save_attachment,
             files::save_attachments,
             files::pick_files,
+            export::save_messages,
+            export::message_source,
+            export::print_document,
+            export::save_pdf,
+            export::drag_out,
             backup::backup_state,
             backup::backup_now,
             backup::auto_backup,

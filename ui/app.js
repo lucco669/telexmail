@@ -60,6 +60,7 @@ const I = {
   popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
   copy: sv('<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 3.5v-.3a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v6.6a.7.7 0 00.7.7h.3"/>'),
   spell: sv('<path d="M1.8 11.5L4.3 4l2.5 7.5M2.6 9h3.4"/><path d="M8.8 9.6l2 2 3.6-4.6"/>'),
+  dots: sv('<circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder', unread:'unread'};
 // Special folders have a name in the interface's language, whatever the server calls them.
@@ -1441,7 +1442,8 @@ function messageMenu(){
     {label:trash ? t('Delete for good') : t('Move to Trash'), key:'Del', run:del},
   ];
   const md = {label:t('Copy as Markdown'), key:'Ctrl+C', run:() => copyMarkdown()};
-  if (many) return [...sort, {sep:true}, md];
+  const saveAs = {label:t('Save as…'), key:'Ctrl+S', run:() => saveMessages()};
+  if (many) return [...sort, {sep:true}, md, saveAs];
   const out = isOut(m.f), edit = ['drafts', 'outbox'].includes(kindOf(m.f));
   const to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0];
   // Read or unread always comes first, where the pointer lands.
@@ -1454,6 +1456,7 @@ function messageMenu(){
     {label:t('Reply all'), key:'Shift+R', run:() => openCompose('replyall')},
     {label:t('Forward'), key:'Shift+F', run:() => openCompose('forward')},
     md,
+    ...outItems(m.id, false),
     {sep:true},
     ...sort.slice(1),
     {sep:true},
@@ -1513,7 +1516,8 @@ function paintDrag(){
   const o = drag.over, el = o && !o.spring ? treeEl.querySelector(`[data-folder="${o.key}"]`) : null;
   if (el) el.classList.add(o.ok ? (drag.armed ? 'dropok' : 'dragover') : 'dropno');
   const what = drag.subject || tn(drag.ids.length, '{n} message', '{n} messages', {n:num(drag.ids.length)});
-  const hint = !o || o.spring ? t('Rest on a folder for a moment, then let go.')
+  const hint = !o && invoke ? t('Rest on a folder, then let go. Out of the window: save as a file.')
+    : !o || o.spring ? t('Rest on a folder for a moment, then let go.')
     : !o.ok ? (drag.folders.includes(o.key) ? t('It is in this folder already.') : t('Not to another account: put it in a folder on this PC first.'))
     : drag.armed ? t('Let go to move it to {folder}.', {folder:placeName(o.key)}) : t('Hold on {folder}…', {folder:placeName(o.key)});
   drag.ghost.innerHTML = `<b>${esc(what)}</b><span>${esc(hint)}</span>`;
@@ -1570,6 +1574,8 @@ listEl.addEventListener('pointermove', e => {
     startDrag();
     if (!drag) return;
   }
+  // Past the window's edge the messages leave as .eml files, for Explorer or the desktop.
+  if (invoke && (d.x < 0 || d.y < 0 || d.x >= innerWidth || d.y >= innerHeight)){ dragOut(); return; }
   // Above the pointer, so the folders below it stay in sight; below it at the top of the window.
   const gh = d.ghost.offsetHeight, gy = d.y - gh - 10 < 4 ? d.y + 18 : d.y - gh - 10;
   d.ghost.style.transform = `translate(${d.x + 14}px, ${gy}px)`;
@@ -1590,6 +1596,17 @@ listEl.addEventListener('pointerup', e => {
   if (d.over?.ok && d.armed){ moveChosen(d.over.key); listEl.focus({preventScroll:true}); }
   else if (d.over?.ok) say(t('Not moved: rest on the folder until it fills, then let go.'), 5000);
 });
+// The system's own drag takes over: Telex writes the messages as .eml files under the
+// temporary folder and hands them on; wherever they are dropped gets copies.
+function dragOut(){
+  const d = endDrag();
+  if (!d) return;
+  const n = d.ids.length;
+  say(tn(n, 'Drop it in a folder or on the desktop to save it as an .eml file.', 'Drop them in a folder or on the desktop to save them as .eml files.'), 0);
+  invoke('drag_out', {ids:d.ids})
+    .then(dropped => say(dropped ? tn(n, 'Saved as an .eml file where you dropped it.', '{n} messages saved as .eml files where you dropped them.', {n:num(n)}) : t('Nothing saved.'), 5000))
+    .catch(e => say(tr(e), 8000));
+}
 listEl.addEventListener('pointercancel', () => endDrag());
 listEl.addEventListener('lostpointercapture', () => { if (drag?.started) endDrag(); });
 // Esc while dragging: nothing moves.
@@ -2013,6 +2030,102 @@ async function copyMarkdown(ids = state.picked.size > 1 ? [...state.picked] : cu
   if (await copyText(md)) say(tn(ids.length, 'Copied as Markdown.', '{n} messages copied as Markdown.', {n:num(ids.length)}), 2500);
   else say(t('Couldn’t copy to the clipboard.'), 4000);
 }
+
+/* ---------- a message out of Telex ---------- */
+// Save as… (Ctrl+S): the selected messages as .eml files, byte for byte as they came; one
+// opens Save, several a folder for them all. Print… (Ctrl+P) and Save as PDF…: the message as
+// it shows (HTML or text) under its header. View source (Ctrl+U) and All headers: as it came.
+// `full`: the … button above a message has All headers too; the message menu is long enough.
+function outItems(id, full = true){
+  return [
+    {label:t('Save as…'), key:'Ctrl+S', run:() => saveMessages([id])},
+    {label:t('Print…'), key:'Ctrl+P', run:() => printMessage(id)},
+    {label:t('Save as PDF…'), run:() => savePdf(id)},
+    ...(full ? [{sep:true}] : []),
+    {label:t('View source'), key:'Ctrl+U', run:() => showSource(id)},
+    ...(full ? [{label:t('All headers'), run:() => showSource(id, 'headers')}] : []),
+  ];
+}
+async function saveMessages(ids = chosen()){
+  if (!ids.length) return;
+  const words = {title:ids.length > 1 ? t('Save {n} messages as .eml files in', {n:num(ids.length)}) : t('Save the message as'), filter:t('Mail messages')};
+  let path;
+  try { path = await invoke('save_messages', {ids, words}); } catch (e){ say(tr(e), 8000); return; }
+  if (path) say(ids.length > 1 ? t('Saved {n} messages in {path}.', {n:num(ids.length), path}) : t('Saved to {path}.', {path}), 6000);
+}
+// What goes on paper waits in #printout, which only print shows; the core's document goes into
+// a shadow root there, so the mail's markup and styles stay apart from the window's.
+const printEl = document.createElement('div');
+printEl.id = 'printout'; printEl.setAttribute('aria-hidden', 'true');
+document.body.append(printEl);
+let printTitle = null;
+async function preparePrint(id){
+  const doc = await call('print_document', {id, html:!pref().prefer_text, loadImages:state.images.has(id) ? true : null});
+  const page = new DOMParser().parseFromString(doc, 'text/html');
+  const root = printEl.shadowRoot ?? printEl.attachShadow({mode:'open'});
+  root.replaceChildren(...page.head.querySelectorAll('style'), ...page.body.childNodes);
+  await Promise.all([...root.querySelectorAll('img')].map(img => img.decode().catch(() => {})));
+  // The document's title names the PDF and the print job.
+  if (printTitle == null) printTitle = document.title;
+  document.title = page.title || 'Telex';
+  document.body.classList.add('printing');
+}
+function endPrint(){
+  document.body.classList.remove('printing');
+  printEl.shadowRoot?.replaceChildren();
+  if (printTitle != null){ document.title = printTitle; printTitle = null; }
+}
+window.addEventListener('afterprint', endPrint);
+async function printMessage(id = current()?.id){
+  if (id == null) return;
+  try { await preparePrint(id); } catch { endPrint(); return; }
+  window.print();
+}
+async function savePdf(id = current()?.id){
+  if (id == null) return;
+  try { await preparePrint(id); } catch { endPrint(); return; }
+  let done;
+  try { done = await invoke('save_pdf', {id, words:{title:t('Save as PDF'), filter:t('PDF documents')}}); }
+  catch (e){ endPrint(); say(tr(e), 8000); return; }
+  // No PDF of its own here (Linux): the print dialog's printers include one that writes a file.
+  if (done === 'print_dialog'){ say(t('Choose “Print to File” (PDF) as the printer.'), 8000); window.print(); return; }
+  endPrint();
+  if (done?.saved) say(t('Saved to {path}.', {path:done.saved}), 6000);
+}
+// View source and All headers: the message as it came, to read and copy; nothing in it runs.
+const srcDlg = $('src-dlg');
+let srcOf = null; // {id, source, tab}
+async function showSource(id = current()?.id, tab = 'source'){
+  if (id == null) return;
+  let source;
+  try { source = await invoke('message_source', {id}); } catch (e){ say(tr(e), 8000); return; }
+  srcOf = {id, source, tab};
+  $('src-text').textContent = source.text;
+  $('src-headers').innerHTML = source.headers.map(h => `<dt>${esc(h.name)}</dt><dd>${esc(h.value)}</dd>`).join('');
+  $('src-note').textContent = source.cut ? t('A long message: the first megabyte is shown. Save as… keeps all of it.') : '';
+  srcTab(tab);
+  srcDlg.showModal();
+  (tab === 'source' ? $('src-text') : $('src-headers')).focus();
+}
+function srcTab(tab){
+  srcOf.tab = tab;
+  srcDlg.querySelectorAll('[data-src]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.src === tab)));
+  $('src-text').hidden = tab !== 'source';
+  $('src-headers').hidden = tab !== 'headers';
+  $('src-title').textContent = tab === 'source' ? t('Message source') : t('All headers');
+}
+srcDlg.addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b || !srcOf) return;
+  if (b.dataset.src){ srcTab(b.dataset.src); return; }
+  if (b.id === 'src-close') srcDlg.close();
+  if (b.id === 'src-save') saveMessages([srcOf.id]);
+  if (b.id === 'src-copy'){
+    const text = srcOf.tab === 'source' ? srcOf.source.text : srcOf.source.headers.map(h => `${h.name}: ${h.value}`).join('\n');
+    say(await copyText(text) ? (srcOf.tab === 'source' ? t('Source copied.') : t('Headers copied.')) : t('Couldn’t copy to the clipboard.'), 3000);
+  }
+});
+srcDlg.addEventListener('close', () => { srcOf = null; if (!VIEWER) listEl.focus({preventScroll:true}); });
 async function copyLink(info){
   if (!info) return;
   if (await copyText(info.href)) say(t('Link address copied.'), 2500);
@@ -2166,6 +2279,8 @@ const flagTip = m => m.flagged ? t('Remove the flag (F)') : t('Flag (F)');
 const flagButton = m => `<button type="button" class="pbtn pflag" data-act="flag" aria-pressed="${!!m.flagged}" title="${esc(flagTip(m))}" aria-label="${esc(flagTip(m))}">${I.flag}</button>`;
 // Copy as Markdown, like Ctrl+C: the message ready to paste into notes or an AI chat.
 const mdButton = () => `<button type="button" class="pbtn" data-act="markdown" title="${esc(t('Copy as Markdown (Ctrl+C)'))}" aria-label="${esc(t('Copy as Markdown (Ctrl+C)'))}">${I.copy}</button>`;
+// Save as, print, save as PDF, the source and all headers, in a menu.
+const outButton = () => `<button type="button" class="pbtn" data-act="out" aria-haspopup="menu" title="${esc(t('Save, print, source'))}" aria-label="${esc(t('Save, print, source'))}">${I.dots}</button>`;
 function paintReadButton(){
   const b = previewEl.querySelector('[data-act="read"]'), m = current();
   if (!b || !m) return;
@@ -2244,7 +2359,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${mdButton()}${paper}${views}`)}
+${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${mdButton()}${outButton()}${paper}${views}`)}
 ${riskHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
@@ -2298,6 +2413,7 @@ previewEl.addEventListener('click', async e => {
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
   if (act.dataset.act === 'markdown' && m){ copyMarkdown([m.id]); return; }
+  if (act.dataset.act === 'out' && m){ const r = act.getBoundingClientRect(); openMenu(r.left, r.bottom + 2, outItems(m.id), act); return; }
   if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
   if (act.dataset.act === 'flag' && m){ setFlagged(m, !m.flagged); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
@@ -5769,6 +5885,8 @@ const HELP_KEYS = [
     ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],
   [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
     ['Ctrl+A', N_('the whole list')], ['Ctrl+C', N_('copy as Markdown, for notes or an AI chat')], ['Esc', N_('just the one message again')]]],
+  [N_('Keep|help'), [['Ctrl+S', N_('save as .eml files, as they came')], ['Ctrl+P', N_('print, or save as PDF from the … above the message')],
+    ['Ctrl+U', N_('the message’s source and all its headers')]]],
   [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
     ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
   [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
@@ -5781,6 +5899,7 @@ const HELP_TIPS = [
   N_('Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Dates and the Size column: right-click the headings, or Settings › Appearance.'),
   N_('Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.'),
   N_('Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.'),
+  N_('Drag messages out of the window onto the desktop or into a folder: they land there as .eml files.'),
   N_('Folders on this PC keep mail only here, off the server. Right-click one to name it, save it as mbox or bring mail in.'),
   N_('Drop .eml or mbox files on a folder on this PC to bring that mail in.'),
   N_('Shift+click selects a range, Ctrl+click one more message.'),
@@ -5837,6 +5956,14 @@ function onKey(e){
   if (mod && ['=', '+', '-', '0'].includes(e.key)){ e.preventDefault(); stepTextSize(e.key === '0' ? 0 : e.key === '-' ? -1 : 1); return; }
   if (document.querySelector('dialog[open]')) return; // dialogs handle their own Enter and Esc
   if (mod && e.key === ','){ e.preventDefault(); openSettings(); return; }
+  // Ctrl+S, Ctrl+P, Ctrl+U: save as .eml, print, the source; in the search box too, never the
+  // webview's own. Compose keeps them (Ctrl+U underlines).
+  if (mod && !e.shiftKey && !state.compose && ['s', 'p', 'u'].includes(e.key.toLowerCase())){
+    e.preventDefault();
+    const k = e.key.toLowerCase();
+    if (k === 's') saveMessages(); else if (k === 'p') printMessage(); else showSource();
+    return;
+  }
   const tg = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
   if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }

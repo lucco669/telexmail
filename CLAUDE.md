@@ -97,6 +97,9 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      signature and templates: recipients, subject, quoted text.
   src/markdown.rs    Messages as Markdown for the clipboard (Copy as Markdown): a heading, who and
                      when as a list, the text (HTML-only mail through html::received_text).
+  src/export.rs      A whole message out: .eml file names from the subject (several into one
+                     folder, numbered), its source as text (each part's charset) and all headers
+                     decoded, a document to print or save as PDF (header, then HTML or text).
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
                      the domain's autoconfig file, SRV and MX records (Windows' resolver;
@@ -117,6 +120,9 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
                      to attach; only files chosen this way can be sent. Drag and drop events.
   src/folders.rs     Folders on this PC (make, rename, remove), a folder saved as mbox, mail
                      files read into one (dialogs, "import-progress" events).
+  src/export.rs      Messages saved as .eml (Save, a folder picker), dragged out as .eml files,
+                     printed or saved as PDF, their source; native.rs does the system's part:
+                     WebView2's PrintToPdf, and the drag (the shell's on Windows, GTK's on Linux).
   src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
                      bringing accounts (passwords saved, a first login each), mail and filters.
   src/away.rs        The away reply's commands: reading, and saving (onto the server or not).
@@ -195,6 +201,11 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
 | `save_attachment`| `id`, `index`, `words`       | the path saved to, or null (cancelled); opens Save |
 | `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
+| `save_messages`  | `ids`, `words` `{title, filter}` | the file (one: Save) or folder (several: a folder picker) written, or null; .eml byte for byte, named from the subject, numbered, never over a file |
+| `drag_out`       | `ids`                        | true when dropped somewhere else than Telex: .eml files under `%TEMP%\Telex\drag\` handed to the system's drag (called once the list's drag passes the window's edge) |
+| `message_source` | `id`                         | `{text, cut, bytes, headers: [{name, value}]}`: the raw message as text (each part's charset, the first MB), the header fields unfolded and decoded |
+| `print_document` | `id`, `html`, `loadImages`   | a document of the message for print (header, then its HTML cleaned or its text; images as `get_html` loads them), styles under `.tp` for a shadow root |
+| `save_pdf`       | `id`, `words` `{title, filter}` | `{saved: path}`, `cancelled`, or `print_dialog` (no PDF of its own here: Linux); writes the window's print layout through WebView2's PrintToPdf |
 | `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
 | `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
@@ -403,7 +414,10 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+U      | mark everything in the folder read |
 | Del          | move to Trash (in Trash: press twice to delete for good, two presses of their own; holding Del counts once) |
 | M            | move to a folder: type part of its name (also one on this PC) |
-| drag         | messages onto a folder: it fills up, then takes them on release; Esc cancels, Z undoes |
+| drag         | messages onto a folder: it fills up, then takes them on release; Esc cancels, Z undoes; past the window's edge they go out as .eml files (the desktop, a folder) |
+| Ctrl+S       | save the selected messages (or the open one) as .eml files (also the message menu and the … above a message) |
+| Ctrl+P       | print the open message as it shows; Save as PDF and All headers are in the … above it |
+| Ctrl+U       | the open message's source, with a Headers tab (Copy, Save as…) |
 | G            | go to a folder: type part of its name |
 | T            | the selected message's conversation (T or Esc goes back) |
 | → / ←        | with threads on (Settings › Reading): expand / collapse the selected thread |
@@ -429,7 +443,27 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- A whole message out of Telex (no schema change; `export.rs`, src-tauri `export.rs` and `native.rs`):
+  - Save as… (Ctrl+S, the message menu, the … button above a message, the source window): one
+    message opens Save with a name from its subject (`export::file_name`, attachments.rs' safe
+    names), several a folder picker, one .eml each, numbered rather than over a file; the stored
+    `raw` byte for byte (`save_messages`).
+  - Drag out: a drag from the list that passes the window's edge becomes the system's own drag
+    of .eml files written under `%TEMP%\Telex\drag\` (emptied at start): on Windows the shell's
+    data object for the files and `SHDoDragDrop` with its default drop source (the windows crate
+    Tauri already has; the `drag` crate would have brought two older windows versions), on Linux
+    GTK's drag with file:// URIs. While it lasts the window ignores its own files dropped on it
+    (`FilesState::dragging_out`). The drag onto folders is as it was.
+  - Print… (Ctrl+P) and Save as PDF…: the core makes a document of the message (subject, From,
+    To, Cc, Bcc, Date, attachments, then the HTML cleaned as for reading on white, or the text;
+    remote images only as the reader loaded them: `print_document`); the window puts its body
+    into a shadow root in `#printout`, which only `@media print` shows, and prints the page
+    (WebView2's print preview, WebKitGTK's dialog). Save as PDF writes the same layout with
+    WebView2's `PrintToPdf` (15 mm margins, no header or footer); on Linux it opens the print
+    dialog (`save_pdf` answers `print_dialog`).
+  - View source (Ctrl+U) and All headers: a dialog with Source | Headers, Copy and Save as…; the
+    raw message as text, lines in the charset of their part (`export::source_text`, the first
+    MB), header fields unfolded and RFC 2047-decoded (`export::headers`, `message_source`).
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 

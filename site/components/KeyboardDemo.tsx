@@ -17,9 +17,10 @@ function matches(sc: Shortcut, e: KeyboardEvent) {
   });
 }
 
-// Rows whose keys would also do something in the browser (select the page, open view-source):
+// Rows whose keys would also do something in the browser (select the page, save or print it, open
+// view-source):
 // here they only light up.
-const KEEP_FROM_BROWSER = new Set(['selectall', 'format']);
+const KEEP_FROM_BROWSER = new Set(['selectall', 'format', 'saveas', 'print', 'source']);
 
 function Keys({ sc }: { sc: Shortcut }) {
   return (
