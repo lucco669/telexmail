@@ -5,7 +5,7 @@
   /* HTML mail is designed for white paper, so its canvas stays white in every theme. */
   --mail-bg:#ffffff;
   --font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
-  --font-list:"IBM Plex Sans Condensed","Segoe UI",system-ui,sans-serif;
+  --font-list:"IBM Plex Sans Condensed","IBM Plex Sans","Segoe UI",system-ui,sans-serif;
   --font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace;
   --row:20px; --row-tree:22px;
 }
@@ -14,9 +14,10 @@
 /* Fonts (Settings › Appearance; data-font on <html>, and on each card there): a face for the
    window, one for the message list and a mono one for dates, sizes and plain-text writing.
    Plex, Inter, Atkinson and Source are bundled (fonts.css); System and Classic are Windows' own, with
-   the system's faces standing in elsewhere. Elements that set a face of their own read these
+   the system's faces standing in elsewhere. Plex Sans draws the Cyrillic Plex Sans Condensed
+   lacks. Elements that set a face of their own read these
    variables, so a card shows its set whatever the window uses. */
-[data-font="plex"]{--font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"IBM Plex Sans Condensed","Segoe UI",system-ui,sans-serif;--font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace}
+[data-font="plex"]{--font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"IBM Plex Sans Condensed","IBM Plex Sans","Segoe UI",system-ui,sans-serif;--font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace}
 [data-font="system"]{--font-ui:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"Segoe UI Variable Small","Segoe UI",system-ui,sans-serif;--font-data:"Cascadia Mono",Consolas,ui-monospace,monospace}
 [data-font="classic"]{--font-ui:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-list:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-data:Consolas,"Lucida Console","DejaVu Sans Mono",monospace}
 [data-font="inter"]{--font-ui:Inter,"Segoe UI",system-ui,sans-serif;--font-list:Inter,"Segoe UI",system-ui,sans-serif;--font-data:"JetBrains Mono",Consolas,ui-monospace,monospace}

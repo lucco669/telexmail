@@ -151,8 +151,10 @@ ui/                  The interface. index.html + styles.css + app.js, no build s
                      (and writes the <script> of a language in i18n/, so it is there at once).
   links.js           A link's real destination, hidden characters made visible (no network).
   fonts/             IBM Plex, Inter, JetBrains Mono, Atkinson Hyperlegible Next and Mono, Source Sans 3
-                     and Source Code Pro (OFL, from @fontsource; latin and latin-ext) bundled so the
-                     app works offline; fonts.css (the Source files stand in for heavier weights).
+                     and Source Code Pro (OFL, from @fontsource 5.3.0; latin, latin-ext and, except
+                     Atkinson and Plex Sans Condensed, cyrillic) bundled so the app works offline;
+                     fonts.css (unicode-range: a subset loads only when its letters show; the Source
+                     files stand in for heavier weights). Cyrillic in Atkinson falls back to Segoe UI.
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
                      an English demo mailbox (site/scripts/demo-mailbox.json) via `npm run screens`;
@@ -473,7 +475,12 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   dictionaries can be fetched for spelling. Dates and numbers in the UI follow the language
   (`I18n.locale()`, `dateSep()`). The core's refused-change sentences are whole sentences per
   change, and rule notes name special folders as the interface does (`FolderKind::shown_name`).
-  The bundled fonts have no Cyrillic: Ukrainian shows in the system's face.
+- Cyrillic in the bundled fonts (no schema change): @fontsource 5.3.0's cyrillic subset (U+0400–045F
+  with Ґ ґ, Ұ ұ, №) of Plex Sans and Mono, Inter, JetBrains Mono, Source Sans 3 and Source Code Pro,
+  16 files, 142 KB, loaded only when Cyrillic is on screen (unicode-range). Plex Sans Condensed has
+  none, so the list's Plex stack goes on to Plex Sans; Atkinson Next and Mono have none either, so
+  their Cyrillic is Segoe UI and Consolas. ₴ and the cyrillic-ext letters (Kazakh, Abkhaz, old
+  Slavonic) aren't bundled (another 115 KB) and show in the system's face.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
