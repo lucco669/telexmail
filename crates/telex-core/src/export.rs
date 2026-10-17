@@ -483,6 +483,7 @@ mod tests {
             body: "Dzień dobry,\r\n\r\n<b>nie pogrubione</b>\r\n".into(),
             message_id: None,
             refs: Vec::new(),
+            tags: Vec::new(),
         }
     }
 

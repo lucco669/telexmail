@@ -41,6 +41,7 @@ pub mod spam;
 pub mod spell;
 pub mod store;
 pub mod unsubscribe;
+pub mod tags;
 pub mod usage;
 pub mod vcard;
 

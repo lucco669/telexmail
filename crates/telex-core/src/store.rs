@@ -41,6 +41,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/017_server_drafts.sql"),
     include_str!("migrations/018_invites.sql"),
     include_str!("migrations/019_address_book.sql"),
+    include_str!("migrations/020_tags.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -194,11 +195,26 @@ pub struct SyncedMessage {
     pub raw: Vec<u8>,
 }
 
+/// What the server says about a message stored here: \Seen, \Flagged and its keywords
+/// (lowercase; all of them, `refresh_flags` keeps the tags).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServerFlags {
+    pub uid: u32,
+    pub seen: bool,
+    pub flagged: bool,
+    pub keywords: Vec<String>,
+}
+
 /// What a queued change does on the server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChangeKind {
     Seen(bool),
     Flagged(bool),
+    /// Add (true) or take off (false) a keyword: a tag (`tags.rs`).
+    Keyword {
+        keyword: String,
+        on: bool,
+    },
     /// Move to this folder key of the same account.
     Move(String),
     /// Remove for good (Del in Trash).
@@ -772,6 +788,7 @@ impl MailStore {
             size_kb: size_kb.max(1),
             unread: false,
             flagged: false,
+            tags: Vec::new(),
             remote_images: false,
             note: None,
             attachments,
@@ -1164,9 +1181,19 @@ impl MailStore {
     /// Messages as Markdown, oldest first (`markdown.rs`): what Copy as Markdown puts on the
     /// clipboard. Changes nothing, not even the read state.
     pub fn markdown(&self, ids: &[MessageId]) -> Result<String, StoreError> {
+        let tags = self.tags()?;
         let mut all = ids
             .iter()
-            .map(|&id| Ok((self.get(id)?, self.raw_of(id)?)))
+            .map(|&id| {
+                let mut m = self.get(id)?;
+                // Markdown names the tags; their keywords mean nothing to a reader.
+                m.tags = tags
+                    .iter()
+                    .filter(|t| m.tags.contains(&t.keyword))
+                    .map(|t| t.name.clone())
+                    .collect();
+                Ok((m, self.raw_of(id)?))
+            })
             .collect::<Result<Vec<_>, StoreError>>()?;
         all.sort_by_key(|(m, _)| (m.date, m.id));
         Ok(crate::markdown::messages(
@@ -1443,6 +1470,28 @@ impl MailStore {
     /// Add a rule (id 0, at the end) or update one. It is checked first.
     pub fn save_rule(&mut self, rule: &Rule) -> Result<Rule, StoreError> {
         rule.check(&self.accounts).map_err(StoreError::Invalid)?;
+        let tags = self.tag_keywords()?;
+        let tag_actions = rule.actions.iter().filter_map(|a| match a {
+            Action::AddTag { tag } | Action::RemoveTag { tag } => Some(tag),
+            _ => None,
+        });
+        let tag_conditions = rule
+            .conditions
+            .iter()
+            .filter(|c| {
+                c.field == crate::filters::Field::Tag
+                    && !matches!(
+                        c.op,
+                        crate::filters::Op::Exists | crate::filters::Op::NotExists
+                    )
+            })
+            .map(|c| &c.value);
+        if tag_actions.chain(tag_conditions).any(|t| !tags.contains(t)) {
+            return Err(StoreError::Invalid(tr!(
+                "Pick a tag that exists.",
+                "Wybierz istniejącą etykietę."
+            )));
+        }
         let not_json = |e: serde_json::Error| StoreError::Database(e.to_string());
         let conditions = serde_json::to_string(&rule.conditions).map_err(not_json)?;
         let actions = serde_json::to_string(&rule.actions).map_err(not_json)?;
@@ -2152,32 +2201,47 @@ impl MailStore {
         Ok(gone.len())
     }
 
-    /// Take read state and flags from the server, `(uid, seen, flagged)` per message,
-    /// except where a local change is still queued: that one wins. Returns how many changed.
+    /// Take read state, flags and tags from the server, except where a local change is still
+    /// queued: that one wins (for tags, keyword by keyword). Keywords that aren't tags here
+    /// are left out; an account whose server can't keep them keeps its tags as they are.
+    /// Returns how many changed.
     pub fn refresh_flags(
         &mut self,
         folder_key: &str,
-        flags: &[(u32, bool, bool)],
+        flags: &[ServerFlags],
     ) -> Result<usize, StoreError> {
         let (Some(lo), Some(hi)) = (
-            flags.iter().map(|f| f.0).min(),
-            flags.iter().map(|f| f.0).max(),
+            flags.iter().map(|f| f.uid).min(),
+            flags.iter().map(|f| f.uid).max(),
         ) else {
             return Ok(0);
         };
+        let tags = self.tag_keywords()?;
+        let tags_here = self.tags_kept_here(account_of(folder_key))?;
         // What this PC has for those UIDs, read once; only what differs is written.
-        type Local = (i64, bool, bool, bool, bool);
+        type Local = (i64, bool, bool, bool, bool, String, Option<String>);
         let here: HashMap<u32, Local> = {
             let mut stmt = self.db.prepare_cached(
                 "SELECT uid, id, unread, flagged,
                     EXISTS (SELECT 1 FROM pending_ops WHERE message = m.id AND kind = 'seen'),
-                    EXISTS (SELECT 1 FROM pending_ops WHERE message = m.id AND kind = 'flagged')
+                    EXISTS (SELECT 1 FROM pending_ops WHERE message = m.id AND kind = 'flagged'),
+                    keywords,
+                    (SELECT group_concat(target, ' ') FROM pending_ops
+                     WHERE message = m.id AND kind = 'keyword')
                  FROM messages m WHERE srv_folder = ?1 AND uid BETWEEN ?2 AND ?3",
             )?;
             let rows = stmt.query_map(params![folder_key, lo, hi], |r| {
                 Ok((
                     r.get(0)?,
-                    (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?),
+                    (
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                        r.get(7)?,
+                    ),
                 ))
             })?;
             rows.collect::<Result<_, _>>()?
@@ -2189,17 +2253,31 @@ impl MailStore {
                 tx.prepare_cached("UPDATE messages SET unread = ?2 WHERE id = ?1")?;
             let mut set_flagged =
                 tx.prepare_cached("UPDATE messages SET flagged = ?2 WHERE id = ?1")?;
-            for &(uid, seen, flagged) in flags {
-                let Some(&(id, unread, was_flagged, seen_queued, flag_queued)) = here.get(&uid)
+            let mut set_keywords =
+                tx.prepare_cached("UPDATE messages SET keywords = ?2 WHERE id = ?1")?;
+            for f in flags {
+                let Some((id, unread, was_flagged, seen_queued, flag_queued, keywords, queued)) =
+                    here.get(&f.uid)
                 else {
                     continue;
                 };
                 // A local change still queued wins over the server's.
-                if unread == seen && !seen_queued {
-                    changed += set_unread.execute(params![id, !seen])?;
+                if *unread == f.seen && !seen_queued {
+                    changed += set_unread.execute(params![id, !f.seen])?;
                 }
-                if was_flagged != flagged && !flag_queued {
-                    changed += set_flagged.execute(params![id, flagged])?;
+                if *was_flagged != f.flagged && !flag_queued {
+                    changed += set_flagged.execute(params![id, f.flagged])?;
+                }
+                if !tags_here {
+                    let merged = crate::tags::merge(
+                        keywords,
+                        &f.keywords,
+                        queued.as_deref().unwrap_or_default(),
+                        &tags,
+                    );
+                    if &merged != keywords {
+                        changed += set_keywords.execute(params![id, merged])?;
+                    }
                 }
             }
         }
@@ -2217,6 +2295,7 @@ impl MailStore {
     ) -> Result<Vec<MessageId>, StoreError> {
         let account = self.check_folder(folder_key)?;
         let folder = &folder_key[account.len() + 1..];
+        let tags = self.tag_keywords()?;
         let tx = self.db.transaction()?;
         let mut ids = Vec::new();
         for item in batch {
@@ -2246,14 +2325,18 @@ impl MailStore {
                         params![item.uid, id],
                     )?;
                 }
-                None => ids.push(insert_message(
-                    &tx,
-                    folder_key,
-                    Some(folder_key),
-                    &item.message,
-                    Some(item.uid),
-                    Some(&item.raw),
-                )?),
+                None => {
+                    let mut message = item.message.clone();
+                    message.tags = crate::tags::only_tags(&message.tags, &tags);
+                    ids.push(insert_message(
+                        &tx,
+                        folder_key,
+                        Some(folder_key),
+                        &message,
+                        Some(item.uid),
+                        Some(&item.raw),
+                    )?);
+                }
             }
         }
         if let Some(max) = batch.iter().map(|m| m.uid).max() {
@@ -2304,6 +2387,12 @@ impl MailStore {
             let kind = match r.get::<_, String>(2)?.as_str() {
                 "seen" => Some(ChangeKind::Seen(value.unwrap_or_default())),
                 "flagged" => Some(ChangeKind::Flagged(value.unwrap_or_default())),
+                "keyword" => r
+                    .get::<_, Option<String>>(4)?
+                    .map(|keyword| ChangeKind::Keyword {
+                        keyword,
+                        on: value.unwrap_or_default(),
+                    }),
                 "move" => r.get::<_, Option<String>>(4)?.map(ChangeKind::Move),
                 "expunge" => Some(ChangeKind::Expunge),
                 "append" => {
@@ -2695,11 +2784,12 @@ fn to_this_pc(
     srv_folder: Option<&str>,
     folder: &str,
 ) -> Result<(), StoreError> {
-    let (uid, message_id, subject): (Option<u32>, Option<String>, String) = db.query_row(
-        "SELECT uid, message_id, subject FROM messages WHERE id = ?1",
-        [id as i64],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-    )?;
+    let (uid, message_id, subject, keywords): (Option<u32>, Option<String>, String, String) = db
+        .query_row(
+            "SELECT uid, message_id, subject, keywords FROM messages WHERE id = ?1",
+            [id as i64],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )?;
     db.execute("DELETE FROM pending_ops WHERE message = ?1", [id as i64])?;
     db.execute("DELETE FROM outbox WHERE message = ?1", [id as i64])?;
     db.execute(
@@ -2707,11 +2797,13 @@ fn to_this_pc(
         params![folder, id as i64],
     )?;
     if let Some(srv) = srv_folder {
+        // `target` remembers the tags the server copy has, should the message come back.
         if uid.is_some() || message_id.is_some() {
             db.execute(
-                "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject, origin)
-                 VALUES (?1, 'expunge', ?2, ?3, ?4, ?5, ?6)",
-                params![account_of(srv), srv, uid, message_id, subject, id as i64],
+                "INSERT INTO pending_ops (account, kind, srv_folder, uid, message_id, subject, origin,
+                     target)
+                 VALUES (?1, 'expunge', ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![account_of(srv), srv, uid, message_id, subject, id as i64, keywords],
             )?;
         }
     }
@@ -2731,12 +2823,12 @@ fn from_this_pc(
     on_server: bool,
     draft: bool,
 ) -> Result<(), StoreError> {
-    let queued: Option<(i64, String, Option<u32>)> = db
+    let queued: Option<(i64, String, Option<u32>, Option<String>)> = db
         .query_row(
-            "SELECT id, srv_folder, uid FROM pending_ops
+            "SELECT id, srv_folder, uid, target FROM pending_ops
              WHERE kind = 'expunge' AND origin = ?1 AND account = ?2 ORDER BY id DESC LIMIT 1",
             params![id as i64, account],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
     let (unread, flagged): (bool, bool) = db.query_row(
@@ -2753,7 +2845,7 @@ fn from_this_pc(
         params![folder, id as i64],
     )?;
     let queue = "INSERT INTO pending_ops (account, message, kind, value, target) VALUES (?1, ?2, ?3, ?4, ?5)";
-    if let Some((op, srv, uid)) = queued {
+    if let Some((op, srv, uid, had)) = queued {
         db.execute("DELETE FROM pending_ops WHERE id = ?1", [op])?;
         set_server_location(db, id, &srv, uid)?;
         if srv != folder {
@@ -2770,6 +2862,22 @@ fn from_this_pc(
             queue,
             params![account, id as i64, "flagged", flagged, None::<String>],
         )?;
+        // The server copy has the tags it had when it left: what changed since goes up.
+        let keywords: String = db.query_row(
+            "SELECT keywords FROM messages WHERE id = ?1",
+            [id as i64],
+            |r| r.get(0),
+        )?;
+        let had = had.unwrap_or_default();
+        let (had, has): (Vec<&str>, Vec<&str>) = (
+            had.split_whitespace().collect(),
+            keywords.split_whitespace().collect(),
+        );
+        let added = has.iter().filter(|k| !had.contains(k)).map(|k| (k, true));
+        let taken = had.iter().filter(|k| !has.contains(k)).map(|k| (k, false));
+        for (keyword, on) in added.chain(taken) {
+            db.execute(queue, params![account, id as i64, "keyword", on, keyword])?;
+        }
     } else if on_server {
         let flags =
             i64::from(!unread) | i64::from(flagged) << 1 | if draft { APPEND_DRAFT } else { 0 };
@@ -2859,7 +2967,7 @@ pub(crate) const SUMMARY_COLUMNS: &str =
     "id, folder, from_name, from_email, to_addr, subject, date, \
      size_kb, unread, flagged, attachments <> '[]', \
      CASE WHEN folder GLOB '*/outbox' THEN \
-     (SELECT o.send_after FROM outbox o WHERE o.message = messages.id AND NOT o.refused) END";
+     (SELECT o.send_after FROM outbox o WHERE o.message = messages.id AND NOT o.refused) END, keywords";
 
 pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> {
     Ok(MessageSummary {
@@ -2875,13 +2983,14 @@ pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> 
         flagged: r.get(9)?,
         has_attachments: r.get(10)?,
         goes: r.get(11)?,
+        tags: crate::tags::split(&r.get::<_, String>(12)?),
         thread: None,
     })
 }
 
 const MESSAGE_COLUMNS: &str = "m.id, m.folder, m.from_name, m.from_email, m.to_addr, m.cc, \
      m.subject, m.date, m.size_kb, m.unread, m.flagged, m.remote_images, m.note, m.attachments, \
-     COALESCE(c.body, ''), m.message_id, m.bcc, m.refs";
+     COALESCE(c.body, ''), m.message_id, m.bcc, m.refs, m.keywords";
 
 fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
     let attachments: String = r.get(13)?;
@@ -2898,6 +3007,7 @@ fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
         size_kb: r.get(8)?,
         unread: r.get(9)?,
         flagged: r.get(10)?,
+        tags: crate::tags::split(&r.get::<_, String>(18)?),
         remote_images: r.get(11)?,
         note: r.get(12)?,
         attachments: serde_json::from_str(&attachments).unwrap_or_default(),
@@ -3130,8 +3240,10 @@ pub(crate) fn insert_message(
         serde_json::to_string(&m.attachments).map_err(|e| StoreError::Database(e.to_string()))?;
     db.prepare_cached(
         "INSERT INTO messages (folder, srv_folder, uid, message_id, from_name, from_email, to_addr,
-             cc, subject, date, size_kb, unread, flagged, remote_images, note, attachments, bcc, refs)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+             cc, subject, date, size_kb, unread, flagged, remote_images, note, attachments, bcc, refs,
+             keywords)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+             ?19)",
     )?
     .execute(params![
         folder,
@@ -3152,6 +3264,7 @@ pub(crate) fn insert_message(
         attachments,
         m.bcc,
         m.refs.join(" "),
+        crate::tags::join(&m.tags),
     ])?;
     let id = db.last_insert_rowid();
     // The text goes in second: its trigger indexes it together with the summary.

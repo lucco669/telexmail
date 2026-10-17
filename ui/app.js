@@ -65,6 +65,7 @@ const I = {
   copy: sv('<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 3.5v-.3a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v6.6a.7.7 0 00.7.7h.3"/>'),
   spell: sv('<path d="M1.8 11.5L4.3 4l2.5 7.5M2.6 9h3.4"/><path d="M8.8 9.6l2 2 3.6-4.6"/>'),
   dots: sv('<circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/>'),
+  tag: sv('<path d="M2.5 2.5h5.3l5.7 5.7-5.3 5.3-5.7-5.7z"/><circle cx="5.4" cy="5.4" r="1"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder', unread:'unread'};
 // Special folders have a name in the interface's language, whatever the server calls them.
@@ -77,6 +78,9 @@ let PROBLEMS = {}; // account id -> why its last check failed (kept by the core 
 let AWAY = []; // the away replies that are on: [{account, place, starts, ends}]
 let USAGE = null; // the last answer of `usage`, for the Usage tab
 let QUOTA = {}, SYNCED = {}; // account id -> its storage on the server; when its last check worked
+// Tags (tags.rs), in the window's order, with how many messages carry each; the accounts whose
+// server can't keep them, so they stay on this PC.
+let TAGS = [], TAGS_HERE = [];
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -89,7 +93,7 @@ function parseDate(s){
 const fromSummary = s => ({
   id:s.id, f:s.folder, from:s.from_name, email:s.from_email, to:s.to, subj:s.subject,
   date:parseDate(s.date), kb:s.size_kb, unread:s.unread, flagged:s.flagged, hasAtt:s.has_attachments,
-  thread:s.thread ?? null, goes:s.goes ? parseDate(s.goes) : null,
+  thread:s.thread ?? null, goes:s.goes ? parseDate(s.goes) : null, tags:s.tags ?? [],
 });
 // Accounts, folders and how many messages each folder holds (the core counts them).
 async function loadTree(){
@@ -100,6 +104,7 @@ async function loadTree(){
   PROBLEMS = t.problems ?? {};
   AWAY = t.away ?? [];
   QUOTA = t.quota ?? {}; SYNCED = t.synced ?? {};
+  TAGS = t.tags ?? []; TAGS_HERE = t.tags_here ?? [];
   INITIALS = initialsOf(servers());
   try { SAVED_SEARCHES = await invoke('list_saved_searches'); } catch { SAVED_SEARCHES = []; }
 }
@@ -125,7 +130,7 @@ const tr = e => String(e);
 // save_outgoing: a saved draft goes to the server's Drafts (autosaves stay here).
 const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'save_outgoing', 'run_rules',
   'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read', 'mark_spam',
-  'send_now', 'unsubscribe']);
+  'send_now', 'unsubscribe', 'set_tag_many', 'delete_tag']);
 async function call(cmd, args){
   try {
     const result = await invoke(cmd, args);
@@ -385,6 +390,8 @@ function relabel(){
   if (!helpPop.hidden) renderHelp();
   if (!state.compose) renderPreview(); else { readCompose(); renderCompose(); }
   if (rdlg.open){ if (!$('r-list-view').hidden) showRuleList(); else { renderConditions(); renderActions(); } }
+  // Thunderbird's five tags are named in the interface's language until renamed: ask again.
+  loadTree().then(() => { drawRows(); paintTagChips(); if (sdlg.open && setTab === 'tags') renderTags(); }, () => {});
 }
 // Older versions kept these in the window; the first start with settings.json brings them over.
 async function bootSettings(){
@@ -862,12 +869,13 @@ menuEl.className = 'cmenu'; menuEl.setAttribute('role', 'menu'); menuEl.hidden =
 document.body.append(menuEl);
 let menuItems = [], menuFrom = null;
 // An item with `checked` (true or false) is a choice that is on or off, with a tick when on.
+let menuAt = [0, 0]; // where the last menu opened, for one that follows it (Tags…)
 function openMenu(x, y, items, from){
-  menuItems = items; menuFrom = from;
+  menuItems = items; menuFrom = from; menuAt = [x, y];
   const ticks = items.some(it => 'checked' in it);
   menuEl.innerHTML = items.map((it, i) => it.sep ? '<li class="msep" role="separator"></li>'
     : `<li role="${'checked' in it ? 'menuitemcheckbox' : 'menuitem'}" tabindex="-1" data-i="${i}"${'checked' in it ? ` aria-checked="${!!it.checked}"` : ''}${it.disabled ? ' aria-disabled="true"' : ''}>`
-      + `<span>${ticks ? `<i class="tick" aria-hidden="true">${it.checked ? '✓' : ''}</i>` : ''}${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
+      + `<span>${ticks ? `<i class="tick" aria-hidden="true">${it.checked ? '✓' : ''}</i>` : ''}${it.color ? `<i class="tdot t-${esc(it.color)}" aria-hidden="true"></i>` : ''}${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
   menuEl.hidden = false;
   const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
   menuEl.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + 'px';
@@ -1167,7 +1175,8 @@ function rowHtml(m, sel, hl, accounts){
   const count = head ? tn(th.count, '{n} message', '{n} messages') + (th.unread ? ', ' + tn(th.unread, '{n} unread', '{n} unread') : '') : '';
   const toggleLabel = t(expanded ? N_('Collapse thread') : N_('Expand thread'));
   const toggle = head ? `<button type="button" class="thread-toggle" data-thread="${th.id}" aria-expanded="${expanded}" aria-label="${esc(toggleLabel)}" title="${esc(toggleLabel)}">${expanded ? '▾' : '▸'}</button>` : '<span class="thread-slot" aria-hidden="true"></span>';
-  const subject = grouped() ? `<span class="thread-subject">${toggle}<span class="subject-text">${marked(m.subj, hl?.subject)}</span>${head ? `<span class="thread-count" title="${esc(count)}" aria-label="${esc(count)}">${num(th.count)}</span>` : ''}</span>` : marked(m.subj, hl?.subject);
+  const chips = m.tags?.length ? tagChips(m.tags, 3) : '';
+  const subject = grouped() ? `<span class="thread-subject">${toggle}${chips}<span class="subject-text">${marked(m.subj, hl?.subject)}</span>${head ? `<span class="thread-count" title="${esc(count)}" aria-label="${esc(count)}">${num(th.count)}</span>` : ''}</span>` : chips + marked(m.subj, hl?.subject);
   const [where, whose] = whereOf(m, accounts);
   // Mail sent later says in the Outbox when it goes.
   const goes = m.goes ? `<span class="goes">${esc(t('Goes {when}', {when:fmtGoes(m.goes)}))}</span> ` : '';
@@ -1370,7 +1379,7 @@ async function refresh({skip, arrived} = {}){
     selRow = list.rows.find(r => r.id === state.sel[selKey()]) ?? null;
     if (!selRow && !state.q.trim()){ selRow = list.rows[0] ?? null; state.sel[selKey()] = selRow?.id; }
   }
-  drawRows(); renderStatus();
+  drawRows(); renderStatus(); paintTagChips();
   // A change may have written a note on any message (rules, a refused send): read them again.
   const shown = selRow && bodies.get(selRow.id);
   bodies.clear();
@@ -1454,6 +1463,7 @@ function messageMenu(){
   const sort = [
     {label:many ? (unread ? t('Mark as unread|several') : t('Mark as read|several')) : unread ? t('Mark as unread') : t('Mark as read'), key:'U', run:toggleUnread},
     {label:flag ? t('Flag|rule action') : t('Remove the flag'), key:'F', run:toggleFlag},
+    {label:t('Tags…'), key:'1–5', run:() => openTagMenu(...menuAt)},
     {label:t('Move to…'), key:'M', run:() => openPicker('move')},
     ...(spamOk ? [inSpam ? {label:t('Not spam'), run:() => markSpam(false)} : {label:t('Mark as spam'), run:() => markSpam(true)}] : []),
     {label:trash ? t('Delete for good') : t('Move to Trash'), key:'Del', run:del},
@@ -2291,6 +2301,7 @@ function headerHtml(m, controls){
     ? `<button type="button" class="pbtn ph-ab${known ? ' known' : ''}" data-act="contact" title="${esc(bookTip)}" aria-label="${esc(bookTip)}">${known ? I.person : I.personAdd}</button>` : '';
   return `<header class="ph">
   <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${controls}</div>
+  <div class="ph-tags">${tagChips(m.tags)}</div>
   <dl class="ph-grid">
     <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}${book}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
     <dt>${esc(t('To'))}</dt><dd>${m.to ? people(m.to, named) : esc(t('(no recipient)'))}</dd>
@@ -2306,6 +2317,8 @@ const readButton = m => `<button type="button" class="pbtn" data-act="read" titl
 // The flag next to it, like F: a switch that shows the flag's color while the message has one.
 const flagTip = m => m.flagged ? t('Remove the flag (F)') : t('Flag (F)');
 const flagButton = m => `<button type="button" class="pbtn pflag" data-act="flag" aria-pressed="${!!m.flagged}" title="${esc(flagTip(m))}" aria-label="${esc(flagTip(m))}">${I.flag}</button>`;
+// Tags, like 1–5: the menu of every tag, ticked where the message has it.
+const tagButton = () => `<button type="button" class="pbtn" data-act="tags" aria-haspopup="menu" title="${esc(t('Tags (1–5)'))}" aria-label="${esc(t('Tags (1–5)'))}">${I.tag}</button>`;
 // Copy as Markdown, like Ctrl+C: the message ready to paste into notes or an AI chat.
 const mdButton = () => `<button type="button" class="pbtn" data-act="markdown" title="${esc(t('Copy as Markdown (Ctrl+C)'))}" aria-label="${esc(t('Copy as Markdown (Ctrl+C)'))}">${I.copy}</button>`;
 // Save as, print, save as PDF, the source and all headers, in a menu.
@@ -2612,7 +2625,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${unsubButton(m)}${readButton(s)}${flagButton(s)}${popout}${mdButton()}${outButton()}${paper}${views}`)}
+${headerHtml({...m, tags:s.tags ?? m.tags}, `${unsubButton(m)}${readButton(s)}${flagButton(s)}${tagButton()}${popout}${mdButton()}${outButton()}${paper}${views}`)}
 ${inviteHtml(m, spam)}
 ${riskHtml(m)}
 ${goesBar(m)}${unsubBar(m)}
@@ -2680,6 +2693,7 @@ previewEl.addEventListener('click', async e => {
   if (act.dataset.act === 'iv-people'){ act.closest('.iv-people').classList.add('open'); act.remove(); return; }
   if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
   if (act.dataset.act === 'flag' && m){ setFlagged(m, !m.flagged); return; }
+  if (act.dataset.act === 'tags' && m){ const r = act.getBoundingClientRect(); openTagMenu(r.left, r.bottom + 2, act); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
   if (act.dataset.act === 'unsub' && m && act.getAttribute('aria-disabled') !== 'true'){ startUnsubscribe(await full(m.id)); return; }
   if (act.dataset.act === 'unsub-go' && m){ unsubAsk = null; unsubscribeNow(await full(m.id)); return; }
@@ -3851,6 +3865,153 @@ function toggleUnread(){
   }
   const m = current(); if (m) setUnread(m, !m.unread);
 }
+/* ---------- tags ---------- */
+// Tags are IMAP keywords (tags.rs): the core keeps them and puts them on the server. The first
+// five have keys 1–5, which put a tag on the selection, or take it off when all of it has it.
+const TAG_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray'];
+const COLOR_NAMES = {red:N_('Red'), orange:N_('Orange'), yellow:N_('Yellow'), green:N_('Green'), teal:N_('Teal'), blue:N_('Blue'), purple:N_('Purple'), gray:N_('Gray')};
+const tagOf = k => TAGS.find(x => x.keyword === k);
+// A message's tags in the window's order as chips; in a row at most `most`, then "+n".
+function tagChips(keys, most = Infinity){
+  const tags = TAGS.filter(x => keys?.includes(x.keyword));
+  if (!tags.length) return '';
+  const shown = tags.slice(0, most), rest = tags.slice(most);
+  return `<span class="tgs">${shown.map(x => `<span class="tg t-${esc(x.color)}">${esc(x.name)}</span>`).join('')}`
+    + (rest.length ? `<span class="tg more" title="${esc(rest.map(x => x.name).join(', '))}">+${rest.length}</span>` : '') + '</span>';
+}
+// The chips above the open message, without drawing it again.
+function paintTagChips(){
+  const el = previewEl.querySelector('.ph-tags'), m = current();
+  if (el && m) el.innerHTML = tagChips(m.tags);
+}
+const tagRows = () => state.picked.size > 1 ? pickedRows() : [current()].filter(Boolean);
+function toggleTag(keyword){
+  const rows = tagRows();
+  if (rows.length) setTag(rows, keyword, !rows.every(r => r.tags?.includes(keyword)));
+}
+// A tag on messages or off, at once on screen; the core keeps it and tells the server.
+function setTag(rows, keyword, on){
+  const tag = tagOf(keyword);
+  if (!tag) return;
+  const ids = state.picked.size > 1 ? chosen() : rows.map(r => r.id), n = ids.length;
+  const before = new Map(rows.map(r => [r.id, r.tags ?? []]));
+  const show = r => {
+    const tags = before.get(r.id).filter(k => k !== keyword);
+    if (on) tags.push(keyword);
+    return tags.sort();
+  };
+  const paint = get => { for (const r of rows){ patch(r.id, {tags:get(r)}); const b = bodies.get(r.id); if (b) b.tags = get(r); } drawRows(); paintTagChips(); };
+  paint(show);
+  call('set_tag_many', {ids, keyword, on}).then(() => {
+    const name = tag.name;
+    say(n > 1 ? (on ? tn(n, 'Tagged {n} message “{name}”.', 'Tagged {n} messages “{name}”.', {n:num(n), name}) : tn(n, 'Took “{name}” off {n} message.', 'Took “{name}” off {n} messages.', {n:num(n), name}))
+      : on ? t('Tagged “{name}”.', {name}) : t('Took “{name}” off.', {name}), 2500);
+    if (n > 1) refresh(); else loadTree().catch(() => {});
+  }).catch(() => paint(r => before.get(r.id)));
+}
+// The tags of the selection, ticked where all of it has one; from the message menu or the tag
+// button above a message.
+function openTagMenu(x, y, from = listEl){
+  const rows = tagRows();
+  if (!rows.length) return;
+  const here = rows.some(r => TAGS_HERE.includes(acctId(r.f)));
+  openMenu(x, y, [
+    ...TAGS.map((x, i) => ({label:x.name, color:x.color, checked:rows.every(r => r.tags?.includes(x.keyword)), key:i < 5 ? String(i + 1) : '', run:() => toggleTag(x.keyword)})),
+    ...(TAGS.length ? [{sep:true}] : []),
+    ...(here ? [{label:t('On this account tags stay on this PC: its server can’t keep them.'), disabled:true}] : []),
+    {label:t('Manage tags…'), run:() => openSettings('tags')},
+  ], from);
+}
+
+// Settings › Tags: name, color and order; a new tag; deleting one asks first, since it comes off
+// every message, here and on the server.
+let tagEdit = {adding:false, armed:null, error:''};
+function renderTags(){
+  const el = $('s-tags');
+  if (!el) return;
+  const row = (x, i) => `<div class="srow stag" data-k="${esc(x.keyword)}">
+<span class="tkey">${i < 5 ? `<kbd>${i + 1}</kbd>` : ''}</span>
+<button type="button" class="tswatch t-${esc(x.color)}" data-tg="color" aria-haspopup="menu" title="${esc(t('Color: {color}', {color:t(COLOR_NAMES[x.color] ?? x.color)}))}" aria-label="${esc(t('Color: {color}', {color:t(COLOR_NAMES[x.color] ?? x.color)}))}"></button>
+<input class="tgname" data-tg="name" value="${esc(x.name)}" maxlength="40" spellcheck="false" autocomplete="off" aria-label="${esc(t('Tag name'))}">
+<span class="em" title="${esc(x.keyword)}">${esc(tn(x.count, '{n} message', '{n} messages', {n:num(x.count)}))}</span>
+<button type="button" class="btn icon" data-tg="up" title="${esc(t('Earlier'))}" aria-label="${esc(t('Earlier'))}"${i ? '' : ' disabled'}>↑</button>
+<button type="button" class="btn icon" data-tg="down" title="${esc(t('Later|order'))}" aria-label="${esc(t('Later|order'))}"${i < TAGS.length - 1 ? '' : ' disabled'}>↓</button>
+<button type="button" class="btn danger" data-tg="delete">${esc(tagEdit.armed === x.keyword ? t('Delete it') : t('Delete'))}</button></div>`
+    + (tagEdit.armed === x.keyword ? `<p class="dnote tarmed">${esc(x.count ? tn(x.count, 'It comes off {n} message, here and on the server.', 'It comes off {n} messages, here and on the server.', {n:num(x.count)}) : t('No message has it.'))}</p>` : '');
+  const free = TAG_COLORS.find(c => !TAGS.some(x => x.color === c)) ?? 'gray';
+  el.innerHTML = TAGS.map(row).join('') + (tagEdit.adding ? `<div class="srow stag" data-k="">
+<span class="tkey"></span><button type="button" class="tswatch t-${free}" data-tg="color" data-color="${free}" aria-haspopup="menu" aria-label="${esc(t('Color: {color}', {color:t(COLOR_NAMES[free])}))}"></button>
+<input class="tgname" id="s-tag-name" data-tg="new" maxlength="40" spellcheck="false" autocomplete="off" placeholder="${esc(t('Name of the new tag'))}" aria-label="${esc(t('Name of the new tag'))}">
+<button type="button" class="btn primary" data-tg="add">${esc(t('Add'))}</button><button type="button" class="btn" data-tg="cancel">${esc(t('Cancel'))}</button></div>` : '');
+  $('s-tag-new').hidden = tagEdit.adding;
+  $('s-tag-err').textContent = tagEdit.error;
+  const here = TAGS_HERE.map(id => ACCT[id]?.email ?? id);
+  $('s-tag-here').hidden = !here.length;
+  $('s-tag-here').textContent = here.length ? t('Tags of {accounts} stay on this PC: the server can’t keep them.', {accounts:here.join(', ')}) : '';
+}
+async function tagsChanged(){
+  tagEdit.error = '';
+  await refresh();
+  renderTags();
+}
+async function saveTag(x, changes){
+  try { await invoke('save_tag', {tag:{...x, ...changes}}); }
+  catch (e){ tagEdit.error = tr(e); renderTags(); return false; }
+  await tagsChanged();
+  return true;
+}
+async function addTag(){
+  const name = $('s-tag-name')?.value ?? '', color = $('s-tags').querySelector('[data-k=""] .tswatch')?.dataset.color ?? 'gray';
+  tagEdit.adding = false;
+  if (await saveTag({keyword:'', name, color, count:0}, {})) say(t('Tag “{name}” added.', {name:name.trim()}));
+  else { tagEdit.adding = true; renderTags(); const f = $('s-tag-name'); if (f){ f.value = name; f.focus(); } }
+}
+function colorMenu(button, x){
+  const r = button.getBoundingClientRect(), now = x?.color ?? button.dataset.color;
+  openMenu(r.left, r.bottom + 2, TAG_COLORS.map(c => ({label:t(COLOR_NAMES[c]), color:c, checked:c === now, run:() => {
+    if (x) saveTag(x, {color:c});
+    else { button.dataset.color = c; button.className = 'tswatch t-' + c; button.setAttribute('aria-label', t('Color: {color}', {color:t(COLOR_NAMES[c])})); button.focus(); }
+  }})), button);
+}
+$('s-tag-new').addEventListener('click', () => { tagEdit = {adding:true, armed:null, error:''}; renderTags(); $('s-tag-name')?.focus(); });
+$('s-tags').addEventListener('click', async e => {
+  const b = e.target.closest('[data-tg]'), row = e.target.closest('[data-k]');
+  if (!b || !row || b.tagName === 'INPUT') return;
+  const x = tagOf(row.dataset.k), act = b.dataset.tg;
+  if (act === 'color'){ colorMenu(b, x); return; }
+  if (act === 'add'){ addTag(); return; }
+  if (act === 'cancel'){ tagEdit.adding = false; renderTags(); $('s-tag-new').focus(); return; }
+  if (!x) return;
+  if (act === 'up' || act === 'down'){
+    try { await invoke('move_tag', {keyword:x.keyword, delta:act === 'up' ? -1 : 1}); } catch (err){ tagEdit.error = tr(err); renderTags(); return; }
+    await tagsChanged();
+    $('s-tags').querySelector(`[data-k="${CSS.escape(x.keyword)}"] [data-tg="${act}"]:not([disabled])`)?.focus();
+  }
+  if (act === 'delete'){
+    if (tagEdit.armed !== x.keyword){ tagEdit.armed = x.keyword; renderTags(); $('s-tags').querySelector(`[data-k="${CSS.escape(x.keyword)}"] [data-tg="delete"]`)?.focus(); return; }
+    tagEdit.armed = null;
+    let n;
+    try { n = await call('delete_tag', {keyword:x.keyword}); } catch (err){ tagEdit.error = tr(err); renderTags(); return; }
+    await tagsChanged();
+    say(n ? tn(n, 'Tag “{name}” deleted; it came off {n} message.', 'Tag “{name}” deleted; it came off {n} messages.', {n:num(n), name:x.name}) : t('Tag “{name}” deleted.', {name:x.name}));
+    $('s-tag-new').focus();
+  }
+});
+// A name is saved when it is left or Enter is pressed; Esc in it puts the old one back.
+$('s-tags').addEventListener('change', e => {
+  const row = e.target.closest('[data-k]'), x = row && tagOf(row.dataset.k);
+  if (x && e.target.dataset.tg === 'name' && e.target.value.trim() !== x.name) saveTag(x, {name:e.target.value});
+});
+$('s-tags').addEventListener('keydown', e => {
+  if (e.target.tagName !== 'INPUT') return;
+  if (e.key === 'Enter'){ e.preventDefault(); if (e.target.dataset.tg === 'new') addTag(); else e.target.blur(); }
+  else if (e.key === 'Escape'){
+    e.preventDefault(); e.stopPropagation();
+    if (e.target.dataset.tg === 'new'){ tagEdit.adding = false; renderTags(); $('s-tag-new').focus(); }
+    else { const x = tagOf(e.target.closest('[data-k]').dataset.k); e.target.value = x?.name ?? ''; }
+  }
+});
+
 // Shift+U: every message in the folder (or in the list, in all mail) read.
 async function markAllRead(){
   if (!list.total) return;
@@ -4156,7 +4317,7 @@ qEl.addEventListener('input', () => { setFilter(qEl.value); qs.at = -1; suggest(
 // (from:, or to: in Sent and Drafts). ↓ ↑ choose, Enter or a click takes one. Enter with none
 // chosen (or ↓ with none to choose) goes to the results; Esc clears the search.
 const qPop = $('q-pop');
-const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
+const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'tag:', 'is:tagged', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
 const qs = {items:[], at:-1};
 // The word the caret is in: where it starts and ends, and the word.
 function wordAtCaret(){
@@ -4175,6 +4336,10 @@ function suggest(){
     if ((key || low.length >= 2) && !OPERATORS_ALL.includes(low)){
       for (const op of OPERATORS_ALL) if (op.startsWith(low) && items.length < 4) items.push({kind:'op', text:op});
     }
+    if (key === 'tag'){
+      const typed = fold(word.slice(i + 1).replace(/"/g, ''));
+      for (const x of TAGS) if (items.length < 8 && fold(x.name).startsWith(typed)) items.push({kind:'tag', text:'tag:' + (/\s/.test(x.name) ? `"${x.name}"` : x.name), tag:x});
+    }
     const who = fold((key ? word.slice(i + 1) : word).replace(/"/g, ''));
     if ((!key || key === 'from' || key === 'to') && who.length >= 2 && RECIPS){
       const op = key || (isOut(state.folder) && !allMail() ? 'to' : 'from');
@@ -4190,6 +4355,7 @@ function suggest(){
   const row = (it, i) => {
     const body = it.kind === 'recent' ? `${I.clock}<span class="nm">${esc(it.text)}</span>`
       : it.kind === 'op' ? `${I.search}<span class="nm"><code>${esc(it.text)}</code></span><span class="em">${esc(opHint(it.text))}</span>`
+      : it.kind === 'tag' ? `<i class="tdot t-${esc(it.tag.color)}" aria-hidden="true"></i><span class="nm">${esc(it.tag.name)}</span><span class="em"><code>${esc(it.text)}</code></span>`
       : `${I.person}<span class="nm">${esc(it.name || it.email)}</span><span class="em">${esc(it.op === 'to' ? t('to {email}', {email:it.email}) : t('from {email}', {email:it.email}))}</span>`;
     return `<li role="option" id="q-opt-${i}" data-i="${i}" aria-selected="${i === qs.at}">${body}</li>`;
   };
@@ -4208,7 +4374,7 @@ function suggest(){
 // What an operator does, in a few words.
 function opHint(op){
   return {'from:':t('sender'), 'to:':t('recipient'), 'subject:':t('words in the subject'), 'is:unread':t('unread only'), 'is:read':t('read only'),
-    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
+    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'tag:':t('a tag, e.g. tag:work'), 'is:tagged':t('with any tag'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
     'before:':t('2026, 2026-09 or 15.09.2026'), 'larger:':t('size, e.g. 5m'), 'smaller:':t('size, e.g. 100k')}[op] ?? '';
 }
 function closeSuggest(){
@@ -5317,7 +5483,11 @@ const rdlg = $('rules-dlg');
 let RULES = [], rule = null; // rule: the one being edited
 // Labels are English keys, translated where they are drawn.
 const FIELDS = [['from', N_('From')], ['to', N_('To or Cc')], ['subject', N_('Subject')], ['body', N_('Text|rule field')], ['anywhere', N_('Anywhere')], ['header', N_('Header')], ['attachment_name', N_('Attachment name')], ['attachment_type', N_('Attachment type')],
-  ['received', N_('Date received')], ['size', N_('Size')], ['state', N_('Status|rule field')]];
+  ['received', N_('Date received')], ['size', N_('Size')], ['state', N_('Status|rule field')], ['tag', N_('Tag')]];
+// A condition on tags: has one (`value` its keyword), hasn't, has any, has none.
+const TAG_OPS = [['is', N_('has|tag')], ['not_contains', N_('doesn’t have|tag')], ['exists', N_('has any|tag')], ['not_exists', N_('has none|tag')]];
+const tagOptions = v => TAGS.map(x => `<option value="${esc(x.keyword)}"${x.keyword === v ? ' selected' : ''}>${esc(x.name)}</option>`).join('')
+  + (v && !tagOf(v) ? `<option value="${esc(v)}" selected>${esc(t('(deleted tag)'))}</option>` : '');
 const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contain')], ['is', N_('is')], ['starts_with', N_('starts with')], ['ends_with', N_('ends with')], ['exists', N_('exists')], ['not_exists', N_('does not exist')], ['matches', N_('matches pattern')]];
 // Date, size and status compare their own ways, each with a value to start from.
 const FACT_OPS = {received:[['older_than', N_('older than')], ['newer_than', N_('newer than')]], size:[['larger_than', N_('larger than')], ['smaller_than', N_('smaller than')]], state:[['is', N_('is')]]};
@@ -5325,13 +5495,13 @@ const FACT_START = {received:'30', size:'5m', state:'read'};
 const STATES = [['read', N_('read|rule state')], ['unread', N_('unread|rule state')], ['flagged', N_('flagged|rule state')], ['unflagged', N_('not flagged|rule state')]];
 const RULE_EVERY = [['hour', N_('Every hour')], ['day', N_('Every day')], ['week', N_('Every week')]];
 const ALL_OPS = [...OPS, ...FACT_OPS.received, ...FACT_OPS.size];
-const opsFor = field => FACT_OPS[field] ?? OPS;
+const opsFor = field => field === 'tag' ? TAG_OPS : FACT_OPS[field] ?? OPS;
 // A condition's way of comparing and value follow its field: a date takes days, not text.
 function fitCondition(c, before){
-  const ops = opsFor(c.field), kind = f => FACT_START[f] ? f : 'text';
-  if (kind(before) !== kind(c.field) || !ops.some(([o]) => o === c.op)){ c.op = ops[0][0]; c.value = FACT_START[c.field] ?? ''; }
+  const ops = opsFor(c.field), kind = f => FACT_START[f] ? f : f === 'tag' ? 'tag' : 'text';
+  if (kind(before) !== kind(c.field) || !ops.some(([o]) => o === c.op)){ c.op = ops[0][0]; c.value = FACT_START[c.field] ?? (c.field === 'tag' ? TAGS[0]?.keyword ?? '' : ''); }
 }
-const ACTIONS = [['move', N_('Move to folder')], ['copy', N_('Copy to folder')], ['forward', N_('Forward automatically')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
+const ACTIONS = [['move', N_('Move to folder')], ['copy', N_('Copy to folder')], ['forward', N_('Forward automatically')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['add_tag', N_('Add a tag')], ['remove_tag', N_('Take a tag off')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
 const labelOf = (list, v) => { const l = list.find(([k]) => k === v)?.[1]; return l ? t(l) : v; };
 const options = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(t(l))}</option>`).join('');
 // Folders a rule can move mail to: its account's own but the Outbox, by their names on the
@@ -5344,12 +5514,14 @@ const folderOptions = (list, v) => [...new Set(list.map(x => x[2]))].map(g => `<
   + list.filter(x => x[2] === g).map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('') + '</optgroup>').join('');
 
 function ruleSummary(r){
-  const conds = r.conditions.map(c => ['exists','not_exists'].includes(c.op) ? `${labelOf(FIELDS,c.field)}${c.header ? ' ' + c.header : ''} ${labelOf(OPS,c.op)}`
+  const conds = r.conditions.map(c => c.field === 'tag' ? `${labelOf(FIELDS, 'tag')} ${labelOf(TAG_OPS, c.op)}${['exists','not_exists'].includes(c.op) ? '' : ' “' + tagName(c.value) + '”'}`
+    : ['exists','not_exists'].includes(c.op) ? `${labelOf(FIELDS,c.field)}${c.header ? ' ' + c.header : ''} ${labelOf(OPS,c.op)}`
     : c.field === 'received' ? tn(+c.value || 0, '{field} {op} {n} day', '{field} {op} {n} days', {field:labelOf(FIELDS, c.field), op:labelOf(ALL_OPS, c.op)})
     : c.field === 'state' ? t('{field} {op} {value}', {field:labelOf(FIELDS, c.field), op:labelOf(ALL_OPS, c.op), value:labelOf(STATES, c.value)})
     : t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field) + (c.header ? ' ' + c.header : ''), op:labelOf(ALL_OPS, c.op), value:c.value}))
     .join(r.match_all ? t(' and ') : t(' or '));
-  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : a.type === 'copy' ? t('copy to {folder}', {folder:placeName(a.folder)}) : a.type === 'forward' ? t('forward to {to}',{to:a.to}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
+  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : a.type === 'copy' ? t('copy to {folder}', {folder:placeName(a.folder)}) : a.type === 'forward' ? t('forward to {to}',{to:a.to})
+    : a.type === 'add_tag' ? t('tag it “{name}”', {name:tagName(a.tag)}) : a.type === 'remove_tag' ? t('take “{name}” off', {name:tagName(a.tag)}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
   return t('If {conds}: {acts}.', {conds, acts}) + (r.account ? ' ' + t('{name} only.', {name:ACCT[r.account]?.email ?? r.account}) : '') + (r.stop ? ' ' + t('Then stop.') : '');
 }
 // When a rule runs, for the list: "New mail · Every day on Inbox · last run 17.10 9:00".
@@ -5409,6 +5581,7 @@ function showRuleForm(existing, start = null){
 }
 function conditionValue(c){
   if (['exists','not_exists'].includes(c.op)) return '';
+  if (c.field === 'tag') return `<select data-k="value" aria-label="${esc(t('Tag'))}">${tagOptions(c.value)}</select>`;
   if (c.field === 'state') return `<select data-k="value" aria-label="${esc(t('Status|rule field'))}">${options(STATES, c.value)}</select>`;
   if (c.field === 'received') return `<input data-k="value" type="number" min="1" max="36500" step="1" value="${esc(c.value)}" aria-label="${esc(t('Days'))}"><span class="runit">${esc(t('days|rule unit'))}</span>`;
   if (c.field === 'size') return `<input data-k="value" value="${esc(c.value)}" placeholder="500k, 5m" autocomplete="off" spellcheck="false" aria-label="${esc(t('Size'))}">`;
@@ -5457,6 +5630,8 @@ function renderActions(){
         : `<span class="none">${esc(t('Pick the rule’s account to choose a folder.'))}</span>`;
     } else if (a.type === 'auto_reply'){
       param = `<textarea data-k="body" aria-label="${esc(t('Reply text'))}" placeholder="${esc(t('Hello, I’m away until 20 October.'))}">${esc(a.body || '')}</textarea>`;
+    } else if (a.type === 'add_tag' || a.type === 'remove_tag'){
+      param = `<select data-k="tag" aria-label="${esc(t('Tag'))}">${tagOptions(a.tag)}</select>`;
     } else if (a.type === 'forward'){
       param = `<input data-k="to" value="${esc(a.to ?? '')}" aria-label="${esc(t('Forward to'))}" placeholder="${esc(t('Recipient addresses'))}" autocomplete="off" spellcheck="false">`;
     }
@@ -5472,6 +5647,7 @@ function fixAction(a){
   } else delete a.folder;
   if (a.type === 'auto_reply') a.body = a.body ?? ''; else delete a.body;
   if (a.type === 'forward') a.to = a.to ?? ''; else delete a.to;
+  if (a.type === 'add_tag' || a.type === 'remove_tag') a.tag = tagOf(a.tag) ? a.tag : TAGS[0]?.keyword ?? ''; else delete a.tag;
   return a;
 }
 $('r-conds').addEventListener('input', e => {
@@ -5482,6 +5658,7 @@ $('r-conds').addEventListener('input', e => {
     const c = rule.conditions[row.dataset.i];
     if (c.field === 'header') c.header ??= ''; else delete c.header;
     if (e.target.dataset.k === 'field') fitCondition(c, before);
+    if (c.field === 'tag' && !['exists','not_exists'].includes(c.op) && !tagOf(c.value)) c.value = TAGS[0]?.keyword ?? '';
     renderConditions();
   }
 });
@@ -5710,6 +5887,7 @@ function paneOpened(tab){
   }
   if (tab === 'read') renderTrusted();
   if (tab === 'mail') renderSpamStatus();
+  if (tab === 'tags'){ tagEdit = {adding:false, armed:null, error:''}; renderTags(); }
   if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); }
   if (tab === 'use') renderUsage();
   if (tab === 'conn') renderConnections();
@@ -5875,10 +6053,11 @@ function counted(items){
   return [[n('add'), N_('{n} new')], [n('update'), N_('{n} updated')], [n('same'), N_('{n} unchanged')], [n('skip'), N_('{n} skipped')]]
     .filter(([c]) => c).map(([c, key]) => tn(c, key, key)).join(', ');
 }
-const why = i => i.status === 'skip' ? skipText(i.skip) : i.account ?? t('All accounts');
-function planItems(items){
+const why = (i, accounts = true) => i.status === 'skip' ? skipText(i.skip) : accounts ? i.account ?? t('All accounts') : '';
+// Items of a plan or report; tags belong to no account, so `accounts` false names none.
+function planItems(items, accounts = true){
   return `<ul class="ilist">${items.map(i => `<li><span class="ist ${i.status}">${esc(t(STATUS[i.status]))}</span><span class="iname">${esc(i.name)}</span>`
-    + `<span class="iwhy" title="${esc(why(i))}">${esc(why(i))}</span></li>`).join('')}</ul>`;
+    + `<span class="iwhy" title="${esc(why(i, accounts))}">${esc(why(i, accounts))}</span></li>`).join('')}</ul>`;
 }
 function planSection(part, title, items){
   if (!items.length) return '';
@@ -5897,7 +6076,7 @@ function renderMove(){
 <p class="dnote">${esc(t('Save your settings to a file, to set up Telex on another PC or keep a copy. The file holds no passwords.'))}</p>
 <div class="sopts">
   <label class="sopt"><input type="checkbox" data-ex="settings" checked><span>${esc(t('Settings: theme, language, rows, mail checks'))}</span></label>
-  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules'))}</span>${n('rules', N_('{n} rule'), '{n} rules')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules and tags'))}</span>${n('rules', N_('{n} rule'), '{n} rules')}</label>
   <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities and signatures'))}</span>${n('identities', N_('{n} identity'), '{n} identities')}</label>
   <label class="sopt"><input type="checkbox" data-ex="servers" checked><span>${esc(t('Account servers and user names'))}</span>${n('accounts', N_('{n} account'), '{n} accounts')}</label>
 </div>
@@ -5928,6 +6107,8 @@ ${move_.exported ? `<span class="sdone">${esc(t('Saved to {path}.', {path:move_.
     r.settings ? tn(r.settings, '{n} setting changed', '{n} settings changed') : '',
     r.rules_added ? tn(r.rules_added, '{n} rule added', '{n} rules added') : '',
     r.rules_updated ? tn(r.rules_updated, '{n} rule updated', '{n} rules updated') : '',
+    r.tags_added ? tn(r.tags_added, '{n} tag added', '{n} tags added') : '',
+    r.tags_updated ? tn(r.tags_updated, '{n} tag updated', '{n} tags updated') : '',
     r.identities_added ? tn(r.identities_added, '{n} identity added', '{n} identities added') : '',
     r.identities_updated ? tn(r.identities_updated, '{n} identity updated', '{n} identities updated') : '',
   ].filter(Boolean) : [];
@@ -5935,7 +6116,7 @@ ${move_.exported ? `<span class="sdone">${esc(t('Saved to {path}.', {path:move_.
 ${made ? `<p class="dnote">${esc(t('From {made}.', {made}))}</p>` : ''}
 ${p.newer ? `<p class="whint warn">${esc(t('This file comes from a newer Telex. What this version doesn’t know is left out.'))}</p>` : ''}
 ${r ? `<p class="whint">${esc(doneLines.length ? doneLines.join(', ') + '.' : t('Nothing needed changing.'))}</p>` + (r.problems.length ? `<p class="derr">${esc(r.problems.map(tr).join(' · '))}</p>` : '') : ''}
-${r ? accounts : settings + planSection('rules', t('Rules'), p.rules) + planSection('identities', t('Identities and signatures'), p.identities) + accounts}
+${r ? accounts : settings + planSection('rules', t('Rules and tags'), [...p.rules, ...(p.tags ?? []).map(i => ({...i, account:t('Tag')}))]) + planSection('identities', t('Identities and signatures'), p.identities) + accounts}
 <p class="derr" role="alert">${esc(move_.error)}</p>
 <div class="sbtns">${r ? `<button class="btn" type="button" id="s-back">${esc(t('Done'))}</button>`
   : `<button class="btn primary" type="button" id="s-apply">${esc(t('Import'))}</button><button class="btn" type="button" id="s-back">${esc(t('Cancel'))}</button>`}</div>`;
@@ -5998,7 +6179,7 @@ $('s-move').addEventListener('click', async e => {
     catch (err){ move_.error = importError(err); renderMove(); return; }
     if (!plan) return; // cancelled
     const doable = items => items.some(i => i.status === 'add' || i.status === 'update');
-    move_ = {...move_, plan, report:null, choice:{settings:plan.settings.length > 0, rules:doable(plan.rules), identities:doable(plan.identities)}};
+    move_ = {...move_, plan, report:null, choice:{settings:plan.settings.length > 0, rules:doable(plan.rules) || doable(plan.tags ?? []), identities:doable(plan.identities)}};
     renderMove();
     ($('s-apply') ?? $('s-back'))?.focus();
   } else if (b.id === 's-apply'){
@@ -6044,6 +6225,7 @@ function sourceSummary(s){
   return [s.accounts.length ? tn(s.accounts.length, '{n} account', '{n} accounts') : '',
     s.folders.length ? t('{size} of mail', {size:fmtSize(Math.ceil(mail / 1024))}) : '',
     s.filters ? tn(s.filters, '{n} filter', '{n} filters') : '',
+    s.tags?.length ? tn(s.tags.length, '{n} tag', '{n} tags') : '',
     s.books?.length ? tn(s.books.length, '{n} address book', '{n} address books') : ''].filter(Boolean).join(' · ');
 }
 function openMoveIn(path){
@@ -6055,7 +6237,7 @@ function chooseSource(s){
   moveIn = {...moveIn, source:s, report:null, running:null, error:'', passwords:{}, choice:{
     accounts:new Set(s.accounts.filter(canAdd).map(a => a.key)),
     folders:new Set(s.folders.filter(f => f.tick).map(f => f.key)),
-    filters:s.filters > 0,
+    filters:s.filters > 0 || s.tags?.length > 0,
     books:new Set((s.books ?? []).filter(b => b.tick).map(b => b.key))}};
   renderMove();
   sdlg.querySelector('#s-move input:not([disabled])')?.focus();
@@ -6093,10 +6275,12 @@ function renderSource(el){
   }
   if (r){
     const ok = r.accounts.filter(a => !a.error), bad = r.accounts.filter(a => a.error);
-    const made = r.rules.filter(i => i.status === 'add' || i.status === 'update').length;
+    const changed = items => (items ?? []).filter(i => i.status === 'add' || i.status === 'update').length;
+    const made = changed(r.rules), tagged = changed(r.tags);
     const lines = [ok.length ? tn(ok.length, '{n} account added', '{n} accounts added') : '',
       r.mail.added ? tn(r.mail.added, '{n} message in folders on this PC', '{n} messages in folders on this PC', {n:num(r.mail.added)}) : '',
       r.mail.already ? tn(r.mail.already, '{n} was here already', '{n} were here already', {n:num(r.mail.already)}) : '',
+      tagged ? tn(tagged, '{n} tag', '{n} tags') : '',
       made ? tn(made, '{n} rule', '{n} rules') : '',
       r.contacts?.added ? tn(r.contacts.added, '{n} new contact', '{n} new contacts', {n:num(r.contacts.added)}) : '',
       r.contacts?.updated ? tn(r.contacts.updated, '{n} contact filled in', '{n} contacts filled in', {n:num(r.contacts.updated)}) : '',
@@ -6105,9 +6289,10 @@ function renderSource(el){
       + `<ul class="ilist">${r.accounts.map(a => `<li><span class="ist ${a.error ? 'skip' : 'add'}">${esc(a.error ? t('Check|account') : t('Added|account'))}</span><span class="iname">${esc(a.email)}</span>`
       + `<span class="iwhy" title="${esc(a.error ? tr(a.error) : '')}">${esc(a.error ? tr(a.error) : '')}</span></li>`).join('')}</ul>`
       + (bad.length ? `<p class="dnote">${esc(t('Fix these in Settings › Accounts › Edit: the account is there and needs its password or servers.'))}</p>` : '') + '</section>' : '';
+    const tags = r.tags?.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Tags'))}</b><span>${esc(counted(r.tags))}</span></div>${planItems(r.tags, false)}</section>` : '';
     const rules = r.rules.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Filters'))}</b><span>${esc(counted(r.rules))}</span></div>${planItems(r.rules)}</section>` : '';
     el.innerHTML = `${title}<p class="whint">${esc(lines.length ? lines.join(', ') + '.' : t('Nothing needed bringing.'))}</p>
-${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${rules}
+${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${tags}${rules}
 <div class="sbtns"><button class="btn primary" type="button" id="mv-done">${esc(t('Done'))}</button></div>`;
     return;
   }
@@ -6125,8 +6310,13 @@ ${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join('
       `<li><label class="mvpick">${ticked(c.folders.has(f.key), `data-mv="folder" data-key="${esc(f.key)}"`)}<span class="iname">${esc(f.name)}</span></label>`
       + `<span class="iwhy">${esc([f.messages != null ? tn(f.messages, '{n} message', '{n} messages', {n:num(f.messages)}) : '', fmtSize(Math.ceil(f.bytes / 1024))].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`
     + `<p class="dnote">${esc(t('Each folder comes into a folder on this PC of the same name.'))}</p></section>` : '';
-  const filters = s.filters ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(t('Filters'))}</b><span>${esc(tn(s.filters, '{n} filter', '{n} filters'))}</span></label>`
-    + `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p></section>` : '';
+  // The tags come with the filters: filters use them, and so does the mail brought in.
+  const stags = s.tags ?? [];
+  const filters = s.filters || stags.length ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(stags.length ? t('Filters and tags') : t('Filters'))}</b>`
+    + `<span>${esc([s.filters ? tn(s.filters, '{n} filter', '{n} filters') : '', stags.length ? tn(stags.length, '{n} tag', '{n} tags') : ''].filter(Boolean).join(' · '))}</span></label>`
+    + (stags.length ? `<p class="mvtags"><span class="tgs">${stags.map(x => `<span class="tg t-${esc(x.color)}" title="${esc(x.keyword)}">${esc(x.name)}</span>`).join('')}</span></p>` : '')
+    + (s.filters ? `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p>` : '')
+    + (stags.length ? `<p class="dnote">${esc(t('Tags keep their keywords, so mail tagged there is tagged here too: on the servers and in the mail brought in.'))}</p>` : '') + '</section>' : '';
   const books = s.books?.length ? `<section class="ipart"><label class="ihead">${ticked(s.books.every(b => c.books.has(b.key)), 'data-mv="all-books"')}<b>${esc(t('Address books'))}</b><span>${esc(tn(c.books.size, '{n} ticked', '{n} ticked'))}</span></label><ul class="ilist">${s.books.map(b =>
       `<li><label class="mvpick">${ticked(c.books.has(b.key), `data-mv="book" data-key="${esc(b.key)}"`)}<span class="iname">${esc(b.name)}</span></label><span class="iwhy">${esc(tn(b.contacts, '{n} card', '{n} cards', {n:num(b.contacts)}))}</span></li>`).join('')}</ul>`
     + `<p class="dnote">${esc(t('Contacts and lists come into the address book (B); people already in it are only filled in. Thunderbird’s Collected Addresses are everyone it ever saw, so they start unticked.'))}</p></section>` : '';
@@ -6750,7 +6940,7 @@ const HELP_KEYS = [
   [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
     ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Ctrl+Shift+Enter', N_('send later: in an hour, tomorrow, Monday or when you pick')], ['Esc', N_('save as a draft and close')],
     ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or click it')]]],
-  [N_('Sort out|help'), [['F', N_('flag or unflag')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
+  [N_('Sort out|help'), [['F', N_('flag or unflag')], ['1 2 3 4 5', N_('the first five tags on or off')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
     ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
     ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],
   [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
@@ -6783,8 +6973,9 @@ const HELP_TIPS = [
   N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),
   N_('Errors and notes from rules show above the message they are about.'),
   N_('The person button by a sender adds them to the address book. Type a group’s name in To and it goes in as its people.'),
+  N_('Tags are colored labels, several to a message: Settings › Tags names and colors them. Search with tag:work or is:tagged.'),
 ];
-const OPERATORS = 'from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
+const OPERATORS = 'from: to: subject: is:unread is:flagged tag:work is:tagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
 const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/).map(k => `<kbd>${esc(k)}</kbd>`).join('+')).join(' ');
 function renderHelp(){
   helpPop.innerHTML = `<div class="hgrid">${HELP_KEYS.map(([title, rows]) => `<section class="hsec"><h3>${esc(t(title))}</h3>`
@@ -6895,6 +7086,7 @@ function onKey(e){
   else if (k === 'b') openAddressBook();
   else if (k === 't') toggleThread();
   else if (k === 'o') toggleUnreadOnly();
+  else if (/^[1-5]$/.test(k) && !shift && TAGS[Number(k) - 1]) toggleTag(TAGS[Number(k) - 1].keyword);
   else if (k === 'z') undo();
   else if (k === '/') qEl.focus();
   else if (k === '?') toggleHelp();
@@ -6940,7 +7132,7 @@ async function viewerShow(){
   try { m = await full(VIEWER); } catch { closeViewer(); return false; }
   state.folder = m.folder; state.sel[m.folder] = m.id;
   selRow = {id:m.id, f:m.folder, from:m.from_name, email:m.from_email, to:m.to, subj:m.subject, date:parseDate(m.date),
-    kb:m.size_kb, unread:m.unread, flagged:m.flagged, hasAtt:m.attachments.length > 0};
+    kb:m.size_kb, unread:m.unread, flagged:m.flagged, hasAtt:m.attachments.length > 0, tags:m.tags ?? []};
   renderStatus();
   if (!state.compose) await renderPreview();
   return true;

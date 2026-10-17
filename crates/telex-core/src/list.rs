@@ -78,7 +78,8 @@ pub struct ListView {
 /// left out.
 ///
 /// `from:` `to:` (To, Cc and Bcc) `subject:` match any part, case ignored; `is:unread`
-/// `is:read` `is:flagged` `is:unflagged`; `has:file`; `after:` and `before:` a year, month or
+/// `is:read` `is:flagged` `is:unflagged` `is:tagged` `is:untagged`; `tag:` a tag by its name
+/// (or keyword), diacritics ignored, else the tags whose name starts so; `has:file`; `after:` and `before:` a year, month or
 /// day (2026, 2026-09, 2026-09-15 or 15.09.2026: after is from its start, before is before
 /// its start); `larger:` and `smaller:` a size (500k, 5m, 1g; KB without a unit). Values with
 /// spaces go in quotes: `from:"Anna Kowalska"`.
@@ -91,6 +92,10 @@ pub struct Terms {
     pub subject: Vec<String>,
     pub unread: Option<bool>,
     pub flagged: Option<bool>,
+    /// `tag:` values, folded; each one must match.
+    pub tags: Vec<String>,
+    /// `is:tagged` (any tag), `is:untagged`.
+    pub tagged: Option<bool>,
     pub has_file: bool,
     /// "2026-09-01 00:00:00": on or after, and before.
     pub after: Option<String>,
@@ -115,6 +120,7 @@ impl Terms {
                 "from"
                     | "to"
                     | "subject"
+                    | "tag"
                     | "is"
                     | "has"
                     | "after"
@@ -136,6 +142,14 @@ impl Terms {
                 }
                 "subject" => {
                     terms.subject.push(value.to_lowercase());
+                    true
+                }
+                "tag" => {
+                    terms.tags.push(crate::filters::fold(value));
+                    true
+                }
+                "is" if matches!(value.to_ascii_lowercase().as_str(), "tagged" | "untagged") => {
+                    terms.tagged = Some(value.eq_ignore_ascii_case("tagged"));
                     true
                 }
                 "is" => {
@@ -302,6 +316,11 @@ pub struct FolderTree {
     /// for the status bar and Settings › Accounts, without working out the whole Usage tab.
     pub quota: HashMap<String, crate::usage::Quota>,
     pub synced: HashMap<String, chrono::NaiveDateTime>,
+    /// Every tag, in order, with how many messages carry it.
+    pub tags: Vec<crate::tags::Tag>,
+    /// Accounts whose server can't keep tags: they stay on this PC.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags_here: Vec<String>,
 }
 
 /// An unread message and where it is in its list: what Space goes to.
@@ -539,6 +558,26 @@ impl Query {
         matching("from_name, from_email", &terms.from);
         matching("to_addr, cc, bcc", &terms.to);
         matching("subject", &terms.subject);
+        if let Some(tagged) = terms.tagged {
+            filter.push_str(if tagged {
+                " AND keywords <> ''"
+            } else {
+                " AND keywords = ''"
+            });
+        }
+        if !terms.tags.is_empty() {
+            let tags = store.tags()?;
+            for wanted in &terms.tags {
+                let keywords = tag_keywords(&tags, wanted);
+                if keywords.is_empty() {
+                    filter.push_str(" AND 0");
+                    continue;
+                }
+                let any = vec!["instr(' ' || keywords || ' ', ?) > 0"; keywords.len()];
+                filter.push_str(&format!(" AND keywords <> '' AND ({})", any.join(" OR ")));
+                args.extend(keywords.into_iter().map(|k| Value::Text(format!(" {k} "))));
+            }
+        }
         let mut condition = |sql: &str, value: Value| {
             filter.push_str(sql);
             args.push(value);
@@ -814,6 +853,8 @@ impl MailStore {
             away,
             quota,
             synced,
+            tags: self.tags()?,
+            tags_here: self.accounts_keeping_tags_here()?,
             accounts: self.accounts().to_vec(),
             counts,
             problems,
@@ -1385,6 +1426,24 @@ impl MailStore {
     }
 }
 
+/// The keywords a `tag:` value (folded) means: the tag of that name or keyword, else the
+/// tags whose name starts so ("tag:to" is To do).
+fn tag_keywords(tags: &[crate::tags::Tag], wanted: &str) -> Vec<String> {
+    use crate::filters::fold;
+    let exact: Vec<String> = tags
+        .iter()
+        .filter(|t| fold(&t.name) == wanted || t.keyword == wanted)
+        .map(|t| t.keyword.clone())
+        .collect();
+    if !exact.is_empty() {
+        return exact;
+    }
+    tags.iter()
+        .filter(|t| fold(&t.name).starts_with(wanted))
+        .map(|t| t.keyword.clone())
+        .collect()
+}
+
 /// SQL functions the list uses to sort and filter the way the window always has:
 /// Unicode-aware lowercase, the recipient's display name, the subject without prefixes.
 pub(crate) fn register_functions(db: &Connection) -> rusqlite::Result<()> {
@@ -1554,6 +1613,7 @@ mod tests {
                             size_kb: (k % 4) as u32 + 1,
                             unread: k % 3 == 0,
                             flagged: k % 5 == 0,
+                            tags: Vec::new(),
                             remote_images: false,
                             note: None,
                             attachments: if k % 4 == 0 {
@@ -1745,6 +1805,62 @@ mod tests {
         assert_eq!(parse_kb("1,5 MB"), Some(1536));
         assert_eq!(parse_day("2026"), Some("2026-01-01 00:00:00".into()));
         assert_eq!(parse_day("09.2026"), Some("2026-09-01 00:00:00".into()));
+    }
+
+    #[test]
+    fn tags_are_found_by_name_keyword_or_the_start_of_a_name() {
+        let mut store = store(40);
+        let all = store.list("studio/inbox").unwrap();
+        let ids: Vec<MessageId> = all.iter().map(|m| m.id).collect();
+        store.set_tag_many(&ids[..6], "$label2", true).unwrap();
+        store.set_tag_many(&ids[4..9], "$label4", true).unwrap();
+        let mut store_tag = |name: &str| {
+            store
+                .save_tag(&crate::tags::Tag {
+                    keyword: String::new(),
+                    name: name.into(),
+                    color: "teal".into(),
+                    count: 0,
+                })
+                .unwrap()
+                .keyword
+        };
+        let lodz = store_tag("Łódź");
+        store.set_tag_many(&ids[20..22], &lodz, true).unwrap();
+        let count = |filter: &str| {
+            let view = ListView {
+                folder: Some("studio/inbox".into()),
+                filter: filter.into(),
+                ..Default::default()
+            };
+            crate::i18n::with(crate::i18n::Lang::En, || {
+                store.page(&view, PageAt::First, 500).unwrap().total
+            })
+        };
+        assert_eq!(count("tag:work"), 6);
+        assert_eq!(count("tag:Work"), 6);
+        assert_eq!(count("tag:$label2"), 6);
+        assert_eq!(count("tag:\"to do\""), 5);
+        assert_eq!(count("tag:to"), 5, "the start of a name");
+        assert_eq!(count("tag:work tag:to"), 2, "every tag: must match");
+        assert_eq!(count("tag:lodz"), 2, "diacritics ignored");
+        assert_eq!(count("is:tagged"), 11);
+        assert_eq!(count("is:untagged"), all.len() - 11);
+        assert_eq!(count("tag:nosuch"), 0);
+        let t = Terms::parse("tag:work is:tagged tag: faktura");
+        assert_eq!(
+            (t.tags, t.tagged, t.text.as_str()),
+            (vec!["work".to_owned()], Some(true), "faktura")
+        );
+        let polish = crate::i18n::with(crate::i18n::Lang::Pl, || {
+            let view = ListView {
+                folder: Some("studio/inbox".into()),
+                filter: "tag:praca".into(),
+                ..Default::default()
+            };
+            store.page(&view, PageAt::First, 500).unwrap().total
+        });
+        assert_eq!(polish, 6, "the names the window shows");
     }
 
     #[test]

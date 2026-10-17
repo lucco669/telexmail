@@ -37,6 +37,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
             size_kb,
             unread: true,
             flagged: false,
+            tags: Vec::new(),
             remote_images: false,
             note: Some(tr!(
                 "Telex couldn't read this message's structure.",
@@ -113,6 +114,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         size_kb,
         unread: true,
         flagged: false,
+        tags: Vec::new(),
         remote_images,
         note: None,
         attachments,

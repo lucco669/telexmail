@@ -143,6 +143,9 @@ pub enum Field {
     Size,
     /// `Is` read, unread, flagged or unflagged.
     State,
+    /// The message's tags: `value` a tag's keyword; Is (has it), NotContains (hasn't),
+    /// Exists (any tag), NotExists (none).
+    Tag,
 }
 
 impl Field {
@@ -212,6 +215,14 @@ pub enum Action {
     },
     MarkRead,
     Flag,
+    /// Add the tag with this keyword (`tags.rs`).
+    AddTag {
+        tag: String,
+    },
+    /// Take the tag with this keyword off.
+    RemoveTag {
+        tag: String,
+    },
     /// Move to Trash.
     Delete,
     /// Answer the sender with this text. New mail only.
@@ -365,6 +376,11 @@ impl Rule {
                             "Write the text of the automatic reply.",
                             "Napisz treść automatycznej odpowiedzi."
                         ));
+                    }
+                }
+                Action::AddTag { tag } | Action::RemoveTag { tag } => {
+                    if tag.trim().is_empty() {
+                        return Err(tr!("Pick the tag.", "Wybierz etykietę."));
                     }
                 }
                 Action::MarkRead | Action::Flag | Action::Delete => {}
@@ -670,6 +686,15 @@ impl Condition {
                 .unwrap_or(false);
         }
         let needle = fold(self.value.trim());
+        if self.field == Field::Tag {
+            let has = |k: &String| fold(k) == needle;
+            return match self.op {
+                Op::Exists => !m.m.tags.is_empty(),
+                Op::NotExists => m.m.tags.is_empty(),
+                Op::NotContains => !m.m.tags.iter().any(has),
+                _ => m.m.tags.iter().any(has),
+            };
+        }
         let values = m.texts(self.field, self.header.as_deref());
         let present = if matches!(
             self.field,
@@ -773,6 +798,7 @@ impl<'a> Folded<'a> {
             Field::To => Box::new(to()),
             Field::Subject => Box::new(subject()),
             Field::Body => Box::new(body()),
+            Field::Tag => Box::new(m.tags.iter()),
             Field::Anywhere => Box::new(from().chain(to()).chain(subject()).chain(body())),
             Field::Header => {
                 let headers = self.headers.get_or_init(|| {
@@ -987,6 +1013,30 @@ fn run_ready(
                         if !message.flagged {
                             store.set_flagged(id, true)?;
                             did.push(tr!("flagged it", "oznaczyła ją flagą"));
+                        }
+                    }
+                    Action::AddTag { tag } | Action::RemoveTag { tag } => {
+                        let on = matches!(action, Action::AddTag { .. });
+                        match store.tag_name(tag)? {
+                            Some(tag_name) => {
+                                if store.set_tag_many(&[id], tag, on)? > 0 {
+                                    did.push(if on {
+                                        tr!(
+                                            "tagged it {tag_name}",
+                                            "oznaczyła ją etykietą {tag_name}"
+                                        )
+                                    } else {
+                                        tr!(
+                                            "took the tag {tag_name} off it",
+                                            "zdjęła z niej etykietę {tag_name}"
+                                        )
+                                    });
+                                }
+                            }
+                            None => report.problems.push(tr!(
+                                "rule \"{name}\" uses a tag that no longer exists",
+                                "reguła „{name}” używa etykiety, której już nie ma"
+                            )),
                         }
                     }
                     Action::Move { folder } if folder != &message.folder => {
@@ -1535,6 +1585,7 @@ mod tests {
             size_kb: 1,
             unread: true,
             flagged: false,
+            tags: Vec::new(),
             remote_images: false,
             note: None,
             attachments: vec![],

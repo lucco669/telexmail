@@ -68,7 +68,7 @@
        the last check, help and the version. -->
   <footer class="status">
     <span class="st-side st-left"><span id="st-folder"></span><button class="chip" id="st-undo" type="button" hidden></button><span id="st-msg"></span></span>
-    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span class="more"><kbd>B</kbd> <span data-i18n>address book</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
+    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span class="more"><kbd>1</kbd>–<kbd>5</kbd> <span data-i18n>tags</span></span><span class="more"><kbd>B</kbd> <span data-i18n>address book</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
     <span class="st-side st-right">
       <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
       <span class="ask" id="st-count" title="Once a day Telex would send its version, the system, the language and the month it was first counted. No ID, and nothing about you or your mail." hidden data-i18n>Count this copy of Telex once a day, anonymously? <button type="button" class="linkbtn" data-count="on" data-i18n>Yes</button> <button type="button" class="linkbtn" data-count="off" data-i18n>No</button></span>
@@ -100,6 +100,7 @@
       <button type="button" role="tab" id="s-tab-accts" aria-controls="s-pane-accts" data-tab="accts" data-i18n>Accounts</button>
       <button type="button" role="tab" id="s-tab-mail" aria-controls="s-pane-mail" data-tab="mail" data-i18n>Mail</button>
       <button type="button" role="tab" id="s-tab-read" aria-controls="s-pane-read" data-tab="read" data-i18n>Reading</button>
+      <button type="button" role="tab" id="s-tab-tags" aria-controls="s-pane-tags" data-tab="tags" data-i18n>Tags</button>
       <button type="button" role="tab" id="s-tab-write" aria-controls="s-pane-write" data-tab="write" data-i18n>Writing</button>
       <button type="button" role="tab" id="s-tab-use" aria-controls="s-pane-use" data-tab="use" data-i18n>Usage</button>
       <button type="button" role="tab" id="s-tab-conn" aria-controls="s-pane-conn" data-tab="conn" data-i18n>Connections</button>
@@ -318,6 +319,17 @@
           <legend data-i18n>Remote images</legend>
           <p class="dnote" data-i18n>Images from the internet stay blocked until you load them, so senders can’t see when you open their mail. These senders’ images load without asking, except in Spam:</p>
           <div class="slist" id="s-trusted"></div>
+        </fieldset>
+      </section>
+      <section class="spane" role="tabpanel" id="s-pane-tags" aria-labelledby="s-tab-tags" hidden>
+        <fieldset class="sgroup">
+          <legend data-i18n>Tags</legend>
+          <div class="slist" id="s-tags"></div>
+          <div class="sbtns"><button class="btn" type="button" id="s-tag-new" data-i18n>New tag</button></div>
+          <p class="derr" id="s-tag-err" role="alert"></p>
+          <p class="dnote snote" data-i18n>Keys 1 to 5 put the first five tags on the selected messages, or take them off. A message’s menu and the tag button above it have every tag.</p>
+          <p class="dnote snote" data-i18n>On the server a tag is a keyword, so Thunderbird and other programs show it too. Thunderbird’s five tags are these first five. Deleting a tag takes it off every message, here and on the server.</p>
+          <p class="dnote snote" id="s-tag-here" hidden></p>
         </fieldset>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-write" aria-labelledby="s-tab-write" hidden>

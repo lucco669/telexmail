@@ -478,6 +478,9 @@ pub struct Message {
     pub unread: bool,
     #[serde(default)]
     pub flagged: bool,
+    /// Its tags: keywords of `tags::Tag`s, lowercase, A to Z.
+    #[serde(default)]
+    pub tags: Vec<String>,
     /// The HTML references remote images. Telex blocks them until the user allows it.
     #[serde(default)]
     pub remote_images: bool,
@@ -513,6 +516,9 @@ pub struct MessageSummary {
     /// In an Outbox: when it goes (sent later, or waiting out its moment to undo).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub goes: Option<NaiveDateTime>,
+    /// Keywords of its tags; left out when it has none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread: Option<ThreadRow>,
 }
@@ -542,6 +548,7 @@ impl From<&Message> for MessageSummary {
             flagged: m.flagged,
             has_attachments: !m.attachments.is_empty(),
             goes: None,
+            tags: m.tags.clone(),
             thread: None,
         }
     }

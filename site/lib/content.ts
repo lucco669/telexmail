@@ -137,6 +137,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Print a message or save it as a PDF, as it shows on screen; remote images stay blocked unless you loaded them', since: '0.9.12' },
       { text: 'View source (Ctrl+U): the message as it came, its text in the right charset, and all its headers decoded', since: '0.9.12' },
       { text: 'Invitations from Outlook, Google and Apple show as a card: when in your time (and in theirs), where, the Teams, Meet or Zoom link, who is coming; Accept, Maybe or Decline answers the organizer, and Add to calendar opens it in your calendar app', since: V0912 },
+      { text: 'Tags: colored labels, several to a message, on keys 1–5 and in the menu. They are IMAP keywords, so Thunderbird shows the same tags; name and color them in Settings › Tags', since: V0912 },
     ],
   },
   {
@@ -192,6 +193,7 @@ export const featureRows: FeatureRow[] = [
       'Rules can file mail from any account there',
       'Drop .eml and mbox files on a folder to bring the mail in; Thunderbird’s read and starred marks come along',
       { text: 'Move in from Thunderbird or Outlook: their local folders and .pst files come over folder by folder, with their accounts and filters', since: '0.9.0' },
+      { text: 'Thunderbird’s tags move in too, with their colors, on its local mail and in its filters; mbox files carry them both ways', since: V0912 },
     ],
   },
   {
@@ -329,6 +331,7 @@ export const featureRows: FeatureRow[] = [
       'Esc clears the filter and puts you back in the list',
       { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: '0.7.1' },
       { text: 'What matched is marked in the list', since: '0.7.1' },
+      { text: 'tag:work finds a tag by its name, is:tagged any tagged mail; saved searches keep them', since: V0912 },
     ],
   },
   {
@@ -421,6 +424,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Conditions on a message’s age, size, read state and flag; the list shows when each scheduled rule last ran', since: V0912 },
       'Automatic forwarding and replies run only on new arrivals; running rules by hand does not send old mail',
       { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
+      { text: 'Tags in rules: a condition on a tag, any tag or none, and actions that add or take one off', since: V0912 },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',
       { text: 'An away reply per account, kept on your server where it can be, so it answers while Telex is closed', since: '0.9.0' },
     ],
@@ -511,6 +515,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'format', group: 'Write', keys: [['Ctrl', 'B'], ['I'], ['U'], ['K']], action: 'Bold / italic / underline / link (HTML compose)', match: [{ key: 'b', ctrl: true }, { key: 'i', ctrl: true }, { key: 'u', ctrl: true }, { key: 'k', ctrl: true }] },
   { id: 'flag', group: 'Organize', keys: [['F']], action: 'Flag / unflag (the whole selection)', match: [{ key: 'f' }] },
   { id: 'unread', group: 'Organize', keys: [['U']], action: 'Toggle unread (or click the dot in the row)', match: [{ key: 'u' }] },
+  { id: 'tags', group: 'Organize', keys: [['1'], ['2'], ['3'], ['4'], ['5']], action: 'The first five tags on or off (the whole selection)', match: ['1', '2', '3', '4', '5'].map((key) => ({ key })), since: V0912 },
   { id: 'folderread', group: 'Organize', keys: [['Shift', 'U']], action: 'Mark everything in the folder read', match: [{ key: 'U', shift: true }], since: '0.5.0' },
   { id: 'delete', group: 'Organize', keys: [['Del']], action: 'Move to Trash (in Trash: two separate presses delete for good)', match: [{ key: 'Delete' }], home: true },
   { id: 'moveto', group: 'Organize', keys: [['M']], action: 'Move to a folder: type part of its name', match: [{ key: 'm' }], since: '0.5.0', home: true },

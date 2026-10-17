@@ -8,7 +8,8 @@ use crate::model::{Attachment, Message};
 use crate::tr;
 
 /// One message. `raw` is the message as stored: mail written only in HTML has its text made
-/// from the HTML, so links keep their addresses.
+/// from the HTML, so links keep their addresses. Its `tags` are the tags' names here
+/// (`MailStore::markdown` puts them in), not keywords.
 pub fn message(m: &Message, raw: Option<&[u8]>) -> String {
     let text = raw
         .and_then(mime::html_only)
@@ -31,6 +32,7 @@ pub fn message(m: &Message, raw: Option<&[u8]>) -> String {
             m.date.format("%Y-%m-%d %H:%M").to_string(),
         ),
         (tr!("Attachments", "Załączniki"), files(&m.attachments)),
+        (tr!("Tags", "Etykiety"), m.tags.join(", ")),
     ];
     for (label, value) in fields {
         let value = one_line(&value);
@@ -103,6 +105,7 @@ mod tests {
             size_kb: 40,
             unread: true,
             flagged: false,
+            tags: Vec::new(),
             remote_images: false,
             note: None,
             attachments: vec![
@@ -135,7 +138,10 @@ mod tests {
              - **Attachments:** projekt.pdf (1.2 MB), logo.png (34 KB)\n\n\
              Dzień dobry,\n\nprzesyłam poprawki.\n\n> Wcześniej\n"
         );
-        let pl = i18n::with(Lang::Pl, || message(&sample(), None));
+        let mut tagged = sample();
+        tagged.tags = vec!["Praca".into(), "Do zrobienia".into()];
+        let pl = i18n::with(Lang::Pl, || message(&tagged, None));
+        assert!(pl.contains("- **Etykiety:** Praca, Do zrobienia\n\nDzień"));
         assert!(pl.contains("- **Od:** Anna"));
         assert!(pl.contains("- **Załączniki:** projekt.pdf (1,2 MB)"));
     }

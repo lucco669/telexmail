@@ -113,15 +113,16 @@ pub struct Added {
 pub struct MoveReport {
     accounts: Vec<Added>,
     mail: ImportReport,
+    tags: Vec<PlanItem>,
     rules: Vec<PlanItem>,
     contacts: telex_core::contacts::ImportReport,
 }
 
-/// Bring in what the user ticked from the source at `path`: the accounts (with the passwords
-/// typed for them; each logs in once to read its folders), the mail kept on the PC into
-/// folders on this PC, then the filters as rules, which need both, and the address books.
-/// Progress comes as
-/// "move-progress" events.
+/// Bring in what the user ticked from the source at `path`: with the filters, the tags first
+/// (the mail's keywords become tags only when they are tags here); the accounts (with the
+/// passwords typed for them; each logs in once to read its folders), the mail kept on the PC
+/// into folders on this PC, then the filters as rules, which need all of them, and the address
+/// books. Progress comes as "move-progress" events.
 #[tauri::command]
 pub async fn move_in(
     app: AppHandle,
@@ -163,6 +164,11 @@ pub async fn move_in(
         }
         s.ensure_this_pc()
     })?;
+    let tags = if choice.filters {
+        with_store(&state, |s| Ok(migrate::tags(&source, s)))?
+    } else {
+        Vec::new()
+    };
 
     let wanted: Vec<_> = source
         .accounts
@@ -304,6 +310,7 @@ pub async fn move_in(
     Ok(MoveReport {
         accounts: added,
         mail,
+        tags,
         rules,
         contacts,
     })

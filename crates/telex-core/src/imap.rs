@@ -34,7 +34,7 @@ use crate::mime::parse_message;
 use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId, SmtpSecurity};
 use crate::servers::{self, Purpose, Step, Trace, Turn, SERVERS};
 use crate::store::{
-    slug, ChangeKind, MailStore, PendingChange, StoreError, SyncedMessage, OUTBOX_ID,
+    slug, ChangeKind, MailStore, PendingChange, ServerFlags, StoreError, SyncedMessage, OUTBOX_ID,
 };
 use crate::tr;
 use crate::usage::Quota;
@@ -645,16 +645,43 @@ async fn push_queued_after<T: ImapStream>(
         {
             continue;
         }
-        let flags = match (flags, draft) {
-            (_, true) => Some("(\\Seen \\Draft)"),
-            (None | Some((true, false)), _) => Some("(\\Seen)"),
-            (Some((true, true)), _) => Some("(\\Seen \\Flagged)"),
-            (Some((false, true)), _) => Some("(\\Flagged)"),
-            (Some((false, false)), _) => None,
+        // Mail from this PC takes its tags along, where the server keeps them.
+        let keywords = match flags {
+            Some(_) if !lock(store)?.tags_kept_here(&account.id)? => {
+                lock(store)?.keywords_of(id)?
+            }
+            _ => Vec::new(),
         };
-        let result = timeout(FETCH_TIMEOUT, session.append(&remote, flags, None, &raw))
+        let mut list: Vec<&str> = match (flags, draft) {
+            (_, true) => vec!["\\Seen", "\\Draft"],
+            (None | Some((true, false)), _) => vec!["\\Seen"],
+            (Some((true, true)), _) => vec!["\\Seen", "\\Flagged"],
+            (Some((false, true)), _) => vec!["\\Flagged"],
+            (Some((false, false)), _) => vec![],
+        };
+        let plain = (!list.is_empty()).then(|| format!("({})", list.join(" ")));
+        list.extend(keywords.iter().map(String::as_str));
+        let tagged = (!list.is_empty()).then(|| format!("({})", list.join(" ")));
+        let mut result = timeout(
+            FETCH_TIMEOUT,
+            session.append(&remote, tagged.as_deref(), None, &raw),
+        )
+        .await
+        .map_err(|_| SyncError::Timeout)?;
+        // A server that minds the keywords still takes the message without them.
+        if !keywords.is_empty()
+            && matches!(
+                result,
+                Err(ImapError::No(_) | ImapError::Bad(_) | ImapError::Append)
+            )
+        {
+            result = timeout(
+                FETCH_TIMEOUT,
+                session.append(&remote, plain.as_deref(), None, &raw),
+            )
             .await
             .map_err(|_| SyncError::Timeout)?;
+        }
         match result {
             Ok(()) => {
                 // A draft is replaced again and again: its UID is looked up now, so the
@@ -722,11 +749,11 @@ async fn push_queued_after<T: ImapStream>(
         let Some(remote) = remote_name(account, &key) else {
             continue; // the folder is gone; the next download drops its mail and changes
         };
-        match timeout(COMMAND_TIMEOUT, session.select(&remote))
+        let mailbox = match timeout(COMMAND_TIMEOUT, session.select(&remote))
             .await
             .map_err(|_| SyncError::Timeout)?
         {
-            Ok(_) => {}
+            Ok(mailbox) => mailbox,
             Err(ImapError::No(reason)) => {
                 for change in &group {
                     note_refusal(store, change, &reason, &mut refused)?;
@@ -734,6 +761,37 @@ async fn push_queued_after<T: ImapStream>(
                 continue;
             }
             Err(e) => return Err(e.into()),
+        };
+        // Tags the server can't keep stay on this PC; the user hears it once.
+        let mut group = group;
+        if group
+            .iter()
+            .any(|c| matches!(c.kind, ChangeKind::Keyword { .. }))
+        {
+            let mut s = lock(store)?;
+            let mut here = s.tags_kept_here(&account.id)?;
+            let mut kept = Vec::with_capacity(group.len());
+            for change in group {
+                let ChangeKind::Keyword { keyword, .. } = &change.kind else {
+                    kept.push(change);
+                    continue;
+                };
+                if !here && !keeps_keyword(&mailbox.permanent_flags, keyword) {
+                    here = true;
+                    if s.keep_tags_here(&account.id)? {
+                        refused.push(tr!(
+                            "the server can't keep tags, so they stay on this PC",
+                            "serwer nie przechowuje etykiet, więc zostają na tym komputerze"
+                        ));
+                    }
+                }
+                if here {
+                    s.change_done(change.op)?;
+                } else {
+                    kept.push(change);
+                }
+            }
+            group = kept;
         }
         let mut uids: Vec<u32> = group.iter().filter_map(|c| c.uid).collect();
         uids.sort_unstable();
@@ -1242,9 +1300,10 @@ async fn fetch_batch<T: ImapStream>(
                 .internal_date()
                 .map(|d| d.with_timezone(&Local).naive_local());
             let mut message = parse_message(raw, folder_key, received);
-            let (seen, flagged) = seen_and_flagged(f);
-            message.unread = !seen;
-            message.flagged = flagged;
+            let state = flag_state(f, uid);
+            message.unread = !state.seen;
+            message.flagged = state.flagged;
+            message.tags = state.keywords;
             Some(SyncedMessage {
                 uid,
                 message,
@@ -1254,11 +1313,11 @@ async fn fetch_batch<T: ImapStream>(
         .collect())
 }
 
-/// `(uid, seen, flagged)` for messages already stored.
+/// \Seen, \Flagged and the keywords of messages already stored.
 async fn fetch_flags<T: ImapStream>(
     session: &mut Session<T>,
     uids: &[u32],
-) -> Result<Vec<(u32, bool, bool)>, SyncError> {
+) -> Result<Vec<ServerFlags>, SyncError> {
     let fetches = timeout(COMMAND_TIMEOUT, async {
         let stream = session.uid_fetch(uid_set(uids), "(UID FLAGS)").await?;
         stream.try_collect::<Vec<Fetch>>().await
@@ -1267,16 +1326,37 @@ async fn fetch_flags<T: ImapStream>(
     .map_err(|_| SyncError::Timeout)??;
     Ok(fetches
         .iter()
-        .filter_map(|f| {
-            let (seen, flagged) = seen_and_flagged(f);
-            Some((f.uid?, seen, flagged))
-        })
+        .filter_map(|f| Some(flag_state(f, f.uid?)))
         .collect())
 }
 
-fn seen_and_flagged(f: &Fetch) -> (bool, bool) {
-    let flags: Vec<Flag<'_>> = f.flags().collect();
-    (flags.contains(&Flag::Seen), flags.contains(&Flag::Flagged))
+fn flag_state(f: &Fetch, uid: u32) -> ServerFlags {
+    let mut state = ServerFlags {
+        uid,
+        ..ServerFlags::default()
+    };
+    for flag in f.flags() {
+        match flag {
+            Flag::Seen => state.seen = true,
+            Flag::Flagged => state.flagged = true,
+            Flag::Custom(k) if crate::tags::is_keyword(&k) => {
+                state.keywords.push(k.to_ascii_lowercase());
+            }
+            _ => {}
+        }
+    }
+    state
+}
+
+/// The folder selected keeps this keyword: its PERMANENTFLAGS lists \* or the keyword, or
+/// says nothing (RFC 3501: then every flag is kept).
+fn keeps_keyword(permanent: &[Flag<'_>], keyword: &str) -> bool {
+    permanent.is_empty()
+        || permanent.iter().any(|f| match f {
+            Flag::MayCreate => true,
+            Flag::Custom(k) => k.eq_ignore_ascii_case(keyword),
+            _ => false,
+        })
 }
 
 // ---- Uploading ----
@@ -1324,6 +1404,9 @@ async fn apply_batch<T: ImapStream>(
         ChangeKind::Flagged(on) => store_flag(session, &set, "\\Flagged", *on)
             .await
             .map(|()| none),
+        ChangeKind::Keyword { keyword, on } => {
+            store_flag(session, &set, keyword, *on).await.map(|()| none)
+        }
         ChangeKind::Expunge => expunge(session, &set, caps).await.map(|()| none),
         ChangeKind::Append { .. } => Ok(none), // sent before the folders, in push_queued_after
         ChangeKind::Move(to) => {
@@ -1466,6 +1549,8 @@ fn note_refusal(
             ChangeKind::Seen(false) => ("mark as unread", "oznaczyć", " jako nieprzeczytanej"),
             ChangeKind::Flagged(true) => ("flag", "oznaczyć flagą", ""),
             ChangeKind::Flagged(false) => ("unflag", "zdjąć flagi z", ""),
+            ChangeKind::Keyword { on: true, .. } => ("tag", "oznaczyć etykietą", ""),
+            ChangeKind::Keyword { on: false, .. } => ("untag", "zdjąć etykiety z", ""),
             ChangeKind::Move(_) => ("move", "przenieść", ""),
             ChangeKind::Expunge => ("delete", "usunąć", ""),
             ChangeKind::Append { flags: None, .. } => (
@@ -1963,6 +2048,8 @@ mod tests {
         commands: Vec<String>,
         /// Wakes a client in IDLE: the server tells it how many messages the Inbox has.
         idle: Arc<tokio::sync::Notify>,
+        /// What SELECT says in PERMANENTFLAGS; `None` says nothing (every flag is kept).
+        permanent: Option<&'static str>,
     }
 
     impl FakeServer {
@@ -2052,6 +2139,7 @@ mod tests {
             boxes: fake_boxes(),
             commands: Vec::new(),
             idle: Arc::new(tokio::sync::Notify::new()),
+            permanent: None,
         }));
         let shared = server.clone();
         tokio::spawn(async move {
@@ -2193,6 +2281,9 @@ mod tests {
                     } else {
                         "READ-ONLY"
                     };
+                    if let (Some(flags), "READ-WRITE") = (s.permanent, mode) {
+                        out.line(format!("* OK [PERMANENTFLAGS ({flags})] Limited\r\n"));
+                    }
                     out.line(format!(
                         "* {} EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY {}] UIDs valid\r\n\
                          * OK [UIDNEXT {}] Predicted next UID\r\n\
@@ -3169,6 +3260,161 @@ Subject: {subject}
 
     fn commands_since(server: &Shared, from: usize) -> Vec<String> {
         server.lock().unwrap().commands[from..].to_vec()
+    }
+
+    fn tag_on(store: &Mutex<MailStore>, ids: &[MessageId], keyword: &str, on: bool) {
+        store
+            .lock()
+            .unwrap()
+            .set_tag_many(ids, keyword, on)
+            .unwrap();
+    }
+
+    fn tags_of(store: &Mutex<MailStore>, id: MessageId) -> Vec<String> {
+        store.lock().unwrap().get(id).unwrap().tags
+    }
+
+    #[tokio::test]
+    async fn tags_go_up_as_keywords_one_command_each_and_come_down() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        let wycena = id_of(&store, &account, "inbox", "Wycena");
+        let poprawki = id_of(&store, &account, "inbox", "Poprawki");
+        tag_on(&store, &[wycena, poprawki], "$label2", true);
+        tag_on(&store, &[wycena], "$label4", true);
+        let from = server.lock().unwrap().commands.len();
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(report.refused.is_empty(), "{report:?}");
+        let commands = commands_since(&server, from);
+        let stores: Vec<&String> = commands
+            .iter()
+            .filter(|c| c.starts_with("UID STORE"))
+            .collect();
+        assert_eq!(
+            stores,
+            [
+                "UID STORE 1:2 +FLAGS.SILENT ($label2)",
+                "UID STORE 1 +FLAGS.SILENT ($label4)"
+            ],
+            "{commands:?}"
+        );
+        {
+            let srv = server.lock().unwrap();
+            let w = srv.mail("INBOX", "Wycena");
+            assert!(
+                w.has("$label2") && w.has("$label4") && w.has("\\Seen"),
+                "{:?}",
+                w.flags
+            );
+        }
+        assert!(!store
+            .lock()
+            .unwrap()
+            .has_pending_changes(&account.id)
+            .unwrap());
+        // Another program takes one off, adds one and marks spam its own way.
+        {
+            let mut srv = server.lock().unwrap();
+            let inbox = &mut srv.boxes[0].mail;
+            inbox[1].flags.retain(|f| f != "$label2");
+            inbox[0].flags.push("$Label5".into());
+            inbox[0].flags.push("NonJunk".into());
+        }
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert_eq!(tags_of(&store, wycena), ["$label2", "$label4", "$label5"]);
+        assert!(tags_of(&store, poprawki).is_empty());
+        // Taken off here: -FLAGS.
+        tag_on(&store, &[wycena], "$label4", false);
+        let from = server.lock().unwrap().commands.len();
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(commands_since(&server, from)
+            .iter()
+            .any(|c| c == "UID STORE 1 -FLAGS.SILENT ($label4)"));
+        assert!(!server
+            .lock()
+            .unwrap()
+            .mail("INBOX", "Wycena")
+            .has("$label4"));
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn a_server_that_cant_keep_tags_leaves_them_on_this_pc_and_says_so_once() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        server.lock().unwrap().permanent = Some("\\Answered \\Flagged \\Deleted \\Seen \\Draft");
+        let wycena = id_of(&store, &account, "inbox", "Wycena");
+        tag_on(&store, &[wycena], "$label1", true);
+        store.lock().unwrap().set_flagged(wycena, true).unwrap();
+        let from = server.lock().unwrap().commands.len();
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert_eq!(report.refused.len(), 1, "{report:?}");
+        assert!(report.refused[0].contains("tags"), "{report:?}");
+        let commands = commands_since(&server, from);
+        assert!(
+            !commands.iter().any(|c| c.contains("$label1")),
+            "{commands:?}"
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.contains("+FLAGS.SILENT (\\Flagged)")),
+            "other changes still go: {commands:?}"
+        );
+        assert_eq!(
+            tags_of(&store, wycena),
+            ["$label1"],
+            "kept after the download"
+        );
+        assert!(store.lock().unwrap().tags_kept_here(&account.id).unwrap());
+        // Said once: the next tag stays here without a word.
+        tag_on(&store, &[wycena], "$label3", true);
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(report.refused.is_empty(), "{report:?}");
+        assert_eq!(tags_of(&store, wycena), ["$label1", "$label3"]);
+        assert!(!store
+            .lock()
+            .unwrap()
+            .has_pending_changes(&account.id)
+            .unwrap());
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
+    async fn mail_from_this_pc_goes_up_with_its_tags() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        let poprawki = id_of(&store, &account, "inbox", "Poprawki");
+        store
+            .lock()
+            .unwrap()
+            .move_many(&[poprawki], "local/archive")
+            .unwrap();
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        tag_on(&store, &[poprawki], "$label3", true);
+        assert_eq!(tags_of(&store, poprawki), ["$label3"], "tags on this PC");
+        store
+            .lock()
+            .unwrap()
+            .move_to(poprawki, &account.folder_key("kosz"))
+            .unwrap();
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(report.refused.is_empty(), "{report:?}");
+        let up = server.lock().unwrap().mail("Kosz", "Poprawki");
+        assert!(up.has("$label3") && up.has("\\Flagged"), "{:?}", up.flags);
+        assert_eq!(tags_of(&store, poprawki), ["$label3"], "and still here");
+        logout(&mut session).await;
     }
 
     #[tokio::test]
