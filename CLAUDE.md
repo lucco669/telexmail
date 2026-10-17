@@ -51,7 +51,9 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      request, IDLE on the Inbox. Tests run it against a fake IMAP server.
   src/servers.rs     One mail server (by IP address) gets at most 4 checks and 8 IDLE watchers
                      at once; one that takes connections but doesn't greet rests (1 min,
-                     doubling to 15) before anything connects again.
+                     doubling to 15) before anything connects again. And the connection log
+                     (in memory, the last 1,000: each step timed, where one failed and why,
+                     IMAP and SMTP) for Settings › Connections.
   src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322 (Bcc, files from
                      disk), send the Outbox. Tests run it against a fake SMTP server.
   src/attachments.rs Attachments of stored mail opened or saved: safe file names, files that
@@ -203,6 +205,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
+| `connections`    | –                            | `{servers: [{address, names, sessions: [used, max], watches: [used, max], silences, resting_until}], log: [{id, started, purpose, protocol, user, host, port, address, steps: [{step, ms}], failed, error, ended}]}` newest first (`purpose`: check, push, older, test, watch, send; `step`: lookup, wait, connect, starttls, tls, greeting, login, work; `ended` null: still open) |
+| `wake_server`    | `address`                    | – (a resting server's rest ends: "Try now") |
 | `usage`          | –                            | `{accounts: [{account, quota, synced_at, sync_error, folders, flow, senders, largest, queued}], base_bytes, free_bytes, since}` |
 | `trust_sender`   | `email`, `trusted`           | – (that sender's images load without asking, except in Spam) |
 | `open_link`      | `url`                        | – (http/https only, in the default browser) |
@@ -423,12 +427,19 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 - Gentler on shared servers (no schema change): 31 Purelymail accounts checked at once, each with
   its IDLE connection and retried after every failure, most likely got this PC's address ignored
-  by Purelymail on 17 Oct 2026 (TLS went through, no greeting, for every account; a phone worked). Now connections to one server's IP
-  wait for one of its places (`servers.rs`: 4 for checks, pushes and logins, 8 for IDLE; the
+  by Purelymail on 17 Oct 2026 (TLS went through, no greeting, for every account; a phone
+  worked). Now connections to one server's IP wait for one of its places (`servers.rs`: 4 for checks, pushes and logins, 8 for IDLE; the
   accounts past the eighth get new mail from the regular checks), and a server that doesn't greet,
   or greets with BYE, rests before anything connects again; the error says until when
   (`SyncError::Resting`), and IDLE watchers sleep through it. Purelymail is on the provider list
   (MX `*.purelymail.com` → imap/smtp.purelymail.com); the wizard used to land on its MX host.
+- Settings › Connections (no schema change): every server reached since Telex started (its
+  addresses' names, places in use, a rest with "Try now") and the last 1,000 connections, IMAP and
+  SMTP, each step timed (address, waiting for a place, connecting, STARTTLS, TLS, greeting, login,
+  the work), where one failed and why; filter by account and "Only problems", refreshed every 3 s
+  while open, Copy details as text (`connections`, `wake_server`; `servers::LOG`, memory only).
+  Opened from the status bar's Details beside "Check failed · Retry" and from a failed check's line
+  in Settings › Accounts, filtered to that account.
 - Counting (since 0.9.11; no schema change; setting `usage_count`): a release build asks once in the
   status bar, after the update question, whether it may be counted (Settings › Updates › Counting).
   With a yes it sends telexmail.app/api/count at most once a UTC day: version, system, language,
@@ -783,7 +794,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 - Working window with folder tree, sortable message list, preview, compose, quick filter,
   resizable panes, density toggle, a settings window, eight themes, English and Polish.
 - Settings (`settings.rs`, a dialog with tabs Appearance, Language, Accounts, Mail, Reading,
-  Writing, Usage, Updates, Import and export; toolbar button and Ctrl+,): every change is saved
+  Writing, Usage, Connections, Backups, Updates, Import and export; toolbar button and Ctrl+,): every change is saved
   at once and shows at once. Accounts holds the list (servers, last check), the add-account
   wizard, the server form and each account's identities; "Add account" anywhere opens it.
   Reading: HTML or plain text, HTML mail in a dark theme (theme paper or white), the trusted

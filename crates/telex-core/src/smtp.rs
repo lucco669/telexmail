@@ -8,7 +8,7 @@
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, Local};
 use lettre::address::Envelope;
@@ -20,6 +20,7 @@ use lettre::{AsyncSmtpTransport, AsyncTransport, Message as Email, Tokio1Executo
 use crate::html;
 use crate::mime::{attachments_of, content_type_for, parse_message, thread_ids, FileAttachment};
 use crate::model::{Account, Message, OutgoingDraft, SmtpSecurity, SmtpSettings};
+use crate::servers::{self, LOG};
 use crate::store::{MailStore, OutgoingMail, StoreError};
 use crate::tr;
 
@@ -324,17 +325,27 @@ pub fn transport(
 
 /// Connect and log in once to check the settings, without sending anything.
 pub async fn check(settings: &SmtpSettings, username: &str, password: &str) -> Result<(), String> {
+    let started = Instant::now();
     let transport = transport(settings, username, password).map_err(|e| match e {
         SendError::Refused(m) | SendError::Failed(m) => m,
     })?;
-    match transport.test_connection().await {
+    let result = match transport.test_connection().await {
         Ok(true) => Ok(()),
         Ok(false) => Err(tr!(
             "the SMTP server closed the connection",
             "serwer SMTP zamknął połączenie"
         )),
         Err(e) => Err(describe(&e)),
-    }
+    };
+    let server = (settings.host.as_str(), settings.port);
+    LOG.once(
+        servers::Purpose::Test,
+        username,
+        server,
+        started,
+        result.clone().err(),
+    );
+    result
 }
 
 /// Hand one message to the SMTP server.
@@ -410,7 +421,10 @@ pub async fn send_outbox(
         let next = lock(store)?.next_outgoing(&account.id, after, now)?;
         let Some(mail) = next else { break };
         after = mail.message;
-        match send_raw(transport, &mail.env_from, &mail.env_to, &mail.raw).await {
+        let started = Instant::now();
+        let sent = send_raw(transport, &mail.env_from, &mail.env_to, &mail.raw).await;
+        log_send(account, started, &sent);
+        match sent {
             Ok(()) => {
                 lock(store)?.outgoing_sent(mail.message, Local::now().naive_local())?;
                 report.sent.push(sent_line(&mail));
@@ -436,6 +450,26 @@ pub async fn send_outbox(
         }
     }
     Ok(report)
+}
+
+/// A message handed to the server (or not), as a line in the connection log.
+fn log_send(account: &Account, started: Instant, sent: &Result<(), SendError>) {
+    let Some(smtp) = &account.smtp else { return };
+    let user = account
+        .imap
+        .as_ref()
+        .map_or(&account.email, |i| &i.username);
+    let error = match sent {
+        Ok(()) => None,
+        Err(SendError::Refused(m) | SendError::Failed(m)) => Some(m.clone()),
+    };
+    LOG.once(
+        servers::Purpose::Send,
+        user,
+        (&smtp.host, smtp.port),
+        started,
+        error,
+    );
 }
 
 fn lock(store: &Mutex<MailStore>) -> Result<MutexGuard<'_, MailStore>, StoreError> {

@@ -470,13 +470,18 @@ $('st-undo').addEventListener('click', () => undo());
 // Accounts whose last check failed, on the right until a check works; a click checks again.
 function renderSync(){
   const b = $('st-sync'), ids = VIEWER ? [] : ACCOUNTS.filter(a => PROBLEMS[a.id]).map(a => a.id);
-  b.hidden = !ids.length;
+  b.hidden = $('st-syncwhy').hidden = !ids.length;
   if (!ids.length) return;
   b.textContent = ids.length === 1 ? t('Check failed · Retry') : tn(ids.length, '{n} check failed · Retry', '{n} checks failed · Retry', {n:num(ids.length)});
+  $('st-syncwhy').title = t('Every step of the last connections: Settings › Connections');
   b.title = ids.map(id => `${acctLabel(id)}: ${PROBLEMS[id]}`).join('\n') + '\n' + t('Click to check again.');
 }
 $('st-sync').addEventListener('click', () => getMail());
 // Mail that didn't go (refused, a failed try, taken back), whichever folder is open; a click shows it.
+$('st-syncwhy').addEventListener('click', () => {
+  const ids = ACCOUNTS.filter(a => PROBLEMS[a.id]).map(a => a.id);
+  showConnections(ids.length === 1 ? ids[0] : '', ids.length > 1);
+});
 function renderUnsent(){
   const n = VIEWER ? 0 : countOf(EVERY + '/outbox').stuck, b = $('st-unsent');
   b.hidden = !n;
@@ -1980,20 +1985,24 @@ function hideLink(a = null){
   tipFor = null; linkTip.hidden = true;
 }
 previewEl.addEventListener('scroll', () => hideLink(), {passive:true});
-async function copyLink(info){
-  if (!info) return;
-  try { await navigator.clipboard.writeText(info.href); }
+// Text onto the clipboard; false when neither way worked.
+async function copyText(text){
+  try { await navigator.clipboard.writeText(text); return true; }
   catch {
     // WebView clipboard support differs between platforms. Keep a native copy fallback.
     const from = document.activeElement, field = document.createElement('textarea');
-    field.value = info.href; field.readOnly = true; field.className = 'copyfield';
+    field.value = text; field.readOnly = true; field.className = 'copyfield';
     document.body.append(field); field.select();
     let copied = false;
     try { copied = document.execCommand('copy'); } catch {}
     field.remove(); from?.focus?.({preventScroll:true});
-    if (!copied){ say(t('Couldn’t copy the link address.'), 4000); return; }
+    return copied;
   }
-  say(t('Link address copied.'), 2500);
+}
+async function copyLink(info){
+  if (!info) return;
+  if (await copyText(info.href)) say(t('Link address copied.'), 2500);
+  else say(t('Couldn’t copy the link address.'), 4000);
 }
 function linkMenu(e, a, spam, frame = null){
   const info = window.TelexLinks.inspect(a.getAttribute('href'));
@@ -3886,7 +3895,7 @@ function renderAccountList(){
     // Their order in the folder tree, when there is more than one.
     const order = real.length < 2 ? '' : `<button type="button" class="btn icon" data-up="${esc(a.id)}" title="${esc(t('Move up'))}" aria-label="${esc(t('Move {email} up', {email:a.email}))}"${i ? '' : ' disabled'}>↑</button>`
       + `<button type="button" class="btn icon" data-down="${esc(a.id)}" title="${esc(t('Move down'))}" aria-label="${esc(t('Move {email} down', {email:a.email}))}"${i < real.length - 1 ? '' : ' disabled'}>↓</button>`;
-    const sync = u?.sync_error ? `<div class="st warn" title="${esc(u.sync_error)}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</div>`
+    const sync = u?.sync_error ? `<button type="button" class="st warn cnwhy" data-conn="${esc(a.id)}" title="${esc(u.sync_error + '\n' + t('Click for every step of its last connections.'))}">${esc(t('Last check failed: {reason}', {reason:u.sync_error}))}</button>`
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
     // The account and how its last check went on top; what can be done with it in a row below.
     return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="sahead"><span class="nm">${esc(a.name)}</span>${sync}</div><div class="em" title="${esc(where)}">${esc(where)}</div>`
@@ -4100,6 +4109,8 @@ $('a-list').addEventListener('click', async e => {
   if (fo){ openFolderChoices(fo.dataset.folders); return; }
   const aw = e.target.closest('[data-away]');
   if (aw){ openAway(aw.dataset.away); return; }
+  const why = e.target.closest('[data-conn]');
+  if (why){ showConnections(why.dataset.conn, false); return; }
   const b = e.target.closest('[data-remove]');
   if (!b) return;
   if (b.dataset.armed !== '1'){ b.dataset.armed = '1'; b.textContent = t('Remove it and its local mail'); return; }
@@ -4727,6 +4738,7 @@ function syncSettings(){
   $('s-threaded').checked = !!s.threaded;
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
   $('s-undo').value = String(s.undo_send);
+  if (tab === 'conn') renderConnections();
   if ($('s-keep')) $('s-keep').value = String(s.backup_keep);
 }
 // How sure the spam filter must be before it moves new mail to Spam (settings' spam_filter).
@@ -5354,6 +5366,141 @@ function renderBackups(){
   if (!s){
     el.innerHTML = bk.error ? `<p class="derr">${esc(bk.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
     if (!bk.error && !bk.loading){ bk.loading = true; loadBackups().finally(() => { bk.loading = false; }); }
+/* ---------- connections ---------- */
+// Settings › Connections: every server Telex reached since it started (its places in use, a
+// rest after it stopped answering) and the last connections, each step timed, where one failed
+// and why (servers.rs, in memory only). Copy details puts what is shown as text, for whoever helps.
+const conn = {data:null, error:'', seq:0, account:'', problems:false, timer:0, painted:''};
+const CONN_ROWS = 300;
+const purposeText = p => ({check:t('Check|connection'), push:t('Changes|connection'), older:t('Older mail|connection'), test:t('Settings test'), watch:t('Watching the Inbox'), send:t('Sending|connection')}[p] ?? p);
+const stepText = (s, purpose) => s === 'work'
+  ? ({check:t('checking'), push:t('sending changes'), older:t('downloading'), test:t('folder list'), watch:t('watching'), send:t('sending')}[purpose] ?? purpose)
+  : ({lookup:t('address|step'), wait:t('waiting|step'), connect:t('connecting|step'), starttls:'STARTTLS', tls:'TLS', greeting:t('greeting|step'), login:t('login|step')}[s] ?? s);
+const fmtMs = ms => ms < 1000 ? t('{n} ms', {n:num(ms)}) : t('{n} s|duration', {n:(ms / 1000).toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en', {maximumFractionDigits:1})});
+const hms = d => hm(d) + ':' + pad(d.getSeconds());
+const connWhen = text => { const d = parseDate(text); return d.toDateString() === new Date().toDateString() ? hms(d) : dmy(d) + ' ' + hms(d); };
+// The account a connection was for: the one that logs in with that user name, on that server
+// when two do.
+function connAccount(a){
+  const user = a.user.toLowerCase(), host = a.host.toLowerCase();
+  const mine = servers().filter(x => x.imap?.username.toLowerCase() === user);
+  return (mine.find(x => [x.imap.host, x.smtp?.host].some(h => h?.toLowerCase() === host)) ?? mine[0])?.id ?? '';
+}
+// The names of an account's servers, to show only those with it.
+const connNames = id => { const a = ACCT[id]; return a ? [a.imap?.host, a.smtp?.host].filter(Boolean).map(h => h.toLowerCase()) : []; };
+function showConnections(account, problems){
+  conn.account = account || ''; conn.problems = !!problems;
+  if (sdlg.open) showTab('conn', true); else openSettings('conn');
+}
+function renderConnections(){
+  const el = $('s-conn'), real = servers();
+  if (conn.account && !ACCT[conn.account]) conn.account = '';
+  el.innerHTML = `<div class="cnbar">`
+    + (real.length > 1 ? `<label class="cnlabel"><span>${esc(t('Account'))}</span><select class="sselect" id="c-acct"><option value="">${esc(t('All accounts'))}</option>${real.map(a => `<option value="${esc(a.id)}"${a.id === conn.account ? ' selected' : ''}>${esc(a.email)}</option>`).join('')}</select></label>` : '')
+    + `<label class="sopt"><input type="checkbox" id="c-bad"${conn.problems ? ' checked' : ''}><span>${esc(t('Only problems'))}</span></label>`
+    + `<span class="sgap"></span><button type="button" class="btn" id="c-copy">${esc(t('Copy details'))}</button></div>`
+    + `<div id="c-body"></div>`
+    + `<p class="dnote">${esc(t('Kept in memory since Telex started, the last {n} connections; nothing of it is saved or sent. Copy details gives it as text for whoever helps you.', {n:num(1000)}))}</p>`;
+  conn.painted = '';
+  paintConnections();
+  loadConnections();
+  // Fresh while the tab is open.
+  clearInterval(conn.timer);
+  conn.timer = setInterval(() => {
+    if (sdlg.open && setTab === 'conn') loadConnections();
+    else { clearInterval(conn.timer); conn.timer = 0; }
+  }, 3000);
+}
+async function loadConnections(){
+  const seq = ++conn.seq;
+  try { conn.data = await invoke('connections'); conn.error = ''; } catch (e){ conn.error = tr(e); }
+  if (seq === conn.seq && sdlg.open && setTab === 'conn') paintConnections();
+}
+// What the tab shows with its filters: servers and connections.
+function connShown(){
+  const d = conn.data, names = conn.account ? connNames(conn.account) : null;
+  return {
+    servers: d.servers.filter(s => !names || s.names.some(n => names.includes(n))),
+    log: d.log.filter(a => (!conn.account || connAccount(a) === conn.account) && (!conn.problems || a.error)),
+  };
+}
+function paintConnections(){
+  const body = $('c-body');
+  if (!body) return;
+  if (!conn.data){
+    body.innerHTML = conn.error ? `<p class="derr">${esc(conn.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
+    return;
+  }
+  // Every three seconds: drawn again only when something changed, so the focus stays.
+  const key = JSON.stringify([conn.data, conn.account, conn.problems, I18n.lang()]);
+  if (key === conn.painted) return;
+  conn.painted = key;
+  const {servers:srv, log} = connShown(), more = log.length - CONN_ROWS;
+  body.innerHTML = `<div class="slabel">${esc(t('Servers'))}</div>`
+    + (srv.length ? `<ul class="cnlist">${srv.map(connServer).join('')}</ul>` : `<p class="dnote">${esc(t('No connection yet since Telex started.'))}</p>`)
+    + `<div class="slabel">${esc(t('Last connections'))}</div>`
+    + (log.length ? `<ul class="cnlist">${log.slice(0, CONN_ROWS).map(connRow).join('')}</ul>`
+      : `<p class="dnote">${esc(conn.problems ? t('No problems among the last connections.') : t('No connection yet since Telex started.'))}</p>`)
+    + (more > 0 ? `<p class="dnote">${esc(tn(more, '{n} older connection not shown; Copy details has them all.', '{n} older connections not shown; Copy details has them all.', {n:num(more)}))}</p>` : '');
+}
+const connServerText = s => t('Checks: {n} of {max}', {n:num(s.sessions[0]), max:num(s.sessions[1])}) + ' · ' + t('Watching: {n} of {max}', {n:num(s.watches[0]), max:num(s.watches[1])});
+const connRestText = s => s.resting_until ? tn(s.silences, 'Resting until {time}: it stopped answering {n} time in a row', 'Resting until {time}: it stopped answering {n} times in a row', {time:hm(parseDate(s.resting_until)), n:num(s.silences)}) : '';
+function connServer(s){
+  const rest = connRestText(s);
+  return `<li class="cnrow${rest ? ' bad' : ''}"><div class="cnline"><b>${esc(s.names.join(' · ') || s.address)}</b><span class="cnmono">${esc(s.address)}</span></div>`
+    + `<div class="cnsub">${esc(connServerText(s))}</div>`
+    + (rest ? `<div class="cnerr">${esc(rest)} <button type="button" class="linkbtn" data-wake="${esc(s.address)}" title="${esc(t('The next check connects at once. If the server still doesn’t answer, it rests again, longer.'))}">${esc(t('Try now'))}</button></div>` : '')
+    + '</li>';
+}
+const connSteps = a => a.steps.map(s => `${stepText(s.step, a.purpose)} ${fmtMs(s.ms)}${s.step === a.failed ? ' ✕' : ''}`);
+const connPlace = a => `${a.protocol.toUpperCase()} ${a.host}:${a.port}${a.address && a.address !== a.host.toLowerCase() ? ' (' + a.address + ')' : ''}`;
+const connState = a => a.error ? t('failed|connection') : a.ended ? t('done|connection') : t('open|connection');
+function connRow(a){
+  const id = connAccount(a);
+  return `<li class="cnrow${a.error ? ' bad' : ''}"><div class="cnline"><span class="cnmono">${esc(connWhen(a.started))}</span><span class="cnpurp">${esc(purposeText(a.purpose))}</span>`
+    + `<span class="cnwho">${id ? adot(id) : ''}${esc(id ? acctLabel(id) : a.user)}</span><span class="cnmono cnplace">${esc(connPlace(a))}</span><span class="cnstate">${esc(connState(a))}</span></div>`
+    + `<div class="cnsub cnmono">${connSteps(a).map((s, i) => `<span${a.steps[i].step === a.failed ? ' class="cnfail"' : ''}>${esc(s)}</span>`).join(' · ')}</div>`
+    + (a.error ? `<div class="cnerr">${esc(a.error)}</div>` : '') + '</li>';
+}
+// What is shown, as plain text: every connection that matches, not only the first rows.
+function connText(){
+  const {servers:srv, log} = connShown(), now = new Date();
+  const lines = [`Telex ${upd.build?.version ?? ''} · ${dmy(now)} ${hms(now)}`];
+  if (conn.account) lines.push(t('Account') + ': ' + acctLabel(conn.account));
+  lines.push('', t('Servers'));
+  for (const s of srv){
+    lines.push(`  ${s.names.join(' · ') || s.address} (${s.address})`, `    ${connServerText(s)}`);
+    if (s.resting_until) lines.push(`    ${connRestText(s)}`);
+  }
+  lines.push('', t('Last connections'));
+  for (const a of log){
+    const id = connAccount(a);
+    lines.push(`  ${connWhen(a.started)}  ${purposeText(a.purpose)} · ${id ? acctLabel(id) : a.user} · ${connPlace(a)} · ${connState(a)}`, `    ${connSteps(a).join(' · ')}`);
+    if (a.error) lines.push(`    ${a.error}`);
+  }
+  return lines.join('\n');
+}
+$('s-conn').addEventListener('change', e => {
+  if (e.target.id === 'c-acct') conn.account = e.target.value;
+  else if (e.target.id === 'c-bad') conn.problems = e.target.checked;
+  else return;
+  paintConnections();
+});
+$('s-conn').addEventListener('click', async e => {
+  const wake = e.target.closest('[data-wake]');
+  if (wake){
+    try { await invoke('wake_server', {address:wake.dataset.wake}); } catch (err){ say(tr(err), 4000); return; }
+    say(t('The next check connects at once.'), 3000);
+    loadConnections();
+    return;
+  }
+  if (e.target.closest('#c-copy')){
+    if (!conn.data) return;
+    if (await copyText(connText())) say(t('Connection details copied.'), 2500);
+    else say(t('Couldn’t copy the connection details.'), 4000);
+  }
+});
+
     return;
   }
   const newest = s.backups[0], when = b => fmtWhenFull(parseDate(b.made));

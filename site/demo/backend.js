@@ -1124,6 +1124,31 @@ function installTelexDemo(options) {
         for (const m of mine.filter((x) => !isOutgoing(kindOf(x.folder)) && kindOf(x.folder) !== 'spam')) {
           const c = counts.get(m.from_email) ?? { name: m.from_name, email: m.from_email, count: 0 };
           c.count += 6; counts.set(m.from_email, c);
+  /* ---------- connections (servers.rs) ---------- */
+  // Each server account's last check and its Inbox watched, all fine; addresses from the
+  // documentation range.
+  function connections() {
+    const real = accounts.filter((a) => a.imap), hosts = [...new Set(real.map((a) => a.imap.host.toLowerCase()))];
+    const address = (host) => `198.51.100.${10 + hosts.indexOf(host.toLowerCase())}`;
+    const at = (minutes) => fmt(new RealDate(now().getTime() - minutes * 60_000));
+    const steps = (work) => [['lookup', 4], ['wait', 0], ['connect', 38], ['tls', 112], ['greeting', 41], ['login', 96], ...(work ? [['work', work]] : [])]
+      .map(([step, ms]) => ({ step, ms }));
+    let id = 1;
+    const line = (a, purpose, minutes, work, open) => ({
+      id: id++, started: at(minutes), purpose, protocol: 'imap', user: a.imap.username, host: a.imap.host, port: a.imap.port,
+      address: address(a.imap.host), steps: steps(work), failed: null, error: null, ended: open ? null : at(minutes - 0.05),
+    });
+    const log = [...real.map((a) => line(a, 'check', 3, 640)), ...real.map((a) => line(a, 'watch', 58, 0, true))]
+      .sort((x, y) => (x.started < y.started ? 1 : -1));
+    return {
+      servers: hosts.map((h) => ({
+        address: address(h), names: [h], sessions: [0, 4], watches: [real.filter((a) => a.imap.host.toLowerCase() === h).length, 8],
+        silences: 0, resting_until: null,
+      })),
+      log,
+    };
+  }
+
         }
         return {
           account: a.id, quota: quotas[a.id] ?? null, synced_at: lastSync[a.id] ?? null, sync_error: null, folders, flow,
@@ -1370,6 +1395,8 @@ function installTelexDemo(options) {
       if (!clean.id) clean.id=Math.max(0,...savedSearches.map(s=>s.id))+1;
       savedSearches=savedSearches.filter(s=>s.id!==clean.id).concat(clean);return clean;
     },
+    connections,
+    wake_server: () => {},
     delete_search: ({id}) => {savedSearches=savedSearches.filter(s=>s.id!==id);},
     preview_rule: ({rule,view}) => {
       checkRule(rule);

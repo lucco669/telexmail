@@ -31,6 +31,7 @@ use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits, Palette, Paper};
 use telex_core::imap::{self, Scope, SyncProgress};
 use telex_core::recipients::Recipient;
+use telex_core::servers;
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::tr;
 use telex_core::usage::Usage;
@@ -330,6 +331,28 @@ fn usage(state: State<'_, AppState>) -> CmdResult<Usage> {
 #[tauri::command(async)]
 fn trusted_senders(state: State<'_, AppState>) -> CmdResult<Vec<String>> {
     with_store(&state, |s| s.trusted_senders())
+}
+
+#[derive(Debug, Serialize)]
+struct Connections {
+    servers: Vec<servers::ServerState>,
+    log: Vec<servers::Attempt>,
+}
+
+/// Settings › Connections: every server reached since Telex started, and the last connections,
+/// newest first.
+#[tauri::command(async)]
+fn connections() -> Connections {
+    Connections {
+        servers: servers::SERVERS.states(),
+        log: servers::LOG.newest_first(),
+    }
+}
+
+/// "Try now" on a resting server: its rest ends, so the next check connects.
+#[tauri::command(async)]
+fn wake_server(address: String) {
+    servers::SERVERS.answered(&address);
 }
 
 #[derive(Debug, Serialize)]
@@ -1048,6 +1071,8 @@ pub fn run() {
             set_flagged,
             set_unread_many,
             set_flagged_many,
+            connections,
+            wake_server,
             move_messages,
             mark_spam,
             spam_status,

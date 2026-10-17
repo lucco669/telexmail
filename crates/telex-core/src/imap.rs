@@ -32,7 +32,7 @@ use tokio_rustls::TlsConnector;
 use crate::filters::{self, Trigger};
 use crate::mime::parse_message;
 use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId, SmtpSecurity};
-use crate::servers::{self, Turn, Use, SERVERS};
+use crate::servers::{self, Purpose, Step, Trace, Turn, SERVERS};
 use crate::store::{
     slug, ChangeKind, MailStore, PendingChange, StoreError, SyncedMessage, OUTBOX_ID,
 };
@@ -239,9 +239,10 @@ pub async fn check_account(
     settings: &ImapSettings,
     password: &str,
 ) -> Result<Vec<RemoteFolder>, SyncError> {
-    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
+    let (mut session, mut turn) = connect_and_login(settings, password, Purpose::Test).await?;
     let folders = list_folders(&mut session).await;
     logout(&mut session).await;
+    outcome(&mut turn, &folders);
     folders
 }
 
@@ -269,9 +270,10 @@ pub async fn sync_account(
     let Some(settings) = &account.imap else {
         return Ok(SyncReport::default());
     };
-    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
+    let (mut session, mut turn) = connect_and_login(settings, password, Purpose::Check).await?;
     let result = sync_all(&mut session, account, store, progress, scope).await;
     logout(&mut session).await;
+    outcome(&mut turn, &result);
     result
 }
 
@@ -289,9 +291,10 @@ pub async fn download_older(
     let Some(settings) = &account.imap else {
         return Ok(Vec::new());
     };
-    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
+    let (mut session, mut turn) = connect_and_login(settings, password, Purpose::Older).await?;
     let result = download_older_in(&mut session, account, store, folder_key, limit, progress).await;
     logout(&mut session).await;
+    outcome(&mut turn, &result);
     result
 }
 
@@ -362,13 +365,14 @@ pub async fn push_account(
     if !lock(store)?.has_pending_changes(&account.id)? {
         return Ok(Vec::new());
     }
-    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
+    let (mut session, mut turn) = connect_and_login(settings, password, Purpose::Push).await?;
     let result = async {
         let caps = server_caps(&mut session).await?;
         push_changes(&mut session, account, store, caps).await
     }
     .await;
     logout(&mut session).await;
+    outcome(&mut turn, &result);
     result
 }
 
@@ -565,8 +569,10 @@ pub async fn watch_inbox(
     password: &str,
     changed: &(dyn Fn() + Send + Sync),
 ) -> Result<Watched, SyncError> {
-    let (session, _turn) = connect_and_login(settings, password, Use::Watch).await?;
-    watch_session(session, changed, IDLE_RENEW).await
+    let (session, mut turn) = connect_and_login(settings, password, Purpose::Watch).await?;
+    let result = watch_session(session, changed, IDLE_RENEW).await;
+    outcome(&mut turn, &result);
+    result
 }
 
 /// [`watch_inbox`] over a session that is already logged in. IDLE takes the session and
@@ -848,18 +854,52 @@ pub(crate) fn tls_connector() -> TlsConnector {
 /// greeting and the STARTTLS command itself.
 ///
 /// First it waits for one of the server's places (`servers`); the turn goes with the session
-/// and gives the place back when the caller drops it, after logging out.
+/// and gives the place back when the caller drops it, after logging out. Every step goes into
+/// the connection log (Settings › Connections), timed, with the error where one failed.
 async fn connect_and_login(
     settings: &ImapSettings,
     password: &str,
-    kind: Use,
+    purpose: Purpose,
 ) -> Result<(Session<TlsStream<TcpStream>>, Turn), SyncError> {
-    let key = servers::key(&settings.host, settings.port).await;
-    let turn = SERVERS.turn(&key, kind).await.map_err(|left| {
-        SyncError::Resting(Local::now() + TimeDelta::from_std(left).unwrap_or_default())
-    })?;
-    let client = connect(settings, turn.key()).await?;
-    Ok((login(client, settings, password).await?, turn))
+    let host = &settings.host;
+    let mut trace = Trace::new(purpose, "imap", &settings.username, host, settings.port);
+    let key = servers::key(host, settings.port).await;
+    trace.address(&key);
+    trace.done();
+    trace.begin(Step::Wait);
+    let mut turn = match SERVERS.turn(&key, host, purpose.places()).await {
+        Ok(turn) => turn,
+        Err(left) => {
+            let until = Local::now() + TimeDelta::from_std(left).unwrap_or_default();
+            return Err(failed(trace, SyncError::Resting(until)));
+        }
+    };
+    trace.done();
+    let client = match connect(settings, turn.key(), &mut trace).await {
+        Ok(client) => client,
+        Err(e) => return Err(failed(trace, e)),
+    };
+    trace.begin(Step::Login);
+    let session = match login(client, settings, password).await {
+        Ok(session) => session,
+        Err(e) => return Err(failed(trace, e)),
+    };
+    trace.done();
+    turn.opened(trace);
+    Ok((session, turn))
+}
+
+/// Into the log with the step it failed at.
+fn failed(trace: Trace, e: SyncError) -> SyncError {
+    trace.fail(&e.to_string());
+    e
+}
+
+/// How the work of a logged-in connection ended, for its line in the log.
+fn outcome<T>(turn: &mut Turn, result: &Result<T, SyncError>) {
+    if let Err(e) = result {
+        turn.failed(e);
+    }
 }
 
 /// A connection with the greeting read, ready to log in. A server that takes the connection
@@ -867,6 +907,7 @@ async fn connect_and_login(
 async fn connect(
     settings: &ImapSettings,
     key: &str,
+    trace: &mut Trace,
 ) -> Result<Client<TlsStream<TcpStream>>, SyncError> {
     let host = settings.host.as_str();
     let silent = |e: SyncError| {
@@ -877,6 +918,7 @@ async fn connect(
         host: host.to_owned(),
         reason,
     };
+    trace.begin(Step::Connect);
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((host, settings.port)))
         .await
         .map_err(|_| {
@@ -886,6 +928,7 @@ async fn connect(
             )))
         })?
         .map_err(|e| unreachable(e.to_string()))?;
+    trace.done();
     // async-imap writes a command in four small pieces (tag, space, command, line end). With
     // Nagle's algorithm on, the rest waits for the server to acknowledge the first piece, and
     // servers delay that: every command cost the round trip plus up to 200 ms.
@@ -900,6 +943,7 @@ async fn connect(
         .to_owned();
     let starttls = settings.security == SmtpSecurity::StartTls;
     let tcp = if starttls {
+        trace.begin(Step::Starttls);
         let mut plain = Client::new(tcp);
         greet(&mut plain).await.map_err(silent)?;
         match timeout(
@@ -923,6 +967,10 @@ async fn connect(
     } else {
         tcp
     };
+    if starttls {
+        trace.done();
+    }
+    trace.begin(Step::Tls);
     let tls = timeout(CONNECT_TIMEOUT, tls_connector().connect(name, tcp))
         .await
         .map_err(|_| silent(SyncError::Timeout))?
@@ -930,10 +978,13 @@ async fn connect(
             host: host.to_owned(),
             reason: tls_reason(&e),
         })?;
+    trace.done();
     let mut client = Client::new(tls);
     // After STARTTLS the server says nothing more; the greeting came before it.
     if !starttls {
+        trace.begin(Step::Greeting);
         greet(&mut client).await.map_err(silent)?;
+        trace.done();
     }
     SERVERS.answered(key);
     Ok(client)
@@ -3346,6 +3397,9 @@ Subject: {subject}
             security: SmtpSecurity::Tls,
         };
         // Connecting reads the greeting: it fails if the server says nothing.
-        connect(&settings, "imap.gmail.com").await.unwrap();
+        let mut trace = Trace::new(Purpose::Test, "imap", "", "imap.gmail.com", 993);
+        connect(&settings, "imap.gmail.com", &mut trace)
+            .await
+            .unwrap();
     }
 }
