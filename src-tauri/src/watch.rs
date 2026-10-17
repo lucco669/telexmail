@@ -12,9 +12,8 @@ use std::time::{Duration, Instant};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_notification::NotificationExt;
-use telex_core::i18n::{self, Lang};
 use telex_core::imap::{self, SyncError, Watched};
-use telex_core::{Account, FolderKind, MessageId};
+use telex_core::{trn, Account, FolderKind, MessageId};
 
 use crate::settings::SettingsState;
 use crate::{secrets, server_accounts, with_store, AppState};
@@ -108,11 +107,14 @@ pub fn announce(app: &AppHandle, arrived: &[MessageId]) {
         [(from, subject)] => (from.clone(), subject.clone()),
         more => {
             let n = more.len();
-            let title = match (i18n::current(), i18n::pl_form(n as u64)) {
-                (Lang::Pl, 1) => format!("{n} nowe wiadomości"),
-                (Lang::Pl, _) => format!("{n} nowych wiadomości"),
-                (Lang::En, _) => format!("{n} new messages"),
-            };
+            let title = trn!(
+                n,
+                "{n} new message",
+                "{n} new messages",
+                "{n} nowa wiadomość",
+                "{n} nowe wiadomości",
+                "{n} nowych wiadomości"
+            );
             let mut senders: Vec<&str> = Vec::new();
             for (from, _) in more {
                 if !senders.contains(&from.as_str()) {

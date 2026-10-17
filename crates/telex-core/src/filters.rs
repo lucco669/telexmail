@@ -464,10 +464,10 @@ pub fn fold(s: &str) -> String {
             'ď' => 'd',
             'ę' | 'è' | 'é' | 'ê' | 'ë' | 'ě' => 'e',
             'ì' | 'í' | 'î' | 'ï' => 'i',
-            'ł' => 'l',
+            'ł' | 'ĺ' | 'ľ' => 'l',
             'ń' | 'ñ' | 'ň' => 'n',
             'ó' | 'ò' | 'ô' | 'õ' | 'ö' | 'ø' => 'o',
-            'ř' => 'r',
+            'ř' | 'ŕ' => 'r',
             'ś' | 'š' | 'ß' => 's',
             'ť' => 't',
             'ù' | 'ú' | 'û' | 'ü' | 'ů' => 'u',
@@ -557,18 +557,18 @@ pub fn run(
                     Action::Move { folder } if folder != &message.folder => {
                         match store.folder_name(folder) {
                             Some(to) if account_of(folder) == account || is_local(folder) => {
-                                // The Polish interface names special folders by their kind.
-                                let pl_to = store
+                                // The interface names special folders by their kind.
+                                let named = store
                                     .kind_of(folder)
-                                    .and_then(FolderKind::pl_name)
+                                    .and_then(FolderKind::shown_name)
                                     .unwrap_or(to.as_str());
                                 did.push(if is_local(folder) {
                                     tr!(
-                                        "moved it to {to} on this PC",
-                                        "przeniosła ją do folderu {pl_to} na tym komputerze"
+                                        "moved it to {named} on this PC",
+                                        "przeniosła ją do folderu {named} na tym komputerze"
                                     )
                                 } else {
-                                    tr!("moved it to {to}", "przeniosła ją do folderu {pl_to}")
+                                    tr!("moved it to {named}", "przeniosła ją do folderu {named}")
                                 });
                                 destination = Some(Destination::Folder(folder.clone()));
                             }

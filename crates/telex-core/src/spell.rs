@@ -899,6 +899,27 @@ pub const DOWNLOADS: &[Download] = &[
         dic: "6975dddec3d5d2c676069537bc67b4b5f786c65c5d4cf6703a82acf779ac9ec1",
         bytes: 169_202 + 715_989,
     },
+    Download {
+        tag: "sk-SK",
+        path: "sk_SK/sk_SK",
+        aff: "af67bbe8ea9dea74968ec01acd266b3f74177ca087ee6eb7898c576e0aef7a3d",
+        dic: "3e3dbd5c6af8431a3a47652c69692f3f86d0cd82deb4418e49a057a33ef56063",
+        bytes: 225_271 + 3_362_212,
+    },
+    Download {
+        tag: "fr-FR",
+        path: "fr_FR/dictionaries/fr",
+        aff: "c176610cd5dc4846806a65ddd029f422d87978bf58f224aa44222662a16a2de5",
+        dic: "b78a868e31dd6e373b6c3217969afb898a9acde828a5e7ef97308da42218c88c",
+        bytes: 199_870 + 1_236_490,
+    },
+    Download {
+        tag: "it-IT",
+        path: "it_IT/it_IT",
+        aff: "951afaa19272f13555b8823e8bcf9ccf78f8fe1a07835bdfb912ab3e4d537c2b",
+        dic: "bae1e3501dcd2a923669592493b3fde6c02aae7c7aab83bf5e5b49077e73dd64",
+        bytes: 70_054 + 1_295_083,
+    },
 ];
 
 /// The largest file Telex takes, well above the biggest dictionary.

@@ -68,15 +68,16 @@ fn files(attachments: &[Attachment]) -> String {
         .join(", ")
 }
 
-/// "34 KB", "1.2 MB" (in Polish "1,2 MB").
+/// "34 KB", "1.2 MB" (in Polish and the others with a decimal comma "1,2 MB").
 fn size(kb: u32) -> String {
     if kb < 1024 {
         return format!("{} KB", kb.max(1));
     }
     let mb = format!("{:.1}", f64::from(kb) / 1024.0);
-    match crate::i18n::current() {
-        crate::i18n::Lang::Pl => format!("{} MB", mb.replace('.', ",")),
-        crate::i18n::Lang::En => format!("{mb} MB"),
+    if crate::i18n::current().decimal_comma() {
+        format!("{} MB", mb.replace('.', ","))
+    } else {
+        format!("{mb} MB")
     }
 }
 

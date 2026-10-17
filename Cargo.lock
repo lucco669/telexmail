@@ -5098,6 +5098,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spellbook",
+ "telex-i18n",
  "tokio",
  "tokio-rustls",
  "ureq",
@@ -5105,6 +5106,13 @@ dependencies = [
  "webpki-roots",
  "windows",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "telex-i18n"
+version = "0.9.11"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

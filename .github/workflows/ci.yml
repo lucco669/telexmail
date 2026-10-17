@@ -31,8 +31,8 @@ jobs:
       - run: node scripts/check-i18n.mjs
       # The notices the installers carry list every crate in Cargo.lock with its license.
       - run: node scripts/third-party-notices.mjs --check
-      - run: cargo fmt -p telex-core -p telex -p telex-security -- --check
-      - run: cargo clippy -p telex-core --all-targets -- -D warnings
+      - run: cargo fmt -p telex-core -p telex-i18n -p telex -p telex-security -- --check
+      - run: cargo clippy -p telex-core -p telex-i18n --all-targets -- -D warnings
       - run: cargo test -p telex-core
 
   # The app itself on Linux, as the release builds it (ubuntu-22.04). Clippy only, no bundle.

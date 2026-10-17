@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::Lang;
 use crate::tr;
 
 /// Stable id of a message inside one store.
@@ -55,19 +56,109 @@ impl FolderKind {
         }
     }
 
-    /// The name the Polish interface gives a special folder ("Kosz"), for sentences the core
-    /// writes in Polish; `None` for the user's own folders, which keep their names.
+    /// The name the Polish interface gives a special folder ("Kosz"); `None` for the user's
+    /// own folders, which keep their names.
     pub fn pl_name(self) -> Option<&'static str> {
-        match self {
-            Self::Inbox => Some("Odebrane"),
-            Self::Outbox => Some("Skrzynka nadawcza"),
-            Self::Drafts => Some("Szkice"),
-            Self::Sent => Some("Wysłane"),
-            Self::Archive => Some("Archiwum"),
-            Self::Spam => Some("Spam"),
-            Self::Trash => Some("Kosz"),
-            Self::Custom => None,
-        }
+        self.name_in(Lang::Pl)
+    }
+
+    /// The name the interface gives a special folder in the current language ("Trash",
+    /// "Kosz", "Papierkorb"), for sentences the core writes; `None` for the user's own.
+    pub fn shown_name(self) -> Option<&'static str> {
+        self.name_in(crate::i18n::current())
+    }
+
+    /// A special folder's name in a language, as the interface's translations name it.
+    pub fn name_in(self, lang: Lang) -> Option<&'static str> {
+        // Inbox, Outbox, Drafts, Sent, Archive, Spam, Trash; in the order of `Lang::ALL`.
+        const NAMES: [[&str; 7]; 9] = [
+            [
+                "Inbox", "Outbox", "Drafts", "Sent", "Archive", "Spam", "Trash",
+            ],
+            [
+                "Odebrane",
+                "Skrzynka nadawcza",
+                "Szkice",
+                "Wysłane",
+                "Archiwum",
+                "Spam",
+                "Kosz",
+            ],
+            [
+                "Posteingang",
+                "Postausgang",
+                "Entwürfe",
+                "Gesendet",
+                "Archiv",
+                "Spam",
+                "Papierkorb",
+            ],
+            [
+                "Doručená pošta",
+                "K odeslání",
+                "Koncepty",
+                "Odeslaná pošta",
+                "Archiv",
+                "Spam",
+                "Koš",
+            ],
+            [
+                "Doručená pošta",
+                "Na odoslanie",
+                "Koncepty",
+                "Odoslané",
+                "Archív",
+                "Spam",
+                "Kôš",
+            ],
+            [
+                "Вхідні",
+                "Вихідні",
+                "Чернетки",
+                "Надіслані",
+                "Архів",
+                "Спам",
+                "Смітник",
+            ],
+            [
+                "Bandeja de entrada",
+                "Bandeja de salida",
+                "Borradores",
+                "Enviados",
+                "Archivo",
+                "Spam",
+                "Papelera",
+            ],
+            [
+                "Boîte de réception",
+                "Boîte d’envoi",
+                "Brouillons",
+                "Envoyés",
+                "Archives",
+                "Spam",
+                "Corbeille",
+            ],
+            [
+                "Posta in arrivo",
+                "Posta in uscita",
+                "Bozze",
+                "Posta inviata",
+                "Archivio",
+                "Spam",
+                "Cestino",
+            ],
+        ];
+        let i = match self {
+            Self::Inbox => 0,
+            Self::Outbox => 1,
+            Self::Drafts => 2,
+            Self::Sent => 3,
+            Self::Archive => 4,
+            Self::Spam => 5,
+            Self::Trash => 6,
+            Self::Custom => return None,
+        };
+        Some(NAMES[lang as usize][i])
     }
 
     /// Order in the folder tree, as in The Bat!: Inbox, Outbox, Drafts, Sent, the user's
@@ -170,17 +261,66 @@ fn default_forward_header() -> String {
         .to_owned()
 }
 
+/// A new identity's signature, reply header and forward header in a language: Polish for
+/// Polish and English (Telex's default), the language's own for the others.
+fn defaults(lang: Lang) -> (&'static str, &'static str, &'static str) {
+    match lang {
+        Lang::En | Lang::Pl => (
+            DEFAULT_SIGNATURE,
+            "Dnia {date} o {time}, {name} napisał(a):",
+            "-------- Przekazana wiadomość --------\nOd: {from}\nData: {date} {time}\nTemat: {subject}",
+        ),
+        Lang::De => (
+            "Viele Grüße",
+            "Am {date} um {time} schrieb {name}:",
+            "-------- Weitergeleitete Nachricht --------\nVon: {from}\nDatum: {date} {time}\nBetreff: {subject}",
+        ),
+        Lang::Cs => (
+            "S pozdravem",
+            "Dne {date} v {time} napsal(a) {name}:",
+            "-------- Přeposlaná zpráva --------\nOd: {from}\nDatum: {date} {time}\nPředmět: {subject}",
+        ),
+        Lang::Sk => (
+            "S pozdravom",
+            "Dňa {date} o {time} napísal(a) {name}:",
+            "-------- Preposlaná správa --------\nOd: {from}\nDátum: {date} {time}\nPredmet: {subject}",
+        ),
+        Lang::Uk => (
+            "З повагою",
+            "{date} о {time} {name} пише:",
+            "-------- Переслане повідомлення --------\nВід: {from}\nДата: {date} {time}\nТема: {subject}",
+        ),
+        Lang::Es => (
+            "Saludos",
+            "El {date} a las {time}, {name} escribió:",
+            "-------- Mensaje reenviado --------\nDe: {from}\nFecha: {date} {time}\nAsunto: {subject}",
+        ),
+        Lang::Fr => (
+            "Cordialement",
+            "Le {date} à {time}, {name} a écrit\u{a0}:",
+            "-------- Message transféré --------\nDe\u{a0}: {from}\nDate\u{a0}: {date} {time}\nObjet\u{a0}: {subject}",
+        ),
+        Lang::It => (
+            "Cordiali saluti",
+            "Il {date} alle {time}, {name} ha scritto:",
+            "-------- Messaggio inoltrato --------\nDa: {from}\nData: {date} {time}\nOggetto: {subject}",
+        ),
+    }
+}
+
 impl Identity {
-    /// A default identity with the Polish templates.
+    /// A default identity with the templates of the interface's language (Polish for Polish
+    /// and English).
     pub fn new(account: &str, name: &str, email: &str) -> Self {
+        let (signature, reply, forward) = defaults(crate::i18n::current());
         Self {
             id: 0,
             account: account.to_owned(),
             name: name.to_owned(),
             email: email.to_owned(),
-            signature: DEFAULT_SIGNATURE.to_owned(),
-            reply_header: default_reply_header(),
-            forward_header: default_forward_header(),
+            signature: signature.to_owned(),
+            reply_header: reply.to_owned(),
+            forward_header: forward.to_owned(),
             is_default: true,
         }
     }
@@ -538,6 +678,28 @@ pub struct OutgoingDraft {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_identities_speak_the_interface_language() {
+        use crate::i18n;
+        let polish = i18n::with(Lang::En, || Identity::new("a", "Anna", "anna@x.pl"));
+        assert_eq!(polish.signature, "Pozdrawiam");
+        assert_eq!(polish.reply_header, default_reply_header());
+        let german = i18n::with(Lang::De, || Identity::new("a", "Anna", "anna@x.pl"));
+        assert_eq!(german.reply_header, "Am {date} um {time} schrieb {name}:");
+        assert!(german.forward_header.contains("Betreff: {subject}"));
+        for lang in Lang::ALL {
+            let (_, reply, forward) = defaults(lang);
+            assert!(
+                reply.contains("{name}") && reply.contains("{date}"),
+                "{lang:?}"
+            );
+            assert!(
+                forward.contains("{from}") && forward.contains("{subject}"),
+                "{lang:?}"
+            );
+        }
+    }
 
     fn setup(email: &str, host: &str) -> AccountSetup {
         AccountSetup {

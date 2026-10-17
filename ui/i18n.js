@@ -2,7 +2,8 @@
 // English text is the key: a text without a translation shows in English instead of nothing.
 // A key may carry a context after "|" ("Reply|compose title") where one English word needs two
 // Polish ones; the English shown is the part before it.
-// scripts/check-i18n.mjs checks that every text in app.js and index.html has its Polish here.
+// scripts/check-i18n.mjs checks that every text in app.js and index.html has its Polish here (and,
+// with --all, its German, Czech… in i18n/<code>.js, where the other languages live).
 (() => {
 'use strict';
 
@@ -229,6 +230,7 @@ const PL = {
   'Rules that sort, flag and answer mail': 'Reguły, które sortują, oznaczają i odpowiadają na pocztę',
   'Switch row density': 'Zmień wysokość wierszy',
   'move': 'wybór',
+  'move|messages': 'przenieś',
   'reply': 'odpowiedz',
   'flag': 'flaga',
   'unread': 'nieprzeczytana',
@@ -1186,25 +1188,51 @@ const PL_N = {
   '{n} check failed · Retry': ['{n} błąd sprawdzania · Ponów', '{n} błędy sprawdzania · Ponów', '{n} błędów sprawdzania · Ponów'],
 };
 
-let lang = document.documentElement.lang === 'pl' ? 'pl' : 'en';
-const plural = new Intl.PluralRules('pl');
+// The other languages: a file each in i18n/ (i18n/de.js…), keyed by the same English, loaded only
+// when chosen (boot.js writes the saved one's <script> before this file; load() fetches one later).
+// Each sets TelexLangs[code] = {T: {English: text}, N: {English for 1: {one, few, many, other}}}.
+// Each language is named in itself.
+const LANGUAGES = [['en', 'English'], ['pl', 'Polski'], ['de', 'Deutsch'], ['cs', 'Čeština'], ['sk', 'Slovenčina'],
+  ['uk', 'Українська'], ['es', 'Español'], ['fr', 'Français'], ['it', 'Italiano']];
+const CODES = LANGUAGES.map(([code]) => code);
+// Dates and numbers: Intl's locale for each language.
+const LOCALES = {en:'en-GB', pl:'pl-PL', de:'de-DE', cs:'cs-CZ', sk:'sk-SK', uk:'uk-UA', es:'es-ES', fr:'fr-FR', it:'it-IT'};
+const OTHERS = window.TelexLangs || (window.TelexLangs = {});
+const loading = {};
+// Fetch a language's file once; resolves when it is there (or failed: English shows instead).
+function load(code){
+  if (code === 'en' || code === 'pl' || !CODES.includes(code) || OTHERS[code]) return Promise.resolve();
+  return loading[code] ||= new Promise(resolve => {
+    const s = document.createElement('script');
+    s.src = `i18n/${code}.js`;
+    s.onload = s.onerror = () => resolve();
+    document.head.append(s);
+  });
+}
+
+let lang = CODES.includes(document.documentElement.lang) ? document.documentElement.lang : 'en';
+const plurals = {};
+const plural = () => plurals[lang] ||= new Intl.PluralRules(LOCALES[lang]);
 const fill = (s, vars) => vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s;
 const english = key => { const i = key.indexOf('|'); return i < 0 ? key : key.slice(0, i); };
 
 function t(key, vars){
-  return fill(lang === 'pl' ? PL[key] ?? english(key) : english(key), vars);
+  const text = lang === 'en' ? undefined : lang === 'pl' ? PL[key] : OTHERS[lang]?.T[key];
+  return fill(text ?? english(key), vars);
 }
 // tn(3, '{n} message', '{n} messages'): the form for this number; {n} is filled in.
 function tn(n, one, other, vars){
   const all = {n, ...vars};
   if (lang === 'pl' && PL_N[one]){
-    const form = plural.select(n);
+    const form = plural().select(n);
     return fill(PL_N[one][form === 'one' ? 0 : form === 'few' ? 1 : 2], all);
   }
+  const forms = lang === 'en' || lang === 'pl' ? undefined : OTHERS[lang]?.N[one];
+  if (forms) return fill(forms[plural().select(n)] ?? forms.other ?? forms.many, all);
   return fill(english(n === 1 ? one : other), all);
 }
 // 1.5 → "1.5" in English, "1,5" in Polish.
-const decimal = x => new Intl.NumberFormat(lang === 'pl' ? 'pl-PL' : 'en-US', {minimumFractionDigits:1, maximumFractionDigits:1}).format(x);
+const decimal = x => new Intl.NumberFormat(LOCALES[lang], {minimumFractionDigits:1, maximumFractionDigits:1}).format(x);
 
 // The page's own words: elements marked data-i18n get their text (each piece between child
 // elements) and their title, placeholder and aria-label translated. The English is kept, so
@@ -1234,9 +1262,15 @@ function translatePage(root = document){
 }
 
 window.TelexI18n = {
-  t, tn, decimal, translatePage,
+  t, tn, decimal, translatePage, load,
   lang: () => lang,
-  setLang(l){ lang = l === 'pl' ? 'pl' : 'en'; document.documentElement.lang = lang; },
-  dictionaries: {PL, PL_N},
+  // The language's locale for Intl ("pl-PL"), and how its dates separate day and month.
+  locale: () => LOCALES[lang],
+  dateSep: () => ['es', 'fr', 'it'].includes(lang) ? '/' : '.',
+  languages: LANGUAGES,
+  // Whether the language's words are here (load() first for one that isn't).
+  ready: l => l === 'en' || l === 'pl' || !CODES.includes(l) || !!OTHERS[l],
+  setLang(l){ lang = CODES.includes(l) ? l : 'en'; document.documentElement.lang = lang; },
+  dictionaries: {PL, PL_N, others: OTHERS},
 };
 })();

@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::i18n::Lang;
 use crate::mime::reply_to_of;
 use crate::model::{account_of, Account, Attachment, Identity, Message, MessageId};
 use crate::smtp::split_addresses;
@@ -221,10 +222,18 @@ impl Vars {
             from: address_line(&m.from_name, &m.from_email),
             name,
             email: m.from_email.clone(),
-            date: m.date.format("%d.%m.%Y").to_string(),
+            date: m.date.format(date_format()).to_string(),
             time: m.date.format("%H:%M").to_string(),
             subject: m.subject.clone(),
         }
+    }
+}
+
+/// How {date} is written: 10.10.2026, or 10/10/2026 in Spanish, French and Italian.
+fn date_format() -> &'static str {
+    match crate::i18n::current() {
+        Lang::Es | Lang::Fr | Lang::It => "%d/%m/%Y",
+        _ => "%d.%m.%Y",
     }
 }
 
@@ -262,9 +271,32 @@ fn text_lines(body: &str) -> Vec<&str> {
         .collect()
 }
 
-/// Words that say something is attached, folded: "attached", "attachment", "enclosed",
-/// "załączam", "w załączniku", "załączone".
-const ATTACHED: &[&str] = &["attach", "enclos", "zalacz"];
+/// Words that say something is attached, folded (in every language Telex speaks, whatever the
+/// interface's): "attached", "enclosed", "załączam", "w załączniku", "im Anhang", "anbei",
+/// "v příloze", "v prílohe", "přikládám", "у вкладенні", "додаю", "adjunto", "anexo",
+/// "pièce jointe", "ci-joint", "in allegato", "allego".
+const ATTACHED: &[&str] = &[
+    "attach",
+    "enclos",
+    "zalacz",
+    "anhang",
+    "angehang",
+    "anbei",
+    "beigefug",
+    "prilo",
+    "prikladam",
+    "вкладен",
+    "додаю",
+    "додатку",
+    "прикріпл",
+    "долуча",
+    "adjunt",
+    "anex",
+    "joint",
+    "allegat",
+    "allego",
+    "acclus",
+];
 
 /// Whether the text the user wrote says a file is attached, so Send can ask when none is.
 /// Quoted lines and the line that introduces them, a forwarded message and the signature
@@ -297,14 +329,32 @@ pub fn mentions_attachment(text: &str, signature: &str) -> bool {
         .any(|w| ATTACHED.iter().any(|stem| w.starts_with(stem)))
 }
 
-/// "Re: Odp: FW: Oferta" → "Oferta". Covers English, Polish (Odp, PD) and German (AW, WG).
+/// What mail programs put before a subject when replying or forwarding: English, Polish (Odp,
+/// PD), German (AW, WG), Spanish (RV), French (TR), Italian (R, I), Ukrainian (Відп, Пересл).
+const PREFIXES: &[&str] = &[
+    "re:",
+    "fwd:",
+    "fw:",
+    "odp:",
+    "pd:",
+    "aw:",
+    "wg:",
+    "rv:",
+    "tr:",
+    "r:",
+    "i:",
+    "відп:",
+    "пересл:",
+];
+
+/// "Re: Odp: FW: Oferta" → "Oferta".
 fn strip_prefixes(subject: &str) -> String {
     let mut s = subject.trim();
     loop {
-        let lower = s.to_ascii_lowercase();
-        let Some(prefix) = ["re:", "fwd:", "fw:", "odp:", "pd:", "aw:", "wg:"]
+        let lower = s.to_lowercase();
+        let Some(prefix) = PREFIXES
             .iter()
-            .find(|p| lower.starts_with(*p))
+            .find(|p| lower.starts_with(*p) && s.is_char_boundary(p.len()))
         else {
             return s.to_owned();
         };
@@ -386,6 +436,9 @@ mod tests {
     fn subjects_dont_pile_up_prefixes() {
         assert_eq!(strip_prefixes("Re: Odp: FW: Oferta"), "Oferta");
         assert_eq!(strip_prefixes("PD:Faktura"), "Faktura");
+        assert_eq!(strip_prefixes("AW: WG: TR: RV: Angebot"), "Angebot");
+        assert_eq!(strip_prefixes("ВІДП: Пересл: Рахунок"), "Рахунок");
+        assert_eq!(strip_prefixes("R: I: Preventivo"), "Preventivo");
         assert_eq!(
             strip_prefixes("Reklamacja"),
             "Reklamacja",
@@ -405,6 +458,18 @@ mod tests {
             none
         ));
         assert!(mentions_attachment("Załączam umowę do podpisu.", none));
+        for other in [
+            "Die Rechnung finden Sie im Anhang.",
+            "V příloze posílám smlouvu.",
+            "V prílohe posielam zmluvu.",
+            "Рахунок у вкладенні.",
+            "Te envío el presupuesto adjunto.",
+            "Vous trouverez la facture en pièce jointe.",
+            "In allegato il preventivo.",
+        ] {
+            assert!(mentions_attachment(other, none), "{other}");
+        }
+        assert!(!mentions_attachment("Danke für das Treffen.", none));
         assert!(mentions_attachment(
             "Please see the enclosed invoice.",
             none

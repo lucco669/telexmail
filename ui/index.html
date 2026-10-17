@@ -164,11 +164,9 @@
           <div class="dhead">
             <h3 class="rh" data-i18n>Add a mail account</h3>
             <!-- On the first start only: the language, each named in itself. -->
-            <div class="langpick" id="w-lang" role="group" aria-label="Language · Język" hidden>
-              <button type="button" data-lang="en" lang="en">English</button><button type="button" data-lang="pl" lang="pl">Polski</button>
-            </div>
+            <select class="langpick" id="w-lang" aria-label="Language" hidden></select>
           </div>
-          <p class="whint" id="w-langhint" lang="pl" hidden>Telex jest też po polsku: wybierz „Polski” u góry.</p>
+          <p class="whint" id="w-langhint" hidden></p>
           <p class="dnote" data-i18n>Telex finds the server settings itself and logs in to check them before it saves anything.</p>
           <p class="whint" id="w-move" hidden></p>
           <div class="cf df">

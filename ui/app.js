@@ -160,7 +160,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 const pad = n => String(n).padStart(2, '0');
 const DOW = [N_('Sun'),N_('Mon'),N_('Tue'),N_('Wed'),N_('Thu'),N_('Fri'),N_('Sat')];
 const hm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
-const dmy = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
+const dmy = d => pad(d.getDate()) + I18n.dateSep() + pad(d.getMonth() + 1) + I18n.dateSep() + d.getFullYear();
 function fmtList(d){
   if (colPref.dates === 'full') return dmy(d) + ' ' + hm(d);
   const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate());
@@ -172,7 +172,7 @@ function fmtList(d){
 const fmtFull = d => t(DOW[d.getDay()]) + ', ' + dmy(d) + ' ' + hm(d);
 const fmtSize = kb => kb >= 1048576 ? I18n.decimal(kb / 1048576) + ' GB' : kb >= 1024 ? I18n.decimal(kb / 1024) + ' MB' : kb + ' KB';
 // When something happened: the time today, the day and time before.
-const dm = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1);
+const dm = d => pad(d.getDate()) + I18n.dateSep() + pad(d.getMonth() + 1);
 const fmtWhen = d => d.toDateString() === new Date().toDateString() ? hm(d) : dm(d) + ' ' + hm(d);
 const nameOf = addr => {
   const s = String(addr || '').trim();
@@ -208,7 +208,7 @@ const unreadAll = () => ACCOUNTS.reduce((n, a) => n + a.folders.filter(f => f.ki
 const countOf = key => !isEvery(key) ? COUNTS[key] ?? {total:0, unread:0}
   : key === UNREAD ? (n => ({total:n, unread:n}))(unreadAll())
   : servers().reduce((n, a) => { const c = COUNTS[keyOfKind(a.id, kindOf(key))]; return c ? {total:n.total + c.total, unread:n.unread + c.unread, stuck:n.stuck + (c.stuck ?? 0)} : n; }, {total:0, unread:0, stuck:0});
-const num = n => n.toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en');
+const num = n => n.toLocaleString(I18n.locale());
 // The folders on this PC ("On this PC"): mail kept only here. The core keeps them as an
 // account without servers, with this id, listed last.
 const LOCAL = 'local';
@@ -285,7 +285,7 @@ const persist = () => store.set({
 const THEMES = ['system', 'light', 'dark', 'paper', 'heather', 'fjord', 'phosphor', 'contrast-light', 'contrast-dark'];
 const THEME_NAMES = {system:N_('Match Windows'), light:N_('Light'), dark:N_('Dark'), paper:N_('Paper'), heather:N_('Heather'), fjord:N_('Fjord'),
   phosphor:N_('Phosphor'), 'contrast-light':N_('High contrast light'), 'contrast-dark':N_('High contrast dark')};
-const LANG_NAMES = {en:'English', pl:'Polski'}; // each in itself, never translated
+const LANG_NAMES = Object.fromEntries(I18n.languages); // each in itself, never translated
 const TOOLBAR_STYLES = [
   ['classic', N_('Classic|toolbar'), N_('Icons beside labels; adapts to the window.')],
   ['icons', N_('Icons only'), N_('Small buttons, more room for your mail.')],
@@ -342,12 +342,20 @@ function applySettings(){
   paintDensity();
   if (win.dataset.density !== rows) drawSoon(); // the list keeps the same rows on screen
   scheduleChecks();
-  if (SETTINGS.language !== I18n.lang()){ I18n.setLang(SETTINGS.language); relabel(); }
+  if (SETTINGS.language !== I18n.lang()) switchLanguage(SETTINGS.language);
   renderUpdates();
   try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font, toolbar:s.toolbar_style})); } catch {}
   fitToolbarSoon(); // labels, language, font and layout all change how wide the actions are
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
+// A language whose words are in a file of their own is shown once that file is here.
+async function switchLanguage(code){
+  const later = !I18n.ready(code);
+  if (later) await I18n.load(code);
+  if (SETTINGS.language !== code || I18n.lang() === code) return;
+  I18n.setLang(code); relabel();
+  if (later && sdlg.open) renderSettings(true);
+}
 // Saved at once; the window follows. Resolves to true when it worked.
 async function changeSettings(changes){
   const before = SETTINGS.language;
@@ -355,6 +363,7 @@ async function changeSettings(changes){
   try { next = await invoke('update_settings', {changes}); }
   catch (e){ say(tr(e), 8000); return false; }
   if (!next?.settings) return false;
+  await I18n.load(next.language); // so the window changes language in one go
   SETTINGS = next;
   applySettings();
   if (sdlg.open) SETTINGS.language === before ? syncSettings() : renderSettings(true);
@@ -382,6 +391,7 @@ async function bootSettings(){
     if (['daily', 'off'].includes(saved.updates)) changes.updates = saved.updates;
     try { const next = await invoke('update_settings', {changes}); if (next?.settings) SETTINGS = next; } catch {}
   }
+  await I18n.load(SETTINGS.language);
   applySettings();
 }
 let checkTimer = null, checkEvery = null;
@@ -2217,7 +2227,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     return;
   }
   if (state.picked.size > 1){
-    const keys = [['Del', N_('to Trash')], ['M', N_('move')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Ctrl+C', N_('copy as Markdown')], ['Esc', N_('clear the selection')]];
+    const keys = [['Del', N_('to Trash')], ['M', N_('move|messages')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Ctrl+C', N_('copy as Markdown')], ['Esc', N_('clear the selection')]];
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div><b>${esc(tn(state.picked.size, '{n} message selected', '{n} messages selected', {n:num(state.picked.size)}))}</b></div>`
       + `<div class="mkeys">${keys.map(([k, l]) => `<span><kbd>${k}</kbd> ${esc(t(l))}</span>`).join('')}</div></div>`;
     return;
@@ -3891,18 +3901,34 @@ function openAccountDialog(){
   $(me ? 'w-email' : 'w-name').focus();
 }
 // The first start: the language, right where Telex opens. Windows in English with Polish
-// formats gets a nudge, in Polish.
+// formats gets a nudge, in Polish (and likewise for the other languages).
+// Each nudge is written in the language it offers, so it is never translated.
+const OFFER_HINTS = {
+  en: 'Telex is also in English: choose “English” above.',
+  pl: 'Telex jest też po polsku: wybierz „Polski” u góry.',
+  de: 'Telex gibt es auch auf Deutsch: Wählen Sie oben „Deutsch“.',
+  cs: 'Telex je také v češtině: nahoře vyberte „Čeština“.',
+  sk: 'Telex je aj v slovenčine: hore vyberte „Slovenčina“.',
+  uk: 'Telex є й українською: виберіть угорі «Українська».',
+  es: 'Telex también está en español: elige «Español» arriba.',
+  fr: 'Telex existe aussi en français : choisissez « Français » en haut.',
+  it: 'Telex è anche in italiano: scegli «Italiano» in alto.',
+};
 function renderLangPick(){
-  const first = !ACCOUNTS.length, lang = I18n.lang();
-  $('w-lang').hidden = !first;
-  $('w-lang').querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
-  $('w-langhint').hidden = !(first && SETTINGS.offer === 'pl' && lang !== 'pl' && state.offered !== 'pl');
+  const first = !ACCOUNTS.length, lang = I18n.lang(), offer = SETTINGS.offer, pick = $('w-lang');
+  pick.hidden = !first;
+  pick.innerHTML = I18n.languages.map(([code, name]) => `<option value="${code}" lang="${code}"${code === lang ? ' selected' : ''}>${esc(name)}</option>`).join('');
+  pick.setAttribute('aria-label', lang === 'en' ? 'Language' : `${t('Language')} · Language`);
+  const hint = $('w-langhint');
+  hint.hidden = !(first && OFFER_HINTS[offer] && lang !== offer && state.offered !== offer);
+  hint.lang = offer || '';
+  hint.textContent = OFFER_HINTS[offer] ?? '';
 }
-$('w-lang').addEventListener('click', async e => {
-  const b = e.target.closest('[data-lang]');
-  if (!b || b.dataset.lang === I18n.lang()) return;
+$('w-lang').addEventListener('change', async e => {
+  const code = e.target.value;
+  if (code === I18n.lang()) return;
   state.offered = SETTINGS.offer || state.offered; persist();
-  if (await changeSettings({language:b.dataset.lang})) renderLangPick();
+  if (await changeSettings({language:code})) renderLangPick();
 });
 // Each account: who it is, where its servers are, how the last check went.
 function renderAccountList(){
@@ -4212,7 +4238,7 @@ function renderAway(){
     return [ACCT[a.account].email, days, a.place === 'server' ? t('on the server') : t('Telex answers')].filter(Boolean).join(' · ');
   }).join('\n');
 }
-const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString(I18n.lang() === 'pl' ? 'pl-PL' : 'en-GB');
+const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString(I18n.locale());
 $('st-away').addEventListener('click', () => { const a = AWAY.find(x => awayOn(x.account)); if (a) openAway(a.account); });
 
 /* ---------- which folder is which ---------- */
@@ -4693,7 +4719,7 @@ function renderSettings(keepFocus){
   const auto = LANG_NAMES[SETTINGS.settings.language === 'auto' ? SETTINGS.language : ''] ?? '';
   $('s-langs').innerHTML = radios('language', [
     ['auto', esc(t('Automatic, as in Windows')), auto ? `<small class="sdim">${esc(auto)}</small>` : ''],
-    ['en', '<span lang="en">English</span>'], ['pl', '<span lang="pl">Polski</span>'],
+    ...I18n.languages.map(([code, name]) => [code, `<span lang="${code}">${esc(name)}</span>`]),
   ], s.language);
   $('s-every').innerHTML = CHECK_EVERY.map(n => `<option value="${n}"${n === s.check_every ? ' selected' : ''}>${esc(
     n === 0 ? t('Only when I click Get mail') : n === 60 ? t('Every hour') : tn(n, 'Every {n} minute', 'Every {n} minutes'))}</option>`).join('');
@@ -5376,7 +5402,7 @@ const purposeText = p => ({check:t('Check|connection'), push:t('Changes|connecti
 const stepText = (s, purpose) => s === 'work'
   ? ({check:t('checking'), push:t('sending changes'), older:t('downloading'), test:t('folder list'), watch:t('watching'), send:t('sending')}[purpose] ?? purpose)
   : ({lookup:t('address|step'), wait:t('waiting|step'), connect:t('connecting|step'), starttls:'STARTTLS', tls:'TLS', greeting:t('greeting|step'), login:t('login|step')}[s] ?? s);
-const fmtMs = ms => ms < 1000 ? t('{n} ms', {n:num(ms)}) : t('{n} s|duration', {n:(ms / 1000).toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en', {maximumFractionDigits:1})});
+const fmtMs = ms => ms < 1000 ? t('{n} ms', {n:num(ms)}) : t('{n} s|duration', {n:(ms / 1000).toLocaleString(I18n.locale(), {maximumFractionDigits:1})});
 const hms = d => hm(d) + ':' + pad(d.getSeconds());
 const connWhen = text => { const d = parseDate(text); return d.toDateString() === new Date().toDateString() ? hms(d) : dmy(d) + ' ' + hms(d); };
 // The account a connection was for: the one that logs in with that user name, on that server

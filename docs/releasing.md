@@ -117,7 +117,18 @@ and install a signed update from GitHub.
 
 ## Releasing a version
 
-1. On an up-to-date `main` with a green CI run, set the version:
+1. On an up-to-date `main` with a green CI run, check that every language has every text:
+
+   ```
+   node scripts/check-i18n.mjs --all
+   ```
+
+   CI fails only on missing Polish; texts added since the last release may still lack German,
+   Czech, Slovak, Ukrainian, Spanish, French or Italian (they show in English there). `--list`
+   names them, `--json` gives them with their Polish and where they are used, ready to
+   translate into `ui/i18n/<code>.js` and `crates/telex-core/i18n/<code>.json`.
+
+   Then set the version:
 
    ```
    npm run set-version -- 0.2.0

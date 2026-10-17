@@ -28,7 +28,7 @@ const rtfText = (t) => [...t].map((c) => {
 const rtf = '{\\rtf1\\ansi\\ansicpg1252\\deff0\\uc1{\\fonttbl{\\f0\\fswiss\\fcharset0 Segoe UI;}}\\f0\\fs18\n'
   + eula.trimEnd().split('\n').map((line, i) => (i === 0 || /^\d+\. /.test(line) ? `\\b ${rtfText(line)}\\b0` : rtfText(line)) + '\\par').join('\n')
   + '\n}\n';
-const ours = new Set(['telex', 'telex-core', 'telex-security']);
+const ours = new Set(['telex', 'telex-core', 'telex-i18n', 'telex-security']);
 
 const meta = JSON.parse(execFileSync('cargo', ['metadata', '--format-version', '1', '--locked'], {
   cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,

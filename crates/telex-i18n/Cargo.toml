@@ -1,0 +1,14 @@
+[package]
+name = "telex-i18n"
+description = "The tr! and trn! macros of telex-core: each sentence in every language Telex speaks, from its catalogs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+proc-macro = true
+
+[dependencies]
+serde_json.workspace = true

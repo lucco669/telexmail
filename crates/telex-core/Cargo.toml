@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
+telex-i18n = { path = "../telex-i18n" }
 chrono.workspace = true
 rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "functions"] }
 mail-parser = "0.11.9"

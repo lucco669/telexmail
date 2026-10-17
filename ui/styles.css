@@ -174,7 +174,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .adot.pc{display:inline-block;position:relative;width:10px;height:8px;margin:0 0 2px;border-radius:1.5px;background:none;box-shadow:inset 0 0 0 1.5px var(--muted)}
 .adot.pc::after{content:"";position:absolute;left:2.5px;right:2.5px;bottom:-2.5px;height:1.5px;background:var(--muted)}
 .pcrow{display:flex;align-items:center;margin-top:6px;padding-top:4px;border-top:1px solid var(--line-soft)}
-.pcrow .acct{flex:1;min-width:0}
+.pcrow .acct{flex:1 0 auto;width:auto;max-width:75%;min-width:0}
 .pcadd{flex:none;display:inline-grid;place-items:center;width:22px;height:20px;margin-right:6px;padding:0;border:1px solid transparent;border-radius:3px;background:none;color:var(--muted);cursor:pointer}
 .pcadd:hover{border-color:var(--line);background:var(--hover);color:var(--fg)}
 .pcadd svg{width:12px;height:12px}
@@ -494,13 +494,8 @@ button.ph-who:hover .pn{text-decoration:underline}
 .derr:empty{display:none}
 .dhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding-right:14px}
 /* The language on the first start, each named in itself */
-.langpick{display:inline-flex;flex:none;margin-top:10px;border:1px solid var(--field);border-radius:4px;overflow:hidden}
-.langpick button{height:22px;padding:0 9px;border:0;background:var(--surface);font-size:11.5px;cursor:pointer}
-.langpick button+button{border-left:1px solid var(--field)}
-.langpick button:hover{background:var(--hover)}
-.langpick button[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg);font-weight:500}
-.langpick button:focus-visible{outline-offset:-3px}
-.langpick button[aria-pressed="true"]:focus-visible{outline-color:var(--accent-fg)}
+.langpick{flex:none;margin-top:10px;height:24px;padding:0 4px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:11.5px;cursor:pointer}
+.langpick:hover{background:var(--hover)}
 /* Account wizard: a provider tip, then one line per step */
 .whint{margin:0 14px 10px;padding:6px 9px;border-radius:3px;background:var(--chip-bg);color:var(--chip-fg);font-size:12px;line-height:1.45}
 .whint.warn{background:var(--warn-bg);color:var(--warn-fg)}
@@ -842,7 +837,7 @@ button.cnwhy:hover,button.cnwhy:focus-visible{text-decoration:underline}
 .bkconfirm{margin:0 0 12px;padding:10px 12px 2px;border:1px solid var(--accent);border-radius:5px;background:var(--surface);font-size:12.5px}
 .bkconfirm p{margin:6px 0}
 .bkconfirm ul{margin:6px 0 10px;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5}
-.bkchip{flex:none;margin-right:4px;border:0;cursor:pointer}
+.pcrow .bkchip{flex:0 1 auto;min-width:0;margin-right:4px;border:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width: 620px){
   .setbody{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
   .settabs{flex-direction:row;padding:6px;border-right:0;border-bottom:1px solid var(--line-soft)}
@@ -853,7 +848,7 @@ button.cnwhy:hover,button.cnwhy:focus-visible{text-decoration:underline}
    selection, pressed choices) gets the system's highlight; labels on tinted bars get borders. */
 @media (forced-colors: active){
   tbody tr.sel td,.list:focus tbody tr.sel td,tbody tr.picked td,.fold.active,.settabs [role="tab"][aria-selected="true"],
-  .seg2 input:checked+span,.langpick button[aria-pressed="true"],.seg button[aria-pressed="true"],
+  .seg2 input:checked+span,.seg button[aria-pressed="true"],
   .pklist li[aria-selected="true"],.sugg li[aria-selected="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText}
   tr.unread .ic .dot{forced-color-adjust:none;background:CanvasText}
   .list:focus tr.sel.unread .ic .dot,tr.sel.unread .ic .dot{background:HighlightText}
