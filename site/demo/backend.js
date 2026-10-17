@@ -79,7 +79,8 @@ function installTelexDemo(options) {
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
     toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, ask_attachment: true, ask_many: true, spell_check: true,
-    updates: 'off', usage_count: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
+    updates: 'off', usage_count: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5,
+    backup_secret_keys: true, pgp_sign: false, pgp_autocrypt: true, ...startSettings,
   };
   const SLIPS = {
     teh: ['the'], recieve: ['receive'], adress: ['address'], wich: ['which'], seperate: ['separate'], definately: ['definitely'],
@@ -117,6 +118,8 @@ function installTelexDemo(options) {
       'To tylko demo: nie pobiera słowników. Pobierz Telex, aby sprawdzać pisownię.'],
     move: ['This is a demo: it doesn’t look for other mail programs or read their files. Download Telex to bring your mail from Thunderbird or Outlook.',
       'To tylko demo: nie szuka innych programów pocztowych ani nie czyta ich plików. Pobierz Telex, aby przenieść pocztę z Thunderbirda albo Outlooka.'],
+    pgp: ['This is a demo: it keeps no OpenPGP keys. Download Telex to sign and encrypt your own mail.',
+      'To tylko demo: nie przechowuje kluczy OpenPGP. Pobierz Telex, aby podpisywać i szyfrować własną pocztę.'],
     update: ['This is a demo: it doesn’t update itself. Download the newest Telex instead.',
       'To tylko demo: nie aktualizuje się. Pobierz najnowszego Telexa.'],
   };
@@ -1279,7 +1282,8 @@ function installTelexDemo(options) {
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'], usage_count: ['ask', 'on', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20], spam_filter: ['off', 'careful', 'normal', 'strict'],
   };
-  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'ask_attachment', 'ask_many', 'spell_check', 'risk_checks', 'sign_replies'];
+  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'ask_attachment', 'ask_many', 'spell_check', 'risk_checks', 'sign_replies',
+    'backup_secret_keys', 'pgp_sign', 'pgp_autocrypt'];
   const settingsView = () => ({ settings: { ...settings }, language: lang(), offer: null, fresh: false });
   function updateSettings({ changes }) {
     for (const [k, v] of Object.entries(changes || {})) {
@@ -1499,6 +1503,12 @@ function installTelexDemo(options) {
     // The away reply: off, and the demo can't turn it on.
     get_away: ({ account }) => ({ account, enabled: false, starts: null, ends: null, subject: '', body: '', days: 4, place: 'telex', script: null, created: false }),
     save_away: () => refuse('away'),
+    // OpenPGP (openpgp.rs): the demo has no keys, so mail goes out as it is.
+    pgp_keys: () => [],
+    pgp_compose: () => ({ own: null, unlocked: false, missing: [], can_encrypt: false, sign: false, encrypt: false }),
+    pgp_import: () => refuse('pgp'), pgp_import_text: () => refuse('pgp'), pgp_import_offered: () => refuse('pgp'),
+    pgp_generate: () => refuse('pgp'), pgp_export: () => refuse('pgp'), pgp_public_text: () => refuse('pgp'),
+    pgp_unlock: () => refuse('pgp'), pgp_delete: () => refuse('pgp'), pgp_verify: () => refuse('pgp'), pgp_forget: () => null,
   };
   const asText = (e) => (typeof e === 'string' ? e : String(e?.message ?? e));
   // Like Tauri's invoke: arguments and answers cross as JSON; a failure is the core's sentence.

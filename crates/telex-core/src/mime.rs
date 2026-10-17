@@ -80,14 +80,16 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         .collect::<Vec<_>>()
         .join("\n")
         .replace("\r\n", "\n");
+    // Encrypted text isn't kept as the text (search would index its armor); a signed
+    // block's armor goes, its text stays.
+    let body = crate::openpgp::index_text(&body);
 
     let remote_images = p.html_bodies().any(|part| match &part.body {
         PartType::Html(html) => references_remote_content(html),
         _ => false,
     });
 
-    let attachments = p
-        .attachments()
+    let attachments = listed(&p)
         .map(|a| Attachment {
             name: file_name(a),
             size_kb: kb(a.contents().len()),
@@ -205,13 +207,23 @@ pub fn attachments_of(raw: &[u8]) -> Vec<FileAttachment> {
     let Some(p) = MessageParser::default().parse(raw) else {
         return Vec::new();
     };
-    p.attachments().map(file_attachment).collect()
+    listed(&p).map(file_attachment).collect()
+}
+
+/// The attachments to list: all but OpenPGP's own parts (a detached signature,
+/// multipart/encrypted's version part and payload).
+fn listed<'a>(p: &'a mail_parser::Message<'a>) -> impl Iterator<Item = &'a MessagePart<'a>> {
+    p.attachments
+        .iter()
+        .map(|&i| i as usize)
+        .filter(|&i| !crate::openpgp::is_machinery(p, i))
+        .filter_map(|i| p.parts.get(i))
 }
 
 /// One attachment, by its place in the message's list (as [`parse_message`] lists them).
 pub fn attachment_at(raw: &[u8], index: usize) -> Option<FileAttachment> {
     let p = MessageParser::default().parse(raw)?;
-    let found = p.attachments().nth(index).map(file_attachment);
+    let found = listed(&p).nth(index).map(file_attachment);
     found
 }
 

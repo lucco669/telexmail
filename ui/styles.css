@@ -998,3 +998,39 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
 .preview-matches li{margin:5px 0}
 .preview-matches .dnote{display:block}
 .saved-searches .fold[aria-current="page"]{background:var(--hover);color:var(--accent);font-weight:600}
+/* OpenPGP: the lines above signed and encrypted mail, compose's switches, Settings › Keys */
+.bar.pgp{flex-wrap:nowrap;align-items:flex-start}
+.bar.pgp svg{width:14px;height:14px;flex:none;margin-top:2px}
+.bar.pgp.good,.bar.pgp.quiet{background:var(--panel);color:var(--fg)}
+.bar.pgp.good svg{color:var(--accent)}
+.bar.pgp.quiet{color:var(--muted)}
+.bar.pgp.info{background:var(--chip-bg);color:var(--chip-fg)}
+.bar.pgp.bad{background:var(--note-bg);color:var(--note-fg)}
+.bar.pgp .btn{color:var(--fg);height:22px}
+.pgpline{display:flex;flex:1;min-width:0;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.pgpfp,.kfp{font:12px var(--font-data);letter-spacing:.02em}
+.pgppass,#c-pass,.sfield{height:24px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.pgppass,#c-pass{width:14em}
+.pgppass:focus,#c-pass:focus,.sfield:focus{border-color:var(--accent);outline:0}
+textarea.sfield{height:auto;width:100%;padding:6px;font:12px var(--font-data);resize:vertical}
+.pgprem{display:inline-flex;align-items:center;gap:4px}
+.pgperr{font-weight:600}
+.pgpset{display:inline-flex;gap:4px}
+.pgpset[hidden],.cpgp[hidden]{display:none}
+.pgptog svg{width:13px;height:13px;color:var(--muted)}
+.pgptog[aria-pressed="true"]{background:var(--sel);color:var(--fg);border-color:var(--accent)}
+.pgptog[aria-pressed="true"] svg{color:var(--accent)}
+.klist{list-style:none;margin:0 0 10px;padding:0}
+.krow{padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.khead{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.kchip{font-size:11px;padding:0 6px;border-radius:8px;background:var(--chip-bg);color:var(--chip-fg)}
+.kchip.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.kchip.bad{background:var(--note-bg);color:var(--note-fg)}
+.kuids,.kmeta{font-size:12px;color:var(--muted)}
+.kfp{display:block;margin:2px 0;color:var(--fg)}
+.kbtns{display:flex;flex-wrap:wrap;gap:2px 14px;margin-top:3px}
+.kbtns .linkbtn{color:var(--accent);text-decoration:none;font-weight:500}
+.kbtns .linkbtn.danger{color:var(--note-fg);font-weight:600}
+.kmake{margin:8px 0 14px}
+.kmake summary{cursor:pointer;font-weight:600;padding:4px 0}
+.kpaste{margin:6px 0 10px}

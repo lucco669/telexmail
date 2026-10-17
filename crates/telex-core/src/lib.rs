@@ -24,6 +24,7 @@ pub mod markdown;
 pub mod migrate;
 pub mod mime;
 pub mod model;
+pub mod openpgp;
 pub mod recipients;
 pub mod risk;
 #[cfg(test)]

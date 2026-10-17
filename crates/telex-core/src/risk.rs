@@ -25,6 +25,9 @@ pub struct InspectedMessage {
     #[serde(flatten)]
     pub message: Message,
     pub risk: Report,
+    /// Signed or encrypted mail: what OpenPGP found (openpgp.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pgp: Option<crate::openpgp::View>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

@@ -1,7 +1,8 @@
 //! Backups of the mail base: one consistent copy of the whole file, made while Telex runs on a
 //! connection of its own (SQLite's `VACUUM INTO`, which also leaves the free space out), into
 //! a folder the user picks; by hand, or every day or week keeping the newest few. A backup
-//! holds the mail, folders, rules, identities and trusted senders; not passwords, which stay
+//! holds the mail, folders, rules, identities, trusted senders and OpenPGP keys (their secret
+//! parts only when `backup_secret_keys` says so); not passwords, which stay
 //! in the system's password store, nor settings.json, which the settings file exports.
 //!
 //! Restoring puts the mail base as it is aside, next to it, and the copy in its place, and then
@@ -94,6 +95,18 @@ pub fn due(dir: &Path, every: Option<TimeDelta>, now: NaiveDateTime) -> bool {
 /// Write a backup of the mail base at `db` into `dir`, made now (`at`). It appears under its
 /// name only when it is complete and opens. Returns it.
 pub fn write(db: &Path, dir: &Path, at: NaiveDateTime) -> Result<BackupFile, StoreError> {
+    write_keys(db, dir, at, true)
+}
+
+/// [`write`], with or without the secret parts of the user's OpenPGP keys (the setting
+/// `backup_secret_keys`). Without them the backup keeps the keys' public parts, and the
+/// removed bytes are overwritten (`secure_delete`) and compacted away, not left in free pages.
+pub fn write_keys(
+    db: &Path,
+    dir: &Path,
+    at: NaiveDateTime,
+    secret_keys: bool,
+) -> Result<BackupFile, StoreError> {
     std::fs::create_dir_all(dir).map_err(file_error)?;
     let mut at = at;
     let mut dest = dir.join(format!("{PREFIX}{}{EXTENSION}", at.format(STAMP)));
@@ -110,6 +123,19 @@ pub fn write(db: &Path, dir: &Path, at: NaiveDateTime) -> Result<BackupFile, Sto
         )?;
         source.execute("VACUUM INTO ?1", [part.display().to_string()])?;
         drop(source);
+        if !secret_keys {
+            let copy = Connection::open(&part)?;
+            copy.pragma_update(None, "secure_delete", true)?;
+            let has_keys: bool = copy.query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'pgp_keys')",
+                [],
+                |r| r.get(0),
+            )?;
+            if has_keys {
+                copy.execute("UPDATE pgp_keys SET secret = NULL", [])?;
+                copy.execute_batch("VACUUM")?;
+            }
+        }
         inspect(&part)?; // it opens, and it is a mail base
         std::fs::rename(&part, &dest).map_err(file_error)
     })();
@@ -447,6 +473,58 @@ mod tests {
             "only Telex's own backups go"
         );
         assert!(!list(&backups).iter().any(|b| b.path.ends_with(".part")));
+        drop(store);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn secret_keys_go_into_backups_only_when_the_user_wants() {
+        let dir = temp_dir();
+        let (db, mut store) = base(&dir);
+        let key = store
+            .generate_key(
+                "Studio",
+                "biuro@twojastudio.pl",
+                "hasło",
+                crate::openpgp::KeyKind::Ed25519,
+                at(1, 8),
+            )
+            .unwrap();
+        let (public, secret): (Vec<u8>, Vec<u8>) = store
+            .db
+            .query_row("SELECT public, secret FROM pgp_keys", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        // Pieces of the secret part that its public part doesn't have (the row may be split
+        // over pages, so pieces, not the whole).
+        let has = |hay: &[u8], piece: &[u8]| hay.windows(piece.len()).any(|w| w == piece);
+        let pieces: Vec<&[u8]> = secret
+            .chunks(24)
+            .filter(|p| p.len() == 24 && !has(&public, p))
+            .collect();
+        assert!(pieces.len() > 4);
+        let contains = |hay: &[u8]| pieces.iter().any(|p| has(hay, p));
+        let with = write_keys(&db, &dir.join("z"), at(1, 9), true).unwrap();
+        assert!(contains(&std::fs::read(&with.path).unwrap()));
+        let without = write_keys(&db, &dir.join("bez"), at(1, 9), false).unwrap();
+        let copy = std::fs::read(&without.path).unwrap();
+        assert!(!contains(&copy), "not even in free pages");
+        // The public part stays, so signatures still verify after a restore.
+        let backup = Connection::open(&without.path).unwrap();
+        let (public, secret): (i64, i64) = backup
+            .query_row(
+                "SELECT COUNT(public), COUNT(secret) FROM pgp_keys WHERE fingerprint = ?1",
+                [&key.fingerprint],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((public, secret), (1, 0));
+        assert!(
+            store.export_secret_key(&key.fingerprint).is_ok(),
+            "the base keeps it"
+        );
+        drop(backup);
         drop(store);
         let _ = std::fs::remove_dir_all(dir);
     }

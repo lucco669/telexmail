@@ -242,7 +242,9 @@ pub fn clear_opened(temp: &Path) {
 impl MailStore {
     /// An attachment of a stored message, by its place in the message's list.
     pub fn attachment(&self, id: MessageId, index: usize) -> Result<FileAttachment, StoreError> {
-        let raw = self.raw_of(id)?.ok_or(StoreError::UnknownMessage(id))?;
+        let raw = self
+            .readable_raw(id)?
+            .ok_or(StoreError::UnknownMessage(id))?;
         attachment_at(&raw, index).ok_or_else(|| {
             StoreError::Invalid(tr!(
                 "That attachment isn't in the message.",
@@ -253,7 +255,9 @@ impl MailStore {
 
     /// Every attachment of a stored message.
     pub fn attachments(&self, id: MessageId) -> Result<Vec<FileAttachment>, StoreError> {
-        let raw = self.raw_of(id)?.ok_or(StoreError::UnknownMessage(id))?;
+        let raw = self
+            .readable_raw(id)?
+            .ok_or(StoreError::UnknownMessage(id))?;
         Ok(crate::mime::attachments_of(&raw))
     }
 }

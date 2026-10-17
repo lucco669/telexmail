@@ -37,6 +37,13 @@ cfb = "0.14.0"
 # SHA-256 a fetched dictionary must match (ring is here for TLS already).
 spellbook = "0.4.2"
 ring = "0.17"
+# OpenPGP (openpgp.rs): rPGP, pure Rust, MIT or Apache-2.0 (Sequoia is LGPL, so not it). No
+# BZip2 (rare in mail). rand 0.8 is the one rPGP takes; rsa only names an RSA key's size
+# (rPGP brings it).
+pgp = { version = "0.21.0", default-features = false }
+rand = "0.8.5"
+rsa = "0.9.10"
+smallvec = "1.10"
 
 # MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver;
 # Windows' display languages for the interface language; Outlook's accounts in the registry.

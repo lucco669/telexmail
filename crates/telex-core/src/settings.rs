@@ -81,6 +81,9 @@ const KEYS: &[&str] = &[
     "updates",
     "backup_every",
     "backup_keep",
+    "backup_secret_keys",
+    "pgp_sign",
+    "pgp_autocrypt",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -158,6 +161,17 @@ pub struct Settings {
     pub backup_dir: String,
     /// How many backups to keep there, one of [`BACKUP_KEEP`].
     pub backup_keep: u16,
+    /// Backups carry the secret parts of the user's OpenPGP keys (protected by their
+    /// passphrases); off, they carry only the public parts (`backup::write_keys`).
+    #[serde(default = "yes")]
+    pub backup_secret_keys: bool,
+    /// New messages start signed when the sender has a key (compose's Sign).
+    #[serde(default)]
+    pub pgp_sign: bool,
+    /// Mail from an address with a key carries an Autocrypt header with its public key, so
+    /// other programs can encrypt replies (autocrypt.org).
+    #[serde(default = "yes")]
+    pub pgp_autocrypt: bool,
 }
 
 /// How often the mail base backs itself up.
@@ -349,6 +363,9 @@ impl Default for Settings {
             backup_every: BackupEvery::Off,
             backup_dir: String::new(),
             backup_keep: 5,
+            backup_secret_keys: true,
+            pgp_sign: false,
+            pgp_autocrypt: true,
         }
     }
 }

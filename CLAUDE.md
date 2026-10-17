@@ -91,6 +91,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      Inbox mail sorted before the rules. Its tests are in src/spam/tests.rs.
   src/away.rs        The away reply, one per account: on the server as a Sieve vacation where
                      it takes one, else Telex answers new mail when it checks.
+  src/openpgp.rs     OpenPGP (rPGP, the `pgp` crate; docs/encryption.md): PGP/MIME and inline
+                     mail verified and decrypted on open, in memory only (the last 8); keys in the
+                     mail base (schema 15), Autocrypt Level 1 from incoming mail, keys made,
+                     imported, exported; compose's Sign and Encrypt (`protect`, smtp.rs builds
+                     first). Tests with GnuPG vectors in src/openpgp/ (tests.rs, write_tests.rs).
   src/sieve.rs       ManageSieve (RFC 5804, port 4190, STARTTLS before the login) and Telex's
                      marked part of the running Sieve script, put in and taken out whole.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
@@ -120,6 +125,8 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
                      bringing accounts (passwords saved, a first login each), mail and filters.
   src/away.rs        The away reply's commands: reading, and saving (onto the server or not).
+  src/keys.rs        OpenPGP: Settings › Keys' commands, passphrases (memory; the system store
+                     only with Remember, "openpgp:<fingerprint>"), what compose's switches need.
   src/spell.rs       Spelling commands: the languages (the setting's, or Windows' and the
                      interface's), checking, suggestions, the user's words, fetching dictionaries.
   src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
@@ -160,6 +167,7 @@ scripts/             set-version.mjs: sets the version in every file that has it
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/counting.md     Downloads and copies counted: what is sent, what is kept, GDPR, setting up /stats.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
+docs/encryption.md   Signed and encrypted mail: the library, what is kept where, keys, Autocrypt.
 .github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Linux app clippy
                      (ubuntu-22.04), Windows clippy, core tests and installer build (can't update
                      itself). Actions are pinned to commits, the tag in a comment.
@@ -181,7 +189,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs); signed or encrypted mail also `pgp` `{encrypted, decrypted, problem, locked, recipients, signature: {status, key, key_id, created}, partial, offered}` (decrypted: body, subject and attachments from inside; a remembered passphrase is tried once) |
 | `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -197,14 +205,15 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `save_attachments`| `id`, `words`               | the folder saved to, or null; opens a folder picker |
 | `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
-| `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
+| `save_outgoing`  | `draft`, `pgp`               | new message id (a draft, kept whole: its HTML and forwarded files; with `pgp.encrypt`, encrypted to the sender's own key, no text kept) |
 | `discard_draft`  | `id`                         | true when that draft (on this PC, in Drafts) was removed for good: compose's Discard drops its autosave |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
 | `mentions_attachment` | `text`, `signature`    | whether the user's own text (no quotes, forwarded part or signature) says a file is attached (`drafts::mentions_attachment`; Send asks when none is) |
-| `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
+| `send_message`   | `draft`, `pgp` `{sign, encrypt, attach_key}` (null: none) | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}`; signed (multipart/signed) or encrypted to every recipient and the sender (multipart/encrypted), refused with who has no key; an Autocrypt header when the sender has a key |
+| `pgp_compose`    | `draft` (as typed)           | `{own, unlocked, missing, can_encrypt, sign, encrypt}`: where compose's Sign and Encrypt start and who has no key |
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
@@ -255,6 +264,14 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `spell_suggest`  | `word`                       | up to 7 suggestions |
 | `spell_add`      | `word`                       | – (right from now on, in every language: words.txt next to the settings) |
 | `spell_download`, `spell_remove` | `tag`          | the languages again; fetches LibreOffice's dictionary (GitHub, pinned, SHA-256 checked) or removes one Telex fetched |
+| `pgp_keys`       | –                            | `[{fingerprint, user_ids, emails, created, expires, algorithm, secret, protected, source, verified, revoked, can_encrypt, added, unlocked, remembered}]`, own keys first |
+| `pgp_import`     | `words`                      | `{added, updated, unchanged: [{fingerprint, name}], skipped}` or null; opens Open (.asc, .gpg, .pgp, .key) |
+| `pgp_import_text`, `pgp_import_offered` | `text` / `id` | the same: a pasted key, or the keys the message carries (Autocrypt, attached; unconfirmed) |
+| `pgp_generate`   | `name`, `email`, `passphrase`, `kind` (ed25519, rsa3072), `remember` | `{fingerprint, name}`: a key with its passphrase (known this session; the system store with `remember`) |
+| `pgp_export`     | `fingerprint`, `secret`, `words` | the path written, or null; opens Save (the secret key stays locked with its passphrase) |
+| `pgp_public_text` | `fingerprint`               | the public key, armored (Copy public key) |
+| `pgp_unlock`     | `fingerprint`, `passphrase`, `remember` | true when it opens the key (kept until Telex closes) |
+| `pgp_verify`, `pgp_delete`, `pgp_forget` | `fingerprint` (`verified`) | – (confirm a key; remove it; forget its passphrase here and in the system store) |
 | `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items]}`; "move-progress" events `{step, done, total, name}` |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
@@ -320,7 +337,9 @@ default since 0.9.8, an existing settings.json keeps its value), `reply_format` 
 default), same, plain), `sign_replies` (the identity's signature in replies and forwards too), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
 can take it back), `ask_subject`, `ask_attachment` (Send asks when the text mentions an attachment and none is attached), `ask_many` (Send asks before a reply to all goes to 8 people or more), `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `usage_count` (ask, on, off: the daily count; asked in the status bar after `updates`; this PC's own like `backup_dir`), `backup_every` (off, daily,
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
-leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
+leave it out and imports keep it), `backup_keep` (3, 5, 10, 20), `backup_secret_keys` (backups carry
+the secret parts of OpenPGP keys, locked with their passphrases; off: public parts only), `pgp_sign`
+(compose starts signed) and `pgp_autocrypt` (an Autocrypt header with the sender's key). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
 all, even before the first account. The window keeps only its own state in localStorage
 (`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
@@ -429,7 +448,26 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- OpenPGP (schema version 15: `pgp_keys`, `pgp_key_ids`, `autocrypt_peers`, `pgp_prefs`; one-way;
+  settings `backup_secret_keys`, `pgp_sign`, `pgp_autocrypt`; docs/encryption.md). rPGP (MIT or
+  Apache-2.0, pure Rust; Sequoia is LGPL). Reading: PGP/MIME (RFC 3156) and inline PGP, a line
+  above the message: Signed by (a confirmed key of the From address), unconfirmed (a key from
+  their mail: its fingerprint and Confirm key), another address's key, no key, bad, revoked,
+  expired, partly signed; encrypted mail decrypted on open with the user's keys, the passphrase
+  asked in that line (Remember: the system's password store). Encrypted mail is stored as it
+  came: no text in the mail base or its search; the decrypted message lives in memory (the last 8)
+  for HTML (same sanitizer), attachments, replies. Damaged mail, mail for another key, over 64 MB
+  decrypted (compression bombs stop there), and formats without integrity protection show nothing.
+  Autocrypt Level 1: keys from incoming mail (not Spam), unconfirmed; keys attached to mail offered.
+  Keys (Settings › Keys): own and others', fingerprints, import (files, pasted, from a message),
+  make (Ed25519/X25519, or RSA 3072; a passphrase required), export public, back up secret,
+  confirm, forget passphrase, delete; backups carry secret keys only with `backup_secret_keys`.
+  Writing: Sign, Encrypt and My key in compose (multipart/signed with quoted-printable text;
+  multipart/encrypted to everyone and the sender, signed inside, subject inside and "..." outside,
+  Bcc anonymous); Send refuses with the addresses that have no key and asks for the passphrase to
+  sign; a reply to encrypted mail starts encrypted, else as last chosen per person; encrypted
+  drafts encrypted to the sender; an Autocrypt header with the sender's key. Checked against
+  GnuPG 2.4.9 both ways. Not yet: S/MIME.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
