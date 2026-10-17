@@ -35,6 +35,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/012_away.sql"),
     include_str!("migrations/013_saved_searches_and_rule_actions.sql"),
     include_str!("migrations/014_spam_filter.sql"),
+    include_str!("migrations/015_unsubscribed.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -220,6 +221,8 @@ pub struct OutgoingMail {
     /// The To header, for "Sent to …".
     pub to: String,
     pub attempts: u32,
+    /// When it was to go: a message sent later, or one waiting out its moment to undo.
+    pub send_after: Option<NaiveDateTime>,
 }
 
 /// A change the user made that the server hasn't heard about yet.
@@ -415,19 +418,32 @@ impl MailStore {
         id: MessageId,
     ) -> Result<crate::risk::InspectedMessage, StoreError> {
         let message = self.get(id)?;
-        let risk = if self
+        let (risk, unsubscribe) = if self
             .kind_of(&message.folder)
             .is_some_and(FolderKind::is_outgoing)
         {
-            crate::risk::Report::default()
+            (crate::risk::Report::default(), None)
         } else {
             let raw: Option<Vec<u8>> = self.db.query_row(
                 "SELECT CASE WHEN length(raw) <= ?2 THEN raw END FROM message_content WHERE id = ?1",
                 params![id as i64, crate::risk::MAX_RAW as i64], |r| r.get(0),
             ).optional()?.flatten();
-            crate::risk::analyse(&message, raw.as_deref())
+            // A message too large for the risk check still has its header read.
+            let head = match raw {
+                Some(_) => None,
+                None => self.raw_of(id)?,
+            };
+            let unsubscribe =
+                self.unsubscribe_offer(&message, raw.as_deref().or(head.as_deref()))?;
+            (crate::risk::analyse(&message, raw.as_deref()), unsubscribe)
         };
-        Ok(crate::risk::InspectedMessage { message, risk })
+        let goes = self.goes_at(id)?;
+        Ok(crate::risk::InspectedMessage {
+            message,
+            risk,
+            goes,
+            unsubscribe,
+        })
     }
 
     /// One row of the message list.
@@ -835,7 +851,8 @@ impl MailStore {
         let outbox = format!("{account}/{OUTBOX_ID}");
         self.db
             .query_row(
-                "SELECT o.message, o.env_from, o.env_to, c.raw, m.subject, m.to_addr, o.attempts
+                "SELECT o.message, o.env_from, o.env_to, c.raw, m.subject, m.to_addr, o.attempts,
+                     o.send_after
                  FROM outbox o JOIN messages m ON m.id = o.message
                      JOIN message_content c ON c.id = o.message
                  WHERE o.account = ?1 AND m.folder = ?2 AND NOT o.refused AND o.message > ?3
@@ -853,6 +870,7 @@ impl MailStore {
                         subject: r.get(4)?,
                         to: r.get(5)?,
                         attempts: r.get(6)?,
+                        send_after: r.get(7)?,
                     })
                 },
             )
@@ -946,6 +964,82 @@ impl MailStore {
                AND c.raw IS NOT NULL AND (o.send_after IS NULL OR o.send_after <= ?3))",
             )?
             .query_row(params![account, outbox, now], |r| r.get(0))?)
+    }
+
+    /// When the next message sent later (or waiting out its moment) is due, of those never
+    /// tried: the app sends it then. One that failed waits for the next check, as before.
+    pub fn next_scheduled(&self) -> Result<Option<NaiveDateTime>, StoreError> {
+        Ok(self
+            .db
+            .prepare_cached(&format!(
+                "SELECT MIN(o.send_after) FROM outbox o JOIN messages m ON m.id = o.message
+                 WHERE NOT o.refused AND o.attempts = 0 AND o.send_after IS NOT NULL
+                   AND m.folder = o.account || '/{OUTBOX_ID}'"
+            ))?
+            .query_row([], |r| r.get(0))?)
+    }
+
+    /// The accounts whose Outbox has mail sent later that is due at `now` and was never tried.
+    pub fn scheduled_due(&self, now: NaiveDateTime) -> Result<Vec<String>, StoreError> {
+        let mut stmt = self.db.prepare_cached(&format!(
+            "SELECT DISTINCT o.account FROM outbox o JOIN messages m ON m.id = o.message
+             WHERE NOT o.refused AND o.attempts = 0 AND o.send_after IS NOT NULL
+               AND o.send_after <= ?1 AND m.folder = o.account || '/{OUTBOX_ID}'
+             ORDER BY o.account"
+        ))?;
+        let accounts = stmt
+            .query_map([now], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(accounts)
+    }
+
+    /// Send a waiting message at the next chance instead of later: one sent later, one the
+    /// user took back, or one whose last try failed. One the server refused waits until it is
+    /// changed (E). Returns its account, whose Outbox the app then sends.
+    pub fn send_now(&mut self, id: MessageId) -> Result<String, StoreError> {
+        let tx = self.db.transaction()?;
+        let account: Option<String> = tx
+            .query_row(
+                "SELECT account FROM outbox WHERE message = ?1 AND (NOT refused OR last_error IS NULL)",
+                [id as i64],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(account) = account else {
+            return Err(StoreError::Invalid(tr!(
+                "This message can't go as it is. Press E to change it first.",
+                "Ta wiadomość nie może wyjść w obecnej postaci. Naciśnij E, żeby ją najpierw zmienić."
+            )));
+        };
+        tx.execute(
+            "UPDATE outbox SET send_after = NULL, refused = 0 WHERE message = ?1",
+            [id as i64],
+        )?;
+        tx.execute("UPDATE messages SET note = NULL WHERE id = ?1", [id as i64])?;
+        tx.commit()?;
+        Ok(account)
+    }
+
+    /// True while the message waits in an Outbox: not sent yet.
+    pub fn waiting_to_go(&self, id: MessageId) -> Result<bool, StoreError> {
+        Ok(self.db.query_row(
+            "SELECT EXISTS (SELECT 1 FROM outbox WHERE message = ?1)",
+            [id as i64],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// When a message waiting in the Outbox goes, unless it is held or refused.
+    pub fn goes_at(&self, id: MessageId) -> Result<Option<NaiveDateTime>, StoreError> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT send_after FROM outbox WHERE message = ?1 AND NOT refused",
+                [id as i64],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten())
     }
 
     /// The message as it was received or sent, when Telex has it.
@@ -2567,7 +2661,9 @@ pub(crate) fn fts_query(input: &str) -> String {
 
 pub(crate) const SUMMARY_COLUMNS: &str =
     "id, folder, from_name, from_email, to_addr, subject, date, \
-     size_kb, unread, flagged, attachments <> '[]'";
+     size_kb, unread, flagged, attachments <> '[]', \
+     CASE WHEN folder GLOB '*/outbox' THEN \
+     (SELECT o.send_after FROM outbox o WHERE o.message = messages.id AND NOT o.refused) END";
 
 pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> {
     Ok(MessageSummary {
@@ -2582,6 +2678,7 @@ pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> 
         unread: r.get(8)?,
         flagged: r.get(9)?,
         has_attachments: r.get(10)?,
+        goes: r.get(11)?,
         thread: None,
     })
 }

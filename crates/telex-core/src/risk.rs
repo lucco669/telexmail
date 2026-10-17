@@ -25,6 +25,10 @@ pub struct InspectedMessage {
     #[serde(flatten)]
     pub message: Message,
     pub risk: Report,
+    /// In an Outbox: when it goes (sent later, or waiting out its moment to undo).
+    pub goes: Option<chrono::NaiveDateTime>,
+    /// From a mailing list: how to leave it (`unsubscribe.rs`).
+    pub unsubscribe: Option<crate::unsubscribe::Offer>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

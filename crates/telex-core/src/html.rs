@@ -796,16 +796,7 @@ const FETCHERS: usize = 4;
 /// Referer are sent, and addresses on the local network are refused, so a message can't
 /// use Telex to reach the router or other devices.
 pub fn fetch_images(urls: &[String], limits: &FetchLimits) -> HashMap<String, String> {
-    let config = ureq::Agent::config_builder()
-        .timeout_global(Some(limits.timeout))
-        .max_redirects(0)
-        .http_status_as_error(false)
-        .user_agent("Mozilla/5.0")
-        .build();
-    let resolver = PublicOnly {
-        allow_private: limits.allow_private,
-    };
-    let agent = ureq::Agent::with_parts(config, DefaultConnector::new(), resolver);
+    let agent = public_agent(limits.timeout, limits.allow_private);
     let mut wanted: Vec<&String> = Vec::new();
     for url in urls {
         if wanted.len() == limits.max_images {
@@ -846,6 +837,24 @@ pub fn fetch_images(urls: &[String], limits: &FetchLimits) -> HashMap<String, St
         }
     });
     found.into_inner().unwrap_or_else(PoisonError::into_inner).0
+}
+
+/// An HTTP client for addresses taken from mail (images, one-click unsubscribe): public
+/// addresses only (`PublicOnly`), no redirects followed by itself, no cookies (ureq keeps
+/// none without its `cookies` feature), no Referer, a generic User-Agent, every status as
+/// an answer rather than an error.
+pub(crate) fn public_agent(timeout: Duration, allow_private: bool) -> ureq::Agent {
+    let config = ureq::Agent::config_builder()
+        .timeout_global(Some(timeout))
+        .max_redirects(0)
+        .http_status_as_error(false)
+        .user_agent("Mozilla/5.0")
+        .build();
+    ureq::Agent::with_parts(
+        config,
+        DefaultConnector::new(),
+        PublicOnly { allow_private },
+    )
 }
 
 /// Looks host names up as ureq does and keeps only public addresses. So the address checked is
@@ -954,7 +963,7 @@ fn redirect_target(current: &str, location: &str) -> Option<String> {
 }
 
 /// http(s) with a host. Where it may lead is `PublicOnly`'s to say.
-fn allowed_url(url: &str) -> bool {
+pub(crate) fn allowed_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
     let Some(rest) = lower
         .strip_prefix("https://")

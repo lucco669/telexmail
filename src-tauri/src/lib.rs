@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use chrono::{Local, TimeDelta};
+use chrono::{Local, NaiveDateTime, TimeDelta};
 use futures_util::future::join_all;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
@@ -30,10 +30,12 @@ use telex_core::drafts::{self, DraftKind, DraftStart};
 use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits, Palette, Paper};
 use telex_core::imap::{self, Scope, SyncProgress};
+use telex_core::later::{self, Later};
 use telex_core::recipients::Recipient;
 use telex_core::servers;
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::tr;
+use telex_core::unsubscribe::Method;
 use telex_core::usage::Usage;
 use telex_core::{
     Account, AccountSetup, DeleteReport, FolderKind, FolderTree, Identity, ListView, MailStore,
@@ -844,6 +846,8 @@ struct SendOutcome {
     queued: MessageId,
     /// Seconds it waits before it goes, so it can be taken back; 0: it was sent right away.
     wait: u16,
+    /// Sent later: when it goes. It waits in the Outbox until then.
+    goes: Option<NaiveDateTime>,
     /// One line per message the SMTP server accepted, this one and any that waited.
     sent: Vec<String>,
     errors: Vec<String>,
@@ -853,7 +857,7 @@ struct SendOutcome {
 /// moment to undo, it waits that long first (`hold_message` takes it back) and goes out in
 /// the background; the result comes as an "outbox-sent" event. It only counts as sent once
 /// the SMTP server accepts it; until then it waits in the Outbox and goes out at the next
-/// check.
+/// check. With `later`, it waits in the Outbox until then (`send_timer` sends it).
 #[tauri::command]
 async fn send_message(
     app: AppHandle,
@@ -861,13 +865,23 @@ async fn send_message(
     files: State<'_, FilesState>,
     settings: State<'_, SettingsState>,
     draft: OutgoingDraft,
+    later: Option<Later>,
 ) -> CmdResult<SendOutcome> {
     files.check(&draft.attachments)?;
-    let wait = settings.get().undo_send;
+    let goes = later
+        .map(|l| later::when(l, Local::now().naive_local()))
+        .transpose()?;
+    // Mail sent later needs no moment to undo: it waits anyway, and can be held or edited.
+    let wait = if goes.is_some() {
+        0
+    } else {
+        settings.get().undo_send
+    };
     let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
     let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
-    let send_after =
-        (wait > 0).then(|| Local::now().naive_local() + TimeDelta::seconds(i64::from(wait)));
+    let send_after = goes.or_else(|| {
+        (wait > 0).then(|| Local::now().naive_local() + TimeDelta::seconds(i64::from(wait)))
+    });
     let queued = with_store(&state, |s| {
         let queued = s.queue_outgoing(
             &account.id,
@@ -886,8 +900,12 @@ async fn send_message(
     let mut outcome = SendOutcome {
         queued,
         wait,
+        goes,
         ..SendOutcome::default()
     };
+    if goes.is_some() {
+        return Ok(outcome);
+    }
     if wait == 0 {
         send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
         return Ok(outcome);
@@ -911,6 +929,143 @@ async fn send_message(
 #[tauri::command(async)]
 fn hold_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<()> {
     with_store(&state, |s| s.hold_outgoing(id, Local::now().naive_local()))
+}
+
+/// The Send later menu as it is now: in an hour, tomorrow morning, Monday morning.
+#[tauri::command(async)]
+fn send_later_choices() -> Vec<later::Choice> {
+    later::choices(Local::now().naive_local())
+}
+
+/// A message waiting in the Outbox (sent later, held, or whose last try failed) goes now.
+#[tauri::command]
+async fn send_now(state: State<'_, AppState>, id: MessageId) -> CmdResult<SendOutcome> {
+    let account = with_store(&state, |s| {
+        let account = s.send_now(id)?;
+        s.account(&account).cloned()
+    })?;
+    let mut outcome = SendOutcome {
+        queued: id,
+        ..SendOutcome::default()
+    };
+    send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
+    Ok(outcome)
+}
+
+/// Mail sent later goes when it is due while Telex runs, and mail that was due while it was
+/// closed goes a moment after it starts (its line says it went late). The result comes as
+/// an "outbox-sent" event, like undo send's. Only mail never tried: one whose try failed
+/// waits for the next check, and an account that can't send now (no SMTP server, no saved
+/// password) is left alone for a while instead of being asked every second.
+fn send_timer(app: AppHandle) {
+    const MOST: Duration = Duration::from_secs(30);
+    const REST: TimeDelta = TimeDelta::minutes(10);
+    tauri::async_runtime::spawn(async move {
+        // A moment after the start, so the window listens and the first check may go first.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let mut resting: HashMap<String, NaiveDateTime> = HashMap::new();
+        loop {
+            let state = app.state::<AppState>();
+            let now = Local::now().naive_local();
+            resting.retain(|_, until| *until > now);
+            let due = with_store(&state, |s| s.scheduled_due(now)).unwrap_or_default();
+            let mut done = SendOutcome::default();
+            for id in due.iter().filter(|id| !resting.contains_key(*id)) {
+                let Ok(account) = with_store(&state, |s| s.account(id).cloned()) else {
+                    continue;
+                };
+                send_account_outbox(&state, &account, &mut done.sent, &mut done.errors).await;
+            }
+            if !done.sent.is_empty() || !done.errors.is_empty() {
+                let _ = app.emit("outbox-sent", done);
+            }
+            // Still due and never tried: the account couldn't send at all.
+            let now = Local::now().naive_local();
+            for id in with_store(&state, |s| s.scheduled_due(now)).unwrap_or_default() {
+                resting.entry(id).or_insert(now + REST);
+            }
+            let next = with_store(&state, |s| s.next_scheduled()).ok().flatten();
+            let wait = next
+                .and_then(|at| (at - Local::now().naive_local()).to_std().ok())
+                .map_or(MOST, |left| left.min(MOST))
+                .max(Duration::from_millis(500));
+            tokio::time::sleep(wait).await;
+        }
+    });
+}
+
+#[derive(Debug, Default, Serialize)]
+struct UnsubscribeOutcome {
+    /// one_click, mail or link.
+    method: &'static str,
+    /// Done: the list's server took the request, the mail went, or the page opened.
+    done: bool,
+    /// The unsubscribe mail, once the SMTP server took it.
+    sent: Vec<String>,
+    /// Why the mail didn't go yet (it waits in the Outbox).
+    errors: Vec<String>,
+}
+
+/// Leave the mailing list of a message, the best way it offers (`unsubscribe.rs`): one click
+/// over https (the core posts it, to public addresses only), a mail through the account's
+/// SMTP, or the list's page in the browser. Never from Spam. The window asks first for a
+/// mail or a page. The message gets a note, and every message of the list says it was done.
+#[tauri::command]
+async fn unsubscribe(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: MessageId,
+) -> CmdResult<UnsubscribeOutcome> {
+    let plan = with_store(&state, |s| s.unsubscribe_plan(id))?;
+    let mut outcome = UnsubscribeOutcome {
+        method: plan.method.code(),
+        ..UnsubscribeOutcome::default()
+    };
+    match &plan.method {
+        Method::OneClick(url) => {
+            let url = url.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                telex_core::unsubscribe::post(&url, false)
+            })
+            .await
+            .map_err(failed)?
+            .map_err(|e| capitalize(&e))?;
+        }
+        Method::Link(url) => app.opener().open_url(url, None::<&str>).map_err(|e| {
+            tr!(
+                "Couldn't open the link: {e}",
+                "Nie udało się otworzyć linku: {e}"
+            )
+        })?,
+        Method::Mail { .. } => {
+            let (account, identity) = with_store(&state, |s| s.unsubscribe_sender(id))?;
+            let draft = telex_core::unsubscribe::draft(&account, Some(identity), &plan.method)
+                .unwrap_or_default();
+            let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
+            let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
+            let queued = with_store(&state, |s| {
+                s.queue_outgoing(
+                    &account.id,
+                    &composed.message,
+                    &composed.raw,
+                    &composed.env_from,
+                    &composed.env_to,
+                    None,
+                    None,
+                )
+            })?;
+            send_account_outbox(&state, &account, &mut outcome.sent, &mut outcome.errors).await;
+            // Not sent yet: it waits in the Outbox, and only then is it done.
+            if with_store(&state, |s| s.waiting_to_go(queued))? {
+                return Ok(outcome);
+            }
+        }
+    }
+    with_store(&state, |s| {
+        s.record_unsubscribe(&plan, Local::now().naive_local())
+    })?;
+    outcome.done = true;
+    Ok(outcome)
 }
 
 /// Send what is due in the account's Outbox, after any send already running.
@@ -1055,6 +1210,7 @@ pub fn run() {
             // Attachments opened last time; files still open elsewhere stay.
             telex_core::attachments::clear_opened(&std::env::temp_dir());
             watch::restart(app.handle());
+            send_timer(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -1090,6 +1246,9 @@ pub fn run() {
             next_unread,
             recipients,
             hold_message,
+            send_now,
+            send_later_choices,
+            unsubscribe,
             download_older,
             files::open_attachment,
             files::save_attachment,

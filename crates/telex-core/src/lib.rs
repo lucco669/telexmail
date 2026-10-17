@@ -18,6 +18,7 @@ pub mod filters;
 pub mod html;
 pub mod i18n;
 pub mod imap;
+pub mod later;
 pub mod list;
 pub mod mailbox;
 pub mod markdown;
@@ -36,6 +37,7 @@ pub mod smtp;
 pub mod spam;
 pub mod spell;
 pub mod store;
+pub mod unsubscribe;
 pub mod usage;
 
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey, UnreadAt};

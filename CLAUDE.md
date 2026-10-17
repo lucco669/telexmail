@@ -95,6 +95,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      marked part of the running Sieve script, put in and taken out whole.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
                      signature and templates: recipients, subject, quoted text.
+  src/later.rs       Send later: in an hour, tomorrow or Monday at 08:00, a picked time; when a
+                     message went late (more than 2 minutes after its time).
+  src/unsubscribe.rs List-Unsubscribe (RFC 2369, 8058): the addresses, the best way out (one click
+                     over https, a mail, a page), the one-click POST (html's public-only agent),
+                     lists left (`unsubscribed`, by List-Id or sender). Tests in unsubscribe/tests.rs.
   src/markdown.rs    Messages as Markdown for the clipboard (Copy as Markdown): a heading, who and
                      when as a list, the text (HTML-only mail through html::received_text).
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
@@ -181,7 +186,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), `goes` (in an Outbox: when it goes, unless held or refused), `unsubscribe` `{method: one_click/mail/link, target, done, spam}` or null (unsubscribe.rs) |
 | `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -204,8 +209,11 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
 | `mentions_attachment` | `text`, `signature`    | whether the user's own text (no quotes, forwarded part or signature) says a file is attached (`drafts::mentions_attachment`; Send asks when none is) |
-| `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
-| `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
+| `send_message`   | `draft`, `later` (null, or `{kind: hour/tomorrow/monday}`, `{kind: at, at}`) | `{queued, wait, goes, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}`; with `later` it waits in the Outbox until `goes` (no moment to undo), sent by the app's timer then, or a moment after the next start (its line then says it went late), with an "outbox-sent" event (`queued` 0) |
+| `send_later_choices` | –                        | `[{kind, when}]`: the Send later menu now (Monday left out when it is tomorrow) |
+| `send_now`       | `id`                         | `{queued, sent, errors}`: mail sent later, held, or whose try failed goes now (not mail the server refused: E first) |
+| `hold_message`   | `id`                         | – (takes back mail still waiting to go, also mail sent later; it stays in the Outbox, held) |
+| `unsubscribe`    | `id`                         | `{method, done, sent, errors}`: leaves the message's list (one click: POSTed by the core, public addresses only; mail: through the account's SMTP, done once it went; link: opened in the browser); refused in Spam; the message gets a note, and the list (List-Id or sender) is remembered |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
 | `connections`    | –                            | `{servers: [{address, names, sessions: [used, max], watches: [used, max], silences, resting_until}], log: [{id, started, purpose, protocol, user, host, port, address, steps: [{step, ms}], failed, error, ended}]}` newest first (`purpose`: check, push, older, test, watch, send; `step`: lookup, wait, connect, starttls, tls, greeting, login, work; `ended` null: still open) |
@@ -418,6 +426,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Esc          | clear filter, the selection, the conversation or only-unread; in compose: save draft and close |
 | ↓ ↑ Enter Tab Esc | in To, Cc, Bcc: choose a suggested address |
 | Ctrl+Enter   | send (compose)                 |
+| Ctrl+Shift+Enter | send later (compose): in an hour, tomorrow morning, Monday morning, or a picked time (also the clock next to Send) |
 | Ctrl+,       | settings                       |
 | Ctrl+B / I / U / K | bold / italic / underline / link (HTML compose) |
 | F7           | in compose: the next spelling mistake and its suggestions (also a click on an underlined word, a right-click, or the menu key on one) |
@@ -429,7 +438,30 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+For 0.9.12 (schema version 15: `unsubscribed`; one-way, and another branch may take 15 first:
+renumber at merge):
+
+- Send later (`later.rs`; no schema change: `outbox.send_after`, as undo send): the clock next to
+  Send, or Ctrl+Shift+Enter, offers in an hour, tomorrow morning (08:00), Monday morning and a
+  picked date and time (`send_message` with `later`, `send_later_choices`). The message waits in
+  the Outbox, whose rows and open message say when it goes ("Goes Mon 08:00", `goes` in the
+  summaries and `get_message`), with Send now (`send_now`) and Hold (`hold_message`). E holds it
+  while it is changed, and Send then keeps its time ("Send tomorrow 08:00"; the menu has Send
+  now). The app's timer (`send_timer` in lib.rs) sends it when due, sleeping until the next one
+  (`MailStore::next_scheduled`, at most 30 s); only mail never tried, so a failed try waits for
+  the next check as before, and an account that can't send at all rests 10 minutes. Mail that
+  was due while Telex was closed goes a moment after the start, and its sent line says "late:
+  it was due 19.10 08:00" (`later::late`, 2 minutes). Undo send's moment is unchanged.
+- Unsubscribe (`unsubscribe.rs`, `unsubscribe`): mail with List-Unsubscribe gets a quiet
+  Unsubscribe among the buttons above it. The core picks one click over https when the list
+  marks it (List-Unsubscribe-Post, RFC 8058; a POST of `List-Unsubscribe=One-Click` through
+  html's public-only agent: no cookies, no redirects, generic User-Agent, 10 s), else a mailto:
+  (subject and text from the address, else "unsubscribe"; sent from the account and identity
+  the list wrote to, done once SMTP took it), else the list's page in the browser; mail and page
+  ask first in a line naming the address or server. Never in Spam: the button is there, dimmed,
+  saying why. Done, the message gets a note and every message of the list (List-Id, else the
+  sender) says "Unsubscribed 17.10"; then a line offers to move the sender's mail to Trash (Z
+  brings it back).
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 

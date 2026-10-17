@@ -461,6 +461,9 @@ pub struct MessageSummary {
     pub unread: bool,
     pub flagged: bool,
     pub has_attachments: bool,
+    /// In an Outbox: when it goes (sent later, or waiting out its moment to undo).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub goes: Option<NaiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread: Option<ThreadRow>,
 }
@@ -489,6 +492,7 @@ impl From<&Message> for MessageSummary {
             unread: m.unread,
             flagged: m.flagged,
             has_attachments: !m.attachments.is_empty(),
+            goes: None,
             thread: None,
         }
     }
