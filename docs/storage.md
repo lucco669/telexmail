@@ -3,7 +3,7 @@
 How Telex keeps mail on disk, why it should stay in one place, and the work that makes it fast
 at any size and safe to keep for years: paged loading, backups, local folders, POP3. Written
 after v0.2.0. Phase 1 is done (after v0.2.1). Phases 2 and 3 are built for 0.6, except moving
-the mail base and a zip of .eml files; phase 4 (POP3) is the plan.
+the mail base and a zip of .eml files; phase 4 (POP3) is built for the release after 0.9.11.
 
 ## Today
 
@@ -252,13 +252,25 @@ other on the same base (the threaded list is the 40,000-message Inbox by date: 1
   line's date for messages without a Date header, and Message-IDs already in the folder
   skipped. A zip of `.eml` files is not built.
 
-## Phase 4: POP3
+## Phase 4: POP3 (built)
 
-- A POP3 account downloads into a local Inbox: TLS on 995 (or STARTTLS on 110 once STARTTLS is
-  supported), the same SMTP sending, the same rules on arrival.
-- Downloaded messages are remembered by their UIDL, so nothing comes twice; "leave on the
-  server for N days" or "delete after download".
-- The autoconfig files the wizard reads also list POP3 servers; `parse_autoconfig` skips them today.
+- A POP3 account (`src/pop3.rs`, schema version 15, `src/migrations/015_pop3.sql`) downloads
+  into its own Inbox: SSL/TLS on 995 or STLS on 110, never plain; the same SMTP sending; the
+  same spam filter, rules and away reply on arrival. All its folders are in the mail base, like
+  the folders on this PC but under the account, so its mail, like theirs, is only here once it
+  leaves the server: the same reminder to back up applies.
+- Downloaded messages are remembered by their UIDL (`pop3_uidls`), so nothing comes twice, also
+  mail deleted here while it is still on the server. What stays there is the account's choice:
+  everything until it is deleted here for good (the default, as in Thunderbird), at most N days,
+  or nothing once it is here. The first check takes the newest 300 and remembers the rest as
+  older mail, offered in the status bar; a UIDL the server hasn't listed for 90 days is
+  forgotten.
+- The autoconfig files and SRV records (`_pop3s`) the wizard reads give POP3 when there is no
+  IMAP. Thunderbird's popstate.dat says which mail it already downloaded, so moving in fetches
+  only what is new.
+- After a restore the next check is like a first one: mail from since the backup that is still
+  on the server comes down again, as old mail (no rules or replies twice). Mail removed from the
+  server after the backup was made is gone with the backup's age.
 
 ## Later, if mail bases reach tens of gigabytes
 

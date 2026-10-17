@@ -315,6 +315,10 @@ pub async fn apply(
         ends: away.ends,
     };
     let result = async {
+        // A POP3 server has no Sieve to speak of: Telex answers.
+        if imap.pop3.is_some() {
+            return Err(SieveError::NoServer);
+        }
         let mut s = sieve::connect(&imap.host, &imap.username, password).await?;
         if !s.caps.has("vacation") {
             return Err(SieveError::NoVacation);

@@ -14,7 +14,8 @@ use crate::list;
 use crate::mime::parse_message_id;
 use crate::model::{
     account_of, split_folder_key, Account, AccountSetup, Attachment, Folder, FolderKind, Identity,
-    ImapSettings, Message, MessageId, MessageSummary, OutgoingDraft, SentCopy, SmtpSecurity,
+    ImapSettings, Message, MessageId, MessageSummary, OutgoingDraft, Pop3Keep, SentCopy,
+    SmtpSecurity,
     SmtpSettings,
 };
 use crate::tr;
@@ -43,6 +44,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/019_address_book.sql"),
     include_str!("migrations/020_tags.sql"),
     include_str!("migrations/021_compose_templates.sql"),
+    include_str!("migrations/022_pop3.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -67,6 +69,17 @@ const APPEND_DRAFT: i64 = 4;
 /// How long after a send Telex waits for a server it doesn't know yet to file its own copy
 /// in Sent, before it decides the server doesn't and uploads one.
 const SENT_COPY_WAIT: chrono::TimeDelta = chrono::TimeDelta::seconds(30);
+
+/// The folders a POP3 account starts with besides the Outbox, by id (also their kind) and
+/// name. They are all here, like the folders on this PC; the user adds more.
+const POP3_FOLDERS: [(&str, &str); 6] = [
+    ("inbox", "Inbox"),
+    ("drafts", "Drafts"),
+    ("sent", "Sent"),
+    ("archive", "Archive"),
+    ("spam", "Spam"),
+    ("trash", "Trash"),
+];
 
 /// The longest name a folder on this PC can have.
 const FOLDER_NAME_MAX: usize = 80;
@@ -1676,12 +1689,36 @@ impl MailStore {
             .accounts
             .iter()
             .find(|a| a.email.eq_ignore_ascii_case(&setup.email))
-            .map(|a| a.id.clone());
-        let id = if let Some(id) = existing {
+            .map(|a| {
+                (
+                    a.id.clone(),
+                    a.imap.as_ref().is_some_and(|i| i.pop3.is_some()),
+                )
+            });
+        let keep = setup.pop3.unwrap_or_default();
+        let incoming = if setup.pop3.is_some() { "pop3" } else { "imap" };
+        let id = if let Some((id, was_pop3)) = existing {
+            // The folders of the two are different things: IMAP's are the server's, POP3's
+            // are here. Switching would lose one or the other.
+            if was_pop3 != setup.pop3.is_some() && id != LOCAL_ID {
+                let email = &setup.email;
+                return Err(StoreError::Invalid(if was_pop3 {
+                    tr!(
+                        "{email} gets its mail over POP3. To use IMAP instead, remove the account and add it again.",
+                        "{email} odbiera pocztę przez POP3. Żeby używać IMAP, usuń konto i dodaj je ponownie."
+                    )
+                } else {
+                    tr!(
+                        "{email} gets its mail over IMAP. To use POP3 instead, remove the account and add it again.",
+                        "{email} odbiera pocztę przez IMAP. Żeby używać POP3, usuń konto i dodaj je ponownie."
+                    )
+                }));
+            }
             self.db.execute(
                 "UPDATE accounts SET name = ?2, email = ?3, imap_host = ?4, imap_port = ?5,
                      imap_user = ?6, smtp_host = ?7, smtp_port = ?8, smtp_security = ?9,
-                     imap_security = ?10
+                     imap_security = ?10, pop3_leave = ?11, pop3_days = ?12,
+                     pop3_until_deleted = ?13
                  WHERE id = ?1",
                 params![
                     id,
@@ -1693,7 +1730,10 @@ impl MailStore {
                     setup.smtp_host,
                     setup.smtp_port,
                     setup.smtp_security.as_str(),
-                    setup.imap_security.as_str()
+                    setup.imap_security.as_str(),
+                    keep.leave,
+                    keep.days,
+                    keep.until_deleted
                 ],
             )?;
             id
@@ -1702,9 +1742,10 @@ impl MailStore {
             let tx = self.db.transaction()?;
             tx.execute(
                 "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user,
-                     smtp_host, smtp_port, smtp_security, imap_security)
+                     smtp_host, smtp_port, smtp_security, imap_security, incoming, pop3_leave,
+                     pop3_days, pop3_until_deleted)
                  VALUES (?1, (SELECT COALESCE(MAX(position) + 1, 0) FROM accounts WHERE id <> 'local'),
-                     ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     id,
                     setup.name,
@@ -1715,13 +1756,26 @@ impl MailStore {
                     setup.smtp_host,
                     setup.smtp_port,
                     setup.smtp_security.as_str(),
-                    setup.imap_security.as_str()
+                    setup.imap_security.as_str(),
+                    incoming,
+                    keep.leave,
+                    keep.days,
+                    keep.until_deleted
                 ],
             )?;
             tx.execute(
                 "INSERT INTO folders (account, id, position, name, kind) VALUES (?1, ?2, 1, 'Outbox', 'outbox')",
                 params![id, OUTBOX_ID],
             )?;
+            // A POP3 server has only an Inbox: every folder of the account is here.
+            if setup.pop3.is_some() {
+                for (pos, (folder, name)) in POP3_FOLDERS.iter().enumerate() {
+                    tx.execute(
+                        "INSERT INTO folders (account, id, position, name, kind) VALUES (?1, ?2, ?3, ?4, ?2)",
+                        params![id, folder, pos as i64 + 2, name],
+                    )?;
+                }
+            }
             insert_identity(&tx, &Identity::new(&id, &setup.name, &setup.email), 0)?;
             // The first server account brings the folders on this PC.
             tx.execute_batch(ENSURE_LOCAL)?;
@@ -1971,9 +2025,33 @@ impl MailStore {
             .find(|a| a.id == LOCAL_ID && a.imap.is_none())
     }
 
-    /// A name for a folder on this PC, trimmed, or what is wrong with it. `except` is the
-    /// folder being renamed, which may keep its own name.
-    fn check_local_name(&self, name: &str, except: Option<&str>) -> Result<String, StoreError> {
+    /// An account whose folders are all here, so the user makes, renames and removes them:
+    /// the folders on this PC, and a POP3 account (its server has only an Inbox).
+    fn own_folders(&self, account: &str) -> Result<&Account, StoreError> {
+        match self.accounts.iter().find(|a| a.id == account) {
+            Some(a) if a.id == LOCAL_ID && a.imap.is_none() => Ok(a),
+            Some(a) if a.imap.as_ref().is_some_and(|i| i.pop3.is_some()) => Ok(a),
+            Some(a) => {
+                let email = &a.email;
+                Err(StoreError::Invalid(tr!(
+                    "The folders of {email} are on its server: make them there, or on this PC.",
+                    "Foldery konta {email} są na jego serwerze: utwórz je tam albo na tym komputerze."
+                )))
+            }
+            None if account == LOCAL_ID => Err(no_local_folders()),
+            None => Err(StoreError::UnknownAccount(account.to_owned())),
+        }
+    }
+
+    /// A name for a folder of an account that keeps its folders here (the folders on this PC,
+    /// a POP3 account), trimmed, or what is wrong with it. `except` is the folder being
+    /// renamed, which may keep its own name.
+    fn check_folder_name(
+        &self,
+        account: &str,
+        name: &str,
+        except: Option<&str>,
+    ) -> Result<String, StoreError> {
         let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
         if name.is_empty() {
             return Err(StoreError::Invalid(tr!(
@@ -1987,7 +2065,7 @@ impl MailStore {
                 "Ta nazwa jest za długa: najwyżej {FOLDER_NAME_MAX} znaków."
             )));
         }
-        let pc = self.this_pc().ok_or_else(no_local_folders)?;
+        let pc = self.own_folders(account)?;
         let taken = pc.folders.iter().any(|f| {
             Some(f.id.as_str()) != except
                 && (f.name.to_lowercase() == name.to_lowercase()
@@ -1996,18 +2074,31 @@ impl MailStore {
                         .is_some_and(|pl| pl.to_lowercase() == name.to_lowercase()))
         });
         if taken {
-            return Err(StoreError::Invalid(tr!(
-                "There is a folder called \"{name}\" on this PC already.",
-                "Na tym komputerze jest już folder „{name}”."
-            )));
+            return Err(StoreError::Invalid(if account == LOCAL_ID {
+                tr!(
+                    "There is a folder called \"{name}\" on this PC already.",
+                    "Na tym komputerze jest już folder „{name}”."
+                )
+            } else {
+                tr!(
+                    "This account has a folder called \"{name}\" already.",
+                    "To konto ma już folder „{name}”."
+                )
+            }));
         }
         Ok(name)
     }
 
     /// Make a folder on this PC. Returns its key.
     pub fn create_local_folder(&mut self, name: &str) -> Result<String, StoreError> {
-        let name = self.check_local_name(name, None)?;
-        let pc = self.this_pc().ok_or_else(no_local_folders)?;
+        self.create_folder(LOCAL_ID, name)
+    }
+
+    /// Make a folder of an account that keeps its folders here: the folders on this PC, or a
+    /// POP3 account. Returns its key.
+    pub fn create_folder(&mut self, account: &str, name: &str) -> Result<String, StoreError> {
+        let name = self.check_folder_name(account, name, None)?;
+        let pc = self.own_folders(account)?;
         let base = match slug(&name) {
             s if s.is_empty() => "folder".to_owned(),
             s => s,
@@ -2020,43 +2111,53 @@ impl MailStore {
         }
         self.db.execute(
             "INSERT INTO folders (account, id, position, name, kind) VALUES (?1, ?2, 2, ?3, 'custom')",
-            params![LOCAL_ID, id, name],
+            params![account, id, name],
         )?;
         self.reload_accounts()?;
-        Ok(format!("{LOCAL_ID}/{id}"))
+        Ok(format!("{account}/{id}"))
     }
 
-    /// The user's own folder on this PC, by key: Archive and Trash there are for good.
-    fn own_local_folder(&self, key: &str) -> Result<Folder, StoreError> {
-        let folder = match split_folder_key(key) {
-            Some((LOCAL_ID, _)) => self.folder(key).cloned(),
-            _ => None,
-        }
-        .ok_or_else(|| StoreError::UnknownFolder(key.to_owned()))?;
+    /// The user's own folder on this PC (or of a POP3 account), by key: Archive and Trash
+    /// there are for good.
+    fn own_local_folder(&self, key: &str) -> Result<(String, Folder), StoreError> {
+        let unknown = || StoreError::UnknownFolder(key.to_owned());
+        let (account, _) = split_folder_key(key).ok_or_else(unknown)?;
+        let local = account == LOCAL_ID;
+        self.own_folders(account)?;
+        let folder = self.folder(key).cloned().ok_or_else(unknown)?;
         if folder.kind != FolderKind::Custom {
-            return Err(StoreError::Invalid(tr!(
-                "Archive and Trash on this PC stay as they are.",
-                "Archiwum i Kosz na tym komputerze zostają takie, jakie są."
-            )));
+            return Err(StoreError::Invalid(if local {
+                tr!(
+                    "Archive and Trash on this PC stay as they are.",
+                    "Archiwum i Kosz na tym komputerze zostają takie, jakie są."
+                )
+            } else {
+                tr!(
+                    "The account's own folders (Inbox, Sent, Trash and the others) stay as they are.",
+                    "Stałe foldery konta (Odebrane, Wysłane, Kosz i pozostałe) zostają takie, jakie są."
+                )
+            }));
         }
-        Ok(folder)
+        Ok((account.to_owned(), folder))
     }
 
-    /// Give a folder on this PC another name. Its key stays, so rules keep working.
+    /// Give a folder on this PC (or of a POP3 account) another name. Its key stays, so rules
+    /// keep working.
     pub fn rename_local_folder(&mut self, key: &str, name: &str) -> Result<(), StoreError> {
-        let folder = self.own_local_folder(key)?;
-        let name = self.check_local_name(name, Some(&folder.id))?;
+        let (account, folder) = self.own_local_folder(key)?;
+        let name = self.check_folder_name(&account, name, Some(&folder.id))?;
         self.db.execute(
             "UPDATE folders SET name = ?3 WHERE account = ?1 AND id = ?2",
-            params![LOCAL_ID, folder.id, name],
+            params![account, folder.id, name],
         )?;
         self.reload_accounts()
     }
 
-    /// Remove an empty folder on this PC, and the rules' moves/copies to it with it: a rule that
-    /// would have nothing left to do goes too. Returns how many rules changed.
+    /// Remove an empty folder on this PC (or of a POP3 account), and the rules' moves/copies
+    /// to it with it: a rule that would have nothing left to do goes too. Returns how many
+    /// rules changed.
     pub fn delete_local_folder(&mut self, key: &str) -> Result<usize, StoreError> {
-        let folder = self.own_local_folder(key)?;
+        let (account, folder) = self.own_local_folder(key)?;
         let held: i64 = self.db.query_row(
             "SELECT COUNT(*) FROM messages WHERE folder = ?1",
             [key],
@@ -2093,7 +2194,7 @@ impl MailStore {
         }
         self.db.execute(
             "DELETE FROM folders WHERE account = ?1 AND id = ?2",
-            params![LOCAL_ID, folder.id],
+            params![account, folder.id],
         )?;
         self.db.execute(
             "DELETE FROM folder_templates WHERE account = ?1 AND folder = ?2",
@@ -3030,11 +3131,20 @@ fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
 fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
     let mut stmt = db.prepare(
         "SELECT id, name, email, imap_host, imap_port, imap_user, smtp_host, smtp_port, smtp_security,
-             imap_security, sent_copy, server_saves_sent
+             imap_security, sent_copy, server_saves_sent, incoming, pop3_leave, pop3_days,
+             pop3_until_deleted
          FROM accounts ORDER BY id = 'local', position, id",
     )?;
     let mut accounts = stmt
         .query_map([], |r| {
+            let pop3 = match r.get::<_, String>(12)?.as_str() {
+                "pop3" => Some(Pop3Keep {
+                    leave: r.get(13)?,
+                    days: r.get(14)?,
+                    until_deleted: r.get(15)?,
+                }),
+                _ => None,
+            };
             let imap = match r.get::<_, Option<String>>(3)? {
                 Some(host) => Some(ImapSettings {
                     host,
@@ -3043,6 +3153,7 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
                     security: SmtpSecurity::from_name(
                         &r.get::<_, Option<String>>(9)?.unwrap_or_default(),
                     ),
+                    pop3,
                 }),
                 None => None,
             };
@@ -3121,9 +3232,9 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
         }
     }
     // Server folders arrive in plan order and the Outbox is local; rank puts it in place. The
-    // user's own folders on this PC go A to Z.
+    // user's own folders on this PC (and a POP3 account's) go A to Z.
     for a in &mut accounts {
-        let by_name = a.id == LOCAL_ID;
+        let by_name = a.id == LOCAL_ID || a.imap.as_ref().is_some_and(|i| i.pop3.is_some());
         a.folders.sort_by(|x, y| {
             x.kind.rank().cmp(&y.kind.rank()).then_with(|| {
                 if by_name && x.kind == FolderKind::Custom && y.kind == FolderKind::Custom {

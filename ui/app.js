@@ -237,6 +237,10 @@ const num = n => n.toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en');
 const LOCAL = 'local';
 const isLocal = key => acctId(String(key)) === LOCAL;
 const servers = () => ACCOUNTS.filter(a => a.imap); // the accounts that live on a server
+// A POP3 account's server has only an Inbox: all its folders are here, made and removed like
+// the folders on this PC. `keepsHere`: a folder of such an account, or one on this PC.
+const isPop3 = acct => !!ACCT[acct]?.imap?.pop3;
+const keepsHere = key => isLocal(key) || isPop3(acctId(String(key)));
 // A folder's name where it could be mistaken for a server folder: "Archive on this PC".
 const placeName = key => isLocal(key) ? t('{folder} on this PC', {folder:folderName(key)}) : folderName(key);
 // Who a folder belongs to, in words: the account's address, or "On this PC".
@@ -599,7 +603,7 @@ function folderButton(a, f){
   // A special folder is named by its kind; its own name on the server is in the tooltip, and
   // next to it when another folder has the kind's name ("Sent · Wysłane" next to an unused "Sent").
   const shown = folderName(key), same = (x, y) => x.toLocaleLowerCase() === y.toLocaleLowerCase();
-  const own = f.kind !== 'custom' && !isLocal(key) && f.name && !same(f.name, shown) ? f.name : '';
+  const own = f.kind !== 'custom' && !keepsHere(key) && f.name && !same(f.name, shown) ? f.name : '';
   const twin = own && a.folders.some(x => x.kind === 'custom' && same(x.name, shown));
   return foldButton(key, f.kind, own, twin);
 }
@@ -620,6 +624,8 @@ function unsentGroup(){
   const keys = unsentKeys();
   return keys.length ? `<ul class="unsent" aria-label="${esc(t('Not sent yet'))}">${keys.map(key => foldButton(key, kindOf(key))).join('')}</ul>` : '';
 }
+// A new folder being named in this group (the folders on this PC, a POP3 account), first in it.
+const newFolderLine = acct => state.naming?.key === 'new' && state.naming.acct === acct ? `<li><span class="fold naming">${I.folder}${nameInput()}</span></li>` : '';
 // The box a folder on this PC is named in, in the tree itself.
 const nameInput = () => `<input id="nf-name" class="nfname" value="${esc(state.naming.value)}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Folder name'))}" placeholder="${esc(t('Folder name'))}">`;
 // The folders on this PC: their own group under the accounts, with a + for a new one. Archive
@@ -637,7 +643,7 @@ function localGroup(a){
   let items = '';
   if (open){
     const shown = a.folders.filter(f => f.kind === 'custom' || countOf(LOCAL + '/' + f.id).total > 0 || LOCAL + '/' + f.id === state.folder);
-    items = '<ul>' + (state.naming?.key === 'new' ? `<li><span class="fold naming">${I.folder}${nameInput()}</span></li>` : '')
+    items = '<ul>' + newFolderLine(LOCAL)
       + shown.map(f => folderButton(a, f)).join('') + '</ul>';
   }
   return `<div class="pcrow"><button type="button" class="acct" data-acct="${LOCAL}" aria-expanded="${open}" title="${esc(t('Mail kept only on this PC, on no server. Right-click a folder for more.'))}">${I.caret}${adot(LOCAL)}<span class="acct-mail">${esc(t('On this PC'))}</span></button>`
@@ -660,7 +666,7 @@ function renderTree(){
       const own = a.folders.filter(f => !COUNT_ALL.has(f.kind) || key(f) === state.folder);
       const shown = f => MAIN_KINDS.has(f.kind) || state.pinned.has(key(f)) || key(f) === state.folder;
       const main = own.filter(shown), rest = own.filter(f => !shown(f)), more = !!state.more[a.id];
-      items = '<ul>' + (more ? own : main).map(f => folderButton(a, f)).join('');
+      items = '<ul>' + newFolderLine(a.id) + (more ? own : main).map(f => folderButton(a, f)).join('');
       if (rest.length){
         const unread = more ? 0 : rest.reduce((n, f) => n + countOf(key(f)).unread, 0);
         items += `<li><button type="button" class="fold more" data-more="${esc(a.id)}" aria-expanded="${more}">${I.caret}<span>${esc(more ? t('Fewer folders') : tn(rest.length, '{n} more', '{n} more'))}</span>${unread ? `<span class="cnt">${num(unread)}</span>` : ''}</button></li>`;
@@ -725,8 +731,10 @@ function accountMenu(id){
     {label:t('Move up'), key:'Alt+↑', disabled:i === 0, run:() => moveAccount(id, -1)},
     {label:t('Move down'), key:'Alt+↓', disabled:i === list.length - 1, run:() => moveAccount(id, 1)},
     {sep:true},
+    ...(isPop3(id) ? [{label:t('New folder…'), run:() => startNaming('new', id)}] : []),
     {label:state.more[id] ? t('Show fewer folders') : t('Show all folders'), run:() => toggleMore(id)},
-    {label:t('Which folder is which…'), run:() => openFolderChoices(id)},
+    // A POP3 account's folders are Telex's own: nothing to choose on a server.
+    ...(isPop3(id) ? [] : [{label:t('Which folder is which…'), run:() => openFolderChoices(id)}]),
     {label:t('Account settings…'), run:() => { openSettings('accts'); editAccount(id); }},
   ];
 }
@@ -735,10 +743,12 @@ $('folder-select').addEventListener('change', e => setFolder(e.target.value));
 /* ---------- folders on this PC ---------- */
 // Made and renamed right in the tree: the name is typed where the folder shows; Enter keeps
 // it, Esc doesn't. Removed only when empty. Right-click (or the menu key) for more.
-function startNaming(key){
-  if (!ACCT[LOCAL]) return;
-  delete state.collapsed[LOCAL];
-  state.naming = {key, value:key === 'new' ? '' : folderName(key), busy:false};
+function startNaming(key, acct = key === 'new' ? LOCAL : acctId(key)){
+  if (!ACCT[acct]) return;
+  delete state.collapsed[acct];
+  // A new folder of a POP3 account shows with its others: all of them, not only the main ones.
+  if (key === 'new' && acct !== LOCAL) state.more[acct] = true;
+  state.naming = {key, acct, value:key === 'new' ? '' : folderName(key), busy:false};
   renderTree();
   const input = $('nf-name');
   input?.focus(); input?.select();
@@ -762,11 +772,12 @@ async function finishNaming(save){
   n.busy = true;
   try {
     if (n.key === 'new'){
-      const key = await invoke('create_local_folder', {name});
+      const key = await invoke('create_local_folder', {name, account:n.acct === LOCAL ? null : n.acct});
       state.naming = null;
       await loadTree();
       await setFolder(key);
-      say(t('Made the folder {folder} on this PC. Drag mail onto it, or press M.', {folder:name}), 6000);
+      say(n.acct === LOCAL ? t('Made the folder {folder} on this PC. Drag mail onto it, or press M.', {folder:name})
+        : t('Made the folder {folder}. Drag mail onto it, or press M.', {folder:name}), 6000);
       treeEl.querySelector(`[data-folder="${key}"]`)?.focus();
     } else {
       await invoke('rename_local_folder', {folder:n.key, name});
@@ -791,7 +802,7 @@ async function deleteFolder(key){
   let rules;
   try { rules = await invoke('delete_local_folder', {folder:key}); } catch (e){ say(tr(e), 8000); return; }
   await loadTree();
-  if (state.folder === key) setFolder(LOCAL + '/archive'); else renderTree();
+  if (state.folder === key) setFolder(isLocal(key) ? LOCAL + '/archive' : keyOfKind(acctId(key), 'inbox')); else renderTree();
   say(t('Removed the folder {folder}.', {folder:name}) + (rules ? ' ' + tn(rules, '{n} rule no longer moves mail there.', '{n} rules no longer move mail there.') : ''), 6000);
 }
 // A folder as one mbox file, which other mail programs read.
@@ -819,17 +830,17 @@ listenHere('import-progress', ({payload: p}) => say(t('Reading mail from {file}:
 function folderMenu(key){
   const f = folderOf(key);
   if (!f || isEvery(key)) return [];
-  const local = isLocal(key), own = local && f.kind === 'custom';
+  const local = isLocal(key), here = keepsHere(key), own = here && f.kind === 'custom';
   const sections = [
-    local ? [{label:t('New folder…'), run:() => startNaming('new')}] : [],
+    here ? [{label:t('New folder…'), run:() => startNaming('new', acctId(key))}] : [],
     // Inbox and Sent are always in view; the folders on this PC too.
     !local && !MAIN_KINDS.has(f.kind) ? [{label:t('Keep in view'), checked:state.pinned.has(key), run:() => togglePin(key)}] : [],
     // A server folder another program kept sent mail in ("Wysłane", "Sent Items").
-    !local && f.kind === 'custom' ? [{label:t('Use for sent mail'), run:() => chooseFolder(key, 'sent')},
+    !here && f.kind === 'custom' ? [{label:t('Use for sent mail'), run:() => chooseFolder(key, 'sent')},
       {label:t('Which folder is which…'), run:() => openFolderChoices(acctId(key))}] : [],
     own ? [{label:t('Rename…'), key:'F2', run:() => startNaming(key)}, {label:t('Delete folder'), disabled:countOf(key).total > 0, run:() => deleteFolder(key)}] : [],
     [...(countOf(key).unread ? [{label:t('Mark all as read'), key:'Shift+U', run:() => markFolderRead(key)}] : []),
-      ...(local && f.kind !== 'trash' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
+      ...(here && f.kind !== 'trash' && f.kind !== 'outbox' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
       {label:t('Save as mbox…'), run:() => exportFolder(key)}],
     // Its own greeting and reply header (Settings › Writing).
     !['outbox', 'drafts', 'trash', 'spam'].includes(f.kind) ? [{label:t('Templates…'), run:() => openFolderTemplates(key)}] : [],
@@ -855,7 +866,7 @@ treeEl.addEventListener('keydown', e => {
     e.preventDefault(); e.stopPropagation();
     const r = el.getBoundingClientRect(), items = treeMenu(el);
     if (items.length) openMenu(r.left + 24, r.bottom, items, el);
-  } else if (e.key === 'F2' && el.dataset.folder && isLocal(el.dataset.folder) && kindOf(el.dataset.folder) === 'custom'){
+  } else if (e.key === 'F2' && el.dataset.folder && keepsHere(el.dataset.folder) && kindOf(el.dataset.folder) === 'custom'){
     e.preventDefault(); e.stopPropagation(); startNaming(el.dataset.folder);
   } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && el.dataset.acct && el.dataset.acct !== LOCAL){
     // Alt+↑ ↓ on an account: up or down in the tree, keeping the focus on it.
@@ -3212,7 +3223,7 @@ function dropSpot(x, y){
   const el = document.elementFromPoint(x / (devicePixelRatio || 1), y / (devicePixelRatio || 1));
   if (!el?.closest?.('#tree')) return null;
   const f = el.closest('[data-folder]');
-  return {folder:f && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) !== 'trash' ? f : null};
+  return {folder:f && keepsHere(f.dataset.folder) && !['trash', 'outbox'].includes(kindOf(f.dataset.folder)) ? f : null};
 }
 listenHere('files-over', ({payload}) => {
   const f = payload ? dropSpot(payload[0], payload[1])?.folder ?? null : null;
@@ -4660,7 +4671,7 @@ $('w-lang').addEventListener('click', async e => {
 function renderAccountList(){
   const real = servers();
   $('a-list').innerHTML = real.length ? real.map((a, i) => {
-    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = {sync_error:PROBLEMS[a.id], synced_at:SYNCED[a.id]};
+    const where = `${a.email} · ${a.imap.pop3 ? 'POP3 ' : ''}${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = {sync_error:PROBLEMS[a.id], synced_at:SYNCED[a.id]};
     // Their order in the folder tree, when there is more than one.
     const order = real.length < 2 ? '' : `<button type="button" class="btn icon" data-up="${esc(a.id)}" title="${esc(t('Move up'))}" aria-label="${esc(t('Move {email} up', {email:a.email}))}"${i ? '' : ' disabled'}>↑</button>`
       + `<button type="button" class="btn icon" data-down="${esc(a.id)}" title="${esc(t('Move down'))}" aria-label="${esc(t('Move {email} down', {email:a.email}))}"${i < real.length - 1 ? '' : ' disabled'}>↓</button>`;
@@ -4668,7 +4679,9 @@ function renderAccountList(){
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
     // The account and how its last check went on top; what can be done with it in a row below.
     return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="sahead"><span class="nm">${esc(a.name)}</span>${sync}</div><div class="em" title="${esc(where)}">${esc(where)}</div>`
-      + `<div class="sacts"><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button>`
+      + `<div class="sacts"><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button>`
+      // A POP3 account's folders are Telex's own: nothing to choose among a server's.
+      + (a.imap.pop3 ? '' : `<button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button>`)
       + `<button type="button" class="btn${awayOn(a.id) ? ' on' : ''}" data-away="${esc(a.id)}" title="${esc(awayOn(a.id) ? t('Auto-reply is on') : t('Auto-reply while you’re away'))}">${esc(t('Auto-reply'))}</button>`
       + `<span class="sgap"></span>${order}<button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div></div></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
@@ -4703,7 +4716,7 @@ listenMain('detect-progress', ({payload}) => {
   steps[steps.length - 1].detail = payload === 'guess' ? t('Trying the usual server names…') : t('Asking {domain} and its DNS records…', {domain});
   renderSteps();
 });
-const serverNames = s => s.host === s.smtp_host ? s.host : t('{a} and {b}', {a:s.host, b:s.smtp_host});
+const serverNames = s => (names => s.pop3 ? t('{servers} (POP3)', {servers:names}) : names)(s.host === s.smtp_host ? s.host : t('{a} and {b}', {a:s.host, b:s.smtp_host}));
 
 wForm.addEventListener('submit', async e => {
   e.preventDefault();
@@ -4768,7 +4781,9 @@ function openForm(v, error = '', d = null, note = ''){
   $('a-title').textContent = t('Server settings');
   $('a-go').querySelector('span').textContent = t('Connect');
   $('a-email').value = v.email ?? ''; $('a-name').value = v.name ?? '';
-  $('a-host').value = v.host ?? ''; $('a-port').value = v.port ?? 993; $('a-isec').value = v.imap_security ?? 'tls';
+  $('a-host').value = v.host ?? ''; $('a-port').value = v.port ?? (v.pop3 ? 995 : 993);
+  $('a-isec').value = $('a-psec').value = v.imap_security ?? 'tls';
+  setProto(v.pop3);
   $('a-user').value = v.username && v.username !== v.email ? v.username : '';
   $('a-pass').value = v.password ?? ''; $('a-pass').placeholder = '';
   $('a-smtp').value = v.smtp_host ?? ''; $('a-sport').value = v.smtp_port || 465; $('a-sec').value = v.smtp_security ?? 'tls';
@@ -4790,7 +4805,8 @@ function editAccount(id){
   $('a-go').querySelector('span').textContent = t('Save');
   $('a-email').value = a.email; $('a-name').value = a.name;
   $('a-host').value = a.imap.host; $('a-port').value = a.imap.port; $('a-user').value = a.imap.username;
-  $('a-isec').value = a.imap.security ?? 'tls';
+  $('a-isec').value = $('a-psec').value = a.imap.security ?? 'tls';
+  setProto(a.imap.pop3, true);
   $('a-smtp').value = a.smtp?.host ?? ''; $('a-sec').value = a.smtp?.security ?? 'tls';
   $('a-sport').value = a.smtp?.port ?? 465;
   $('a-pass').value = ''; $('a-pass').placeholder = t('Leave empty to keep the saved password');
@@ -4802,6 +4818,7 @@ function placeholders(){
   const email = $('a-email').value.trim(), domain = email.split('@')[1] || '';
   $('a-host').placeholder = domain.includes('.') ? t('e.g. mail.{domain}', {domain}) : 'mail.example.com';
   $('a-user').placeholder = email || t('Same as email');
+  $('a-smtp').placeholder = $('a-proto').value === 'pop3' ? t('Same as POP3 server') : t('Same as IMAP server');
 }
 $('a-email').addEventListener('input', placeholders);
 // The usual ports follow the security choice, unless the user typed another one.
@@ -4812,6 +4829,42 @@ $('a-sec').addEventListener('change', () => {
 $('a-isec').addEventListener('change', () => {
   const p = $('a-port');
   if (['993', '143', ''].includes(p.value)) p.value = $('a-isec').value === 'starttls' ? 143 : 993;
+});
+$('a-psec').addEventListener('change', () => {
+  const p = $('a-port');
+  if (['995', '110', ''].includes(p.value)) p.value = $('a-psec').value === 'starttls' ? 110 : 995;
+});
+// IMAP or POP3: the form shows the fields of the one chosen, and for POP3 what stays on the
+// server (`keep`: the account's, or Telex's default: everything, until deleted here). An
+// account keeps the protocol it has (`fixed`): its folders are the server's, or here.
+function setProto(keep, fixed = false){
+  const pop3 = !!keep;
+  $('a-proto').value = pop3 ? 'pop3' : 'imap';
+  $('a-proto').disabled = fixed;
+  aForm.classList.toggle('pop3', pop3);
+  const k = keep || {leave:true, days:null, until_deleted:true};
+  $('a-leave').checked = k.leave; $('a-until').checked = k.until_deleted;
+  $('a-days-on').checked = k.days != null; $('a-days').value = k.days ?? 14;
+  paintKeep();
+}
+// Without leaving mail on the server, how long it stays there doesn't arise.
+function paintKeep(){
+  const leave = $('a-leave').checked;
+  for (const id of ['a-days-on', 'a-until']) $(id).disabled = !leave;
+  $('a-days').disabled = !leave || !$('a-days-on').checked;
+}
+$('a-leave').addEventListener('change', paintKeep);
+$('a-days-on').addEventListener('change', paintKeep);
+$('a-proto').addEventListener('change', () => {
+  const pop3 = $('a-proto').value === 'pop3', p = $('a-port');
+  // The usual port of the other protocol, unless the user typed another one.
+  if (['993', '143', '995', '110', ''].includes(p.value)){
+    const starttls = (pop3 ? $('a-isec') : $('a-psec')).value === 'starttls';
+    p.value = pop3 ? (starttls ? 110 : 995) : (starttls ? 143 : 993);
+  }
+  $('a-isec').value = $('a-psec').value = (pop3 ? $('a-isec') : $('a-psec')).value;
+  aForm.classList.toggle('pop3', pop3);
+  placeholders();
 });
 $('a-back').addEventListener('click', () => {
   const back = editing || ACCOUNTS.some(a => a.imap) ? 'home' : 'start';
@@ -4829,10 +4882,14 @@ aForm.addEventListener('submit', async e => {
   if (go.disabled) return;
   const port = Number($('a-port').value), smtpPort = Number($('a-sport').value || 0);
   const badPort = p => !Number.isInteger(p) || p < 0 || p > 65535;
-  if (badPort(port) || !port){ aErr.textContent = t('The IMAP port is a number from 1 to 65535: usually 993 for SSL/TLS, 143 for STARTTLS.'); $('a-port').focus(); return; }
+  const pop3 = $('a-proto').value === 'pop3';
+  if (badPort(port) || !port){ aErr.textContent = pop3 ? t('The POP3 port is a number from 1 to 65535: usually 995 for SSL/TLS, 110 for STLS.') : t('The IMAP port is a number from 1 to 65535: usually 993 for SSL/TLS, 143 for STARTTLS.'); $('a-port').focus(); return; }
+  const days = Number($('a-days').value);
+  if (pop3 && $('a-leave').checked && $('a-days-on').checked && (!Number.isInteger(days) || days < 1 || days > 3650)){ aErr.textContent = t('The days are a number from 1 to 3650.'); $('a-days').focus(); return; }
   if (badPort(smtpPort)){ aErr.textContent = t('The SMTP port is a number from 1 to 65535: usually 465 for SSL/TLS, 587 for STARTTLS.'); $('a-sport').focus(); return; }
   const setup = {name:$('a-name').value, email:$('a-email').value, host:$('a-host').value, port, username:$('a-user').value,
-    imap_security:$('a-isec').value, smtp_host:$('a-smtp').value, smtp_port:smtpPort, smtp_security:$('a-sec').value};
+    imap_security:(pop3 ? $('a-psec') : $('a-isec')).value, smtp_host:$('a-smtp').value, smtp_port:smtpPort, smtp_security:$('a-sec').value,
+    pop3:pop3 ? {leave:$('a-leave').checked, days:$('a-days-on').checked ? days : null, until_deleted:$('a-until').checked} : null};
   const wasEditing = editing;
   aErr.textContent = '';
   go.disabled = true; label.textContent = t('Connecting…');
@@ -6408,7 +6465,7 @@ $('s-move').addEventListener('click', async e => {
 let moveIn = {sources:null, finding:null, source:null, choice:null, passwords:{}, running:null, report:null, error:''};
 const PROGRAMS = {thunderbird:'Thunderbird', betterbird:'Betterbird', seamonkey:'SeaMonkey', postbox:'Postbox', outlook:'Outlook', evolution:'Evolution', kmail:'KMail', folder:N_('Mail folder')};
 const programName = p => p === 'folder' ? t(PROGRAMS.folder) : PROGRAMS[p] ?? p;
-const BLOCKED = {oauth:N_('signs in with Google or Microsoft, which Telex can’t do yet'), pop3:N_('POP3: Telex reads mail over IMAP; its mail on this PC can come along below'),
+const BLOCKED = {oauth:N_('signs in with Google or Microsoft, which Telex can’t do yet'), pop3:N_('POP3 in Outlook: Telex can’t tell which mail Outlook already downloaded; add the account by hand. Its mail on this PC can come along below'),
   exchange:N_('Exchange or Microsoft 365: Telex can’t sign in there yet')};
 const canAdd = a => !a.present && !a.blocked;
 function findPrograms(){

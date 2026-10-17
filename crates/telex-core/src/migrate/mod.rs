@@ -8,7 +8,9 @@
 //! its filters. Bringing it in adds the accounts ([`MailStore::add_found_account`]), reads the
 //! chosen folders into folders on this PC ([`import_mail`]), and makes rules of the filters
 //! that Telex can do the same way ([`rules`]). Mail on an IMAP server isn't copied from the
-//! other program: Telex downloads it from the server.
+//! other program: Telex downloads it from the server. A POP3 account's mail is only on this PC:
+//! it comes into that account's own folders, and what the program downloaded already (its
+//! UIDLs) is marked, so Telex doesn't download it again.
 
 pub mod mapi;
 pub mod outlook;
@@ -99,6 +101,13 @@ pub struct FoundAccount {
     /// Why Telex can't use it (yet).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blocked: Option<Blocked>,
+    /// A POP3 account's messages the other program downloaded already (Thunderbird's
+    /// popstate.dat): `(uidl, when, deleted there)`, and the mail file whose coming along
+    /// brings that mail here. Then Telex doesn't download it again.
+    #[serde(skip)]
+    pub(crate) seen: Vec<crate::pop3::Seen>,
+    #[serde(skip)]
+    pub(crate) seen_in: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -106,7 +115,8 @@ pub struct FoundAccount {
 pub enum Blocked {
     /// It signs in with Google or Microsoft (OAuth2), which Telex doesn't have yet.
     Oauth,
-    /// POP3: Telex reads mail over IMAP only. Its mail on this PC can still come along.
+    /// POP3 in Outlook: which mail Outlook downloaded is in its data file, out of Telex's
+    /// reach, so Telex would download it all again. Its mail on this PC can still come along.
     Pop3,
     /// Exchange or Microsoft 365 in Outlook.
     Exchange,
@@ -124,6 +134,13 @@ pub struct FoundFolder {
     pub messages: Option<u64>,
     /// Ticked to begin with: not Trash, Junk, Outbox or templates.
     pub tick: bool,
+    /// The account whose folder it is (a POP3 account's mail, by the account's key): it goes
+    /// into that account's folder of the name `within` ("Inbox", "Klienci") once the account is
+    /// in Telex, else into a folder on this PC called `name`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
+    #[serde(skip)]
+    within: String,
     #[serde(skip)]
     place: Place,
 }
@@ -429,6 +446,8 @@ fn found_folder(name: &str, place: Place, bytes: u64) -> FoundFolder {
         bytes,
         messages: None,
         tick: bytes > 0 && !unwanted.contains(&leaf.as_str()),
+        account: None,
+        within: name.to_owned(),
         place,
     }
 }
@@ -491,6 +510,13 @@ impl MailStore {
     /// The folder on this PC called `name`, made when there is none. Archive and Trash answer
     /// to their names in either language.
     pub fn local_folder_named(&mut self, name: &str) -> Result<String, StoreError> {
+        self.folder_named_in(LOCAL_ID, name)
+    }
+
+    /// [`MailStore::local_folder_named`] in an account that keeps its folders here (a POP3
+    /// account), whose Inbox, Sent, Drafts, Archive, Spam ("Junk") and Trash answer to their
+    /// names too.
+    pub fn folder_named_in(&mut self, account: &str, name: &str) -> Result<String, StoreError> {
         // As a folder's name is kept: spaces collapsed, at most 80 characters.
         let name: String = name
             .split_whitespace()
@@ -500,21 +526,58 @@ impl MailStore {
             .take(80)
             .collect();
         let wanted = name.to_lowercase();
-        if let Some(pc) = self.this_pc() {
+        let holder = if account == LOCAL_ID {
+            self.this_pc()
+        } else {
+            self.accounts().iter().find(|a| a.id == account)
+        };
+        if let Some(pc) = holder {
             let same = |f: &&crate::model::Folder| {
                 f.kind != FolderKind::Outbox
                     && (f.name.to_lowercase() == wanted
                         || f.kind
                             .pl_name()
                             .is_some_and(|pl| pl.to_lowercase() == wanted)
-                        || (f.kind == FolderKind::Archive && wanted == "archives"))
+                        || (f.kind != FolderKind::Custom && f.kind.as_str() == wanted)
+                        || (f.kind == FolderKind::Archive && wanted == "archives")
+                        || (f.kind == FolderKind::Spam && wanted == "junk"))
             };
             if let Some(f) = pc.folders.iter().find(same) {
                 return Ok(pc.folder_key(&f.id));
             }
         }
-        self.create_local_folder(&name)
+        self.create_folder(account, &name)
     }
+}
+
+/// The Telex account a found account is now: the POP3 account of the same address.
+fn pop3_account_of(store: &MailStore, found: &FoundAccount) -> Option<String> {
+    store
+        .accounts()
+        .iter()
+        .find(|a| a.is_pop3() && a.email.eq_ignore_ascii_case(&found.setup.email))
+        .map(|a| a.id.clone())
+}
+
+/// What the other program downloaded from the POP3 accounts that are in Telex now, where that
+/// mail came along: Telex won't download it again.
+fn pop3_seen(store: &Mutex<MailStore>, source: &Source, keys: &[String]) -> Result<(), StoreError> {
+    for found in source.accounts.iter().filter(|a| !a.seen.is_empty()) {
+        let came = found.seen_in.as_ref().is_some_and(|path| {
+            source
+                .folders
+                .iter()
+                .any(|f| keys.contains(&f.key) && matches!(&f.place, Place::Path(p) if p == path))
+        });
+        if !came {
+            continue;
+        }
+        let mut s = store.lock().map_err(|_| StoreError::poisoned())?;
+        if let Some(account) = pop3_account_of(&s, found) {
+            s.pop3_mark_known(&account, &found.seen, chrono::Local::now().date_naive())?;
+        }
+    }
+    Ok(())
 }
 
 /// Read the chosen folders of `source` into folders on this PC of the same names, skipping
@@ -529,10 +592,18 @@ pub fn import_mail(
     let mut report = ImportReport::default();
     let (mut done, mut bytes) = (0, 0);
     for folder in source.folders.iter().filter(|f| keys.contains(&f.key)) {
-        let key = store
-            .lock()
-            .map_err(|_| StoreError::poisoned())?
-            .local_folder_named(&folder.name)?;
+        let key = {
+            let mut s = store.lock().map_err(|_| StoreError::poisoned())?;
+            let account = folder
+                .account
+                .as_ref()
+                .and_then(|k| source.accounts.iter().find(|a| &a.key == k))
+                .and_then(|found| pop3_account_of(&s, found));
+            match account {
+                Some(account) => s.folder_named_in(&account, &folder.within)?,
+                None => s.local_folder_named(&folder.name)?,
+            }
+        };
         let (base_done, base_bytes) = (done, bytes);
         let shifted = |p: ImportProgress| {
             progress(ImportProgress {
@@ -559,6 +630,7 @@ pub fn import_mail(
         bytes += importer.bytes.max(folder.bytes);
         report.add(importer.report);
     }
+    pop3_seen(store, source, keys)?;
     Ok(report)
 }
 

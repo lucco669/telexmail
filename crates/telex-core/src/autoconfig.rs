@@ -5,8 +5,8 @@
 //!    such as "use an app password"; everything below works for any provider anywhere.
 //! 2. The provider's own setup file in Thunderbird's autoconfig format, from
 //!    `autoconfig.<domain>` or `<domain>/.well-known/`. Hosting panels such as cPanel serve it.
-//! 3. SRV records in the domain's DNS zone (RFC 6186 and 8314): `_imaps._tcp`,
-//!    `_submissions._tcp` and `_submission._tcp`.
+//! 3. SRV records in the domain's DNS zone (RFC 6186 and 8314): `_imaps._tcp` (else
+//!    `_pop3s._tcp`), `_submissions._tcp` and `_submission._tcp`.
 //! 4. The domain's MX records, when its mail is handled by a provider on the list (Google
 //!    Workspace, Microsoft 365, Zoho, OVH, ...).
 //! 5. The usual server names (`imap.`, `mail.`, `smtp.`, the MX host, the domain itself), each
@@ -19,14 +19,14 @@
 
 use std::time::Duration;
 
-use futures_util::future::{join, join3, join_all};
+use futures_util::future::{join, join3, join4, join_all};
 use serde::Serialize;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 use tokio_rustls::rustls::pki_types::ServerName;
 
-use crate::model::{AccountSetup, SmtpSecurity};
+use crate::model::{AccountSetup, Pop3Keep, SmtpSecurity};
 
 /// How long one probe or one download may take.
 const WAIT: Duration = Duration::from_secs(6);
@@ -617,6 +617,7 @@ fn setup(
         smtp_host: smtp.0.to_owned(),
         smtp_port: smtp.1,
         smtp_security: smtp.2,
+        pop3: None,
     }
 }
 
@@ -733,8 +734,9 @@ pub fn fetch_autoconfig(email: &str) -> Option<Detected> {
     })
 }
 
-/// Settings from a setup file in Thunderbird's format. For both IMAP and sending it takes
-/// SSL/TLS, else STARTTLS; never an unencrypted server. `None` without a usable IMAP server.
+/// Settings from a setup file in Thunderbird's format. For both receiving and sending it takes
+/// SSL/TLS, else STARTTLS; never an unencrypted server. IMAP when the file offers it, else
+/// POP3. `None` without a usable server for either.
 pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detected> {
     let (local, domain) = split(email)?;
     let xml = strip_comments(xml);
@@ -758,17 +760,27 @@ pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detected> {
             .filter(|s| !s.host.is_empty() && s.port != 0)
             .collect()
     };
-    let incoming = servers("incomingServer", "imap");
-    let (imap, imap_security) = incoming
-        .iter()
-        .find(|s| s.socket == "SSL")
-        .map(|s| (s, SmtpSecurity::Tls))
-        .or_else(|| {
-            incoming
-                .iter()
-                .find(|s| s.socket == "STARTTLS")
-                .map(|s| (s, SmtpSecurity::StartTls))
-        })?;
+    let encrypted = |kind: &str| {
+        let incoming = servers("incomingServer", kind);
+        incoming
+            .iter()
+            .find(|s| s.socket == "SSL")
+            .map(|s| (s.clone(), SmtpSecurity::Tls))
+            .or_else(|| {
+                incoming
+                    .iter()
+                    .find(|s| s.socket == "STARTTLS")
+                    .map(|s| (s.clone(), SmtpSecurity::StartTls))
+            })
+    };
+    let (imap, imap_security, pop3) = match encrypted("imap") {
+        Some((server, security)) => (server, security, false),
+        None => {
+            let (server, security) = encrypted("pop3")?;
+            (server, security, true)
+        }
+    };
+    let imap = &imap;
     let outgoing = servers("outgoingServer", "smtp");
     let smtp = outgoing
         .iter()
@@ -789,6 +801,7 @@ pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detected> {
     let mut found = setup(email, username, &imap.host, smtp);
     found.port = imap.port;
     found.imap_security = imap_security;
+    found.pop3 = pop3.then(Pop3Keep::default);
     // The short name if there is one; some files put a slogan or the address in displayName.
     let provider = ["displayShortName", "displayName"]
         .iter()
@@ -804,6 +817,7 @@ pub fn parse_autoconfig(xml: &str, email: &str) -> Option<Detected> {
     })
 }
 
+#[derive(Clone)]
 struct Server {
     host: String,
     port: u16,
@@ -1043,13 +1057,15 @@ pub async fn mx_hosts(domain: &str) -> Vec<String> {
 pub struct SrvRecords {
     /// `_imaps._tcp`: IMAP over SSL/TLS.
     pub imaps: Vec<(String, u16)>,
+    /// `_pop3s._tcp`: POP3 over SSL/TLS, for a domain without IMAP.
+    pub pop3s: Vec<(String, u16)>,
     /// `_submissions._tcp`: sending over SSL/TLS.
     pub submissions: Vec<(String, u16)>,
     /// `_submission._tcp`: sending with STARTTLS.
     pub submission: Vec<(String, u16)>,
 }
 
-/// Look up the domain's mail SRV records, all three at once.
+/// Look up the domain's mail SRV records, all four at once.
 pub async fn srv_records(domain: &str) -> SrvRecords {
     let lookup = |service: &str| {
         let name = format!("_{service}._tcp.{domain}");
@@ -1061,20 +1077,29 @@ pub async fn srv_records(domain: &str) -> SrvRecords {
                 .collect()
         }
     };
-    let (imaps, submissions, submission) =
-        join3(lookup("imaps"), lookup("submissions"), lookup("submission")).await;
+    let (imaps, pop3s, submissions, submission) = join4(
+        lookup("imaps"),
+        lookup("pop3s"),
+        lookup("submissions"),
+        lookup("submission"),
+    )
+    .await;
     SrvRecords {
         imaps,
+        pop3s,
         submissions,
         submission,
     }
 }
 
-/// Settings from SRV records. IMAP over SSL/TLS must be there; sending takes SSL/TLS,
-/// else STARTTLS, else the IMAP server on 465.
+/// Settings from SRV records. IMAP over SSL/TLS must be there, else POP3 over SSL/TLS;
+/// sending takes SSL/TLS, else STARTTLS, else the incoming server on 465.
 pub fn from_srv(email: &str, srv: &SrvRecords) -> Option<Detected> {
     split(email)?;
-    let (imap, imap_port) = srv.imaps.first()?;
+    let (imap, imap_port, pop3) = match srv.imaps.first() {
+        Some((host, port)) => (host, port, false),
+        None => srv.pop3s.first().map(|(host, port)| (host, port, true))?,
+    };
     let smtp = srv
         .submissions
         .first()
@@ -1087,6 +1112,7 @@ pub fn from_srv(email: &str, srv: &SrvRecords) -> Option<Detected> {
         .unwrap_or((imap.as_str(), 465, SmtpSecurity::Tls));
     let mut found = setup(email, email.trim().to_owned(), imap, smtp);
     found.port = *imap_port;
+    found.pop3 = pop3.then(Pop3Keep::default);
     Some(plain(found, Source::Srv))
 }
 
@@ -1466,8 +1492,28 @@ mod tests {
             "<socketType>STARTTLS</socketType>\n      <username>%EMAIL",
             "<socketType>plain</socketType>\n      <username>%EMAIL",
         );
-        assert!(parse_autoconfig(&plain_imap, "jan@studio.pl").is_none());
+        // Then the file's POP3 server, encrypted.
+        let pop3 = parse_autoconfig(&plain_imap, "jan@studio.pl")
+            .unwrap()
+            .setup;
+        assert_eq!(
+            (pop3.host.as_str(), pop3.port, pop3.imap_security),
+            ("pop.studio.pl", 995, SmtpSecurity::Tls)
+        );
+        assert_eq!(pop3.pop3, Some(Pop3Keep::default()), "left on the server");
+        assert_eq!(pop3.username, "jan@studio.pl");
+        let no_pop3 = plain_imap.replace(
+            "<port>995</port><socketType>SSL</socketType>",
+            "<port>110</port><socketType>plain</socketType>",
+        );
+        assert!(parse_autoconfig(&no_pop3, "jan@studio.pl").is_none());
         assert!(parse_autoconfig("<html>Not found</html>", "jan@studio.pl").is_none());
+        // With both, IMAP.
+        assert!(parse_autoconfig(CPANEL, "jan@studio.pl")
+            .unwrap()
+            .setup
+            .pop3
+            .is_none());
     }
 
     #[test]
@@ -1492,6 +1538,7 @@ mod tests {
         };
         let srv = SrvRecords {
             imaps: records(&[("imap.studio.pl", 993)]),
+            pop3s: records(&[("pop.studio.pl", 995)]),
             submissions: records(&[("smtp.studio.pl", 465)]),
             submission: records(&[("smtp.studio.pl", 587)]),
         };
@@ -1530,11 +1577,25 @@ mod tests {
             ("out.studio.pl", 2587, SmtpSecurity::StartTls)
         );
 
-        // No IMAP over TLS in the zone: SRV records don't settle it.
+        assert!(found.setup.pop3.is_none(), "IMAP before POP3");
+
+        // No IMAP over TLS in the zone: POP3 over TLS, else SRV records don't settle it.
+        let pop3 = from_srv(
+            "jan@studio.pl",
+            &SrvRecords {
+                imaps: Vec::new(),
+                ..srv.clone()
+            },
+        )
+        .unwrap()
+        .setup;
+        assert_eq!((pop3.host.as_str(), pop3.port), ("pop.studio.pl", 995));
+        assert_eq!(pop3.pop3, Some(Pop3Keep::default()));
         assert!(from_srv(
             "jan@studio.pl",
             &SrvRecords {
                 imaps: Vec::new(),
+                pop3s: Vec::new(),
                 ..srv
             }
         )

@@ -1297,6 +1297,7 @@ impl Import {
                         smtp_host: smtp.as_ref().map(|s| s.host.clone()).unwrap_or_default(),
                         smtp_port: smtp.as_ref().map_or(0, |s| s.port),
                         smtp_security: smtp.map(|s| s.security).unwrap_or_default(),
+                        pop3: imap.pop3,
                     }
                 }),
             })
@@ -1703,6 +1704,7 @@ mod tests {
                 smtp_host: "smtp.firma.pl".into(),
                 smtp_port: 587,
                 smtp_security: SmtpSecurity::StartTls,
+                pop3: None,
             })
             .unwrap();
         let folder = |id: &str, name: &str, kind| Folder {
@@ -2014,6 +2016,34 @@ mod tests {
         let (settings, report) = import.apply(&mut store, EVERYTHING);
         assert_eq!(settings, None);
         assert_eq!(report, ImportReport::default());
+    }
+
+    #[test]
+    fn a_pop3_account_s_server_travels_as_pop3() {
+        let mut old = MailStore::in_memory().unwrap();
+        let keep = crate::model::Pop3Keep {
+            days: Some(30),
+            ..Default::default()
+        };
+        old.upsert_account(&AccountSetup {
+            name: "Piotr".into(),
+            email: "piotr@poczta.pl".into(),
+            host: "pop.poczta.pl".into(),
+            port: 995,
+            username: "piotr".into(),
+            pop3: Some(keep),
+            ..Default::default()
+        })
+        .unwrap();
+        let text = export(&old, &Settings::default(), ALL, "0.9.12", now()).unwrap();
+        assert!(text.contains("\"pop3\""), "{text}");
+        let new = MailStore::in_memory().unwrap();
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        let setup = import.plan.accounts[0].setup.clone().unwrap();
+        assert_eq!(
+            (setup.host.as_str(), setup.pop3),
+            ("pop.poczta.pl", Some(keep))
+        );
     }
 
     #[test]

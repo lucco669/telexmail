@@ -50,11 +50,16 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/imap.rs        Two-way IMAP sync (async-imap + rustls, SSL/TLS or STARTTLS): download,
                      push queued changes a batch per command, folder mapping, older mail on
                      request, IDLE on the Inbox. Tests run it against a fake IMAP server.
+  src/pop3.rs        POP3 accounts (SSL/TLS or STLS, AUTH PLAIN or USER/PASS, UIDL required):
+                     new mail into the account's Inbox, remembered by UIDL (pop3_uidls), what
+                     stays on the server (Pop3Keep: DELE at once, after N days, or once deleted
+                     here), the same arrivals path as IMAP. Its tests (pop3/tests.rs) run it
+                     against a fake POP3 server.
   src/servers.rs     One mail server (by IP address) gets at most 4 checks and 8 IDLE watchers
                      at once; one that takes connections but doesn't greet rests (1 min,
                      doubling to 15) before anything connects again. And the connection log
                      (in memory, the last 1,000: each step timed, where one failed and why,
-                     IMAP and SMTP) for Settings › Connections.
+                     IMAP, POP3 and SMTP) for Settings › Connections.
   src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322 (Bcc, files from
                      disk), send the Outbox. Tests run it against a fake SMTP server.
   src/attachments.rs Attachments of stored mail opened or saved: safe file names, files that
@@ -91,6 +96,13 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      Never passwords: the user types them in the dialog.
                      prefs.js accounts, identities and tags, Local Folders, msgFilterRules.dat; also
                      Betterbird, SeaMonkey, Postbox), outlook.rs (registry accounts on Windows,
+                     Maildir and MH folders read into a folder on this PC or of a POP3 account (mboxrd; Status,
+                     X-Status and X-Mozilla-Status flags, Thunderbird's deleted ones left out).
+  src/migrate/       Moving in from another mail program, found on this PC only: mod.rs (what a
+                     program has, mail into folders on this PC, filters into rules, Maildir/MH
+                     folders of Evolution, KMail, Claws, mutt), thunderbird.rs (profiles.ini,
+                     prefs.js accounts and identities, Local Folders, msgFilterRules.dat, POP3
+                     accounts with popstate.dat and X-UIDL; also Betterbird, SeaMonkey, Postbox), outlook.rs (registry accounts on Windows,
                      .pst with outlook-pst, .msg with cfb), mapi.rs (Outlook's properties →
                      RFC 822). Never passwords: the user types them in the dialog.
   src/backup.rs      Backups of the mail base (VACUUM INTO on a connection of its own), the
@@ -305,13 +317,13 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `delete_identity`| `id`                         | – (never the account's last one) |
 | `known_provider` | `email`                      | what the provider list knows (no network), or null |
 | `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help, confirm}` or null; emits `detect-progress` (`confirm`: servers found through DNS outside the address's domain; the wizard asks before sending them the password, RFC 6186) |
-| `add_account`    | `setup`, `password`          | the account (checks IMAP and SMTP first; same address = update, empty password = keep) |
+| `add_account`    | `setup`, `password`          | the account (checks IMAP or POP3, and SMTP first; same address = update, empty password = keep; `setup.pop3` `{leave, days, until_deleted}` makes it a POP3 account, which stays one) |
 | `remove_account` | `id`                         | – (local copies and saved password only; an away reply on the server is taken off first) |
 | `get_away`       | `account`                    | `{account, enabled, starts, ends, subject, body, days, place, script, created}` (off when never set) |
 | `save_away`      | `away`                       | `{away, why}`: onto the server (ManageSieve) where it takes it (`place: server`), else Telex answers (`why: {code, detail}`: no_server, no_tls, no_vacation, no_dates, login, refused) |
 | `check_mail`     | `account` (null = all)       | `{new: [ids], new_in, sent: [lines], sorted, spam, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest; with `account`, only its Inbox; `spam`: new mail the spam filter moved to Spam) |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
-| `download_older` | `folder`, `limit`            | `{new, busy}`: up to `limit` of the newest messages the first download left on the server |
+| `download_older` | `folder`, `limit`            | `{new, busy}`: up to `limit` of the newest messages the first download left on the server (for a POP3 account, of its Inbox) |
 | `update_info`    | –                            | `{version, updatable, countable}` (false: built without the release key) |
 | `count_copy`     | –                            | true when today's count went (only with `usage_count: on`, release builds; at most one a UTC day) |
 | `check_update`   | –                            | `{version, notes, date}` of a newer release, or null |
@@ -322,13 +334,15 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `show_export`    | –                            | – (the last exported file in Explorer) |
 | `open_import`    | `words` (dialog title, filter) | the plan, null (cancelled), or `{code, detail}` (not_json, not_telex, unreadable); opens Open |
 | `apply_import`   | `choice` `{settings, identities, rules}` | `{report, settings}`; the file is matched again first |
-| `create_local_folder` | `name`                | the new folder's key (`local/<id>`), or a sentence saying what's wrong |
+| `create_local_folder` | `name`, `account` (null: on this PC) | the new folder's key (`local/<id>`, or `<account>/<id>` in a POP3 account), or a sentence saying what's wrong (`rename_local_folder` and `delete_local_folder` take a POP3 account's own folders too) |
 | `rename_local_folder` | `folder`, `name`      | – (the user's own folders on this PC; the key stays) |
 | `delete_local_folder` | `folder`              | how many rules lost their move to it; only an empty folder |
 | `export_folder`  | `folder`, `words` `{title, filter, file_name}` | the mbox file written, or null; opens Save |
 | `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC only |
 | `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters, books: [{key, name, contacts, tick}]}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
 | `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters, tags: [{keyword, name, color}]}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
+| `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC and of POP3 accounts only |
+| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
 | `open_source`    | `folder` (true: a folder, false: a .pst), `words` | the same for what the user picks, or null (`move_in` takes only sources found or picked this session) |
 | `spell_languages`| –                            | `{languages: [{tag, own}], chosen, auto, downloads: [{tag, bytes}], missing}` (`own`: fetched by Telex; `auto`: chosen from Windows' display languages, its language list, its region and the interface's; `missing`: downloads for those) |
 | `spell_check`    | `text`                       | `[[start, length]]` in UTF-16 units: the words no chosen language knows |
@@ -735,6 +749,41 @@ renumber at merge):
     folder's for a new message, the original's for a reply). Settings files carry identities'
     `signature_html` and templates, and folders' templates by account address and folder id,
     else name, like rules (`templates`; with the identities).
+- POP3 accounts (schema version 15: `accounts.incoming`, `pop3_leave`, `pop3_days`,
+  `pop3_until_deleted`, `pop3_uidls`; one-way):
+  - An account gets its mail over IMAP or POP3 (`ImapSettings.pop3: Option<Pop3Keep>`, the
+    same host, port, user and security columns; `Account::is_pop3`). A POP3 server keeps only
+    an Inbox, so a POP3 account's folders are all here, like the folders on this PC but under
+    the account (its color, identities, rules, Outbox): Inbox, Drafts, Sent, Archive, Spam and
+    Trash, and the user's own (the tree's account menu › New folder, F2, Delete folder;
+    `create_folder`). Reading, flagging and moving queue nothing; sent mail goes to the local
+    Sent. Switching an account between IMAP and POP3 is refused (remove and add it again).
+  - `pop3.rs`: TLS on 995 or STLS on 110 (never plain; nothing may follow STLS's +OK), CAPA,
+    AUTH PLAIN where offered, else USER/PASS ([IN-USE] and [SYS/TEMP] aren't login errors);
+    UIDL is required (a server without it is refused when the account is added); STAT/LIST/RETR/
+    DELE/QUIT with dot-unstuffing, a 2-minute timeout per line, 8 KB status lines, 4 MB message
+    lines, 100 MB messages (a larger one stays on the server, said once) and a million listed.
+    Through `servers.rs` like IMAP: places per address, rests, the log with protocol "pop3".
+  - Every UIDL Telex knows is a row of `pop3_uidls`: `here` (downloaded; `message` NULL once
+    deleted here for good, by ON DELETE SET NULL), `older` (left by the first check, which takes
+    the newest 300; the status bar offers them through `download_older`), `known` (Thunderbird
+    had it), `big`. Nothing comes twice, also mail deleted here. What stays on the server
+    (`Pop3Keep`, Settings › Accounts › Edit › On the server): by default everything until it is
+    deleted here for good; or removed once here; or after N days. DELE goes at the end of a
+    check; the server removes at QUIT. A row the server hasn't listed for 90 days goes.
+  - New mail goes through the same path as IMAP's Inbox (`imap::sort_arrived`): the spam filter,
+    rules, the away reply (Telex answers: no Sieve for POP3), notifications, `sync-progress`,
+    `check_mail`'s results. `push_mail` skips POP3 accounts (no IDLE); the regular checks
+    bring their mail. After a restore, a POP3 account's next check is like its first, so mail
+    from since the backup comes down without rules or replies running twice.
+  - Finding servers: a setup file's POP3 server when it has no encrypted IMAP one, SRV
+    `_pop3s._tcp` when there is no `_imaps`; the form has Incoming mail (IMAP | POP3), its
+    security and port, and what stays on the server. Settings files carry `pop3` with the
+    server. Thunderbird's POP3 accounts come over as POP3 accounts (servers, identities, what
+    they left on the server, their filters), their mail into their own folders, and the UIDLs of
+    popstate.dat (k kept, d deleted there; X-UIDL headers link messages) so Thunderbird's mail
+    isn't fetched again. Outlook's POP3 accounts stay blocked: which mail it downloaded is in
+    its .pst. Mail files can be dropped on a POP3 account's folders too.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
@@ -1324,6 +1373,9 @@ then daily like `daily`),
    CardDAV sync (the `uid` column is the card's UID, ready for it), several phones or postal
    addresses, photos, Outlook distribution lists (a binary list of entry ids) and Thunderbird
    before 78 (abook.mab, Mork).
+   restore~~ and ~~local folders with mbox export and .eml/mbox import~~: done in 0.6.
+   ~~POP3~~: built, see Not released yet. Not yet: moving the mail base to another folder; POP3
+   on Outlook's accounts (its UIDLs are in the .pst); the server's storage (STAT) in Usage.
 
 ## License
 

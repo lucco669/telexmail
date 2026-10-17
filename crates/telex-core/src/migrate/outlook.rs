@@ -840,10 +840,13 @@ mod registry {
                 smtp_host: key.text("SMTP Server").unwrap_or_default(),
                 smtp_port: port("SMTP"),
                 smtp_security: security(key, "SMTP"),
+                pop3: None,
             },
             identities: vec![identity(&name, &email, "")],
             present: false,
             blocked,
+            seen: Vec::new(),
+            seen_in: None,
         })
     }
 }

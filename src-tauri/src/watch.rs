@@ -44,7 +44,8 @@ pub fn restart(app: &AppHandle) {
 }
 
 async fn watch(app: AppHandle, account: Account) {
-    let Some(settings) = account.imap.clone() else {
+    // POP3 has nothing to watch: the regular checks bring its mail.
+    let Some(settings) = account.imap.clone().filter(|i| i.pop3.is_none()) else {
         return;
     };
     let first_pause = Duration::from_secs(30);

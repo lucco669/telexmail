@@ -194,6 +194,7 @@ export const featureRows: FeatureRow[] = [
       'Drop .eml and mbox files on a folder to bring the mail in; Thunderbird’s read and starred marks come along',
       { text: 'Move in from Thunderbird or Outlook: their local folders and .pst files come over folder by folder, with their accounts and filters', since: '0.9.0' },
       { text: 'Thunderbird’s tags move in too, with their colors, on its local mail and in its filters; mbox files carry them both ways', since: V0912 },
+      { text: 'Thunderbird’s POP3 accounts come over as POP3 accounts, their mail in their own folders; what Thunderbird already downloaded isn’t downloaded again', since: V0912 },
     ],
   },
   {
@@ -269,6 +270,7 @@ export const featureRows: FeatureRow[] = [
       'Then the usual names: imap., mail. and smtp. your domain',
       'Tips when a provider needs an app password or IMAP turned on: Gmail, iCloud and Yahoo work with an app password',
       'Asks only DNS and your domain’s servers, never a lookup service',
+      { text: 'POP3 accounts too, where a provider has no IMAP: found the same way, or chosen in the settings form', since: V0912 },
     ],
   },
   {
@@ -319,6 +321,8 @@ export const featureRows: FeatureRow[] = [
       { text: 'An account whose last check failed says so in the folder tree and the status bar; one click tries again', since: '0.7.2' },
       { text: 'Gentle with shared servers: at most 4 checks and 8 watched Inboxes at once per server, and a pause when one stops answering', since: V0911 },
       { text: 'Settings › Connections: every connection’s steps, timed, and where and why one failed; copy it all for whoever helps', since: V0911 },
+      { text: 'POP3 over SSL/TLS or STLS: mail comes into the account’s Inbox and its folders are all on your PC, with the same spam filter, rules and away reply', since: V0912 },
+      { text: 'With POP3 you choose what stays on the server: everything until you delete it here (the default), at most some days, or nothing once it is here; nothing is downloaded twice', since: V0912 },
     ],
   },
   {
@@ -1378,7 +1382,7 @@ export const roadmap: Step[] = [
     text: 'Folders kept only on your PC, backups by hand or every day or week that you can restore, mbox export and .eml and mbox import, drag and drop, a message in its own window.',
     status: 'done',
     since: '0.6.0',
-    notYet: 'POP3 accounts, and moving the mail base to another folder or disk.',
+    notYet: 'Moving the mail base to another folder or disk.',
   },
   {
     title: 'Reading and finding',
@@ -1391,7 +1395,7 @@ export const roadmap: Step[] = [
     text: 'Bring accounts, identities, supported filters and local mail from Thunderbird or Outlook, including .pst files. Check spelling in multiple languages and configure an away reply on the server where supported, or while Telex checks mail.',
     status: 'done',
     since: '0.9.0',
-    notYet: 'Importing OAuth, Exchange or POP3 account connections; passwords must be entered again.',
+    notYet: 'Importing OAuth or Exchange account connections, and Outlook’s POP3 accounts; passwords must be entered again.',
   },
   {
     title: 'Unread at a glance and six fonts',
@@ -1435,7 +1439,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         id: 'providers',
         q: 'Which mail providers work?',
-        a: 'Any provider that offers IMAP (SSL/TLS on port 993, or STARTTLS on 143) and SMTP (SSL/TLS on 465, or STARTTLS on 587) with a password: your own domain or hosting mailbox, and providers such as Gmail, iCloud, Yahoo, Fastmail, Zoho, GMX, WP, Onet and Interia. Telex finds the settings from your address and tells you when a provider wants an app password (Gmail, iCloud, Yahoo) or IMAP turned on. Not yet: Outlook.com, Hotmail and Microsoft 365, which accept only Microsoft sign-in (planned), and Proton Mail, which needs its Bridge.',
+        a: 'Any provider that offers IMAP (SSL/TLS on port 993, or STARTTLS on 143) and SMTP (SSL/TLS on 465, or STARTTLS on 587) with a password, and from version 0.9.12 POP3 too (SSL/TLS on 995, or STLS on 110): your own domain or hosting mailbox, and providers such as Gmail, iCloud, Yahoo, Fastmail, Zoho, GMX, WP, Onet and Interia. Telex finds the settings from your address and tells you when a provider wants an app password (Gmail, iCloud, Yahoo) or IMAP turned on. Not yet: Outlook.com, Hotmail and Microsoft 365, which accept only Microsoft sign-in (planned), and Proton Mail, which needs its Bridge.',
       },
       {
         q: 'Can I bring my mail from Thunderbird or Outlook?',

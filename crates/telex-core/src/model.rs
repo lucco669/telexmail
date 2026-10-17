@@ -172,6 +172,11 @@ impl Account {
         format!("{}/{}", self.id, folder_id)
     }
 
+    /// Its mail comes over POP3, so all its folders are here.
+    pub fn is_pop3(&self) -> bool {
+        self.imap.as_ref().is_some_and(|i| i.pop3.is_some())
+    }
+
     pub fn folder_of_kind(&self, kind: FolderKind) -> Option<&Folder> {
         self.folders.iter().find(|f| f.kind == kind)
     }
@@ -324,6 +329,50 @@ pub struct ImapSettings {
     pub username: String,
     #[serde(default)]
     pub security: ImapSecurity,
+    /// A POP3 server instead of IMAP (`pop3.rs`), and what stays on it: the account's folders
+    /// are all here then. `None`: IMAP.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pop3: Option<Pop3Keep>,
+}
+
+impl ImapSettings {
+    /// "imap" or "pop3", for the connection log and the words around it.
+    pub fn protocol(&self) -> &'static str {
+        if self.pop3.is_some() {
+            "pop3"
+        } else {
+            "imap"
+        }
+    }
+}
+
+/// What happens to mail on a POP3 server once Telex has it, as in Thunderbird: by default it
+/// stays there (a phone still sees it) until it is deleted here for good.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Pop3Keep {
+    /// Leave it on the server; false removes it once it is here.
+    #[serde(default = "yes")]
+    pub leave: bool,
+    /// While it is left there, remove it after this many days; `None`: no limit.
+    #[serde(default)]
+    pub days: Option<u16>,
+    /// While it is left there, remove it once it is deleted here for good (from Trash).
+    #[serde(default = "yes")]
+    pub until_deleted: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for Pop3Keep {
+    fn default() -> Self {
+        Self {
+            leave: true,
+            days: None,
+            until_deleted: true,
+        }
+    }
 }
 
 /// How the IMAP connection is encrypted: the same two choices as for sending, TLS from the
@@ -389,18 +438,24 @@ pub struct AccountSetup {
     pub smtp_port: u16,
     #[serde(default)]
     pub smtp_security: SmtpSecurity,
+    /// Mail comes over POP3 from `host` (SSL/TLS on 995 or STLS on 110), with what stays on
+    /// the server; `None`: IMAP.
+    #[serde(default)]
+    pub pop3: Option<Pop3Keep>,
 }
 
 /// "imaps://Mail.Example.com/" → "mail.example.com", or an error for something that isn't
 /// a host name.
 fn clean_host(input: &str, what: &str) -> Result<String, String> {
     let host = input.trim();
-    let host = ["imaps://", "imap://", "smtps://", "smtp://"]
-        .iter()
-        .find_map(|p| host.strip_prefix(p))
-        .unwrap_or(host)
-        .trim_end_matches('/')
-        .to_ascii_lowercase();
+    let host = [
+        "imaps://", "imap://", "pop3s://", "pop3://", "pop://", "smtps://", "smtp://",
+    ]
+    .iter()
+    .find_map(|p| host.strip_prefix(p))
+    .unwrap_or(host)
+    .trim_end_matches('/')
+    .to_ascii_lowercase();
     if host.is_empty() {
         return Err(tr!(
             "Enter the {what} server, e.g. mail.example.com.",
@@ -438,11 +493,17 @@ impl AccountSetup {
                 "Adres e-mail nie może zawierać spacji."
             ));
         }
-        let host = clean_host(&self.host, "IMAP")?;
-        let port = match (self.port, self.imap_security) {
-            (0, SmtpSecurity::Tls) => 993,
-            (0, SmtpSecurity::StartTls) => 143,
-            (p, _) => p,
+        let pop3 = self.pop3.map(|keep| Pop3Keep {
+            days: keep.days.map(|d| d.clamp(1, 3650)),
+            ..keep
+        });
+        let host = clean_host(&self.host, if pop3.is_some() { "POP3" } else { "IMAP" })?;
+        let port = match (self.port, self.imap_security, pop3.is_some()) {
+            (0, SmtpSecurity::Tls, false) => 993,
+            (0, SmtpSecurity::StartTls, false) => 143,
+            (0, SmtpSecurity::Tls, true) => 995,
+            (0, SmtpSecurity::StartTls, true) => 110,
+            (p, ..) => p,
         };
         let smtp_host = if self.smtp_host.trim().is_empty() {
             host.clone()
@@ -472,6 +533,7 @@ impl AccountSetup {
             smtp_host,
             smtp_port,
             smtp_security: self.smtp_security,
+            pop3,
         })
     }
 
@@ -481,6 +543,7 @@ impl AccountSetup {
             port: self.port,
             username: self.username.clone(),
             security: self.imap_security,
+            pop3: self.pop3,
         }
     }
 
@@ -673,6 +736,7 @@ mod tests {
             smtp_host: String::new(),
             smtp_port: 0,
             smtp_security: SmtpSecurity::Tls,
+            pop3: None,
         }
     }
 
@@ -705,6 +769,33 @@ mod tests {
         let s = no_port.cleaned().unwrap();
         assert_eq!(s.port, 143);
         assert_eq!(s.imap_settings().security, SmtpSecurity::StartTls);
+    }
+
+    #[test]
+    fn pop3_setups_take_pop3_ports() {
+        let mut pop = setup("biuro@x.pl", "pop3s://POP.x.pl");
+        pop.port = 0;
+        pop.pop3 = Some(Pop3Keep {
+            days: Some(0),
+            ..Pop3Keep::default()
+        });
+        let s = pop.clone().cleaned().unwrap();
+        assert_eq!((s.host.as_str(), s.port), ("pop.x.pl", 995));
+        assert_eq!(s.pop3.unwrap().days, Some(1), "at least a day");
+        assert_eq!(s.imap_settings().protocol(), "pop3");
+        pop.imap_security = SmtpSecurity::StartTls;
+        assert_eq!(pop.cleaned().unwrap().port, 110);
+        assert_eq!(
+            setup("biuro@x.pl", "mail.x.pl").imap_settings().protocol(),
+            "imap"
+        );
+        let keep: Pop3Keep = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            keep,
+            Pop3Keep::default(),
+            "left on the server until deleted here"
+        );
+        assert!(keep.leave && keep.until_deleted && keep.days.is_none());
     }
 
     #[test]

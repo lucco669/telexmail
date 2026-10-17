@@ -26,7 +26,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
 use crate::mime::parse_message;
-use crate::model::{split_folder_key, Message};
+use crate::model::{split_folder_key, FolderKind, Message};
 use crate::store::{insert_message, MailStore, StoreError, LOCAL_ID};
 use crate::tr;
 
@@ -130,11 +130,21 @@ impl MailStore {
     }
 }
 
-/// Mail comes in only to folders on this PC: a server folder would need it uploaded.
+/// Mail comes in only to folders on this PC, and a POP3 account's (they are all here too): a
+/// server folder would need it uploaded.
 fn check_local(store: &MailStore, folder: &str) -> Result<(), StoreError> {
+    let pop3 = |account: &str| store.account(account).is_ok_and(|a| a.is_pop3());
     match split_folder_key(folder) {
         Some((LOCAL_ID, _)) if store.kind_of(folder).is_some() => Ok(()),
         Some((LOCAL_ID, _)) => Err(StoreError::UnknownFolder(folder.to_owned())),
+        Some((account, _)) if pop3(account) => match store.kind_of(folder) {
+            Some(FolderKind::Outbox) => Err(StoreError::Invalid(tr!(
+                "Mail from files can't go into the Outbox.",
+                "Poczta z plików nie może trafić do Skrzynki nadawczej."
+            ))),
+            Some(_) => Ok(()),
+            None => Err(StoreError::UnknownFolder(folder.to_owned())),
+        },
         _ => Err(StoreError::Invalid(tr!(
             "Mail from files goes into folders on this PC.",
             "Poczta z plików trafia do folderów na tym komputerze."
