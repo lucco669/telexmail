@@ -543,7 +543,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'larger', group: 'View', keys: [['Ctrl', '='], ['−']], action: 'Larger / smaller text', match: [{ key: '=', ctrl: true }, { key: '+', ctrl: true }, { key: '-', ctrl: true }] },
   { id: 'normal', group: 'View', keys: [['Ctrl', '0']], action: 'Normal text size', match: [{ key: '0', ctrl: true }] },
   { id: 'menu', group: 'View', keys: [['Shift', 'F10']], action: 'The menu of the selected message (or right-click it)', match: [{ key: 'F10', shift: true }], since: '0.7.1' },
-  { id: 'help', group: 'View', keys: [['?'], ['F1']], action: 'Every key, and the tips that aren’t obvious (or hover the ? in the status bar)', match: [{ key: '?' }, { key: 'F1' }], since: '0.6.0' },
+  { id: 'help', group: 'View', keys: [['?'], ['F1']], action: 'Every key in groups, with a filter, and the tips that aren’t obvious (or Help in the status bar)', match: [{ key: '?' }, { key: 'F1' }], since: '0.6.0' },
 ];
 
 export type Tip = { title: string; text: string; since?: string };
@@ -923,7 +923,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
   {
     keys: ['?'],
     title: 'Every key at hand',
-    text: 'Hover the ? at the right of the status bar, or press ?, for every key and the tricks that aren’t obvious.',
+    text: 'Press ? or F1, or click Help at the right of the status bar: every key in groups and the tricks that aren’t obvious. Type “trash” or “undo” to find one.',
   },
   {
     keys: ['/'],

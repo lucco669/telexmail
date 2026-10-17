@@ -32,6 +32,7 @@
     <button class="tb" id="b-density" type="button" title="Switch row density" data-i18n></button>
     </div>
     <button class="tb" id="b-settings" type="button" title="Settings: accounts, theme, language, writing, usage (Ctrl+,)" data-i18n></button>
+    <button class="tb" id="b-help" type="button" title="Every key and tip (? or F1)" aria-haspopup="dialog" data-help-open data-i18n></button>
     <label class="search" for="q">
       <span id="search-ic" aria-hidden="true"></span>
       <input id="q" type="search" placeholder="Search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="q-list" autocomplete="off" spellcheck="false" title="Words, or from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k" data-i18n>
@@ -79,7 +80,7 @@
       <button class="chip bad" id="st-unsent" type="button" hidden></button>
       <button class="chip" id="st-away" type="button" hidden></button>
       <span id="st-check"></span>
-      <button class="helpbtn" id="st-help" type="button" aria-expanded="false" aria-controls="help-pop" aria-label="Keys and tips" data-i18n><span aria-hidden="true">?</span></button>
+      <button class="helpbtn" id="st-help" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="help-dlg" title="Every key and tip (? or F1)" data-help-open data-i18n><span class="q" aria-hidden="true">?</span>Help</button>
       <button class="ver" id="st-ver" type="button" hidden></button>
     </span>
   </footer>
@@ -88,8 +89,17 @@
 <!-- Under the search box while it has the focus: recent searches, people, operators. -->
 <div class="qpop" id="q-pop" hidden></div>
 
-<!-- Every key and the features that aren't obvious: on hover over the "?" in the status bar, or ? and F1. -->
-<div class="helppop" id="help-pop" role="dialog" aria-label="Keys and tips" hidden data-i18n></div>
+<!-- Every key in groups and the features that aren't obvious, with a filter: ? or F1, Help in the
+     toolbar or the status bar. app.js draws it from KEYS; where it was opened from comes first. -->
+<dialog class="dlg help" id="help-dlg" aria-labelledby="help-title">
+  <div class="hhead">
+    <h2 class="dtitle" id="help-title" data-i18n>Keys and tips</h2>
+    <input id="help-q" type="search" placeholder="Find a key or a word: trash, undo, F7" aria-label="Find a key or a tip" aria-controls="help-body" autocomplete="off" spellcheck="false" data-i18n>
+    <button type="button" class="btn icon" id="help-close" title="Close (Esc)" aria-label="Close" data-i18n><span aria-hidden="true">×</span></button>
+  </div>
+  <div class="hbody" id="help-body"></div>
+  <p class="hfoot"><span><kbd>↓</kbd><kbd>↑</kbd> <span data-i18n>choose a key</span></span><span><kbd>Enter</kbd> <span data-i18n>use it now</span></span><span><kbd>Esc</kbd> <span data-i18n>close</span></span></p>
+</dialog>
 
 <dialog class="dlg set" id="set-dlg" aria-labelledby="set-title">
   <h2 class="dtitle" id="set-title" data-i18n>Settings</h2>

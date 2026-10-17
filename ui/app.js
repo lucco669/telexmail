@@ -35,6 +35,7 @@ const I = {
   rows: sv('<path d="M2.5 4h11M2.5 8h11M2.5 12h11"/>'),
   sliders: sv('<path d="M2.5 4.5h6M11.5 4.5h2M2.5 11.5h2M7.5 11.5h6"/><circle cx="10" cy="4.5" r="1.5"/><circle cx="6" cy="11.5" r="1.5"/>'),
   search: sv('<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2L14 14"/>'),
+  help: sv('<circle cx="8" cy="8" r="6"/><path d="M6.2 6.3a1.9 1.9 0 013.7.5c0 1.3-1.9 1.6-1.9 2.9"/><circle cx="8" cy="11.6" r=".55" fill="currentColor" stroke="none"/>'),
   caret: sv('<path d="M6 3.5L10.5 8 6 12.5"/>'),
   folder: sv('<path d="M2 4.5v8h12V5.8H8L6.5 3.5H2z"/>'),
   inbox: sv('<path d="M2 9h3.5l1 1.5h3l1-1.5H14"/><path d="M4 3.5h8L14 9v3.5H2V9z"/>'),
@@ -279,6 +280,7 @@ const state = {
   searches: Array.isArray(saved.searches) ? saved.searches.slice(0, 8) : [], // what was looked for last
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
+  helpTold: !!saved.helpTold, // the status bar said once where the keys and tips are
 };
 // The list's columns: From and Folder as wide as they were dragged (px; null fits them to the
 // list), the Size column, and dates short (06:12, Wed 06:12, 10.10.2026) or full.
@@ -297,6 +299,7 @@ const persist = () => store.set({
   listH: parseFloat(win.style.getPropertyValue('--list-h')) || undefined,
   updateChecked: state.updateChecked || undefined,
   offered: state.offered || undefined,
+  helpTold: state.helpTold || undefined,
   scope: state.scope === 'all' ? 'all' : undefined,
   more: Object.keys(state.more).length ? state.more : undefined,
   recent: state.recent.length ? state.recent : undefined,
@@ -393,7 +396,7 @@ function relabel(){
   I18n.translatePage();
   paintToolbar(); paintDensity(); paintScope(); paintUnreadOnly();
   renderTree(); renderHead(); drawRows(); renderStatus();
-  if (!helpPop.hidden) renderHelp();
+  if (helpDlg.open) renderHelp();
   if (!state.compose) renderPreview(); else { readCompose(); renderCompose(); }
   if (rdlg.open){ if (!$('r-list-view').hidden) showRuleList(); else { renderConditions(); renderActions(); } }
   // Thunderbird's five tags are named in the interface's language until renamed: ask again.
@@ -430,7 +433,8 @@ function stepTextSize(dir){
 
 /* ---------- toolbar ---------- */
 const TOOLBAR = [['b-get','get',N_('Get mail')],['b-new','neu',N_('New|message')],['b-reply','reply',N_('Reply')],['b-replyall','replyall',N_('Reply all')],
-  ['b-forward','forward',N_('Forward')],['b-flag','flag',N_('Flag')],['b-delete','trash',N_('Delete')],['b-rules','rules',N_('Rules')],['b-book','book',N_('Contacts')],['b-settings','sliders',N_('Settings')]];
+  ['b-forward','forward',N_('Forward')],['b-flag','flag',N_('Flag')],['b-delete','trash',N_('Delete')],['b-rules','rules',N_('Rules')],['b-book','book',N_('Contacts')],['b-settings','sliders',N_('Settings')],
+  ['b-help','help',N_('Help')]];
 function paintToolbar(){
   TOOLBAR.forEach(([id, ic, label]) => {
     const b = $(id);
@@ -2609,7 +2613,8 @@ async function renderPreview(){
     previewEl.innerHTML = `<div class="welcome">${I.mail}<h2>${esc(t('Welcome to Telex'))}</h2>
 <p>${esc(t('Add your mail account to start. Telex keeps your mail on this PC and talks only to your mail servers.'))}</p>
 <div class="wbtns"><button type="button" class="btn primary" data-act="add-account">${esc(t('Add your mail account'))}</button>
-${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(from.path)}">${esc(t('Bring everything from {program}', {program:programName(from.program)}))}</button>` : ''}</div></div>`;
+${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(from.path)}">${esc(t('Bring everything from {program}', {program:programName(from.program)}))}</button>` : ''}</div>
+<p class="wkeys">${esc(t('Telex works from the keyboard.'))} <button type="button" class="linkbtn" data-act="help" data-help-open><kbd>?</kbd> ${esc(t('Every key and tip'))}</button></p></div>`;
     return;
   }
   if (state.picked.size > 1){
@@ -2737,6 +2742,7 @@ previewEl.addEventListener('click', async e => {
   if (act.dataset.act === 'discard') discardCompose();
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
+  if (act.dataset.act === 'help') openHelp();
   if (act.dataset.act === 'move-in') openMoveIn(act.dataset.path);
 });
 
@@ -7634,90 +7640,228 @@ $('u-close').addEventListener('click', () => udlg.close());
 udlg.addEventListener('close', () => listEl.focus({preventScroll:true}));
 
 /* ---------- keys and tips ---------- */
-// The "?" in the status bar shows every key and the features that aren't obvious while the
-// pointer is over it; a click, ? or F1 keeps it open until Esc, a click elsewhere or another
-// press. Keys are written "Shift+R"; a space separates keys that do the same or go together.
-const helpBtn = $('st-help'), helpPop = $('help-pop');
-const HELP_KEYS = [
-  [N_('Read|help'), [['↑ ↓', N_('previous or next message')], ['Space', N_('read on; at the end, the next unread message')],
-    ['Shift+Space', N_('back up; at the top, the previous unread')], ['Home End', N_('first or last message')], ['Enter', N_('the message in its own window; or double-click it')],
-    ['H', N_('HTML or plain text')], ['Q', N_('open or fold the quoted mail')], ['O', N_('only the unread messages; O again shows them all')], ['T', N_('the whole conversation; T or Esc goes back')], ['← / →', N_('collapse or expand a thread (when enabled)')], ['Enter', N_('in all mail and conversations: the message’s folder')], ['Esc', N_('in its own window: close it')]]],
-  [N_('Write|help'), [['N', N_('new message')], ['R', N_('reply')], ['Shift+R', N_('reply to all')], ['Shift+F', N_('forward')],
-    ['E', N_('edit a draft or a message in the Outbox')], ['Ctrl+Enter', N_('send')], ['Ctrl+Shift+Enter', N_('send later: in an hour, tomorrow, Monday or when you pick')], ['Esc', N_('save as a draft and close')],
-    ['Ctrl+B I U K', N_('bold, italic, underline, link in HTML')], ['F7', N_('the next spelling mistake, with suggestions; or click it')]]],
-  [N_('Sort out|help'), [['F', N_('flag or unflag')], ['1 2 3 4 5', N_('the first five tags on or off')], ['U', N_('read or unread; or click the dot at the start of a row')], ['Shift+U', N_('everything in the folder read')],
-    ['Del', N_('to Trash; in Trash, twice to delete for good')], ['M', N_('move to a folder: type part of its name')],
-    ['G', N_('go to a folder')], ['Z', N_('undo a delete, a move or Discard; take back mail just sent')]]],
-  [N_('Select|help'), [['Shift+↑ ↓', N_('one more or one fewer')], ['Shift+Home End', N_('everything to the top or bottom')],
-    ['Ctrl+A', N_('the whole list')], ['Ctrl+C', N_('copy as Markdown, for notes or an AI chat')], ['Esc', N_('just the one message again')]]],
-  [N_('Keep|help'), [['Ctrl+S', N_('save as .eml files, as they came')], ['Ctrl+P', N_('print, or save as PDF from the … above the message')],
-    ['Ctrl+U', N_('the message’s source and all its headers')]]],
-  [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
-    ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
-  [N_('Window|help'), [['Ctrl+,', N_('settings')], ['B', N_('the address book: contacts and groups')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
-    ['Alt+↑ ↓', N_('in the folder tree: an account up or down')], ['F2', N_('in the folder tree: rename a folder on this PC')], ['? F1', N_('this help')]]],
+// Every key, in one list: the help draws it, and scripts/check-keys.mjs checks it against the
+// keyboard table in CLAUDE.md (every row of the table has its keys here, every `doc` names a
+// row, and the keys written here are in that row). To add a key: a line here, its Polish in
+// i18n.js, its row in CLAUDE.md's table (and the status-bar hints when it is a main one).
+//   g    the group (KEY_GROUPS)
+//   k    the keys, written "Shift+R"; a space separates keys that do the same or go together,
+//        and a word in lower case is the mouse (click, drag)
+//   d    what it does, short, in lower case
+//   doc  the row of CLAUDE.md's keyboard table it belongs to: that row's first column, as written
+//   run  Enter (or a click) in the help presses it: only one key, safe and obvious
+// keys:start
+const KEY_GROUPS = [['move', N_('Moving around')], ['read', N_('Reading')], ['select', N_('Selecting')], ['act', N_('Acting on mail')],
+  ['write', N_('Writing')], ['find', N_('Search|help')], ['tree', N_('Folders and accounts')], ['window', N_('The window')]];
+const KEYS = [
+  {g:'move', k:'↑ ↓', d:N_('previous or next message'), doc:'↑ / ↓'},
+  {g:'move', k:'Home End', d:N_('first or last message'), doc:'Home / End'},
+  {g:'move', k:'Space', d:N_('page down the message; at its end, the next unread one'), doc:'Space / Shift+Space'},
+  {g:'move', k:'Shift+Space', d:N_('page up; at the top, the previous unread one'), doc:'Space / Shift+Space'},
+  {g:'move', k:'G', d:N_('go to a folder: type part of its name'), doc:'G', run:true},
+  {g:'move', k:'T', d:N_('the whole conversation; T or Esc goes back'), doc:'T', run:true},
+  {g:'move', k:'O', d:N_('only the unread messages; O again shows them all'), doc:'O', run:true},
+  {g:'move', k:'Enter', d:N_('in all mail and conversations: the message’s folder'), doc:'Enter, double-click'},
+  {g:'read', k:'Enter double-click', d:N_('the message in a window of its own'), doc:'Enter, double-click'},
+  {g:'read', k:'Esc', d:N_('in a message’s own window: close it'), doc:'Enter, double-click'},
+  {g:'read', k:'H', d:N_('HTML or plain text'), doc:'H', run:true},
+  {g:'read', k:'Q', d:N_('open or fold the quoted mail'), doc:'Q', run:true},
+  {g:'read', k:'→ ←', d:N_('with threads on: expand or collapse a thread'), doc:'→ / ←'},
+  {g:'read', k:'Ctrl+C', d:N_('the selected messages, or the open one, as Markdown for notes or an AI chat'), doc:'Ctrl+C'},
+  {g:'read', k:'Ctrl+S', d:N_('save as .eml files, as they came'), doc:'Ctrl+S'},
+  {g:'read', k:'Ctrl+P', d:N_('print, or save as PDF from the … above the message'), doc:'Ctrl+P'},
+  {g:'read', k:'Ctrl+U', d:N_('the message’s source and all its headers'), doc:'Ctrl+U'},
+  {g:'select', k:'Shift+↑ ↓', d:N_('one more or one fewer'), doc:'Shift+↑ / ↓'},
+  {g:'select', k:'Shift+Home End', d:N_('everything to the top or bottom'), doc:'Shift+↑ / ↓'},
+  {g:'select', k:'Ctrl+click', d:N_('one more message'), doc:'Ctrl+click, Shift+click'},
+  {g:'select', k:'Shift+click', d:N_('a range of messages'), doc:'Ctrl+click, Shift+click'},
+  {g:'select', k:'Ctrl+A', d:N_('the whole list'), doc:'Ctrl+A'},
+  {g:'select', k:'Esc', d:N_('just the one message again'), doc:'Esc'},
+  {g:'act', k:'F', d:N_('flag or unflag'), doc:'F', run:true},
+  {g:'act', k:'1 2 3 4 5', d:N_('the first five tags on or off'), doc:'1 2 3 4 5'},
+  {g:'act', k:'U', d:N_('read or unread'), doc:'U', run:true},
+  {g:'act', k:'click', d:N_('the dot or the flag at the start of a row: read or unread, flagged or not'), doc:'click the dot / flag'},
+  {g:'act', k:'Shift+U', d:N_('everything in the folder read'), doc:'Shift+U'},
+  {g:'act', k:'Del', d:N_('to Trash; in Trash, twice to delete for good'), doc:'Del'},
+  {g:'act', k:'M', d:N_('move to a folder: type part of its name'), doc:'M', run:true},
+  {g:'act', k:'drag', d:N_('messages onto a folder: rest there until it fills, then let go'), doc:'drag'},
+  {g:'act', k:'Z', d:N_('undo a delete, a move or Discard; take back mail just sent'), doc:'Z', run:true},
+  {g:'act', k:'Shift+F10 Menu right-click', d:N_('the selected message’s menu, every action with its key'), doc:'Shift+F10, menu key'},
+  {g:'write', k:'N', d:N_('new message'), doc:'N', run:true},
+  {g:'write', k:'R', d:N_('reply'), doc:'R', run:true},
+  {g:'write', k:'Shift+R', d:N_('reply to all'), doc:'Shift+R', run:true},
+  {g:'write', k:'Shift+F', d:N_('forward'), doc:'Shift+F', run:true},
+  {g:'write', k:'E', d:N_('edit a draft or a message in the Outbox'), doc:'E', run:true},
+  {g:'write', k:'Ctrl+Enter', d:N_('send'), doc:'Ctrl+Enter'},
+  {g:'write', k:'Ctrl+Shift+Enter', d:N_('send later: in an hour, tomorrow, Monday or when you pick'), doc:'Ctrl+Shift+Enter'},
+  {g:'write', k:'Esc', d:N_('save as a draft and close'), doc:'Esc'},
+  {g:'write', k:'Ctrl+B I U K', d:N_('bold, italic, underline, link in HTML'), doc:'Ctrl+B / I / U / K'},
+  {g:'write', k:'F7', d:N_('the next spelling mistake, with suggestions; or click it'), doc:'F7'},
+  {g:'write', k:'↓ ↑ Enter Tab', d:N_('in To, Cc and Bcc: choose a suggested address'), doc:'↓ ↑ Enter Tab Esc'},
+  {g:'find', k:'/', d:N_('search: the list shows what matches as you type'), doc:'/', run:true},
+  {g:'find', k:'↓ ↑ Enter', d:N_('choose a suggestion; with none chosen, to the results'), doc:'↓ ↑ Enter'},
+  {g:'find', k:'Tab', d:N_('this folder or all mail'), doc:'Tab'},
+  {g:'find', k:'Esc', d:N_('clear the filter'), doc:'Esc'},
+  {g:'tree', k:'F2', d:N_('rename a folder on this PC'), doc:'F2, Shift+F10'},
+  {g:'tree', k:'Shift+F10 right-click', d:N_('a folder’s or account’s menu'), doc:'F2, Shift+F10'},
+  {g:'tree', k:'Alt+↑ ↓', d:N_('an account up or down'), doc:'Alt+↑ / ↓'},
+  {g:'window', k:'Ctrl+,', d:N_('settings'), doc:'Ctrl+,', run:true},
+  {g:'window', k:'B', d:N_('the address book: contacts and groups'), doc:'B', run:true},
+  {g:'window', k:'Ctrl+= − 0', d:N_('larger, smaller or normal text'), doc:'Ctrl+= / Ctrl+− / Ctrl+0'},
+  {g:'window', k:'? F1', d:N_('this help'), doc:'? / F1'},
 ];
+// keys:end
 const HELP_TIPS = [
   N_('Right-click a message for everything you can do with it, each with its key.'),
-  N_('Click the dot at the start of a row to mark it read or unread; the flag next to it flags it.'),
-  N_('Unread, at the top of the folders, gathers the unread mail of every folder and account. Mail you read there stays until you leave.'),
-  N_('Drag the edge before Subject to make From wider or narrower; double-click it to fit the names. Dates and the Size column: right-click the headings, or Settings › Appearance.'),
-  N_('Right-click an account to move it up or down. Right-click a folder › Keep in view, and it stays out of “more”.'),
-  N_('Drag messages onto a folder: rest on it until it fills, then let go. Esc stops, Z puts them back.'),
+  N_('Unread, at the top of the folders, gathers the unread mail of every account.'),
+  N_('Drag the edge before Subject to widen From; double-click it to fit the names.'),
+  N_('Right-click the column headings for full dates and the Size column.'),
+  N_('Right-click a folder › Keep in view, and it stays out of “more”.'),
+  N_('Folders on this PC keep mail off the server; right-click one to save it as mbox.'),
   N_('Drag messages out of the window onto the desktop or into a folder: they land there as .eml files.'),
-  N_('Folders on this PC keep mail only here, off the server. Right-click one to name it, save it as mbox or bring mail in.'),
   N_('Drop .eml or mbox files on a folder on this PC to bring that mail in.'),
-  N_('Shift+click selects a range, Ctrl+click one more message.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),
   N_('The clock next to Send sends a message later; it waits in the Outbox, which says when it goes. Telex sends it then, or at its next start if it was closed.'),
   N_('Mail from a mailing list has Unsubscribe above it: one click where the list takes it, else a mail or the list’s page, after saying where. Never in Spam.'),
   N_('In an HTML message, paste a picture or drop one where it should go; it goes in the text, not as a file. Settings › Writing says how large.'),
   N_('A folder can have its own greeting and reply header: right-click it › Templates….'),
-  N_('A click on an underlined word shows its suggestions. Spelling checks every ticked language at once; the end of the compose bar shows them.'),
+  N_('Spelling checks every ticked language at once; the end of the compose bar shows them.'),
   N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
-  N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),
+  N_('The storage bar in the status bar shows how full the server is; click it for more.'),
   N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),
   N_('Errors and notes from rules show above the message they are about.'),
   N_('The person button by a sender adds them to the address book. Type a group’s name in To and it goes in as its people.'),
   N_('Tags are colored labels, several to a message: Settings › Tags names and colors them. Search with tag:work or is:tagged.'),
 ];
 const OPERATORS = 'from: to: subject: is:unread is:flagged tag:work is:tagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
-const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/).map(k => `<kbd>${esc(k)}</kbd>`).join('+')).join(' ');
+const MOUSE = {click:N_('click|mouse'), 'double-click':N_('double-click|mouse'), 'right-click':N_('right-click|mouse'), drag:N_('drag|mouse')};
+// "Shift+R" as keycaps; a mouse word as a word.
+const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/)
+  .map(k => MOUSE[k] ? `<span class="mse">${esc(t(MOUSE[k]))}</span>` : `<kbd>${esc(k)}</kbd>`).join('<i>+</i>')).join(' ');
+// Words to find a key or a tip by, in English, the language on screen and Polish; case and
+// diacritics ignored (fold).
+const both = key => [key.split('|')[0], t(key), I18n.dictionaries?.PL?.[key] ?? ''].join(' ');
+const helpDlg = $('help-dlg'), helpQ = $('help-q'), helpBody = $('help-body');
+const help = {from:null, last:null, done:true, at:-1, shown:[]};
+// The help keeps where the focus was before it, not the button that opened it.
+document.addEventListener('focusin', e => { if (!e.target.closest?.('[data-help-open], #help-dlg')) help.last = e.target; });
+// Where the help was opened from puts its keys first: compose, the folder tree, the search box,
+// several messages, the message itself; else moving around the list.
+function helpContext(){
+  const el = help.from;
+  if (state.compose) return 'write';
+  if (el?.closest?.('#tree')) return 'tree';
+  if (el === qEl || el?.closest?.('#q-pop')) return 'find';
+  if (state.picked.size > 1) return 'select';
+  if (VIEWER || el?.closest?.('#preview')) return 'read';
+  return 'move';
+}
 function renderHelp(){
-  helpPop.innerHTML = `<div class="hgrid">${HELP_KEYS.map(([title, rows]) => `<section class="hsec"><h3>${esc(t(title))}</h3>`
-    + rows.map(([keys, what]) => `<div class="hrow"><span class="k">${keysHtml(keys)}</span><span>${esc(t(what))}</span></div>`).join('')
-    + (title === 'Find|help' ? `<p class="hops">${OPERATORS.split(' ').map(o => `<code>${esc(o)}</code>`).join(' ')}</p>` : '') + '</section>').join('')}</div>`
-    + `<h3 class="htitle">${esc(t('Good to know'))}</h3><ul class="htips">${HELP_TIPS.map(tip => `<li>${esc(t(tip))}</li>`).join('')}</ul>`;
+  const words = fold(helpQ.value).split(/\s+/).filter(Boolean);
+  const hit = text => words.every(w => fold(text).includes(w));
+  const here = helpContext();
+  const groups = [...KEY_GROUPS].sort((a, b) => (b[0] === here) - (a[0] === here));
+  help.shown = [];
+  const cols = groups.map(([g, title]) => {
+    const rows = KEYS.filter(r => r.g === g && (!words.length || hit(`${r.k} ${both(r.d)} ${both(title)} ${r.k.split(/[ +]/).map(k => MOUSE[k] ? both(MOUSE[k]) : '').join(' ')}`)));
+    if (!rows.length) return '';
+    return `<section class="hgrp${g === here && !words.length ? ' here' : ''}" role="group" aria-labelledby="hg-${g}"><h3 id="hg-${g}">${esc(t(title))}${g === here && !words.length ? ` <span class="hhere">${esc(t('here|help'))}</span>` : ''}</h3>`
+      + rows.map(r => {
+        const i = help.shown.push(r) - 1;
+        return `<div class="hrow${r.run ? ' run' : ''}" role="option" id="hk-${i}" data-i="${i}" aria-selected="false"${r.run ? ` title="${esc(t('Click or press Enter to use it now'))}"` : ''}>`
+          + `<span class="k">${keysHtml(r.k)}</span><span class="d">${esc(t(r.d))}</span></div>`;
+      }).join('')
+      + (g === 'find' && (!words.length || words.every(w => fold(OPERATORS).includes(w))) ? `<p class="hops">${OPERATORS.split(' ').map(o => `<code>${esc(o)}</code>`).join(' ')}</p>` : '')
+      + '</section>';
+  }).join('');
+  const tips = HELP_TIPS.filter(tip => !words.length || hit(both(tip)));
+  helpBody.innerHTML = (cols ? `<div class="hcols" role="listbox" aria-label="${esc(t('Keys'))}">${cols}</div>` : '')
+    + (tips.length ? `<section class="htips"><h3>${esc(t('Good to know'))}</h3><ul>${tips.map(tip => `<li>${esc(t(tip))}</li>`).join('')}</ul></section>` : '')
+    + (!cols && !tips.length ? `<p class="hnone">${esc(t('No key or tip matches “{q}”.', {q:helpQ.value.trim()}))}</p>` : '');
+  helpAt(words.length ? help.shown.findIndex(r => r.run) : -1);
 }
-let helpPinned = false, helpTimer;
-function showHelp(pin){
-  clearTimeout(helpTimer);
-  if (pin !== undefined) helpPinned = pin;
-  if (helpPop.hidden){ renderHelp(); helpPop.hidden = false; }
-  helpBtn.setAttribute('aria-expanded', 'true');
+// The row Enter presses: one that can run, or none.
+function helpAt(i){
+  helpBody.querySelector('.hrow.on')?.classList.remove('on');
+  helpBody.querySelector('.hrow[aria-selected="true"]')?.setAttribute('aria-selected', 'false');
+  help.at = i;
+  const row = i >= 0 ? $('hk-' + i) : null;
+  if (row){ row.classList.add('on'); row.setAttribute('aria-selected', 'true'); row.scrollIntoView({block:'nearest'}); helpQ.setAttribute('aria-activedescendant', row.id); }
+  else helpQ.removeAttribute('aria-activedescendant');
 }
-function hideHelp(){
-  clearTimeout(helpTimer);
-  helpPinned = false;
-  helpPop.hidden = true;
-  helpBtn.setAttribute('aria-expanded', 'false');
+function openHelp(){
+  if (helpDlg.open) return;
+  const el = document.activeElement;
+  help.from = !el || el === document.body || el.closest?.('[data-help-open]') ? help.last : el;
+  helpQ.value = '';
+  renderHelp();
+  helpDlg.showModal();
+  help.done = false;
+  helpBody.scrollTop = 0;
+  helpQ.focus();
+  $('st-help').setAttribute('aria-expanded', 'true');
 }
-const toggleHelp = () => helpPop.hidden || !helpPinned ? showHelp(true) : hideHelp();
-// Hovering opens it after a moment and leaving closes it, unless it was opened on purpose.
-const helpHover = on => {
-  clearTimeout(helpTimer);
-  if (helpPinned) return;
-  helpTimer = setTimeout(() => on ? showHelp() : hideHelp(), on ? 150 : 250);
-};
-helpBtn.addEventListener('pointerenter', () => helpHover(true));
-helpBtn.addEventListener('pointerleave', () => helpHover(false));
-helpPop.addEventListener('pointerenter', () => clearTimeout(helpTimer));
-helpPop.addEventListener('pointerleave', () => helpHover(false));
-helpBtn.addEventListener('click', toggleHelp);
-document.addEventListener('pointerdown', e => {
-  if (!helpPop.hidden && !helpPop.contains(e.target) && !helpBtn.contains(e.target)) hideHelp();
+// The focus goes back where it was, once: right away when the help closes itself, else (Esc) on
+// the dialog's close event, which comes later and may come after it was opened again.
+function helpClosed(){
+  if (helpDlg.open || help.done) return;
+  help.done = true;
+  $('st-help').setAttribute('aria-expanded', 'false');
+  const back = help.from;
+  help.from = null;
+  if (back !== false) (back?.isConnected && back.focus ? back : listEl).focus({preventScroll:true});
+}
+function closeHelp(){ if (helpDlg.open){ helpDlg.close(); helpClosed(); } }
+const toggleHelp = () => helpDlg.open ? closeHelp() : openHelp();
+helpDlg.addEventListener('close', helpClosed);
+// Esc clears the filter first, then closes.
+helpDlg.addEventListener('cancel', e => {
+  e.preventDefault();
+  if (helpQ.value){ helpQ.value = ''; renderHelp(); } else closeHelp();
 });
+// A click outside the panel (on the dimmed window) closes it.
+helpDlg.addEventListener('click', e => {
+  const r = helpDlg.getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeHelp();
+});
+helpQ.addEventListener('input', renderHelp);
+// ↓ ↑ go through the keys that can run; Enter presses the chosen one.
+helpQ.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    const runs = help.shown.map((r, i) => r.run ? i : -1).filter(i => i >= 0);
+    if (!runs.length) return;
+    const now = runs.indexOf(help.at);
+    helpAt(runs[now < 0 ? (e.key === 'ArrowDown' ? 0 : runs.length - 1) : (now + (e.key === 'ArrowDown' ? 1 : runs.length - 1)) % runs.length]);
+  } else if (e.key === 'Enter' && help.at >= 0){ e.preventDefault(); runKey(help.shown[help.at]); }
+});
+helpBody.addEventListener('click', e => {
+  const row = e.target.closest('.hrow.run');
+  if (row) runKey(help.shown[row.dataset.i]);
+});
+// Closes the help and presses the key in the list, as if typed there.
+function runKey(r){
+  if (!r?.run) return;
+  const parts = r.k.split(/\+(?=.)/), key = parts.pop(), shift = parts.includes('Shift'), ctrl = parts.includes('Ctrl');
+  help.from = false; // the key moves the focus itself
+  closeHelp();
+  listEl.focus({preventScroll:true});
+  listEl.dispatchEvent(new KeyboardEvent('keydown', {key:shift ? key.toUpperCase() : key.toLowerCase(), shiftKey:shift, ctrlKey:ctrl, bubbles:true, cancelable:true}));
+}
+$('help-close').addEventListener('click', closeHelp);
+$('st-help').addEventListener('click', toggleHelp);
+$('b-help').addEventListener('click', openHelp);
+// Once, a few seconds after the first start with mail: where the keys and tips are.
+// Waits for an account, a quiet status bar and no dialog.
+function tellHelp(){
+  if (state.helpTold || VIEWER) return;
+  setTimeout(() => {
+    if (!ACCOUNTS.length || $('st-msg').textContent || document.querySelector('dialog[open]')) return tellHelp();
+    say(t('Press ? or F1 for every key and tip.'), 9000);
+    state.helpTold = true; persist();
+  }, 4000);
+}
 
 /* ---------- keyboard ---------- */
 // Also attached to the HTML message frame, so keys work after clicking into it.
@@ -7725,6 +7869,8 @@ function onKey(e){
   const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
   // Text size works everywhere, in dialogs too.
   if (mod && ['=', '+', '-', '0'].includes(e.key)){ e.preventDefault(); stepTextSize(e.key === '0' ? 0 : e.key === '-' ? -1 : 1); return; }
+  // F1 everywhere, over a dialog too; in the help it closes it.
+  if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
   if (document.querySelector('dialog[open]')) return; // dialogs handle their own Enter and Esc
   if (mod && e.key === ','){ e.preventDefault(); openSettings(); return; }
   // Ctrl+S, Ctrl+P, Ctrl+U: save as .eml, print, the source; in the search box too, never the
@@ -7738,10 +7884,8 @@ function onKey(e){
   const tg = e.target;
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.shiftKey){ e.preventDefault(); laterMenu(); return; }
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); if (e.target.id === 'c-when') sendAtPicked(); else send(); return; }
-  if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
   if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', 'b', 'B', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
-    if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
     if (!linkTip.hidden){ e.preventDefault(); hideLink(); return; }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
     if (tg === qEl){ qEl.value = ''; setFilter(''); listEl.focus(); return; }
@@ -7882,6 +8026,7 @@ async function boot(){
   // Real accounts: check now, then as often as the settings say, quietly.
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account
+  tellHelp();
 }
 boot();
 })();

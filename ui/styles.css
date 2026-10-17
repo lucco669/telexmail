@@ -65,7 +65,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){.tb.busy svg{animation:none}}
 .sep{width:1px;height:18px;background:var(--line);margin:0 4px;flex:none}
-.search{margin-left:auto;display:flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--muted);flex:0 1 280px;min-width:140px;transition:flex-basis .15s}
+.search{margin-left:auto;display:flex;align-items:center;gap:6px;height:24px;padding:0 6px 0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--muted);flex:0 1 228px;min-width:140px;transition:flex-basis .15s}
 .search:focus-within{border-color:var(--accent);flex-basis:400px}
 .search.active{flex-basis:340px}
 .search:focus-within,.search.active{flex-shrink:0}
@@ -1143,21 +1143,59 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
   .cmenu li[data-i]:focus,.cmenu li[data-i]:hover{forced-color-adjust:none;background:Highlight;color:HighlightText}
   .adot.pc{forced-color-adjust:none}
 }
-/* Keys and tips: the "?" in the status bar, and what it opens above it */
-.helpbtn{flex:none;display:inline-grid;place-items:center;width:17px;height:17px;padding:0;border:1px solid var(--field);border-radius:50%;background:var(--surface);color:var(--muted);font:600 10.5px/1 var(--font-ui);cursor:help}
-.helpbtn:hover,.helpbtn[aria-expanded="true"]{color:var(--fg);border-color:var(--accent)}
-.helppop{position:fixed;right:8px;bottom:29px;z-index:20;width:min(880px,calc(100vw - 16px));max-height:min(78vh,640px);overflow:auto;padding:4px 16px 12px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);box-shadow:0 12px 32px var(--shadow);font-size:12px}
-.hgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0 24px}
-.hsec h3,.htitle{margin:10px 0 5px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.hrow{display:grid;grid-template-columns:minmax(64px,max-content) minmax(0,1fr);gap:8px;align-items:baseline;padding:2px 0;line-height:1.4}
-.hrow .k{white-space:nowrap}
-.hops{display:flex;flex-wrap:wrap;gap:3px;margin:5px 0 0}
+/* Keys and tips: Help in the status bar and the toolbar, and the panel they open */
+.helpbtn{flex:none;display:inline-flex;align-items:center;gap:4px;height:18px;padding:0 7px 0 2px;border:1px solid var(--field);border-radius:9px;background:var(--surface);color:var(--fg);font:500 11px/1 var(--font-ui);cursor:pointer}
+.helpbtn .q{display:inline-grid;place-items:center;width:13px;height:13px;border-radius:50%;background:var(--accent);color:var(--accent-fg);font:700 9.5px/1 var(--font-ui)}
+.helpbtn:hover,.helpbtn[aria-expanded="true"]{border-color:var(--accent);background:var(--hover)}
+/* In the toolbar an icon (its tooltip names it), so the other actions keep their words; named where every action is */
+[data-toolbar="classic"] #b-help{padding:0 6px}
+[data-toolbar="classic"] #b-help .lbl{display:none}
+.dlg.help{width:min(960px,calc(100vw - 32px));height:min(740px,calc(100vh - 40px));max-height:none;overflow:hidden;flex-direction:column}
+.dlg.help[open]{display:flex}
+.hhead{display:flex;align-items:center;gap:12px;padding:10px 12px 10px 16px;border-bottom:1px solid var(--line-soft)}
+.hhead .dtitle{padding:0;white-space:nowrap}
+#help-q{flex:1;min-width:0;max-width:440px;height:28px;padding:0 9px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:13px}
+#help-q:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);outline:0}
+#help-close{margin-left:auto;font-size:17px;line-height:1}
+.hbody{flex:1;min-height:0;overflow:auto;padding:2px 16px 14px;font-size:12.5px}
+.hcols{columns:2 330px;column-gap:32px}
+/* Each group lines its keys up in one column (subgrid), as wide as its widest keys */
+.hgrp{display:grid;grid-template-columns:minmax(8.5em,max-content) minmax(0,1fr);column-gap:12px;break-inside:avoid;padding-top:12px}
+.hgrp>h3,.hgrp>.hops{grid-column:1/-1}
+.hgrp h3,.htips h3{display:flex;align-items:baseline;gap:8px;margin:0 0 3px;padding-bottom:4px;border-bottom:1px solid var(--line-soft);font:600 12.5px var(--font-ui);color:var(--fg)}
+.hgrp.here h3{color:var(--accent)}
+.hhere{padding:1px 6px;border-radius:8px;background:var(--chip-bg);color:var(--chip-fg);font:500 10.5px var(--font-ui)}
+.hrow{grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:baseline;margin:0 -6px;padding:3px 6px;border-radius:3px;line-height:1.45}
+.hrow .k{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px}
+.hrow .k i{font-style:normal;font-size:10.5px;color:var(--muted)}
+.hrow.run{cursor:pointer}
+.hrow.run:hover{background:var(--hover)}
+.hrow.on{background:var(--sel)}
+.dlg.help kbd{min-width:1.7em;padding:0 5px;border-color:var(--line);border-bottom:2px solid var(--field);font-size:11px;line-height:1.5;text-align:center}
+.mse{font-size:11.5px;color:var(--muted)}
+.hops{display:flex;flex-wrap:wrap;gap:3px;margin:6px 0 2px}
 .hops code{padding:0 4px;border-radius:3px;background:var(--surface);font:11px/1.6 var(--font-data);color:var(--fg)}
-.htitle{margin-top:12px;padding-top:10px;border-top:1px solid var(--line-soft)}
-.htips{margin:0;padding:0;list-style:none;columns:3 230px;column-gap:24px;line-height:1.45}
-.htips li{position:relative;margin:0 0 5px;padding-left:13px;break-inside:avoid}
+.htips{margin-top:18px}
+.htips ul{margin:4px 0 0;padding:0;list-style:none;columns:2 330px;column-gap:32px;line-height:1.45}
+.htips li{position:relative;margin:0 0 6px;padding-left:13px;break-inside:avoid}
 .htips li::before{content:"";position:absolute;left:1px;top:.6em;width:5px;height:5px;border-radius:50%;background:var(--accent)}
-@media (forced-colors: active){ .helppop{border-color:CanvasText} }
+.hnone{margin:32px 0;text-align:center;color:var(--muted)}
+.hfoot{display:flex;flex-wrap:wrap;gap:4px 16px;margin:0;padding:6px 16px;border-top:1px solid var(--line-soft);background:var(--chrome);font-size:11.5px;color:var(--muted)}
+.hfoot kbd+kbd{margin-left:2px}
+.wkeys{margin-top:6px;font-size:12px}
+.wkeys .linkbtn{font-weight:500;color:var(--accent);text-decoration:none}
+.wkeys .linkbtn:hover{text-decoration:underline}
+@media (max-width: 560px){
+  .hhead{flex-wrap:wrap}
+  #help-q{order:3;flex-basis:100%;max-width:none}
+  .hfoot{display:none}
+}
+@media (forced-colors: active){
+  .dlg.help{border-color:CanvasText}
+  .helpbtn .q{forced-color-adjust:none;background:CanvasText;color:Canvas}
+  .hrow.on{outline:2px solid Highlight;outline-offset:-2px}
+  .hgrp.here h3{color:Highlight}
+}
 
 @media (max-width: 1360px){ .hint .more{display:none} }
 @media (max-width: 1100px){ .hint{display:none} } /* the folder and its counts need the room more */

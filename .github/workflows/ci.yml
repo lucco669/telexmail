@@ -26,9 +26,10 @@ jobs:
           toolchain: stable # read from the ref when not pinned
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
-      # Every theme meets its WCAG 2.2 contrast level, and every text has its Polish.
+      # Every theme meets its WCAG 2.2 contrast level, every text has its Polish, and the help has every key.
       - run: node scripts/check-contrast.mjs
       - run: node scripts/check-i18n.mjs
+      - run: node scripts/check-keys.mjs
       # The notices the installers carry list every crate in Cargo.lock with its license.
       - run: node scripts/third-party-notices.mjs --check
       - run: cargo fmt -p telex-core -p telex -p telex-security -- --check
