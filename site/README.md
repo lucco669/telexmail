@@ -267,7 +267,9 @@ Use `npm run screens -- og:history` to regenerate only the history page's editor
 2. Add the domain under **Settings → Domains**. The site picks up the production domain on its own
    (`VERCEL_PROJECT_PRODUCTION_URL`) for canonical links, the sitemap and link previews.
 3. Pushes to `main` that don't touch `site/` are skipped (`vercel.json`, `ignoreCommand`), so app
-   commits don't rebuild the website.
+   commits don't rebuild the website. The same check cancels **Redeploy** of a commit already
+   deployed (it starts, then disappears), so after changing environment variables, push a commit
+   that touches `site/` to build with them.
 
 Optional environment variables:
 
