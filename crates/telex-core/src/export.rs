@@ -189,8 +189,11 @@ pub fn print_document(
         (name, email) => format!("{name} <{email}>"),
     };
     let date = match crate::i18n::current() {
-        crate::i18n::Lang::Pl => m.date.format("%d.%m.%Y, %H:%M"),
         crate::i18n::Lang::En => m.date.format("%Y-%m-%d %H:%M"),
+        crate::i18n::Lang::Es | crate::i18n::Lang::Fr | crate::i18n::Lang::It => {
+            m.date.format("%d/%m/%Y, %H:%M")
+        }
+        _ => m.date.format("%d.%m.%Y, %H:%M"),
     }
     .to_string();
     let files = m

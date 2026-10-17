@@ -29,8 +29,8 @@ pub mod markdown;
 pub mod migrate;
 pub mod mime;
 pub mod model;
-pub mod pop3;
 pub mod openpgp;
+pub mod pop3;
 pub mod recipients;
 pub mod risk;
 #[cfg(test)]
@@ -44,8 +44,8 @@ pub mod smtp;
 pub mod spam;
 pub mod spell;
 pub mod store;
-pub mod unsubscribe;
 pub mod tags;
+pub mod unsubscribe;
 pub mod usage;
 pub mod vcard;
 

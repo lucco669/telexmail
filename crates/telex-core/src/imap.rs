@@ -1571,29 +1571,50 @@ fn note_refusal(
     let mut store = lock(store)?;
     if store.change_failed(change.op, reason)? >= MAX_ATTEMPTS {
         store.give_up_change(change)?;
-        // English names the change before the subject; Polish wraps the subject, as in
-        // "oznaczyć wiadomości „X” jako przeczytanej".
-        let (what, pl_verb, pl_after) = match &change.kind {
-            ChangeKind::Seen(true) => ("mark as read", "oznaczyć", " jako przeczytanej"),
-            ChangeKind::Seen(false) => ("mark as unread", "oznaczyć", " jako nieprzeczytanej"),
-            ChangeKind::Flagged(true) => ("flag", "oznaczyć flagą", ""),
-            ChangeKind::Flagged(false) => ("unflag", "zdjąć flagi z", ""),
-            ChangeKind::Keyword { on: true, .. } => ("tag", "oznaczyć etykietą", ""),
-            ChangeKind::Keyword { on: false, .. } => ("untag", "zdjąć etykiety z", ""),
-            ChangeKind::Move(_) => ("move", "przenieść", ""),
-            ChangeKind::Expunge => ("delete", "usunąć", ""),
-            ChangeKind::Append { flags: None, .. } => (
-                "save a copy in Sent of",
-                "zapisać kopii",
-                " w folderze Wysłane",
-            ),
-            ChangeKind::Append { .. } => ("upload", "przesłać", ""),
-        };
+        // A whole sentence for each change: languages put the subject in different places.
         let (subject, reason) = (&change.subject, reason.trim());
-        refused.push(tr!(
-            "the server wouldn't {what} \"{subject}\" ({reason})",
-            "serwer nie pozwolił {pl_verb} wiadomości „{subject}”{pl_after} ({reason})"
-        ));
+        refused.push(match &change.kind {
+            ChangeKind::Seen(true) => tr!(
+                "the server wouldn't mark \"{subject}\" as read ({reason})",
+                "serwer nie pozwolił oznaczyć wiadomości „{subject}” jako przeczytanej ({reason})"
+            ),
+            ChangeKind::Seen(false) => tr!(
+                "the server wouldn't mark \"{subject}\" as unread ({reason})",
+                "serwer nie pozwolił oznaczyć wiadomości „{subject}” jako nieprzeczytanej ({reason})"
+            ),
+            ChangeKind::Flagged(true) => tr!(
+                "the server wouldn't flag \"{subject}\" ({reason})",
+                "serwer nie pozwolił oznaczyć flagą wiadomości „{subject}” ({reason})"
+            ),
+            ChangeKind::Flagged(false) => tr!(
+                "the server wouldn't unflag \"{subject}\" ({reason})",
+                "serwer nie pozwolił zdjąć flagi z wiadomości „{subject}” ({reason})"
+            ),
+            ChangeKind::Keyword { on: true, .. } => tr!(
+                "the server wouldn't tag \"{subject}\" ({reason})",
+                "serwer nie pozwolił oznaczyć etykietą wiadomości „{subject}” ({reason})"
+            ),
+            ChangeKind::Keyword { on: false, .. } => tr!(
+                "the server wouldn't take a tag off \"{subject}\" ({reason})",
+                "serwer nie pozwolił zdjąć etykiety z wiadomości „{subject}” ({reason})"
+            ),
+            ChangeKind::Move(_) => tr!(
+                "the server wouldn't move \"{subject}\" ({reason})",
+                "serwer nie pozwolił przenieść wiadomości „{subject}” ({reason})"
+            ),
+            ChangeKind::Expunge => tr!(
+                "the server wouldn't delete \"{subject}\" ({reason})",
+                "serwer nie pozwolił usunąć wiadomości „{subject}” ({reason})"
+            ),
+            ChangeKind::Append { flags: None, .. } => tr!(
+                "the server wouldn't save a copy of \"{subject}\" in Sent ({reason})",
+                "serwer nie pozwolił zapisać kopii wiadomości „{subject}” w folderze Wysłane ({reason})"
+            ),
+            ChangeKind::Append { .. } => tr!(
+                "the server wouldn't take \"{subject}\" ({reason})",
+                "serwer nie pozwolił przesłać wiadomości „{subject}” ({reason})"
+            ),
+        });
     }
     Ok(())
 }

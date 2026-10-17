@@ -69,14 +69,15 @@ function installTelexDemo(options) {
   const stamp = () => fmt(now());
 
   /* ---------- settings and language ---------- */
+  const SPOKEN = ['en', 'pl', 'de', 'cs', 'sk', 'uk', 'es', 'fr', 'it'];
   const autoLang = (() => {
     const all = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'])
       .map((l) => String(l).slice(0, 2).toLowerCase());
-    return all.find((l) => l === 'en' || l === 'pl') === 'pl' ? 'pl' : 'en';
+    return all.find((l) => SPOKEN.includes(l)) || 'en';
   })();
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
-    language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
+    language: ['auto', ...SPOKEN].includes(askedLang) ? askedLang : 'auto',
     toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, ask_attachment: true, ask_many: true, spell_check: true,
     updates: 'off', usage_count: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5,
@@ -88,9 +89,10 @@ function installTelexDemo(options) {
     dziekuje: ['dziękuję'], napewno: ['na pewno'], wogóle: ['w ogóle'], pozatym: ['poza tym'], spotkanei: ['spotkanie'],
   };
   const ownWords = new Set(); // Add to dictionary, for this visit
-  const lang = () => (settings.language === 'auto' ? autoLang : settings.language === 'pl' ? 'pl' : 'en');
+  const lang = () => (settings.language === 'auto' ? autoLang : SPOKEN.includes(settings.language) ? settings.language : 'en');
   const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);
-  // The core's tr!: every sentence in English and Polish, in the interface's language.
+  // The core's tr!: every sentence in English and Polish, in the interface's language (the demo
+  // has no catalogs: the other languages get the English).
   const tr = (en, pl, vars) => fill(lang() === 'pl' ? pl : en, vars);
   const fail = (en, pl, vars) => { throw tr(en, pl, vars); };
   const DEMO = {
@@ -536,7 +538,7 @@ function installTelexDemo(options) {
   }
   // markdown.rs: messages oldest first, each a heading, its header as a list, then its text.
   function messageMarkdown({ ids }) {
-    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() === 'pl' ? ',' : '.')} MB`);
+    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() !== 'en' ? ',' : '.')} MB`);
     const line = (s) => String(s ?? '').split(/\s+/).filter(Boolean).join(' ');
     return ids.map(need).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map((m) => {
       const from = !m.from_name || m.from_name.toLowerCase() === m.from_email.toLowerCase() ? m.from_email : `${m.from_name} <${m.from_email}>`;
@@ -1678,7 +1680,7 @@ function installTelexDemo(options) {
 
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
-    theme: THEMES, language: ['auto', 'en', 'pl'], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
+    theme: THEMES, language: ['auto', ...SPOKEN], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'], usage_count: ['ask', 'on', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20], spam_filter: ['off', 'careful', 'normal', 'strict'],

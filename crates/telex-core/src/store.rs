@@ -15,8 +15,7 @@ use crate::mime::parse_message_id;
 use crate::model::{
     account_of, split_folder_key, Account, AccountSetup, Attachment, Folder, FolderKind, Identity,
     ImapSettings, Message, MessageId, MessageSummary, OutgoingDraft, Pop3Keep, SentCopy,
-    SmtpSecurity,
-    SmtpSettings,
+    SmtpSecurity, SmtpSettings,
 };
 use crate::tr;
 
@@ -125,10 +124,10 @@ impl fmt::Display for StoreError {
                 "nie można przenieść wiadomości z {from} do {to}: należą do różnych kont"
             ),
             Self::MissingFolder { account, kind } => {
-                let pl = kind.pl_name().unwrap_or(kind.as_str());
+                let named = kind.shown_name().unwrap_or(kind.as_str());
                 tr!(
-                    "account \"{account}\" has no {kind:?} folder",
-                    "konto „{account}” nie ma folderu {pl}"
+                    "account \"{account}\" has no {named} folder",
+                    "konto „{account}” nie ma folderu {named}"
                 )
             }
             Self::Invalid(why) => return f.write_str(why),

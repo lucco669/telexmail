@@ -21,8 +21,9 @@ plain sentences in your summary.
   Links in spam are not clickable. Update checks happen only after the user says yes.
 - **Polish-friendly.** Old charsets (Windows-1250, ISO-8859-2) must decode correctly. Reply quote
   header is Polish by default: `Dnia 10.10.2026 o 06:12, Anna Kowalska napisał(a):`. The interface
-  speaks English and Polish, following the Windows display language unless the user picks one;
-  so do the core's errors and notes (`tr!`).
+  speaks English and Polish, and German, Czech, Slovak, Ukrainian, Spanish, French and Italian
+  (machine-written translations, to be reviewed by native speakers), following the Windows
+  display language unless the user picks one; so do the core's errors and notes (`tr!`).
 - **Readable.** Every theme meets WCAG 2.2 AA contrast (high contrast: AAA), checked by a script.
 - **HTML when it helps, plain text always along.** New messages and replies start in HTML (since
   0.9.8, the owner's choice); plain text in a mono face is a setting and a per-message switch, and
@@ -112,6 +113,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/i18n.rs        The core's language: `tr!("English", "Polski")`, set from the settings.
   src/filters.rs     Rules (the Sorting Office): conditions (patterns with the regex crate, age,
                      size, read and flag), actions, running them with notes, schedules,
+  src/i18n.rs        The core's language: `tr!("English", "Polski")` and `trn!` (a count's forms),
+                     set from the settings; plural rules per language.
+  i18n/<code>.json   The other languages' sentences, keyed by the English (de, cs, sk, uk, es, fr,
+                     it), compiled in by crates/telex-i18n.
+  src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
                      auto-replies with RFC 3834 safeguards (shared with the away reply), previews.
   src/saved_searches.rs  Saved list queries (schema 13); one unreadable row is left out alone.
   src/tags.rs        Tags (schema 15): colored labels kept as IMAP keywords (Thunderbird's $label1–5
@@ -172,6 +178,9 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      (words.txt); which words to check (no quotes, links, addresses, ACRONYMS).
   src/sample.rs      A Polish sample mailbox for the tests. Never in the app.
   tests/scale.rs     Benchmark on a synthetic 100k-message mail base (ignored; see Commands).
+crates/telex-i18n/  The procedural macros behind tr! and trn!: each becomes a match on the
+                     language with a format! per language from the catalogs, so the compiler
+                     checks every translation's placeholders; no entry: the English.
 src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Keep logic out of here.
   src/secrets.rs     Passwords in the system store (keyring crate), service "Telex": Credential
                      Manager on Windows, Secret Service (GNOME Keyring, KWallet) on Linux.
@@ -206,12 +215,18 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   tauri.linux.conf.json    Merged on Linux by Tauri: AppImage and .deb instead of nsis/msi.
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
   themes.css         Every color, one block per theme (data-theme on <html> and on theme cards).
-  i18n.js            English and Polish: t(), tn() (Polish plurals), data-i18n in index.html.
-  boot.js            Puts the saved theme, language and text size on <html> before first paint.
+  i18n.js            English and Polish: t(), tn() (plurals), data-i18n in index.html; the list
+                     of languages, their locales, load() for the others.
+  i18n/<code>.js     German, Czech, Slovak, Ukrainian, Spanish, French, Italian: a table each, keyed
+                     by the English, loaded only when chosen.
+  boot.js            Puts the saved theme, language and text size on <html> before first paint
+                     (and writes the <script> of a language in i18n/, so it is there at once).
   links.js           A link's real destination, hidden characters made visible (no network).
   fonts/             IBM Plex, Inter, JetBrains Mono, Atkinson Hyperlegible Next and Mono, Source Sans 3
-                     and Source Code Pro (OFL, from @fontsource; latin and latin-ext) bundled so the
-                     app works offline; fonts.css (the Source files stand in for heavier weights).
+                     and Source Code Pro (OFL, from @fontsource 5.3.0; latin, latin-ext and, except
+                     Atkinson and Plex Sans Condensed, cyrillic) bundled so the app works offline;
+                     fonts.css (unicode-range: a subset loads only when its letters show; the Source
+                     files stand in for heavier weights). Cyrillic in Atkinson falls back to Segoe UI.
 site/                The landing page (Next.js 16, deployed on Vercel with Root Directory "site").
                      Separate npm project; see site/README.md. Its screenshots come from ui/ and
                      an English demo mailbox (site/scripts/demo-mailbox.json) via `npm run screens`;
@@ -228,6 +243,9 @@ scripts/             set-version.mjs: sets the version in every file that has it
                      check-contrast.mjs: every theme meets its WCAG level (CI; --json for the site).
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
                      check-keys.mjs: the help's keys (KEYS in app.js) and the keyboard table here agree (CI).
+                     check-i18n.mjs: every text in app.js and index.html has its Polish (CI), the
+                     other languages' gaps (--all fails on them), every placeholder kept, and
+                     the core's tr! sentences against its catalogs.
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/counting.md     Downloads and copies counted: what is sent, what is kept, GDPR, setting up /stats.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
@@ -437,7 +455,7 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this 
 `YYYY-MM-DDTHH:MM:SS` strings.
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
-("auto", "en", "pl"), `toolbar_style` (classic, icons, large, below, text), `threaded` (thread rows
+("auto", or one of `settings::LANGUAGES`: en, pl, de, cs, sk, uk, es, fr, it), `toolbar_style` (classic, icons, large, below, text), `threaded` (thread rows
 in folder lists, off by default), `density`, `account_mark` (rail, dot, initials, tint, none: how accounts'
 colors show in the tree, on the rows of every list (with two or more accounts; a dot or the
 initials stand once above one account's folder), and the status bar; `data-mark` on `<html>`),
@@ -477,13 +495,14 @@ npm run set-version -- 0.2.0 # before a release; then commit, tag v0.2.0 (docs/r
 cargo test -p telex-core     # core tests (run these after every core change)
 cargo test -p telex-core -- --ignored   # also checks TLS against a real server (needs internet)
 cargo test -p telex-core --release --test scale -- --ignored --nocapture   # 100k-message benchmark
-cargo clippy -p telex-core --all-targets -- -D warnings
+cargo clippy -p telex-core -p telex-i18n --all-targets -- -D warnings
 cargo clippy -p telex --all-targets -- -D warnings
-cargo fmt -p telex-core -p telex -p telex-security
+cargo fmt -p telex-core -p telex-i18n -p telex -p telex-security
 node scripts/third-party-notices.mjs   # after changing dependencies or fonts (CI checks it)
 node scripts/check-contrast.mjs   # every theme meets its WCAG level (after changing a color)
 node scripts/check-i18n.mjs       # every text has its Polish (after changing a text)
 node scripts/check-keys.mjs       # the help has every key of the table below (after changing a key)
+node scripts/check-i18n.mjs       # every text has its Polish (after changing a text); --all: every language
 ```
 
 Windows prerequisites: Rust via rustup (MSVC toolchain), Visual Studio Build Tools with
@@ -522,6 +541,27 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   it belongs to, `run` when Enter in the help may press it), and the row in the table below (a new
   row, or the key added to its row). `node scripts/check-keys.mjs` (CI) fails when a row has no key in
   `KEYS`, a `doc` names no row, or a key isn't written in its row.
+  language the settings say, and a sentence with a count with `trn!(n, "{n} file", "{n} files",
+  "{n} plik", "{n} pliki", "{n} plików")`; test the Polish with `i18n::with`. Notes already
+  written on a message stay in the language they were written in. Reasons the UI words itself
+  still cross the bridge as codes (autoconfig's notes, the import's `skip`).
+- A new text is written in English and Polish only; the other languages get it in English until
+  someone translates it: `node scripts/check-i18n.mjs --list` names what each lacks, `--json`
+  gives it with the Polish and where it is used. UI texts go into `ui/i18n/<code>.js` (`T`, and
+  `N` for tn's counts with one form per `Intl.PluralRules` category: one, few, many, other),
+  core sentences into `crates/telex-core/i18n/<code>.json` (a count's entry is
+  `{"one", "few", "many", "other"}`). A core sentence names whole things: never put an English
+  word into another sentence's placeholder (one tr! per case instead), and a translation may use
+  only the variables the English or the Polish uses. Every language must be complete before a
+  release (`--all`, docs/releasing.md).
+- A new language: its code in `LANGUAGES` (ui/i18n.js, each named in itself), `LOCALES` there,
+  boot.js' `spoken`, `settings::LANGUAGES`, a variant of `i18n::Lang` (code, plural rule,
+  `Lang::ALL`), its line in telex-i18n's `CATALOGS` and the `include_str!` list in i18n.rs, its
+  folder names in `FolderKind::name_in`, a new identity's signature and headers (`defaults` in
+  model.rs), the first-start nudge (`OFFER_HINTS` in app.js), its LibreOffice dictionary in
+  `spell::DOWNLOADS`, the site demo's `SPOKEN`; then `ui/i18n/<code>.js` and
+  `crates/telex-core/i18n/<code>.json`, complete. Mark machine-written ones as such.
+- Keep the keyboard table below and the status-bar hints in `ui/index.html` in sync.
 - Run `cargo fmt`, clippy and the core tests before committing.
 - Status text in the UI is short and specific ("Moved to Trash. Press Z to undo.").
   Never claim mail was sent until SMTP actually sends it.
@@ -892,6 +932,26 @@ renumber at merge):
   in app.js, checked against the table above by `scripts/check-keys.mjs` (CI). Once, a few seconds
   into a start with mail, the status bar says "Press ? or F1 for every key and tip" (`helpTold` in
   `telex-ui`). The search box rests at 228 px (was 280) so the Polish toolbar keeps its words.
+- More languages (no schema change): German, Czech, Slovak, Ukrainian, Spanish, French and
+  Italian besides English and Polish, in the interface (`ui/i18n/<code>.js`, loaded only when
+  chosen) and the core (`crates/telex-core/i18n/<code>.json` through the `telex-i18n` macros;
+  `tr!` keeps its English and Polish). Machine-written: each should be reviewed by a native
+  speaker before it is called finished. "auto" picks the first of Windows' display languages
+  Telex speaks (on Linux, LANGUAGE and the locale); Settings › Language lists each in itself, and
+  the first-start wizard has a small picker with a nudge in the region's language. A new
+  identity gets the signature and the reply and forward headers in the interface's language
+  (Polish for Polish and English, as before); {date} is 10/10/2026 in Spanish, French and
+  Italian. Attachment words and reply prefixes of these languages are understood
+  (`mentions_attachment`, Re:/AW:/TR:/R:/Відп:). LibreOffice's Slovak, French and Italian
+  dictionaries can be fetched for spelling. Dates and numbers in the UI follow the language
+  (`I18n.locale()`, `dateSep()`). The core's refused-change sentences are whole sentences per
+  change, and rule notes name special folders as the interface does (`FolderKind::shown_name`).
+- Cyrillic in the bundled fonts (no schema change): @fontsource 5.3.0's cyrillic subset (U+0400–045F
+  with Ґ ґ, Ұ ұ, №) of Plex Sans and Mono, Inter, JetBrains Mono, Source Sans 3 and Source Code Pro,
+  16 files, 142 KB, loaded only when Cyrillic is on screen (unicode-range). Plex Sans Condensed has
+  none, so the list's Plex stack goes on to Plex Sans; Atkinson Next and Mono have none either, so
+  their Cyrillic is Segoe UI and Consolas. ₴ and the cyrillic-ext letters (Kazakh, Abkhaz, old
+  Slavonic) aren't bundled (another 115 KB) and show in the system's face.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
@@ -1286,9 +1346,10 @@ renumber at merge):
   update checks. Windows contrast themes (forced colors) get the system highlight for the
   selection and pressed choices; reduced motion turns off spinners and transitions.
 - Language: "auto" takes the first of Windows' display languages Telex speaks
-  (`GetUserPreferredUILanguages`), else English. On the first start the account wizard has an
-  English | Polski switch, and when Windows is English but the region Polish
-  (`GetUserDefaultLocaleName`), a one-line nudge in Polish. Switching redraws everything live
+  (`GetUserPreferredUILanguages`; on Linux LANGUAGE, then LC_ALL, LC_MESSAGES, LANG), else
+  English. On the first start the account wizard has a language picker, and when Windows shows
+  another language than its region's and Telex speaks the region's (`GetUserDefaultLocaleName`),
+  a one-line nudge in that language. Switching redraws everything live
   (`relabel` in app.js). Polish plurals use `Intl.PluralRules`; dates and decimals follow.
 - Import and export: one JSON file (`format: telex-settings`, `version` 1) with the settings,
   rules (account by address, move targets by folder id and name), identities (per account

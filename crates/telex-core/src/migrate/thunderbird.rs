@@ -18,9 +18,9 @@ use crate::model::{Account, AccountSetup, Identity, Pop3Keep, SmtpSecurity};
 use crate::pop3::Seen;
 use crate::settings::{PlanItem, Skip, Status};
 use crate::store::StoreError;
+use crate::tags::{self, Tag};
 use crate::tr;
 use crate::vcard::{self, Card};
-use crate::tags::{self, Tag};
 
 /// Where each program keeps its profiles.
 pub fn roots() -> Vec<(PathBuf, Program)> {

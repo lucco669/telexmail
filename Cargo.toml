@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/telex-core", "crates/telex-security", "src-tauri"]
+members = ["crates/telex-core", "crates/telex-i18n", "crates/telex-security", "src-tauri"]
 exclude = ["vendor/glib", "fuzz"]
 
 # GTK 0.18 requires GLib 0.18. Keep its API and backport the upstream iterator fix.

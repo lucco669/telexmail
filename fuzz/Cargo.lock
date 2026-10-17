@@ -1757,6 +1757,7 @@ dependencies = [
  "serde",
  "serde_json",
  "spellbook",
+ "telex-i18n",
  "tokio",
  "tokio-rustls",
  "ureq",
@@ -1772,6 +1773,13 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "telex-core",
+]
+
+[[package]]
+name = "telex-i18n"
+version = "0.9.11"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

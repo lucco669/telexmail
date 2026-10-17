@@ -956,6 +956,8 @@ struct SendOutcome {
 /// the background; the result comes as an "outbox-sent" event. It only counts as sent once
 /// the SMTP server accepts it; until then it waits in the Outbox and goes out at the next
 /// check. With `later`, it waits in the Outbox until then (`send_timer` sends it).
+// A command's arguments are what the window passes and the states it needs.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 async fn send_message(
     app: AppHandle,

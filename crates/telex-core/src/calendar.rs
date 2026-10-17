@@ -23,7 +23,7 @@ use chrono::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::i18n::{self, pl_form, Lang};
+use crate::i18n::{self, Lang, Plural};
 use crate::tr;
 
 pub mod invites;
@@ -565,16 +565,19 @@ impl Answer {
 /// The date and time in a note: "17 Oct 2026, 14:02" / "17.10.2026, 14:02".
 fn when(at: NaiveDateTime) -> String {
     match i18n::current() {
-        Lang::Pl => at.format("%d.%m.%Y, %H:%M").to_string(),
         Lang::En => at.format("%-d %b %Y, %H:%M").to_string(),
+        Lang::Es | Lang::Fr | Lang::It => at.format("%d/%m/%Y, %H:%M").to_string(),
+        _ => at.format("%d.%m.%Y, %H:%M").to_string(),
     }
 }
 
-/// A day in a sentence: "31 Dec 2026" / "31.12.2026".
+/// A day in a sentence: "31 Dec 2026" / "31.12.2026" (31/12/2026 in Spanish, French and
+/// Italian).
 fn day(d: NaiveDate) -> String {
     match i18n::current() {
-        Lang::Pl => d.format("%d.%m.%Y").to_string(),
         Lang::En => d.format("%-d %b %Y").to_string(),
+        Lang::Es | Lang::Fr | Lang::It => d.format("%d/%m/%Y").to_string(),
+        _ => d.format("%d.%m.%Y").to_string(),
     }
 }
 
@@ -1018,28 +1021,82 @@ const WEEK: [Weekday; 7] = [
     Weekday::Sun,
 ];
 
-/// "Monday" / "poniedziałek" (in Polish as after "w": środę).
+/// "Monday" / "poniedziałek": a day as a list after "on" says it (in Polish, Czech, Slovak and
+/// Ukrainian the accusative: środę; in Spanish the plural: los sábados).
 fn day_name(d: Weekday) -> &'static str {
-    match i18n::current() {
-        Lang::En => match d {
-            Weekday::Mon => "Monday",
-            Weekday::Tue => "Tuesday",
-            Weekday::Wed => "Wednesday",
-            Weekday::Thu => "Thursday",
-            Weekday::Fri => "Friday",
-            Weekday::Sat => "Saturday",
-            Weekday::Sun => "Sunday",
-        },
-        Lang::Pl => match d {
-            Weekday::Mon => "poniedziałek",
-            Weekday::Tue => "wtorek",
-            Weekday::Wed => "środę",
-            Weekday::Thu => "czwartek",
-            Weekday::Fri => "piątek",
-            Weekday::Sat => "sobotę",
-            Weekday::Sun => "niedzielę",
-        },
-    }
+    let i = d.num_days_from_monday() as usize;
+    let names: [&str; 7] = match i18n::current() {
+        Lang::En => [
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ],
+        Lang::Pl => [
+            "poniedziałek",
+            "wtorek",
+            "środę",
+            "czwartek",
+            "piątek",
+            "sobotę",
+            "niedzielę",
+        ],
+        Lang::De => [
+            "Montag",
+            "Dienstag",
+            "Mittwoch",
+            "Donnerstag",
+            "Freitag",
+            "Samstag",
+            "Sonntag",
+        ],
+        Lang::Cs => [
+            "pondělí",
+            "úterý",
+            "středu",
+            "čtvrtek",
+            "pátek",
+            "sobotu",
+            "neděli",
+        ],
+        Lang::Sk => [
+            "pondelok", "utorok", "stredu", "štvrtok", "piatok", "sobotu", "nedeľu",
+        ],
+        Lang::Uk => [
+            "понеділок",
+            "вівторок",
+            "середу",
+            "четвер",
+            "п'ятницю",
+            "суботу",
+            "неділю",
+        ],
+        Lang::Es => [
+            "lunes",
+            "martes",
+            "miércoles",
+            "jueves",
+            "viernes",
+            "sábados",
+            "domingos",
+        ],
+        Lang::Fr => [
+            "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche",
+        ],
+        Lang::It => [
+            "lunedì",
+            "martedì",
+            "mercoledì",
+            "giovedì",
+            "venerdì",
+            "sabato",
+            "domenica",
+        ],
+    };
+    names[i]
 }
 
 /// "Monday, Wednesday and Friday" / "poniedziałek, środę i piątek".
@@ -1054,66 +1111,484 @@ fn and_list(items: &[&str]) -> String {
     }
 }
 
-/// "on Monday" / "w poniedziałek", "we wtorek".
+/// "on Monday" / "w poniedziałek", "we wtorek", "am Montag", "ve středu", "los lunes".
 fn on_days(days: &[Weekday]) -> String {
     let names: Vec<&str> = days.iter().map(|d| day_name(*d)).collect();
     let list = and_list(&names);
+    let first = days.first();
     match i18n::current() {
         Lang::En => format!("on {list}"),
-        Lang::Pl if days.first() == Some(&Weekday::Tue) => format!("we {list}"),
+        Lang::Pl if first == Some(&Weekday::Tue) => format!("we {list}"),
         Lang::Pl => format!("w {list}"),
+        Lang::De => format!("am {list}"),
+        Lang::Cs if matches!(first, Some(Weekday::Wed | Weekday::Thu)) => format!("ve {list}"),
+        Lang::Cs => format!("v {list}"),
+        Lang::Sk if first == Some(&Weekday::Thu) => format!("vo {list}"),
+        Lang::Sk => format!("v {list}"),
+        Lang::Uk => format!("у {list}"),
+        Lang::Es => format!("los {list}"),
+        Lang::Fr => format!("le {list}"),
+        Lang::It if first == Some(&Weekday::Sun) => format!("la {list}"),
+        Lang::It => format!("il {list}"),
     }
 }
 
-/// "the second Tuesday" / "drugi wtorek", "ostatnią środę"; None past what a sentence says.
-fn nth_day(n: i16, d: Weekday) -> Option<String> {
+/// "on the second Tuesday" / "w drugi wtorek", "w ostatnią środę", "am zweiten Dienstag";
+/// None past what a sentence says. The words follow "Every month" (with a comma in Spanish).
+fn on_nth_day(n: i16, d: Weekday) -> Option<String> {
+    // Which of the forms below: 1st to 5th, last, second to last.
+    let at = match n {
+        1..=5 => n as usize - 1,
+        -1 => 5,
+        -2 => 6,
+        _ => return None,
+    };
     let name = day_name(d);
+    // Feminine days: in Polish, Slovak and Ukrainian Wednesday, Saturday and Sunday (Ukrainian
+    // also Friday); in Czech those three, with Monday and Tuesday neuter; in Italian Sunday.
+    let fem = matches!(d, Weekday::Wed | Weekday::Sat | Weekday::Sun);
     Some(match i18n::current() {
         Lang::En => {
-            let nth = match n {
-                1 => "first",
-                2 => "second",
-                3 => "third",
-                4 => "fourth",
-                5 => "fifth",
-                -1 => "last",
-                -2 => "second to last",
-                _ => return None,
-            };
-            format!("the {nth} {name}")
+            let nth = [
+                "first",
+                "second",
+                "third",
+                "fourth",
+                "fifth",
+                "last",
+                "second to last",
+            ][at];
+            format!("on the {nth} {name}")
         }
         Lang::Pl => {
-            let feminine = matches!(d, Weekday::Wed | Weekday::Sat | Weekday::Sun);
-            let nth = match (n, feminine) {
-                (1, false) => "pierwszy",
-                (1, true) => "pierwszą",
-                (2, false) => "drugi",
-                (2, true) => "drugą",
-                (3, false) => "trzeci",
-                (3, true) => "trzecią",
-                (4, false) => "czwarty",
-                (4, true) => "czwartą",
-                (5, false) => "piąty",
-                (5, true) => "piątą",
-                (-1, false) => "ostatni",
-                (-1, true) => "ostatnią",
-                (-2, false) => "przedostatni",
-                (-2, true) => "przedostatnią",
-                _ => return None,
+            let nth = if fem {
+                [
+                    "pierwszą",
+                    "drugą",
+                    "trzecią",
+                    "czwartą",
+                    "piątą",
+                    "ostatnią",
+                    "przedostatnią",
+                ]
+            } else {
+                [
+                    "pierwszy",
+                    "drugi",
+                    "trzeci",
+                    "czwarty",
+                    "piąty",
+                    "ostatni",
+                    "przedostatni",
+                ]
+            }[at];
+            format!("w {nth} {name}")
+        }
+        Lang::De => {
+            let nth = [
+                "ersten",
+                "zweiten",
+                "dritten",
+                "vierten",
+                "fünften",
+                "letzten",
+                "vorletzten",
+            ][at];
+            format!("am {nth} {name}")
+        }
+        Lang::Cs => {
+            let nth = if fem {
+                [
+                    "první",
+                    "druhou",
+                    "třetí",
+                    "čtvrtou",
+                    "pátou",
+                    "poslední",
+                    "předposlední",
+                ]
+            } else if matches!(d, Weekday::Mon | Weekday::Tue) {
+                [
+                    "první",
+                    "druhé",
+                    "třetí",
+                    "čtvrté",
+                    "páté",
+                    "poslední",
+                    "předposlední",
+                ]
+            } else {
+                [
+                    "první",
+                    "druhý",
+                    "třetí",
+                    "čtvrtý",
+                    "pátý",
+                    "poslední",
+                    "předposlední",
+                ]
+            }[at];
+            let v = if matches!(at, 1..=3) { "ve" } else { "v" };
+            format!("{v} {nth} {name}")
+        }
+        Lang::Sk => {
+            let nth = if fem {
+                [
+                    "prvú",
+                    "druhú",
+                    "tretiu",
+                    "štvrtú",
+                    "piatu",
+                    "poslednú",
+                    "predposlednú",
+                ]
+            } else {
+                [
+                    "prvý",
+                    "druhý",
+                    "tretí",
+                    "štvrtý",
+                    "piaty",
+                    "posledný",
+                    "predposledný",
+                ]
+            }[at];
+            let v = if at == 3 { "vo" } else { "v" };
+            format!("{v} {nth} {name}")
+        }
+        Lang::Uk => {
+            let nth = if fem || d == Weekday::Fri {
+                [
+                    "першу",
+                    "другу",
+                    "третю",
+                    "четверту",
+                    "п'яту",
+                    "останню",
+                    "передостанню",
+                ]
+            } else {
+                [
+                    "перший",
+                    "другий",
+                    "третій",
+                    "четвертий",
+                    "п'ятий",
+                    "останній",
+                    "передостанній",
+                ]
+            }[at];
+            format!("у {nth} {name}")
+        }
+        Lang::Es => {
+            let nth = [
+                "primer",
+                "segundo",
+                "tercer",
+                "cuarto",
+                "quinto",
+                "último",
+                "penúltimo",
+            ][at];
+            // One day, so the singular: el sábado, el domingo.
+            let one = match d {
+                Weekday::Sat => "sábado",
+                Weekday::Sun => "domingo",
+                _ => name,
             };
-            format!("{nth} {name}")
+            format!(", el {nth} {one}")
+        }
+        Lang::Fr => {
+            let nth = [
+                "premier",
+                "deuxième",
+                "troisième",
+                "quatrième",
+                "cinquième",
+                "dernier",
+                "avant-dernier",
+            ][at];
+            format!("le {nth} {name}")
+        }
+        Lang::It => {
+            if d == Weekday::Sun {
+                let nth = [
+                    "prima",
+                    "seconda",
+                    "terza",
+                    "quarta",
+                    "quinta",
+                    "ultima",
+                    "penultima",
+                ][at];
+                format!("la {nth} {name}")
+            } else {
+                let nth = [
+                    "primo",
+                    "secondo",
+                    "terzo",
+                    "quarto",
+                    "quinto",
+                    "ultimo",
+                    "penultimo",
+                ][at];
+                format!("il {nth} {name}")
+            }
         }
     })
 }
 
-/// "Every 2 weeks" / "Co 2 tygodnie", with Polish plurals.
-fn every(n: u32, en_one: &str, en_many: &str, pl_one: &str, pl_many: [&str; 3]) -> String {
-    match (i18n::current(), n) {
-        (Lang::En, 1) => format!("Every {en_one}"),
-        (Lang::En, n) => format!("Every {n} {en_many}"),
-        (Lang::Pl, 1) => pl_one.to_owned(),
-        (Lang::Pl, n) => format!("Co {n} {}", pl_many[pl_form(u64::from(n))]),
+/// How often a rule repeats: every day, week, month or year.
+#[derive(Debug, Clone, Copy)]
+enum Unit {
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+/// "Every 2 weeks" / "Co 2 tygodnie" / "Alle 2 Wochen", with each language's plurals.
+fn every(n: u32, unit: Unit) -> String {
+    use Unit::{Day, Month, Week, Year};
+    let lang = i18n::current();
+    // Once, then for {n} the one, few and many forms (the plural rules of i18n.rs).
+    let (single, one, few, many): (&str, &str, &str, &str) = match (lang, unit) {
+        (Lang::En, Day) => (
+            "Every day",
+            "Every {n} days",
+            "Every {n} days",
+            "Every {n} days",
+        ),
+        (Lang::En, Week) => (
+            "Every week",
+            "Every {n} weeks",
+            "Every {n} weeks",
+            "Every {n} weeks",
+        ),
+        (Lang::En, Month) => (
+            "Every month",
+            "Every {n} months",
+            "Every {n} months",
+            "Every {n} months",
+        ),
+        (Lang::En, Year) => (
+            "Every year",
+            "Every {n} years",
+            "Every {n} years",
+            "Every {n} years",
+        ),
+        (Lang::Pl, Day) => ("Codziennie", "Co {n} dzień", "Co {n} dni", "Co {n} dni"),
+        (Lang::Pl, Week) => (
+            "Co tydzień",
+            "Co {n} tydzień",
+            "Co {n} tygodnie",
+            "Co {n} tygodni",
+        ),
+        (Lang::Pl, Month) => (
+            "Co miesiąc",
+            "Co {n} miesiąc",
+            "Co {n} miesiące",
+            "Co {n} miesięcy",
+        ),
+        (Lang::Pl, Year) => ("Co roku", "Co {n} rok", "Co {n} lata", "Co {n} lat"),
+        (Lang::De, Day) => (
+            "Jeden Tag",
+            "Alle {n} Tage",
+            "Alle {n} Tage",
+            "Alle {n} Tage",
+        ),
+        (Lang::De, Week) => (
+            "Jede Woche",
+            "Alle {n} Wochen",
+            "Alle {n} Wochen",
+            "Alle {n} Wochen",
+        ),
+        (Lang::De, Month) => (
+            "Jeden Monat",
+            "Alle {n} Monate",
+            "Alle {n} Monate",
+            "Alle {n} Monate",
+        ),
+        (Lang::De, Year) => (
+            "Jedes Jahr",
+            "Alle {n} Jahre",
+            "Alle {n} Jahre",
+            "Alle {n} Jahre",
+        ),
+        (Lang::Cs, Day) => (
+            "Každý den",
+            "Každých {n} dní",
+            "Každé {n} dny",
+            "Každých {n} dní",
+        ),
+        (Lang::Cs, Week) => (
+            "Každý týden",
+            "Každých {n} týdnů",
+            "Každé {n} týdny",
+            "Každých {n} týdnů",
+        ),
+        (Lang::Cs, Month) => (
+            "Každý měsíc",
+            "Každých {n} měsíců",
+            "Každé {n} měsíce",
+            "Každých {n} měsíců",
+        ),
+        (Lang::Cs, Year) => (
+            "Každý rok",
+            "Každých {n} let",
+            "Každé {n} roky",
+            "Každých {n} let",
+        ),
+        (Lang::Sk, Day) => (
+            "Každý deň",
+            "Každých {n} dní",
+            "Každé {n} dni",
+            "Každých {n} dní",
+        ),
+        (Lang::Sk, Week) => (
+            "Každý týždeň",
+            "Každých {n} týždňov",
+            "Každé {n} týždne",
+            "Každých {n} týždňov",
+        ),
+        (Lang::Sk, Month) => (
+            "Každý mesiac",
+            "Každých {n} mesiacov",
+            "Každé {n} mesiace",
+            "Každých {n} mesiacov",
+        ),
+        (Lang::Sk, Year) => (
+            "Každý rok",
+            "Každých {n} rokov",
+            "Každé {n} roky",
+            "Každých {n} rokov",
+        ),
+        (Lang::Uk, Day) => ("Щодня", "Кожен {n} день", "Кожні {n} дні", "Кожні {n} днів"),
+        (Lang::Uk, Week) => (
+            "Щотижня",
+            "Кожен {n} тиждень",
+            "Кожні {n} тижні",
+            "Кожні {n} тижнів",
+        ),
+        (Lang::Uk, Month) => (
+            "Щомісяця",
+            "Кожен {n} місяць",
+            "Кожні {n} місяці",
+            "Кожні {n} місяців",
+        ),
+        (Lang::Uk, Year) => (
+            "Щороку",
+            "Кожен {n} рік",
+            "Кожні {n} роки",
+            "Кожні {n} років",
+        ),
+        (Lang::Es, Day) => (
+            "Cada día",
+            "Cada {n} días",
+            "Cada {n} días",
+            "Cada {n} días",
+        ),
+        (Lang::Es, Week) => (
+            "Cada semana",
+            "Cada {n} semanas",
+            "Cada {n} semanas",
+            "Cada {n} semanas",
+        ),
+        (Lang::Es, Month) => (
+            "Cada mes",
+            "Cada {n} meses",
+            "Cada {n} meses",
+            "Cada {n} meses",
+        ),
+        (Lang::Es, Year) => (
+            "Cada año",
+            "Cada {n} años",
+            "Cada {n} años",
+            "Cada {n} años",
+        ),
+        (Lang::Fr, Day) => (
+            "Chaque jour",
+            "Tous les {n} jours",
+            "Tous les {n} jours",
+            "Tous les {n} jours",
+        ),
+        (Lang::Fr, Week) => (
+            "Chaque semaine",
+            "Toutes les {n} semaines",
+            "Toutes les {n} semaines",
+            "Toutes les {n} semaines",
+        ),
+        (Lang::Fr, Month) => (
+            "Chaque mois",
+            "Tous les {n} mois",
+            "Tous les {n} mois",
+            "Tous les {n} mois",
+        ),
+        (Lang::Fr, Year) => (
+            "Chaque année",
+            "Tous les {n} ans",
+            "Tous les {n} ans",
+            "Tous les {n} ans",
+        ),
+        (Lang::It, Day) => (
+            "Ogni giorno",
+            "Ogni {n} giorni",
+            "Ogni {n} giorni",
+            "Ogni {n} giorni",
+        ),
+        (Lang::It, Week) => (
+            "Ogni settimana",
+            "Ogni {n} settimane",
+            "Ogni {n} settimane",
+            "Ogni {n} settimane",
+        ),
+        (Lang::It, Month) => (
+            "Ogni mese",
+            "Ogni {n} mesi",
+            "Ogni {n} mesi",
+            "Ogni {n} mesi",
+        ),
+        (Lang::It, Year) => (
+            "Ogni anno",
+            "Ogni {n} anni",
+            "Ogni {n} anni",
+            "Ogni {n} anni",
+        ),
+    };
+    if n == 1 {
+        return single.to_owned();
     }
+    let form = match lang.plural(u64::from(n)) {
+        Plural::One => one,
+        Plural::Few => few,
+        _ => many,
+    };
+    form.replace("{n}", &n.to_string())
+}
+
+/// ", once", ", 3 times": how many times a rule with COUNT happens.
+fn times(n: u32) -> String {
+    let lang = i18n::current();
+    let (single, one, few, many): (&str, &str, &str, &str) = match lang {
+        Lang::En => ("once", "{n} times", "{n} times", "{n} times"),
+        Lang::Pl => ("1 raz", "{n} razy", "{n} razy", "{n} razy"),
+        Lang::De => ("einmal", "{n}-mal", "{n}-mal", "{n}-mal"),
+        Lang::Cs => ("jednou", "{n}krát", "{n}krát", "{n}krát"),
+        Lang::Sk => ("raz", "{n}-krát", "{n}-krát", "{n}-krát"),
+        Lang::Uk => ("один раз", "{n} раз", "{n} рази", "{n} разів"),
+        Lang::Es => ("una vez", "{n} veces", "{n} veces", "{n} veces"),
+        Lang::Fr => ("une fois", "{n} fois", "{n} fois", "{n} fois"),
+        Lang::It => ("una volta", "{n} volte", "{n} volte", "{n} volte"),
+    };
+    if n == 1 {
+        return single.to_owned();
+    }
+    let form = match lang.plural(u64::from(n)) {
+        Plural::One => one,
+        Plural::Few => few,
+        _ => many,
+    };
+    form.replace("{n}", &n.to_string())
 }
 
 /// A repeating event's rule in words: "Every week on Monday", "Every 2 weeks on Monday and
@@ -1148,13 +1623,7 @@ pub fn describe(
         {
             let days = plain_days.unwrap_or_default();
             if days.is_empty() {
-                every(
-                    r.interval,
-                    "day",
-                    "days",
-                    "Codziennie",
-                    ["dzień", "dni", "dni"],
-                )
+                every(r.interval, Unit::Day)
             } else if r.interval == 1
                 && days.len() == 5
                 && WEEK[..5].iter().all(|d| days.contains(d))
@@ -1178,13 +1647,7 @@ pub fn describe(
             }
             days.sort_by_key(|d| d.num_days_from_monday());
             days.dedup();
-            let every = every(
-                r.interval,
-                "week",
-                "weeks",
-                "Co tydzień",
-                ["tydzień", "tygodnie", "tygodni"],
-            );
+            let every = every(r.interval, Unit::Week);
             if days.len() == 7 {
                 every
             } else if r.interval == 1
@@ -1197,13 +1660,7 @@ pub fn describe(
             }
         }
         Freq::Monthly if r.by_month.is_empty() => {
-            let every = every(
-                r.interval,
-                "month",
-                "months",
-                "Co miesiąc",
-                ["miesiąc", "miesiące", "miesięcy"],
-            );
+            let every = every(r.interval, Unit::Month);
             let nth = match (r.by_day.as_slice(), r.by_set_pos.as_slice()) {
                 ([(n, d)], []) if *n != 0 => Some((i16::from(*n), *d)),
                 ([(0, d)], [pos]) => Some((*pos, *d)),
@@ -1213,12 +1670,12 @@ pub fn describe(
                 if !r.by_month_day.is_empty() {
                     return repeats();
                 }
-                let Some(words) = nth_day(n, d) else {
+                let Some(words) = on_nth_day(n, d) else {
                     return repeats();
                 };
                 match i18n::current() {
-                    Lang::En => format!("{every} on {words}"),
-                    Lang::Pl => format!("{every} w {words}"),
+                    Lang::Es => format!("{every}{words}"),
+                    _ => format!("{every} {words}"),
                 }
             } else if r.by_day.is_empty() {
                 let day = match r.by_month_day.as_slice() {
@@ -1244,23 +1701,12 @@ pub fn describe(
                 && r.by_month.len() <= 1
                 && r.by_month_day.len() <= 1 =>
         {
-            every(
-                r.interval,
-                "year",
-                "years",
-                "Co roku",
-                ["rok", "lata", "lat"],
-            )
+            every(r.interval, Unit::Year)
         }
         _ => return repeats(),
     };
     if let Some(n) = r.count {
-        return match i18n::current() {
-            Lang::En if n == 1 => format!("{base}, once"),
-            Lang::En => format!("{base}, {n} times"),
-            Lang::Pl if n == 1 => format!("{base}, 1 raz"),
-            Lang::Pl => format!("{base}, {n} razy"),
-        };
+        return format!("{base}, {}", times(n));
     }
     if let Some(u) = &r.until {
         let date = day(until(u));

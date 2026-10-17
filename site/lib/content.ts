@@ -465,6 +465,7 @@ export const featureRows: FeatureRow[] = [
       'Every theme meets AA contrast; the two high-contrast ones meet AAA',
       { text: 'Updates checked when Telex starts, once a day, or only when you ask; never before you say yes', since: '0.7.1' },
       'English or Polish, as in Windows or as you pick, down to the error messages',
+      { text: 'Seven more languages: German, Czech, Slovak, Ukrainian, Spanish, French and Italian, with a reply header in each (first translations, to be reviewed by native speakers)', since: V0912 },
       'Accounts, identities and servers in the same window',
       { text: 'Each account’s color as a line down its folders, a dot, its initials or a tint', since: '0.8.0' },
       { text: 'Six fonts: IBM Plex, your system’s own, Classic (Tahoma), Inter, Atkinson Hyperlegible for low vision, and the light Source Sans', since: '0.9.1' },

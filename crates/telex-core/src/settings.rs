@@ -39,7 +39,7 @@ pub const THEMES: &[&str] = &[
     "contrast-dark",
 ];
 /// Languages the interface speaks.
-pub const LANGUAGES: &[&str] = &["en", "pl"];
+pub const LANGUAGES: &[&str] = &["en", "pl", "de", "cs", "sk", "uk", "es", "fr", "it"];
 /// Text sizes, in percent of the normal size.
 pub const TEXT_SIZES: &[u16] = &[90, 100, 110, 125, 150, 175, 200];
 /// Minutes between background checks for mail. 0: only when the user asks.
@@ -92,7 +92,8 @@ const KEYS: &[&str] = &[
 pub struct Settings {
     /// One of [`THEMES`].
     pub theme: String,
-    /// "auto" follows Windows' display language; otherwise one of [`LANGUAGES`].
+    /// "auto" follows Windows' display languages (on Linux LANGUAGE and the locale); otherwise
+    /// one of [`LANGUAGES`].
     pub language: String,
     /// How the top toolbar shows its actions. Older settings keep the classic layout.
     #[serde(default)]
@@ -617,19 +618,52 @@ fn writing_languages() -> Vec<String> {
         .collect()
 }
 
-/// Elsewhere (the tests on Linux): the LANG variable, e.g. "pl_PL.UTF-8".
+/// Elsewhere (Linux): the user's languages from the environment, as gettext reads them.
 #[cfg(not(windows))]
 pub fn system_locale() -> SystemLocale {
-    let lang = std::env::var("LC_ALL")
-        .or_else(|_| std::env::var("LANG"))
-        .unwrap_or_default();
-    let tag = lang.split('.').next().unwrap_or("").replace('_', "-");
-    let languages = match tag.as_str() {
-        "" | "C" | "POSIX" => Vec::new(),
-        _ => vec![tag],
+    let var = |name| std::env::var(name).ok();
+    unix_locale(
+        var("LANGUAGE").as_deref(),
+        var("LC_ALL").as_deref(),
+        var("LC_MESSAGES").as_deref(),
+        var("LANG").as_deref(),
+    )
+}
+
+/// LANGUAGE ("de:en", the order of the user's languages) comes first, then the locale
+/// that sets messages (LC_ALL, LC_MESSAGES, LANG: "pl_PL.UTF-8" → "pl-PL"), which is also
+/// the region. "C" and "POSIX" say nothing.
+#[cfg_attr(windows, allow(dead_code))]
+fn unix_locale(
+    language: Option<&str>,
+    lc_all: Option<&str>,
+    lc_messages: Option<&str>,
+    lang: Option<&str>,
+) -> SystemLocale {
+    let tag = |value: &str| {
+        let t = value
+            .split(['.', '@'])
+            .next()
+            .unwrap_or("")
+            .replace('_', "-");
+        (!t.is_empty() && t != "C" && t != "POSIX").then_some(t)
     };
+    fn set(v: Option<&str>) -> Option<&str> {
+        v.filter(|v| !v.is_empty())
+    }
+    let locale = set(lc_all).or(set(lc_messages)).or(set(lang)).and_then(tag);
+    let mut languages: Vec<String> = language.unwrap_or("").split(':').filter_map(tag).collect();
+    // gettext ignores LANGUAGE under the C locale.
+    if locale.is_none() {
+        languages.clear();
+    }
+    if let Some(l) = &locale {
+        if !languages.contains(l) {
+            languages.push(l.clone());
+        }
+    }
     SystemLocale {
-        region: languages.first().cloned(),
+        region: locale,
         writing: languages.clone(),
         languages,
     }
@@ -1972,7 +2006,12 @@ mod tests {
             auto.effective_language(&locale(&["en-GB", "pl-PL"], "pl-PL")),
             "en"
         );
-        assert_eq!(auto.effective_language(&locale(&["de-DE"], "de-DE")), "en");
+        assert_eq!(auto.effective_language(&locale(&["de-DE"], "de-DE")), "de");
+        assert_eq!(
+            auto.effective_language(&locale(&["nl-NL", "uk-UA"], "nl-NL")),
+            "uk"
+        );
+        assert_eq!(auto.effective_language(&locale(&["nl-NL"], "nl-NL")), "en");
         assert_eq!(auto.effective_language(&locale(&[], "")), "en");
 
         // English Windows with Polish formats: English, but Polish is offered once.
@@ -1981,7 +2020,11 @@ mod tests {
         assert_eq!(auto.language_to_offer(&english_windows), Some("pl"));
         assert_eq!(auto.language_to_offer(&locale(&["pl-PL"], "pl-PL")), None);
         assert_eq!(auto.language_to_offer(&locale(&["en-US"], "en-US")), None);
-        assert_eq!(auto.language_to_offer(&locale(&["en-US"], "cs-CZ")), None);
+        assert_eq!(
+            auto.language_to_offer(&locale(&["en-US"], "cs-CZ")),
+            Some("cs")
+        );
+        assert_eq!(auto.language_to_offer(&locale(&["en-US"], "nl-NL")), None);
 
         let chosen = Settings {
             language: "en".into(),
@@ -1992,6 +2035,22 @@ mod tests {
             "en"
         );
         assert_eq!(chosen.language_to_offer(&english_windows), None);
+    }
+
+    #[test]
+    fn linux_languages_come_from_the_environment() {
+        let auto = Settings::default();
+        let german = unix_locale(Some("de:en"), None, None, Some("en_US.UTF-8"));
+        assert_eq!(german.languages, ["de", "en", "en-US"]);
+        assert_eq!(german.region.as_deref(), Some("en-US"));
+        assert_eq!(auto.effective_language(&german), "de");
+        let polish = unix_locale(None, None, Some("pl_PL.UTF-8"), Some("en_US.UTF-8"));
+        assert_eq!(auto.effective_language(&polish), "pl");
+        let french = unix_locale(Some(""), Some("fr_FR.UTF-8@euro"), None, None);
+        assert_eq!(auto.effective_language(&french), "fr");
+        let plain = unix_locale(Some("de"), Some("C"), None, None);
+        assert!(plain.languages.is_empty() && plain.region.is_none());
+        assert_eq!(auto.effective_language(&plain), "en");
     }
 
     #[cfg(windows)]
