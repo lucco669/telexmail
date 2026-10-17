@@ -42,7 +42,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/store.rs       MailStore: the local mail base in SQLite (+ FTS5) and the queue of changes
                      for the server (pending_ops); the folders on this PC (LOCAL_ID "local") and
                      moves to and from them. Its tests are in src/store/tests.rs; folders' own
-                     templates (schema 15) in src/store/templates.rs.
+                     templates (schema 21) in src/store/templates.rs.
   src/list.rs        The message list a page at a time: folder counts, keyset pages in every
                      sort, the quick filter (one folder or all mail, with operators such as
                      from: is:unread after:) and its SQL functions, conversations, ranges.
@@ -67,7 +67,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      can run code, the Mark of the Web on Windows.
   src/recipients.rs  People to suggest in To, Cc and Bcc: the address book's contacts first, then
                      the mail base's own people.
-  src/contacts.rs    The address book (schema 15): contacts (a name, addresses with a primary one,
+  src/contacts.rs    The address book (schema 19): contacts (a name, addresses with a primary one,
                      phone, organization, note), groups of contacts and addresses, undo of deletes,
                      names for a message's people, people written to offered, cards imported.
   src/vcard.rs       vCard files: reading 2.1, 3.0 and 4.0 (folded lines, quoted-printable, CHARSET,
@@ -120,7 +120,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
                      auto-replies with RFC 3834 safeguards (shared with the away reply), previews.
   src/saved_searches.rs  Saved list queries (schema 13); one unreadable row is left out alone.
-  src/tags.rs        Tags (schema 15): colored labels kept as IMAP keywords (Thunderbird's $label1–5
+  src/tags.rs        Tags (schema 20): colored labels kept as IMAP keywords (Thunderbird's $label1–5
                      built in, the user's own keyed from their names as Thunderbird keys them),
                      `messages.keywords`, queued 'keyword' changes, merging the server's keywords.
   src/risk.rs        Scam warning signs of an opened message, offline (docs/mail-risk.md): brand
@@ -132,7 +132,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      it takes one, else Telex answers new mail when it checks.
   src/openpgp.rs     OpenPGP (rPGP, the `pgp` crate; docs/encryption.md): PGP/MIME and inline
                      mail verified and decrypted on open, in memory only (the last 8); keys in the
-                     mail base (schema 15), Autocrypt Level 1 from incoming mail, keys made,
+                     mail base (schema 23), Autocrypt Level 1 from incoming mail, keys made,
                      imported, exported; compose's Sign and Encrypt (`protect`, smtp.rs builds
                      first). Tests with GnuPG vectors in src/openpgp/ (tests.rs, write_tests.rs).
   src/smime.rs       S/MIME (RustCrypto cms, x509-cert, pkcs12; docs/encryption.md): multipart/signed
@@ -164,7 +164,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      length, components, depth), events in local time, RRULEs in words, the iTIP
                      REPLY (RFC 5546/6047). calendar/zones.rs: TZIDs by IANA or Windows name
                      (chrono-tz, CLDR's table), else the VTIMEZONE's rules. calendar/invites.rs:
-                     the `invites` table (schema 15), outdated and cancelled ones, the user's
+                     the `invites` table (schema 18), outdated and cancelled ones, the user's
                      answer, answering. Its tests (Outlook, Google, Apple) are in calendar/tests.rs.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
                      the domain's autoconfig file, SRV and MX records (Windows' resolver;
@@ -272,10 +272,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), `goes` (in an Outbox: when it goes, unless held or refused), `unsubscribe` `{method: one_click/mail/link, target, done, spam}` or null (unsubscribe.rs) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), and `invite` when it holds a calendar: `{method, event, file, state, mine, answered, blocked, from, spam}` (calendar/invites.rs; `event` in local time with `zone` when written in another clock; `file`: the attachment Add to calendar opens; `state`: current, outdated, cancelled; `blocked`: not_invitation, spam, cancelled, outdated, organizer, no_organizer, no_account) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), `risk` `{score, signals, limited}` (risk.rs), and `contacts` `[{email, id, name}]`: its From, To and Cc addresses in the address book |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs); signed or encrypted mail also `pgp` `{smime, encrypted, decrypted, problem, locked, recipients, signature: {status, key, key_id, created, issuer}, partial, offered}` (`smime`: S/MIME, `issuer` its certificate's authority; status also `unsupported`; decrypted: body, subject and attachments from inside; a remembered passphrase or certificate password is tried once) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), `goes` (in an Outbox: when it goes, unless held or refused), `unsubscribe` `{method: one_click/mail/link, target, done, spam}` or null (unsubscribe.rs), `contacts` `[{email, id, name}]` (its From, To and Cc addresses in the address book), `invite` when it holds a calendar: `{method, event, file, state, mine, answered, blocked, from, spam}` (calendar/invites.rs; `event` in local time with `zone` when written in another clock; `file`: the attachment Add to calendar opens; `state`: current, outdated, cancelled; `blocked`: not_invitation, spam, cancelled, outdated, organizer, no_organizer, no_account), and for signed or encrypted mail `pgp` `{smime, encrypted, decrypted, problem, locked, recipients, signature: {status, key, key_id, created, issuer}, partial, offered}` (`smime`: S/MIME, `issuer` its certificate's authority; status also `unsupported`; decrypted: body, subject and attachments from inside; a remembered passphrase or certificate password is tried once) |
 | `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -299,12 +296,10 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `message_source` | `id`                         | `{text, cut, bytes, headers: [{name, value}]}`: the raw message as text (each part's charset, the first MB), the header fields unfolded and decoded |
 | `print_document` | `id`, `html`, `loadImages`   | a document of the message for print (header, then its HTML cleaned or its text; images as `get_html` loads them), styles under `.tp` for a shadow root |
 | `save_pdf`       | `id`, `words` `{title, filter}` | `{saved: path}`, `cancelled`, or `print_dialog` (no PDF of its own here: Linux); writes the window's print layout through WebView2's PrintToPdf |
-| `pick_files`     | `words`                      | `[{name, size_kb, path}]` to attach (empty: cancelled); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
 | `pick_files`     | `words` `{title, pictures?}` | `[{name, size_kb, path}]` to attach (empty: cancelled; with `pictures`, the filter's name, only pictures are offered); also "files-dropped" events `{files, x, y}` (physical pixels) for files dropped on a window, and "files-over" `[x, y]` or null while they are over it |
-| `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
-| `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files; one the user saved, not an autosave, also goes to the server's Drafts, replacing the version it was edited from there) |
-| `discard_draft`  | `id`                         | true when that draft (in Drafts; on the server too, it leaves it) was removed for good: compose's Discard drops its autosave |
 | `recipients`     | –                            | `[{name, email, sent, received, contact?}]`: the contacts first (`contact`: its id; the saved name), then the mail base's people, most likely first, at most 2000 of those |
+| `save_outgoing`  | `draft`, `pgp`               | new message id (a draft, kept whole: its HTML and forwarded files; one the user saved, not an autosave, also goes to the server's Drafts, replacing the version it was edited from there; with `pgp.encrypt`, encrypted to the sender's own key, no text kept) |
+| `discard_draft`  | `id`                         | true when that draft (in Drafts; on the server too, it leaves it) was removed for good: compose's Discard drops its autosave |
 | `contacts`       | –                            | `[{id, uid, name, emails, phone, organization, note, groups}]` by name (diacritics ignored); `emails[0]` is the primary address |
 | `contact_groups` | –                            | `[{id, name, members: [{contact, name, email}]}]` A to Z; a contact member carries its name and primary address |
 | `save_contact`   | `contact` (id 0 = new)       | the saved contact, or a sentence saying what's wrong (an address another contact has, no name or address); its `groups` set its memberships |
@@ -314,24 +309,18 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `suggested_contacts` | –                        | up to 50 people written to who aren't contacts, as `recipients` (never added by themselves) |
 | `import_vcards`  | `words`                      | `{added, updated, same, skipped, groups}` or null (cancelled); opens Open for .vcf files (a known UID or address fills in that contact) |
 | `export_vcards`  | `ids` (empty = all), `words` | the .vcf written, or null; opens Save (vCard 3.0, groups as CATEGORIES) |
-| `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
-| `save_outgoing`  | `draft`, `pgp`               | new message id (a draft, kept whole: its HTML and forwarded files; with `pgp.encrypt`, encrypted to the sender's own key, no text kept) |
-| `discard_draft`  | `id`                         | true when that draft (on this PC, in Drafts) was removed for good: compose's Discard drops its autosave |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor with its pictures as data: (`html::editable`), or null (plain text) |
 | `editor_image`   | `path` (picked or dropped this session) or `data` (base64, pasted), `signature` | `{src, width, height, bytes, smaller}`: a picture for the HTML editor as a data: URI, made the size `image_size` says (a signature's: 600 px, 100 KB), or a sentence (not PNG/JPEG/GIF/WebP, too large) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends (palette styles, data: pictures; remote pictures left out, never fetched) |
 | `mentions_attachment` | `text`, `signature`    | whether the user's own text (no quotes, forwarded part or signature) says a file is attached (`drafts::mentions_attachment`; Send asks when none is) |
-| `send_message`   | `draft`, `later` (null, or `{kind: hour/tomorrow/monday}`, `{kind: at, at}`) | `{queued, wait, goes, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}`; with `later` it waits in the Outbox until `goes` (no moment to undo), sent by the app's timer then, or a moment after the next start (its line then says it went late), with an "outbox-sent" event (`queued` 0) |
+| `send_message`   | `draft`, `later` (null, or `{kind: hour/tomorrow/monday}`, `{kind: at, at}`), `pgp` `{sign, encrypt, attach_key, smime}` (null: none) | `{queued, wait, goes, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}`; with `later` it waits in the Outbox until `goes` (no moment to undo), sent by the app's timer then, or a moment after the next start (its line then says it went late), with an "outbox-sent" event (`queued` 0); with `pgp` signed (multipart/signed) or encrypted to every recipient and the sender (multipart/encrypted), refused with who has no key; an Autocrypt header when the sender has a key; with `smime` S/MIME instead (multipart/signed with application/pkcs7-signature, application/pkcs7-mime enveloped-data to every recipient's certificate and the sender's; no Bcc when encrypting) |
 | `send_later_choices` | –                        | `[{kind, when}]`: the Send later menu now (Monday left out when it is tomorrow) |
 | `send_now`       | `id`                         | `{queued, sent, errors}`: mail sent later, held, or whose try failed goes now (not mail the server refused: E first) |
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go, also mail sent later; it stays in the Outbox, held) |
 | `unsubscribe`    | `id`                         | `{method, done, sent, errors}`: leaves the message's list (one click: POSTed by the core, public addresses only; mail: through the account's SMTP, done once it went; link: opened in the browser); refused in Spam; the message gets a note, and the list (List-Id or sender) is remembered |
-| `send_message`   | `draft`                      | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}` |
-| `send_message`   | `draft`, `pgp` `{sign, encrypt, attach_key, smime}` (null: none) | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}`; signed (multipart/signed) or encrypted to every recipient and the sender (multipart/encrypted), refused with who has no key; an Autocrypt header when the sender has a key; with `smime` S/MIME instead (multipart/signed with application/pkcs7-signature, application/pkcs7-mime enveloped-data to every recipient's certificate and the sender's; no Bcc when encrypting) |
 | `pgp_compose`    | `draft` (as typed)           | `{own, unlocked, missing, can_encrypt, sign, encrypt, smime_own, smime_unlocked, smime_missing, smime_can_encrypt, smime}`: where compose's Sign and Encrypt start, OpenPGP or S/MIME (`smime`), and who has no key or certificate |
-| `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
 | `answer_invite`  | `id`, `answer` (accepted, tentative, declined), `comment` | `{sent, errors, invite}`: an iTIP REPLY to the organizer from the identity invited, sent at once (no undo moment), the invitation noted ("You accepted on …"); refused in Spam and for cancelled, outdated or own invitations |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
@@ -349,12 +338,10 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_saved_searches`, `save_search` (`search`, id 0 = new), `delete_search` (`id`) | | saved list queries, A to Z |
 | `run_rules`      | `folder`                     | `{matched, moved, replied, problems}` (no auto-replies on demand) |
 | `run_scheduled_rules` | –                       | `[{rule, name, matched, moved, replied, problems}]`: the rules whose schedule was due, each run once on its folders (no auto-replies or forwards); the window asks every minute |
-| `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account` | `{account, identity, to, cc, subject, body, attachments, reply_to, forward_of}` |
-| `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
 | `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account`, `folder` (the open one, for its templates) | `{account, identity, to, cc, subject, body, html, caret_line, attachments, reply_to, forward_of}` (`html`: the same start for the HTML editor, the signature in a `telex-signature` block, the original's HTML quoted; `caret_line`: the line after a greeting) |
+| `save_identity`  | `identity` (id 0 = new)      | the saved identity (`signature_html` cleaned, `signature` its text; a signature without formatting stays plain, `signature_html` null), or a sentence saying what's wrong |
 | `folder_templates` | –                          | `[{folder, new_template, reply_template, reply_header}]`: folders' own templates (gone folders left out) |
 | `save_folder_template` | `template`             | – (all empty takes them away; a gone folder is a sentence) |
-| `save_identity`  | `identity` (id 0 = new)      | the saved identity (`signature_html` cleaned, `signature` its text; a signature without formatting stays plain, `signature_html` null), or a sentence saying what's wrong |
 | `delete_identity`| `id`                         | – (never the account's last one) |
 | `known_provider` | `email`                      | what the provider list knows (no network), or null |
 | `detect_settings`| `email`                      | `{setup, provider, source, note, unsupported, help, confirm}` or null; emits `detect-progress` (`confirm`: servers found through DNS outside the address's domain; the wizard asks before sending them the password, RFC 6186) |
@@ -379,19 +366,15 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `rename_local_folder` | `folder`, `name`      | – (the user's own folders on this PC; the key stays) |
 | `delete_local_folder` | `folder`              | how many rules lost their move to it; only an empty folder |
 | `export_folder`  | `folder`, `words` `{title, filter, file_name}` | the mbox file written, or null; opens Save |
-| `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC only |
-| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters, books: [{key, name, contacts, tick}]}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
-| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters, tags: [{keyword, name, color}]}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
 | `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC and of POP3 accounts only |
-| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
+| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters, tags: [{keyword, name, color}], books: [{key, name, contacts, tick}]}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
 | `open_source`    | `folder` (true: a folder, false: a .pst), `words` | the same for what the user picks, or null (`move_in` takes only sources found or picked this session) |
 | `spell_languages`| –                            | `{languages: [{tag, own}], chosen, auto, downloads: [{tag, bytes}], missing}` (`own`: fetched by Telex; `auto`: chosen from Windows' display languages, its language list, its region and the interface's; `missing`: downloads for those) |
 | `spell_check`    | `text`                       | `[[start, length]]` in UTF-16 units: the words no chosen language knows |
 | `spell_suggest`  | `word`                       | up to 7 suggestions |
 | `spell_add`      | `word`                       | – (right from now on, in every language: words.txt next to the settings) |
 | `spell_download`, `spell_remove` | `tag`          | the languages again; fetches LibreOffice's dictionary (GitHub, pinned, SHA-256 checked) or removes one Telex fetched |
-| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters, books}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items], contacts: {added, updated, same, skipped, groups}}`; "move-progress" events `{step, done, total, name}` |
-| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, tags: [plan items], rules: [plan items]}` (`filters` brings the tags too, before the mail); "move-progress" events `{step, done, total, name}` |
+| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters, books}` | `{accounts: [{email, error}], mail: {added, already, problems}, tags: [plan items], rules: [plan items], contacts: {added, updated, same, skipped, groups}}` (`filters` brings the tags too, before the mail); "move-progress" events `{step, done, total, name}` |
 | `pgp_keys`       | –                            | `[{fingerprint, user_ids, emails, created, expires, algorithm, secret, protected, source, verified, revoked, can_encrypt, added, unlocked, remembered}]`, own keys first |
 | `pgp_import`     | `words`                      | `{added, updated, unchanged: [{fingerprint, name}], skipped}` or null; opens Open (.asc, .gpg, .pgp, .key) |
 | `pgp_import_text`, `pgp_import_offered` | `text` / `id` | the same: a pasted key, or the keys the message carries (Autocrypt, attached; unconfirmed) |
@@ -407,7 +390,6 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `smime_export`   | `fingerprint`, `words`       | the path written (PEM, never the key), or null; opens Save |
 | `smime_unlock`   | `fingerprint`, `password`, `remember` | true when it opens the certificate's key |
 | `smime_verify`, `smime_delete`, `smime_forget` | `fingerprint` (`verified`) | – (confirm a certificate; remove it and its key; forget its password here and in the system store) |
-| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items]}`; "move-progress" events `{step, done, total, name}` |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
 | `backup_now`     | –                            | the backup written; the folder keeps the newest `backup_keep` |
@@ -620,340 +602,342 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-- Rules with patterns, ages and schedules (schema version 15: `rules.on_arrival`, `schedule`,
-  `last_run`; a one-way upgrade):
-  - "matches pattern" (`Op::Matches`) on every text condition: a regular expression (the regex
-    crate: linear time, no backtracking), found anywhere unless anchored, on the same folded text
-    as the other operators (lowercase, no diacritics); the pattern's own letters with diacritics
-    are folded too, so `październik` and `pazdziernik` both work. At most 1,000 characters, 1 MB
-    compiled, 64 levels deep; `save_rule` refuses a mistake with where it is and what
-    ("The pattern “(faktura” has a mistake at character 1: a ( isn't closed", from regex-syntax's
-    parser). Each run compiles a rule's patterns once (`filters::Ready`); one that no longer
-    compiles leaves its rule out with a problem.
-  - Conditions on facts: Date received older / newer than N days (`Field::Received`, the
-    INTERNALDATE), Size larger / smaller than (500k, 5m, as search), Status is read, unread,
-    flagged or not flagged (`Field::State`). Run with the clock given (`Folded::at`).
-  - When a rule runs (the rule editor's "When"): on new mail (`on_arrival`, as before), on a
-    schedule (`Schedule {every: hour | day | week, folders}`: the rule's account's folders, or
-    any folder for a rule on every account), or both. The window calls `run_scheduled_rules`
-    30 s after start and every minute; `filters::run_scheduled` runs each due rule alone on its
-    folders (`due`: never ran, or a period since `last_run`, or the clock went back), once
-    however overdue, with `Trigger::Scheduled` (no auto-replies or forwards, like Run now), notes
-    as always and server changes queued; the window pushes and says "Rule “Archive old” moved 12
-    messages." The summaries rule out what the date, size and flags can before any text is read
-    (`Ready::rules_out`). A rule off new mail can't answer or forward. Run now still runs every
-    enabled rule. The rules list shows "Every day on Inbox · last run …".
-  - Settings files carry `on_arrival` and `schedule` (folders by account address, id and name;
-    a missing one skips the rule with `no_folder`). An older Telex skips rules with the new
-    conditions as `unreadable`; one that runs only on a schedule but has only old conditions it
-    would read as a rule on new mail.
-For 0.9.12 (schema version 15: `unsubscribed`; one-way, and another branch may take 15 first:
-renumber at merge):
+Nothing yet.
 
-- Send later (`later.rs`; no schema change: `outbox.send_after`, as undo send): the clock next to
-  Send, or Ctrl+Shift+Enter, offers in an hour, tomorrow morning (08:00), Monday morning and a
-  picked date and time (`send_message` with `later`, `send_later_choices`). The message waits in
-  the Outbox, whose rows and open message say when it goes ("Goes Mon 08:00", `goes` in the
-  summaries and `get_message`), with Send now (`send_now`) and Hold (`hold_message`). E holds it
-  while it is changed, and Send then keeps its time ("Send tomorrow 08:00"; the menu has Send
-  now). The app's timer (`send_timer` in lib.rs) sends it when due, sleeping until the next one
-  (`MailStore::next_scheduled`, at most 30 s); only mail never tried, so a failed try waits for
-  the next check as before, and an account that can't send at all rests 10 minutes. Mail that
-  was due while Telex was closed goes a moment after the start, and its sent line says "late:
-  it was due 19.10 08:00" (`later::late`, 2 minutes). Undo send's moment is unchanged.
-- Unsubscribe (`unsubscribe.rs`, `unsubscribe`): mail with List-Unsubscribe gets a quiet
-  Unsubscribe among the buttons above it. The core picks one click over https when the list
-  marks it (List-Unsubscribe-Post, RFC 8058; a POST of `List-Unsubscribe=One-Click` through
-  html's public-only agent: no cookies, no redirects, generic User-Agent, 10 s), else a mailto:
-  (subject and text from the address, else "unsubscribe"; sent from the account and identity
-  the list wrote to, done once SMTP took it), else the list's page in the browser; mail and page
-  ask first in a line naming the address or server. Never in Spam: the button is there, dimmed,
-  saying why. Done, the message gets a note and every message of the list (List-Id, else the
-  sender) says "Unsubscribed 17.10"; then a line offers to move the sender's mail to Trash (Z
-  brings it back).
-- Drafts on the server, and servers that keep their own sent mail (schema version 15:
-  `accounts.sent_copy`, `accounts.server_saves_sent`; one-way, as usual):
-  - A draft the user saves (Save, Esc, closing compose, New or Reply over it) of an account whose
-    Drafts is on the server goes there too, through the change queue: APPEND with \Seen \Draft
-    (`pending_ops.value` bit 4). Autosaves stay on this PC (`OutgoingDraft.autosave`): every 15 s
-    would be an APPEND and an expunge on the server each time, and the user's phone would see a
-    draft flicker; what the user saves is what other devices should see. Right after the APPEND
-    Telex looks up the copy's UID by Message-ID (`newest_unknown`), so the next version expunges
-    exactly that one: a draft keeps its Message-ID from save to save (`Originals::edited`), so
-    versions share it. Replacing a draft (a new save, Send, Discard) removes the old version
-    locally and, when it is on the server, by an expunge (`drop_replaced`); a version replaced
-    while its upload was on the way leaves the server again (`change_appended` with the change's
-    Message-ID and the UID it got). Drafts written on another device come down with the Drafts
-    folder, show in the drafts list and open with E; editing one replaces it on the server, keeps
-    its Message-ID and its In-Reply-To and References (also when it is sent), and its files come
-    along as before (`forward_of`). Mail moved into Drafts from this PC goes up with \Draft; a
-    draft moved to this PC before its upload goes nowhere; when another folder becomes Drafts,
-    drafts waiting for their upload go there with it. A restore drops every queued change, so
-    drafts waiting for an upload (and the Outbox mail moved to Drafts) stay on this PC until their
-    next save.
-  - Copies of sent mail (`set_sent_copy`, Settings › Accounts › Folders › Copy of sent mail):
-    Gmail, Outlook.com and Microsoft 365 file mail sent through their SMTP in Sent themselves
-    (`autoconfig::files_sent_mail`, by IMAP host); for them Telex queues no APPEND and the local
-    Sent copy is adopted by the next download (by Message-ID). For other servers in auto, the push
-    looks for the message in Sent before the APPEND goes (`sent_copy_needed`): found, the server
-    keeps its own (remembered in `server_saves_sent`; a copy downloaded meanwhile isn't kept
-    twice); not found within 30 s of the send (`SENT_COPY_WAIT`), Telex uploads and remembers
-    that. The user can say either for good.
-- A whole message out of Telex (no schema change; `export.rs`, src-tauri `export.rs` and `native.rs`):
-  - Save as… (Ctrl+S, the message menu, the … button above a message, the source window): one
-    message opens Save with a name from its subject (`export::file_name`, attachments.rs' safe
-    names), several a folder picker, one .eml each, numbered rather than over a file; the stored
-    `raw` byte for byte (`save_messages`).
-  - Drag out: a drag from the list that passes the window's edge becomes the system's own drag
-    of .eml files written under `%TEMP%\Telex\drag\` (emptied at start): on Windows the shell's
-    data object for the files and `SHDoDragDrop` with its default drop source (the windows crate
-    Tauri already has; the `drag` crate would have brought two older windows versions), on Linux
-    GTK's drag with file:// URIs. While it lasts the window ignores its own files dropped on it
-    (`FilesState::dragging_out`). The drag onto folders is as it was.
-  - Print… (Ctrl+P) and Save as PDF…: the core makes a document of the message (subject, From,
-    To, Cc, Bcc, Date, attachments, then the HTML cleaned as for reading on white, or the text;
-    remote images only as the reader loaded them: `print_document`); the window puts its body
-    into a shadow root in `#printout`, which only `@media print` shows, and prints the page
-    (WebView2's print preview, WebKitGTK's dialog). Save as PDF writes the same layout with
-    WebView2's `PrintToPdf` (15 mm margins, no header or footer); on Linux it opens the print
-    dialog (`save_pdf` answers `print_dialog`).
-  - View source (Ctrl+U) and All headers: a dialog with Source | Headers, Copy and Save as…; the
-    raw message as text, lines in the charset of their part (`export::source_text`, the first
-    MB), header fields unfolded and RFC 2047-decoded (`export::headers`, `message_source`).
-- Calendar invitations (schema version 15: `invites`; the upgrade reads every stored message once,
-  a one-way upgrade). Mail with a text/calendar part or an .ics file shows a card above the text
-  (`inviteHtml` in app.js): what, when in local time (and in the zone it was written in, when that
-  clock differs: "10:00–11:00 in Pacific Standard Time (UTC−7)"), how it repeats in words, where,
-  the Teams/Meet/Zoom/Webex link (through `open_link`; not clickable in Spam), the organizer, the
-  people invited with their answers (✓ ? ✕), the user's answer. Accept, Maybe and Decline with an
-  optional comment send an iTIP REPLY (`answer_invite`): METHOD:REPLY, the same UID, SEQUENCE and
-  RECURRENCE-ID, only the user's ATTENDEE line, times in UTC, as multipart/alternative text plus
-  text/calendar; method=REPLY, to the ORGANIZER from the identity whose address was invited, through
-  the Outbox and SMTP like any mail; the invitation gets a note ("You accepted on …"). A newer
-  SEQUENCE (or the same with a later DTSTAMP) of the same UID makes older invitations outdated; a
-  CANCEL (or STATUS:CANCELLED) cancels them; the user's own REPLY in the Outbox or Sent, also one
-  written elsewhere, is their answer ("You accepted an earlier version" after an update). A REPLY in
-  the Inbox says who answered the user's meeting. Spam can't answer (the card says why). "Add to
-  calendar" opens the .ics through `open_attachment` (Mark of the Web; asks first in Spam); the
-  arrow saves it. The parser is Telex's own (`calendar.rs`): 1 MiB, 32 KiB lines, 500 components, 6
-  levels, 200 attendees listed; folded lines joined before decoding (Google folds inside UTF-8
-  characters), the part's charset, else Windows-1250. Time zones (`calendar/zones.rs`): IANA names
-  (also behind a path), Windows names through CLDR's table, both with chrono-tz's compiled database
-  (new dependency, MIT/Apache-2.0); other TZIDs from the VTIMEZONE's yearly rules and RDATEs. Wall
-  times in a spring-forward gap move past it, ones that come twice are the first (RFC 5545). A
-  nameless text/calendar part is listed as "invite.ics".
-- The address book (schema version 15: `contacts`, `contact_emails`, `contact_groups`,
-  `contact_group_members`; a one-way upgrade): `contacts.rs`, `vcard.rs`, the Address book dialog
-  (B, the toolbar's Contacts, the person button by a sender, the message menu's "Add … to the
-  address book"). Contacts have a name, addresses (the first primary; an address belongs to one
-  contact), a phone, an organization and a note; groups hold contacts (by their primary address)
-  and addresses that aren't contacts. Compose suggests contacts first (marked, with the saved
-  name, robots too when saved) and groups by name; a group goes in at once as its people's
-  addresses (picked, or its name typed whole and left), so the reply-to-many check counts them.
-  The header shows saved names for From, To and Cc. People written to are offered at the end of
-  the list (`suggested_contacts`), never added by themselves. vCard in (2.1/3.0/4.0, several cards
-  a file, quoted-printable and CHARSET of old Outlook exports, folded lines, UTF-16, KIND:group and
-  Apple's group cards, CATEGORIES as groups, Google's myContacts left out; a known UID or address
-  only fills in) and out (3.0, all or the Ctrl/Shift-clicked ones). Moving in brings Thunderbird's
-  address books (abook*.sqlite with their lists; history.sqlite, Collected Addresses, unticked)
-  and the Contacts folders of a .pst (named properties for the addresses; distribution lists
-  aren't read). Contacts stay out of the settings file (mail data; backups have them). Before the
-  first account, a change to the address book makes the mail base on disk, as moving in does.
-  Site: "Coming in 0.9.12" points and the B key; screenshots not retaken (the toolbar has one
-  more button; retake with the other 0.9.12 work).
-- Tags (schema version 15: `messages.keywords`, `tags`, `accounts.local_tags`; one-way upgrade, as
-  every schema step): colored labels, several to a message, like The Bat!'s colored mail and
-  Thunderbird's tags (`tags.rs`). On a server a tag is an IMAP keyword: Thunderbird's five come
-  built in (`$label1` Important, `$label2` Work, `$label3` Personal, `$label4` To do, `$label5`
-  Later; named in the interface's language until renamed), a new tag's keyword comes from its name
-  as Thunderbird makes one ("Projekt X" → `projekt_x`, non-ASCII in lowercased modified UTF-7), so
-  a tag made in both programs is one tag. Only keywords that are tags here are kept. Sync both ways:
-  FLAGS brings the server's keywords with the flags (only what differs is written; a keyword whose
-  change is still queued keeps its value here), changes queue as kind 'keyword' (`target` the
-  keyword, `value` on/off, one per message and keyword) and go as one `UID STORE ±FLAGS.SILENT
-  (keyword)` per keyword and sign. A folder whose PERMANENTFLAGS has neither `\*` nor the keyword
-  makes the account keep its tags on this PC (`local_tags`; said once as a check problem; the
-  server's empty keywords then never take them away; Settings › Tags names such accounts). Folders on
-  this PC keep tags in the mail base; moves keep them; mail uploaded from this PC takes them in its
-  APPEND (again without them if the server minds); mail moved back before the server heard sends
-  only the tags that changed meanwhile (the expunge's `target` remembers what the server copy had).
-  Deleting a tag takes it off every message at once, here and on the server (asked first, with the
-  count), so nothing lingers in other programs and nothing needs cleaning later. The window: chips
-  before the subject in every list (three, then +n; `--tag-<color>` and `--tag-<color>-fg` per
-  theme for the eight `tags::COLORS`, checked by check-contrast.mjs), under the subject above a
-  message, keys 1–5, the message menu's Tags… and a tag button above a message (ticked menus), and
-  Settings › Tags (name in place, color from the palette, order, New tag, Delete). Search
-  `tag:work` (name or keyword, diacritics ignored, else names that start so) and `is:tagged` /
-  `is:untagged`; saved searches keep them. Rules: condition Tag has / doesn't have / has any / has
-  none, actions Add a tag / Take a tag off, with notes ("tagged it Later"); a rule whose tag was
-  deleted says so when it runs. Copy as Markdown lists a message's tags; the settings file carries
-  the tags with the rules ("Rules and tags"), by keyword.
-- Tags moving in from Thunderbird (no schema change): prefs.js `mailnews.tags.<keyword>.tag`,
-  `.color` and `.ordinal` become tags with the same keyword (`thunderbird::read_tags`,
-  `MailStore::import_tag`), Thunderbird's color going to the nearest of `tags::COLORS` by hue
-  (`tags::color_from_hex`; gray when it has little); `$label1`–5 still named as Thunderbird names
-  them (English or Polish) keep Telex's names. They show under the move-in plan's "Filters and
-  tags" and come with that tick, before the mail (`migrate::tags`; the report's `tags`, Add /
-  Update / Same as a settings import). Filters: the condition "tag" (is, contains → Tag has;
-  isn't, doesn't contain → hasn't; is empty, isn't empty) and the actions "AddTag", "Remove tag"
-  and the old "Label" 1–5 become rules instead of being listed as unsupported; a tag that isn't
-  here leaves the rule out with the editor's reason. mbox: `X-Mozilla-Keys` and `X-Keywords`
-  (spaces or commas, folded lines) give a message read in its tags (only keywords that are tags
-  here); a folder saved as mbox writes one `X-Keywords` with its tags and leaves the old two out.
-- Richer HTML compose (schema version 15: `identities.signature_html`, `new_template`,
-  `reply_template`, `folder_templates`; one-way; setting `image_size`):
-  - Pictures: pasted, dropped from Explorer where they should go, or Insert picture… (the Open
-    dialog, pictures only), made smaller by the core (`images.rs`, image crate with PNG, JPEG, GIF,
-    WebP only: Large 1600 px, Medium 800 px or as they are; a photo made smaller is turned upright
-    and loses its EXIF, location included; GIFs stay as they are). In the editor they are data:
-    URIs; `smtp::compose` and `compose_draft` make each a part of a multipart/related beside the
-    HTML (`html::inline_images`, `cid:<n>.<Message-ID>`), and E and drafts turn them back
-    (`html::editable`). Pasted remote pictures are left out, never fetched: fetching would tell
-    their server who pasted, and sending their addresses would let it see who reads; the status
-    bar says how many and to save them and Insert picture. Pictures shown in a message's text
-    (cid: in its HTML) aren't listed as its files any more (`mime::files`), for received mail too.
-  - `html::compose_clean` is a strict allowlist: the old tags plus tables, sub/sup, h4–h6 and
-    img; `style` only `color` from `TEXT_COLORS`, `background-color` from `MARK_COLORS`,
-    `font-size` 12px or 18px (the browser's small and x-large written so); img only as data:
-    (PNG, JPEG, GIF, WebP in base64; 5 MB each, 15 MB and 40 in all) or cid:; the class
-    `telex-signature` on a div; nothing else. Text color, highlight and size come from the bar
-    (`execCommand` with styleWithCSS); the editor shows each palette color in its theme's own
-    readable shade (`--pal-1..6`, `--mark-1..4` in themes.css, checked by check-contrast.mjs) by
-    attribute selectors with !important, so what's sent stays as chosen.
-  - HTML signatures: Settings › Writing and the identity form edit them with compose's editor
-    (formatting, colors, a picture: 600 px, 100 KB each, 200 KB in all). `Identity::prepared`
-    cleans them and keeps their text in `signature` for plain-text mail; one without formatting
-    stays plain. In HTML compose the signature sits in `<div class="telex-signature">`, which
-    another identity's replaces. Thunderbird's HTML signatures come over as HTML.
-  - A reply or forward in HTML quotes the original's own HTML (`html::quotable`: sanitized, its
-    own pictures within 5 MB, remote ones left out, styles down to the palette, at most 2 MB;
-    else its text), in a blockquote that cfold folds as before; `start_draft` returns `html`.
-  - Templates: per identity what new messages (`new_template`, a greeting) and replies
-    (`reply_template`) open with, typing starting below them (`caret_line`); `{first}` (the
-    first name) joins the placeholders, and a new message has only {date} and {time}. Per folder
-    (`FolderTemplate`: new, reply, reply header) from Settings › Writing › Folder templates or a
-    folder's menu › Templates…; each one that isn't empty wins over the identity's (the open
-    folder's for a new message, the original's for a reply). Settings files carry identities'
-    `signature_html` and templates, and folders' templates by account address and folder id,
-    else name, like rules (`templates`; with the identities).
-- POP3 accounts (schema version 15: `accounts.incoming`, `pop3_leave`, `pop3_days`,
-  `pop3_until_deleted`, `pop3_uidls`; one-way):
-  - An account gets its mail over IMAP or POP3 (`ImapSettings.pop3: Option<Pop3Keep>`, the
-    same host, port, user and security columns; `Account::is_pop3`). A POP3 server keeps only
-    an Inbox, so a POP3 account's folders are all here, like the folders on this PC but under
-    the account (its color, identities, rules, Outbox): Inbox, Drafts, Sent, Archive, Spam and
-    Trash, and the user's own (the tree's account menu › New folder, F2, Delete folder;
-    `create_folder`). Reading, flagging and moving queue nothing; sent mail goes to the local
-    Sent. Switching an account between IMAP and POP3 is refused (remove and add it again).
-  - `pop3.rs`: TLS on 995 or STLS on 110 (never plain; nothing may follow STLS's +OK), CAPA,
-    AUTH PLAIN where offered, else USER/PASS ([IN-USE] and [SYS/TEMP] aren't login errors);
-    UIDL is required (a server without it is refused when the account is added); STAT/LIST/RETR/
-    DELE/QUIT with dot-unstuffing, a 2-minute timeout per line, 8 KB status lines, 4 MB message
-    lines, 100 MB messages (a larger one stays on the server, said once) and a million listed.
-    Through `servers.rs` like IMAP: places per address, rests, the log with protocol "pop3".
-  - Every UIDL Telex knows is a row of `pop3_uidls`: `here` (downloaded; `message` NULL once
-    deleted here for good, by ON DELETE SET NULL), `older` (left by the first check, which takes
-    the newest 300; the status bar offers them through `download_older`), `known` (Thunderbird
-    had it), `big`. Nothing comes twice, also mail deleted here. What stays on the server
-    (`Pop3Keep`, Settings › Accounts › Edit › On the server): by default everything until it is
-    deleted here for good; or removed once here; or after N days. DELE goes at the end of a
-    check; the server removes at QUIT. A row the server hasn't listed for 90 days goes.
-  - New mail goes through the same path as IMAP's Inbox (`imap::sort_arrived`): the spam filter,
-    rules, the away reply (Telex answers: no Sieve for POP3), notifications, `sync-progress`,
-    `check_mail`'s results. `push_mail` skips POP3 accounts (no IDLE); the regular checks
-    bring their mail. After a restore, a POP3 account's next check is like its first, so mail
-    from since the backup comes down without rules or replies running twice.
-  - Finding servers: a setup file's POP3 server when it has no encrypted IMAP one, SRV
-    `_pop3s._tcp` when there is no `_imaps`; the form has Incoming mail (IMAP | POP3), its
-    security and port, and what stays on the server. Settings files carry `pop3` with the
-    server. Thunderbird's POP3 accounts come over as POP3 accounts (servers, identities, what
-    they left on the server, their filters), their mail into their own folders, and the UIDLs of
-    popstate.dat (k kept, d deleted there; X-UIDL headers link messages) so Thunderbird's mail
-    isn't fetched again. Outlook's POP3 accounts stay blocked: which mail it downloaded is in
-    its .pst. Mail files can be dropped on a POP3 account's folders too.
-- OpenPGP (schema version 15: `pgp_keys`, `pgp_key_ids`, `autocrypt_peers`, `pgp_prefs`; one-way;
-  settings `backup_secret_keys`, `pgp_sign`, `pgp_autocrypt`; docs/encryption.md). rPGP (MIT or
-  Apache-2.0, pure Rust; Sequoia is LGPL). Reading: PGP/MIME (RFC 3156) and inline PGP, a line
-  above the message: Signed by (a confirmed key of the From address), unconfirmed (a key from
-  their mail: its fingerprint and Confirm key), another address's key, no key, bad, revoked,
-  expired, partly signed; encrypted mail decrypted on open with the user's keys, the passphrase
-  asked in that line (Remember: the system's password store). Encrypted mail is stored as it
-  came: no text in the mail base or its search; the decrypted message lives in memory (the last 8)
-  for HTML (same sanitizer), attachments, replies. Damaged mail, mail for another key, over 64 MB
-  decrypted (compression bombs stop there), and formats without integrity protection show nothing.
-  Autocrypt Level 1: keys from incoming mail (not Spam), unconfirmed; keys attached to mail offered.
-  Keys (Settings › Keys): own and others', fingerprints, import (files, pasted, from a message),
-  make (Ed25519/X25519, or RSA 3072; a passphrase required), export public, back up secret,
-  confirm, forget passphrase, delete; backups carry secret keys only with `backup_secret_keys`.
-  Writing: Sign, Encrypt and My key in compose (multipart/signed with quoted-printable text;
-  multipart/encrypted to everyone and the sender, signed inside, subject inside and "..." outside,
-  Bcc anonymous); Send refuses with the addresses that have no key and asks for the passphrase to
-  sign; a reply to encrypted mail starts encrypted, else as last chosen per person; encrypted
-  drafts encrypted to the sender; an Autocrypt header with the sender's key. Checked against
-  GnuPG 2.4.9 both ways.
-- S/MIME (schema version 16: `smime_certs`; one-way; docs/encryption.md). RustCrypto's cms,
-  x509-cert and pkcs12 (MIT or Apache-2.0; der 0.7, as rsa); rustls-webpki (ISC) for chains off
-  Windows. Reading: multipart/signed with application/(x-)pkcs7-signature, application/pkcs7-mime
-  signed-data (opaque) and enveloped-data, also signed inside, in the same line above the message
-  as OpenPGP's (`View.smime`): Signed by, certified by its authority (valid, within the
-  certificate's dates at the signing time, the From address in its subjectAltName or emailAddress,
-  and a chain Windows trusts for email, or a certificate the user confirmed or owns); unconfirmed
-  (fingerprint, Confirm certificate), another address, not carried, bad, expired, revoked (as far
-  as Windows knows), and `unsupported` (RSASSA-PSS, MD5). Chains: CryptoAPI with the message's
-  certificates as helpers, from the cache only and without root updates (nothing fetched, so a
-  sender's AIA address learns nothing); elsewhere rustls-webpki against the system's authorities
-  (rustls-native-certs), else unconfirmed. Decrypting: RSA key transport (PKCS #1 v1.5 and OAEP),
-  AES-128/192/256-CBC and 3DES-CBC, with an own certificate's key; locked keys ask for the .p12
-  password in the line; authEnveloped (AES-GCM) says unsupported, and key agreement (EC
-  certificates) isn't read. BER
-  (Thunderbird's streaming, Windows' .pfx) is made DER first, with depth and size limits; CMS over
-  48 MB, decrypted over 64 MB, and more than 8 signatures, 32 certificates or 256 recipients aren't
-  looked at. Nothing decrypted is stored or indexed (openpgp.rs's memory). Keys: .p12/.pfx imported
-  with its password asked once (OpenSSL 3's PBES2/AES and `-legacy` 3DES/RC2, MAC checked first,
-  iterations capped), the private key kept sealed in the mail base (PKCS #8, PBES2 PBKDF2-SHA256 +
-  AES-256-CBC) under that password, open for the session, the password in the system store only
-  with Remember ("smime:<fingerprint>"); backups drop sealed keys too without
-  `backup_secret_keys`. Certificates of valid signatures by the From address are kept (sync and
-  open) to encrypt to; files (.cer, .pem, .p7b) import as confirmed. Settings › Keys › Certificates
-  (S/MIME). Writing: compose's OpenPGP | S/MIME switch when the sender has both (S/MIME when only a
-  certificate, a reply to S/MIME mail, or only certificates reach everyone); Sign (SHA-256,
-  signing time, S/MIME capabilities, the chain), Encrypt (AES-256-CBC, RSA PKCS #1 v1.5, to every
-  recipient's certificate that the user confirmed or a trusted authority vouches for, and the
-  sender's), signed first; the subject stays outside; Bcc with Encrypt is refused (S/MIME names
-  every recipient); encrypted drafts sealed to the sender. Checked against OpenSSL 3.5.5 both ways.
-- Keys and tips as a panel (no schema change): ? or F1, Help in the status bar (a "? Help" pill
-  instead of the bare "?") and in the toolbar (an icon in Classic), and a link on the welcome
-  panel open a dialog that stays until Esc, a click outside or ×. Keys in eight groups (Moving
-  around, Reading, Selecting, Acting on mail, Writing, Search, Folders and accounts, The window)
-  drawn as keycaps, two columns when wide; the group for where it was opened comes first (compose,
-  the tree, the search box, several messages, the message); tips below. A filter, focused on open,
-  finds keys and tips by words in English and Polish, diacritics ignored ("kosz", "undo");
-  ↓ ↑ Enter (or a click) use the safe keys (N, R, M, G, T, /, Ctrl+, …). The keys come from `KEYS`
-  in app.js, checked against the table above by `scripts/check-keys.mjs` (CI). Once, a few seconds
-  into a start with mail, the status bar says "Press ? or F1 for every key and tip" (`helpTold` in
-  `telex-ui`). The search box rests at 228 px (was 280) so the Polish toolbar keeps its words.
-- More languages (no schema change): German, Czech, Slovak, Ukrainian, Spanish, French and
-  Italian besides English and Polish, in the interface (`ui/i18n/<code>.js`, loaded only when
-  chosen) and the core (`crates/telex-core/i18n/<code>.json` through the `telex-i18n` macros;
-  `tr!` keeps its English and Polish). Machine-written: each should be reviewed by a native
-  speaker before it is called finished. "auto" picks the first of Windows' display languages
-  Telex speaks (on Linux, LANGUAGE and the locale); Settings › Language lists each in itself, and
-  the first-start wizard has a small picker with a nudge in the region's language. A new
-  identity gets the signature and the reply and forward headers in the interface's language
-  (Polish for Polish and English, as before); {date} is 10/10/2026 in Spanish, French and
-  Italian. Attachment words and reply prefixes of these languages are understood
-  (`mentions_attachment`, Re:/AW:/TR:/R:/Відп:). LibreOffice's Slovak, French and Italian
-  dictionaries can be fetched for spelling. Dates and numbers in the UI follow the language
-  (`I18n.locale()`, `dateSep()`). The core's refused-change sentences are whole sentences per
-  change, and rule notes name special folders as the interface does (`FolderKind::shown_name`).
-- Cyrillic in the bundled fonts (no schema change): @fontsource 5.3.0's cyrillic subset (U+0400–045F
-  with Ґ ґ, Ұ ұ, №) of Plex Sans and Mono, Inter, JetBrains Mono, Source Sans 3 and Source Code Pro,
-  16 files, 142 KB, loaded only when Cyrillic is on screen (unicode-range). Plex Sans Condensed has
-  none, so the list's Plex stack goes on to Plex Sans; Atkinson Next and Mono have none either, so
-  their Cyrillic is Segoe UI and Consolas. ₴ and the cyrillic-ext letters (Kazakh, Abkhaz, old
-  Slavonic) aren't bundled (another 115 KB) and show in the system's face.
+## Current state (v0.9.20: tags, an address book, calendar invitations, send later and unsubscribe, POP3, drafts on the server, OpenPGP and S/MIME, saving and printing mail, a help panel, seven more languages, and all earlier features below)
 
-## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
+- New in 0.9.20 (schema versions 15–24, each a one-way upgrade: rule schedules, `unsubscribed`,
+  server drafts and sent copies, `invites`, the address book, tags, compose templates, POP3,
+  OpenPGP keys, S/MIME certificates; settings `image_size`, `pgp_sign`, `pgp_autocrypt`,
+  `backup_secret_keys`, and `language` takes de, cs, sk, uk, es, fr and it):
+  - Rules with patterns, ages and schedules (schema version 15: `rules.on_arrival`, `schedule`,
+    `last_run`; a one-way upgrade):
+    - "matches pattern" (`Op::Matches`) on every text condition: a regular expression (the regex
+      crate: linear time, no backtracking), found anywhere unless anchored, on the same folded text
+      as the other operators (lowercase, no diacritics); the pattern's own letters with diacritics
+      are folded too, so `październik` and `pazdziernik` both work. At most 1,000 characters, 1 MB
+      compiled, 64 levels deep; `save_rule` refuses a mistake with where it is and what
+      ("The pattern “(faktura” has a mistake at character 1: a ( isn't closed", from regex-syntax's
+      parser). Each run compiles a rule's patterns once (`filters::Ready`); one that no longer
+      compiles leaves its rule out with a problem.
+    - Conditions on facts: Date received older / newer than N days (`Field::Received`, the
+      INTERNALDATE), Size larger / smaller than (500k, 5m, as search), Status is read, unread,
+      flagged or not flagged (`Field::State`). Run with the clock given (`Folded::at`).
+    - When a rule runs (the rule editor's "When"): on new mail (`on_arrival`, as before), on a
+      schedule (`Schedule {every: hour | day | week, folders}`: the rule's account's folders, or
+      any folder for a rule on every account), or both. The window calls `run_scheduled_rules`
+      30 s after start and every minute; `filters::run_scheduled` runs each due rule alone on its
+      folders (`due`: never ran, or a period since `last_run`, or the clock went back), once
+      however overdue, with `Trigger::Scheduled` (no auto-replies or forwards, like Run now), notes
+      as always and server changes queued; the window pushes and says "Rule “Archive old” moved 12
+      messages." The summaries rule out what the date, size and flags can before any text is read
+      (`Ready::rules_out`). A rule off new mail can't answer or forward. Run now still runs every
+      enabled rule. The rules list shows "Every day on Inbox · last run …".
+    - Settings files carry `on_arrival` and `schedule` (folders by account address, id and name;
+      a missing one skips the rule with `no_folder`). An older Telex skips rules with the new
+      conditions as `unreadable`; one that runs only on a schedule but has only old conditions it
+      would read as a rule on new mail.
+  - Send later (`later.rs`; no schema change: `outbox.send_after`, as undo send): the clock next to
+    Send, or Ctrl+Shift+Enter, offers in an hour, tomorrow morning (08:00), Monday morning and a
+    picked date and time (`send_message` with `later`, `send_later_choices`). The message waits in
+    the Outbox, whose rows and open message say when it goes ("Goes Mon 08:00", `goes` in the
+    summaries and `get_message`), with Send now (`send_now`) and Hold (`hold_message`). E holds it
+    while it is changed, and Send then keeps its time ("Send tomorrow 08:00"; the menu has Send
+    now). The app's timer (`send_timer` in lib.rs) sends it when due, sleeping until the next one
+    (`MailStore::next_scheduled`, at most 30 s); only mail never tried, so a failed try waits for
+    the next check as before, and an account that can't send at all rests 10 minutes. Mail that
+    was due while Telex was closed goes a moment after the start, and its sent line says "late:
+    it was due 19.10 08:00" (`later::late`, 2 minutes). Undo send's moment is unchanged.
+  - Unsubscribe (schema version 16: `unsubscribed`; `unsubscribe.rs`, `unsubscribe`): mail with List-Unsubscribe gets a quiet
+    Unsubscribe among the buttons above it. The core picks one click over https when the list
+    marks it (List-Unsubscribe-Post, RFC 8058; a POST of `List-Unsubscribe=One-Click` through
+    html's public-only agent: no cookies, no redirects, generic User-Agent, 10 s), else a mailto:
+    (subject and text from the address, else "unsubscribe"; sent from the account and identity
+    the list wrote to, done once SMTP took it), else the list's page in the browser; mail and page
+    ask first in a line naming the address or server. Never in Spam: the button is there, dimmed,
+    saying why. Done, the message gets a note and every message of the list (List-Id, else the
+    sender) says "Unsubscribed 17.10"; then a line offers to move the sender's mail to Trash (Z
+    brings it back).
+  - Drafts on the server, and servers that keep their own sent mail (schema version 17:
+    `accounts.sent_copy`, `accounts.server_saves_sent`; one-way, as usual):
+    - A draft the user saves (Save, Esc, closing compose, New or Reply over it) of an account whose
+      Drafts is on the server goes there too, through the change queue: APPEND with \Seen \Draft
+      (`pending_ops.value` bit 4). Autosaves stay on this PC (`OutgoingDraft.autosave`): every 15 s
+      would be an APPEND and an expunge on the server each time, and the user's phone would see a
+      draft flicker; what the user saves is what other devices should see. Right after the APPEND
+      Telex looks up the copy's UID by Message-ID (`newest_unknown`), so the next version expunges
+      exactly that one: a draft keeps its Message-ID from save to save (`Originals::edited`), so
+      versions share it. Replacing a draft (a new save, Send, Discard) removes the old version
+      locally and, when it is on the server, by an expunge (`drop_replaced`); a version replaced
+      while its upload was on the way leaves the server again (`change_appended` with the change's
+      Message-ID and the UID it got). Drafts written on another device come down with the Drafts
+      folder, show in the drafts list and open with E; editing one replaces it on the server, keeps
+      its Message-ID and its In-Reply-To and References (also when it is sent), and its files come
+      along as before (`forward_of`). Mail moved into Drafts from this PC goes up with \Draft; a
+      draft moved to this PC before its upload goes nowhere; when another folder becomes Drafts,
+      drafts waiting for their upload go there with it. A restore drops every queued change, so
+      drafts waiting for an upload (and the Outbox mail moved to Drafts) stay on this PC until their
+      next save.
+    - Copies of sent mail (`set_sent_copy`, Settings › Accounts › Folders › Copy of sent mail):
+      Gmail, Outlook.com and Microsoft 365 file mail sent through their SMTP in Sent themselves
+      (`autoconfig::files_sent_mail`, by IMAP host); for them Telex queues no APPEND and the local
+      Sent copy is adopted by the next download (by Message-ID). For other servers in auto, the push
+      looks for the message in Sent before the APPEND goes (`sent_copy_needed`): found, the server
+      keeps its own (remembered in `server_saves_sent`; a copy downloaded meanwhile isn't kept
+      twice); not found within 30 s of the send (`SENT_COPY_WAIT`), Telex uploads and remembers
+      that. The user can say either for good.
+  - A whole message out of Telex (no schema change; `export.rs`, src-tauri `export.rs` and `native.rs`):
+    - Save as… (Ctrl+S, the message menu, the … button above a message, the source window): one
+      message opens Save with a name from its subject (`export::file_name`, attachments.rs' safe
+      names), several a folder picker, one .eml each, numbered rather than over a file; the stored
+      `raw` byte for byte (`save_messages`).
+    - Drag out: a drag from the list that passes the window's edge becomes the system's own drag
+      of .eml files written under `%TEMP%\Telex\drag\` (emptied at start): on Windows the shell's
+      data object for the files and `SHDoDragDrop` with its default drop source (the windows crate
+      Tauri already has; the `drag` crate would have brought two older windows versions), on Linux
+      GTK's drag with file:// URIs. While it lasts the window ignores its own files dropped on it
+      (`FilesState::dragging_out`). The drag onto folders is as it was.
+    - Print… (Ctrl+P) and Save as PDF…: the core makes a document of the message (subject, From,
+      To, Cc, Bcc, Date, attachments, then the HTML cleaned as for reading on white, or the text;
+      remote images only as the reader loaded them: `print_document`); the window puts its body
+      into a shadow root in `#printout`, which only `@media print` shows, and prints the page
+      (WebView2's print preview, WebKitGTK's dialog). Save as PDF writes the same layout with
+      WebView2's `PrintToPdf` (15 mm margins, no header or footer); on Linux it opens the print
+      dialog (`save_pdf` answers `print_dialog`).
+    - View source (Ctrl+U) and All headers: a dialog with Source | Headers, Copy and Save as…; the
+      raw message as text, lines in the charset of their part (`export::source_text`, the first
+      MB), header fields unfolded and RFC 2047-decoded (`export::headers`, `message_source`).
+  - Calendar invitations (schema version 18: `invites`; the upgrade reads every stored message once,
+    a one-way upgrade). Mail with a text/calendar part or an .ics file shows a card above the text
+    (`inviteHtml` in app.js): what, when in local time (and in the zone it was written in, when that
+    clock differs: "10:00–11:00 in Pacific Standard Time (UTC−7)"), how it repeats in words, where,
+    the Teams/Meet/Zoom/Webex link (through `open_link`; not clickable in Spam), the organizer, the
+    people invited with their answers (✓ ? ✕), the user's answer. Accept, Maybe and Decline with an
+    optional comment send an iTIP REPLY (`answer_invite`): METHOD:REPLY, the same UID, SEQUENCE and
+    RECURRENCE-ID, only the user's ATTENDEE line, times in UTC, as multipart/alternative text plus
+    text/calendar; method=REPLY, to the ORGANIZER from the identity whose address was invited, through
+    the Outbox and SMTP like any mail; the invitation gets a note ("You accepted on …"). A newer
+    SEQUENCE (or the same with a later DTSTAMP) of the same UID makes older invitations outdated; a
+    CANCEL (or STATUS:CANCELLED) cancels them; the user's own REPLY in the Outbox or Sent, also one
+    written elsewhere, is their answer ("You accepted an earlier version" after an update). A REPLY in
+    the Inbox says who answered the user's meeting. Spam can't answer (the card says why). "Add to
+    calendar" opens the .ics through `open_attachment` (Mark of the Web; asks first in Spam); the
+    arrow saves it. The parser is Telex's own (`calendar.rs`): 1 MiB, 32 KiB lines, 500 components, 6
+    levels, 200 attendees listed; folded lines joined before decoding (Google folds inside UTF-8
+    characters), the part's charset, else Windows-1250. Time zones (`calendar/zones.rs`): IANA names
+    (also behind a path), Windows names through CLDR's table, both with chrono-tz's compiled database
+    (new dependency, MIT/Apache-2.0); other TZIDs from the VTIMEZONE's yearly rules and RDATEs. Wall
+    times in a spring-forward gap move past it, ones that come twice are the first (RFC 5545). A
+    nameless text/calendar part is listed as "invite.ics".
+  - The address book (schema version 19: `contacts`, `contact_emails`, `contact_groups`,
+    `contact_group_members`; a one-way upgrade): `contacts.rs`, `vcard.rs`, the Address book dialog
+    (B, the toolbar's Contacts, the person button by a sender, the message menu's "Add … to the
+    address book"). Contacts have a name, addresses (the first primary; an address belongs to one
+    contact), a phone, an organization and a note; groups hold contacts (by their primary address)
+    and addresses that aren't contacts. Compose suggests contacts first (marked, with the saved
+    name, robots too when saved) and groups by name; a group goes in at once as its people's
+    addresses (picked, or its name typed whole and left), so the reply-to-many check counts them.
+    The header shows saved names for From, To and Cc. People written to are offered at the end of
+    the list (`suggested_contacts`), never added by themselves. vCard in (2.1/3.0/4.0, several cards
+    a file, quoted-printable and CHARSET of old Outlook exports, folded lines, UTF-16, KIND:group and
+    Apple's group cards, CATEGORIES as groups, Google's myContacts left out; a known UID or address
+    only fills in) and out (3.0, all or the Ctrl/Shift-clicked ones). Moving in brings Thunderbird's
+    address books (abook*.sqlite with their lists; history.sqlite, Collected Addresses, unticked)
+    and the Contacts folders of a .pst (named properties for the addresses; distribution lists
+    aren't read). Contacts stay out of the settings file (mail data; backups have them). Before the
+    first account, a change to the address book makes the mail base on disk, as moving in does.
+    Site: points and the B key.
+  - Tags (schema version 20: `messages.keywords`, `tags`, `accounts.local_tags`; one-way upgrade, as
+    every schema step): colored labels, several to a message, like The Bat!'s colored mail and
+    Thunderbird's tags (`tags.rs`). On a server a tag is an IMAP keyword: Thunderbird's five come
+    built in (`$label1` Important, `$label2` Work, `$label3` Personal, `$label4` To do, `$label5`
+    Later; named in the interface's language until renamed), a new tag's keyword comes from its name
+    as Thunderbird makes one ("Projekt X" → `projekt_x`, non-ASCII in lowercased modified UTF-7), so
+    a tag made in both programs is one tag. Only keywords that are tags here are kept. Sync both ways:
+    FLAGS brings the server's keywords with the flags (only what differs is written; a keyword whose
+    change is still queued keeps its value here), changes queue as kind 'keyword' (`target` the
+    keyword, `value` on/off, one per message and keyword) and go as one `UID STORE ±FLAGS.SILENT
+    (keyword)` per keyword and sign. A folder whose PERMANENTFLAGS has neither `\*` nor the keyword
+    makes the account keep its tags on this PC (`local_tags`; said once as a check problem; the
+    server's empty keywords then never take them away; Settings › Tags names such accounts). Folders on
+    this PC keep tags in the mail base; moves keep them; mail uploaded from this PC takes them in its
+    APPEND (again without them if the server minds); mail moved back before the server heard sends
+    only the tags that changed meanwhile (the expunge's `target` remembers what the server copy had).
+    Deleting a tag takes it off every message at once, here and on the server (asked first, with the
+    count), so nothing lingers in other programs and nothing needs cleaning later. The window: chips
+    before the subject in every list (three, then +n; `--tag-<color>` and `--tag-<color>-fg` per
+    theme for the eight `tags::COLORS`, checked by check-contrast.mjs), under the subject above a
+    message, keys 1–5, the message menu's Tags… and a tag button above a message (ticked menus), and
+    Settings › Tags (name in place, color from the palette, order, New tag, Delete). Search
+    `tag:work` (name or keyword, diacritics ignored, else names that start so) and `is:tagged` /
+    `is:untagged`; saved searches keep them. Rules: condition Tag has / doesn't have / has any / has
+    none, actions Add a tag / Take a tag off, with notes ("tagged it Later"); a rule whose tag was
+    deleted says so when it runs. Copy as Markdown lists a message's tags; the settings file carries
+    the tags with the rules ("Rules and tags"), by keyword.
+  - Tags moving in from Thunderbird (no schema change): prefs.js `mailnews.tags.<keyword>.tag`,
+    `.color` and `.ordinal` become tags with the same keyword (`thunderbird::read_tags`,
+    `MailStore::import_tag`), Thunderbird's color going to the nearest of `tags::COLORS` by hue
+    (`tags::color_from_hex`; gray when it has little); `$label1`–5 still named as Thunderbird names
+    them (English or Polish) keep Telex's names. They show under the move-in plan's "Filters and
+    tags" and come with that tick, before the mail (`migrate::tags`; the report's `tags`, Add /
+    Update / Same as a settings import). Filters: the condition "tag" (is, contains → Tag has;
+    isn't, doesn't contain → hasn't; is empty, isn't empty) and the actions "AddTag", "Remove tag"
+    and the old "Label" 1–5 become rules instead of being listed as unsupported; a tag that isn't
+    here leaves the rule out with the editor's reason. mbox: `X-Mozilla-Keys` and `X-Keywords`
+    (spaces or commas, folded lines) give a message read in its tags (only keywords that are tags
+    here); a folder saved as mbox writes one `X-Keywords` with its tags and leaves the old two out.
+  - Richer HTML compose (schema version 21: `identities.signature_html`, `new_template`,
+    `reply_template`, `folder_templates`; one-way; setting `image_size`):
+    - Pictures: pasted, dropped from Explorer where they should go, or Insert picture… (the Open
+      dialog, pictures only), made smaller by the core (`images.rs`, image crate with PNG, JPEG, GIF,
+      WebP only: Large 1600 px, Medium 800 px or as they are; a photo made smaller is turned upright
+      and loses its EXIF, location included; GIFs stay as they are). In the editor they are data:
+      URIs; `smtp::compose` and `compose_draft` make each a part of a multipart/related beside the
+      HTML (`html::inline_images`, `cid:<n>.<Message-ID>`), and E and drafts turn them back
+      (`html::editable`). Pasted remote pictures are left out, never fetched: fetching would tell
+      their server who pasted, and sending their addresses would let it see who reads; the status
+      bar says how many and to save them and Insert picture. Pictures shown in a message's text
+      (cid: in its HTML) aren't listed as its files any more (`mime::files`), for received mail too.
+    - `html::compose_clean` is a strict allowlist: the old tags plus tables, sub/sup, h4–h6 and
+      img; `style` only `color` from `TEXT_COLORS`, `background-color` from `MARK_COLORS`,
+      `font-size` 12px or 18px (the browser's small and x-large written so); img only as data:
+      (PNG, JPEG, GIF, WebP in base64; 5 MB each, 15 MB and 40 in all) or cid:; the class
+      `telex-signature` on a div; nothing else. Text color, highlight and size come from the bar
+      (`execCommand` with styleWithCSS); the editor shows each palette color in its theme's own
+      readable shade (`--pal-1..6`, `--mark-1..4` in themes.css, checked by check-contrast.mjs) by
+      attribute selectors with !important, so what's sent stays as chosen.
+    - HTML signatures: Settings › Writing and the identity form edit them with compose's editor
+      (formatting, colors, a picture: 600 px, 100 KB each, 200 KB in all). `Identity::prepared`
+      cleans them and keeps their text in `signature` for plain-text mail; one without formatting
+      stays plain. In HTML compose the signature sits in `<div class="telex-signature">`, which
+      another identity's replaces. Thunderbird's HTML signatures come over as HTML.
+    - A reply or forward in HTML quotes the original's own HTML (`html::quotable`: sanitized, its
+      own pictures within 5 MB, remote ones left out, styles down to the palette, at most 2 MB;
+      else its text), in a blockquote that cfold folds as before; `start_draft` returns `html`.
+    - Templates: per identity what new messages (`new_template`, a greeting) and replies
+      (`reply_template`) open with, typing starting below them (`caret_line`); `{first}` (the
+      first name) joins the placeholders, and a new message has only {date} and {time}. Per folder
+      (`FolderTemplate`: new, reply, reply header) from Settings › Writing › Folder templates or a
+      folder's menu › Templates…; each one that isn't empty wins over the identity's (the open
+      folder's for a new message, the original's for a reply). Settings files carry identities'
+      `signature_html` and templates, and folders' templates by account address and folder id,
+      else name, like rules (`templates`; with the identities).
+  - POP3 accounts (schema version 22: `accounts.incoming`, `pop3_leave`, `pop3_days`,
+    `pop3_until_deleted`, `pop3_uidls`; one-way):
+    - An account gets its mail over IMAP or POP3 (`ImapSettings.pop3: Option<Pop3Keep>`, the
+      same host, port, user and security columns; `Account::is_pop3`). A POP3 server keeps only
+      an Inbox, so a POP3 account's folders are all here, like the folders on this PC but under
+      the account (its color, identities, rules, Outbox): Inbox, Drafts, Sent, Archive, Spam and
+      Trash, and the user's own (the tree's account menu › New folder, F2, Delete folder;
+      `create_folder`). Reading, flagging and moving queue nothing; sent mail goes to the local
+      Sent. Switching an account between IMAP and POP3 is refused (remove and add it again).
+    - `pop3.rs`: TLS on 995 or STLS on 110 (never plain; nothing may follow STLS's +OK), CAPA,
+      AUTH PLAIN where offered, else USER/PASS ([IN-USE] and [SYS/TEMP] aren't login errors);
+      UIDL is required (a server without it is refused when the account is added); STAT/LIST/RETR/
+      DELE/QUIT with dot-unstuffing, a 2-minute timeout per line, 8 KB status lines, 4 MB message
+      lines, 100 MB messages (a larger one stays on the server, said once) and a million listed.
+      Through `servers.rs` like IMAP: places per address, rests, the log with protocol "pop3".
+    - Every UIDL Telex knows is a row of `pop3_uidls`: `here` (downloaded; `message` NULL once
+      deleted here for good, by ON DELETE SET NULL), `older` (left by the first check, which takes
+      the newest 300; the status bar offers them through `download_older`), `known` (Thunderbird
+      had it), `big`. Nothing comes twice, also mail deleted here. What stays on the server
+      (`Pop3Keep`, Settings › Accounts › Edit › On the server): by default everything until it is
+      deleted here for good; or removed once here; or after N days. DELE goes at the end of a
+      check; the server removes at QUIT. A row the server hasn't listed for 90 days goes.
+    - New mail goes through the same path as IMAP's Inbox (`imap::sort_arrived`): the spam filter,
+      rules, the away reply (Telex answers: no Sieve for POP3), notifications, `sync-progress`,
+      `check_mail`'s results. `push_mail` skips POP3 accounts (no IDLE); the regular checks
+      bring their mail. After a restore, a POP3 account's next check is like its first, so mail
+      from since the backup comes down without rules or replies running twice.
+    - Finding servers: a setup file's POP3 server when it has no encrypted IMAP one, SRV
+      `_pop3s._tcp` when there is no `_imaps`; the form has Incoming mail (IMAP | POP3), its
+      security and port, and what stays on the server. Settings files carry `pop3` with the
+      server. Thunderbird's POP3 accounts come over as POP3 accounts (servers, identities, what
+      they left on the server, their filters), their mail into their own folders, and the UIDLs of
+      popstate.dat (k kept, d deleted there; X-UIDL headers link messages) so Thunderbird's mail
+      isn't fetched again. Outlook's POP3 accounts stay blocked: which mail it downloaded is in
+      its .pst. Mail files can be dropped on a POP3 account's folders too.
+  - OpenPGP (schema version 23: `pgp_keys`, `pgp_key_ids`, `autocrypt_peers`, `pgp_prefs`; one-way;
+    settings `backup_secret_keys`, `pgp_sign`, `pgp_autocrypt`; docs/encryption.md). rPGP (MIT or
+    Apache-2.0, pure Rust; Sequoia is LGPL). Reading: PGP/MIME (RFC 3156) and inline PGP, a line
+    above the message: Signed by (a confirmed key of the From address), unconfirmed (a key from
+    their mail: its fingerprint and Confirm key), another address's key, no key, bad, revoked,
+    expired, partly signed; encrypted mail decrypted on open with the user's keys, the passphrase
+    asked in that line (Remember: the system's password store). Encrypted mail is stored as it
+    came: no text in the mail base or its search; the decrypted message lives in memory (the last 8)
+    for HTML (same sanitizer), attachments, replies. Damaged mail, mail for another key, over 64 MB
+    decrypted (compression bombs stop there), and formats without integrity protection show nothing.
+    Autocrypt Level 1: keys from incoming mail (not Spam), unconfirmed; keys attached to mail offered.
+    Keys (Settings › Keys): own and others', fingerprints, import (files, pasted, from a message),
+    make (Ed25519/X25519, or RSA 3072; a passphrase required), export public, back up secret,
+    confirm, forget passphrase, delete; backups carry secret keys only with `backup_secret_keys`.
+    Writing: Sign, Encrypt and My key in compose (multipart/signed with quoted-printable text;
+    multipart/encrypted to everyone and the sender, signed inside, subject inside and "..." outside,
+    Bcc anonymous); Send refuses with the addresses that have no key and asks for the passphrase to
+    sign; a reply to encrypted mail starts encrypted, else as last chosen per person; encrypted
+    drafts encrypted to the sender; an Autocrypt header with the sender's key. Checked against
+    GnuPG 2.4.9 both ways.
+  - S/MIME (schema version 24: `smime_certs`; one-way; docs/encryption.md). RustCrypto's cms,
+    x509-cert and pkcs12 (MIT or Apache-2.0; der 0.7, as rsa); rustls-webpki (ISC) for chains off
+    Windows. Reading: multipart/signed with application/(x-)pkcs7-signature, application/pkcs7-mime
+    signed-data (opaque) and enveloped-data, also signed inside, in the same line above the message
+    as OpenPGP's (`View.smime`): Signed by, certified by its authority (valid, within the
+    certificate's dates at the signing time, the From address in its subjectAltName or emailAddress,
+    and a chain Windows trusts for email, or a certificate the user confirmed or owns); unconfirmed
+    (fingerprint, Confirm certificate), another address, not carried, bad, expired, revoked (as far
+    as Windows knows), and `unsupported` (RSASSA-PSS, MD5). Chains: CryptoAPI with the message's
+    certificates as helpers, from the cache only and without root updates (nothing fetched, so a
+    sender's AIA address learns nothing); elsewhere rustls-webpki against the system's authorities
+    (rustls-native-certs), else unconfirmed. Decrypting: RSA key transport (PKCS #1 v1.5 and OAEP),
+    AES-128/192/256-CBC and 3DES-CBC, with an own certificate's key; locked keys ask for the .p12
+    password in the line; authEnveloped (AES-GCM) says unsupported, and key agreement (EC
+    certificates) isn't read. BER
+    (Thunderbird's streaming, Windows' .pfx) is made DER first, with depth and size limits; CMS over
+    48 MB, decrypted over 64 MB, and more than 8 signatures, 32 certificates or 256 recipients aren't
+    looked at. Nothing decrypted is stored or indexed (openpgp.rs's memory). Keys: .p12/.pfx imported
+    with its password asked once (OpenSSL 3's PBES2/AES and `-legacy` 3DES/RC2, MAC checked first,
+    iterations capped), the private key kept sealed in the mail base (PKCS #8, PBES2 PBKDF2-SHA256 +
+    AES-256-CBC) under that password, open for the session, the password in the system store only
+    with Remember ("smime:<fingerprint>"); backups drop sealed keys too without
+    `backup_secret_keys`. Certificates of valid signatures by the From address are kept (sync and
+    open) to encrypt to; files (.cer, .pem, .p7b) import as confirmed. Settings › Keys › Certificates
+    (S/MIME). Writing: compose's OpenPGP | S/MIME switch when the sender has both (S/MIME when only a
+    certificate, a reply to S/MIME mail, or only certificates reach everyone); Sign (SHA-256,
+    signing time, S/MIME capabilities, the chain), Encrypt (AES-256-CBC, RSA PKCS #1 v1.5, to every
+    recipient's certificate that the user confirmed or a trusted authority vouches for, and the
+    sender's), signed first; the subject stays outside; Bcc with Encrypt is refused (S/MIME names
+    every recipient); encrypted drafts sealed to the sender. Checked against OpenSSL 3.5.5 both ways.
+  - Keys and tips as a panel (no schema change): ? or F1, Help in the status bar (a "? Help" pill
+    instead of the bare "?") and in the toolbar (an icon in Classic), and a link on the welcome
+    panel open a dialog that stays until Esc, a click outside or ×. Keys in eight groups (Moving
+    around, Reading, Selecting, Acting on mail, Writing, Search, Folders and accounts, The window)
+    drawn as keycaps, two columns when wide; the group for where it was opened comes first (compose,
+    the tree, the search box, several messages, the message); tips below. A filter, focused on open,
+    finds keys and tips by words in English and Polish, diacritics ignored ("kosz", "undo");
+    ↓ ↑ Enter (or a click) use the safe keys (N, R, M, G, T, /, Ctrl+, …). The keys come from `KEYS`
+    in app.js, checked against the table above by `scripts/check-keys.mjs` (CI). Once, a few seconds
+    into a start with mail, the status bar says "Press ? or F1 for every key and tip" (`helpTold` in
+    `telex-ui`). The search box rests at 228 px (was 280) so the Polish toolbar keeps its words.
+  - More languages (no schema change): German, Czech, Slovak, Ukrainian, Spanish, French and
+    Italian besides English and Polish, in the interface (`ui/i18n/<code>.js`, loaded only when
+    chosen) and the core (`crates/telex-core/i18n/<code>.json` through the `telex-i18n` macros;
+    `tr!` keeps its English and Polish). Machine-written: each should be reviewed by a native
+    speaker before it is called finished. "auto" picks the first of Windows' display languages
+    Telex speaks (on Linux, LANGUAGE and the locale); Settings › Language lists each in itself, and
+    the first-start wizard has a small picker with a nudge in the region's language. A new
+    identity gets the signature and the reply and forward headers in the interface's language
+    (Polish for Polish and English, as before); {date} is 10/10/2026 in Spanish, French and
+    Italian. Attachment words and reply prefixes of these languages are understood
+    (`mentions_attachment`, Re:/AW:/TR:/R:/Відп:). LibreOffice's Slovak, French and Italian
+    dictionaries can be fetched for spelling. Dates and numbers in the UI follow the language
+    (`I18n.locale()`, `dateSep()`). The core's refused-change sentences are whole sentences per
+    change, and rule notes name special folders as the interface does (`FolderKind::shown_name`).
+  - Cyrillic in the bundled fonts (no schema change): @fontsource 5.3.0's cyrillic subset (U+0400–045F
+    with Ґ ґ, Ұ ұ, №) of Plex Sans and Mono, Inter, JetBrains Mono, Source Sans 3 and Source Code Pro,
+    16 files, 142 KB, loaded only when Cyrillic is on screen (unicode-range). Plex Sans Condensed has
+    none, so the list's Plex stack goes on to Plex Sans; Atkinson Next and Mono have none either, so
+    their Cyrillic is Segoe UI and Consolas. ₴ and the cyrillic-ext letters (Kazakh, Abkhaz, old
+    Slavonic) aren't bundled (another 115 KB) and show in the system's face.
 
 - New in 0.9.11 (no schema change; setting `usage_count`):
   - Gentler on shared servers (no schema change): 31 Purelymail accounts checked at once, each with

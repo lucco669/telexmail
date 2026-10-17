@@ -69,17 +69,19 @@ function installTelexDemo(options) {
   const stamp = () => fmt(now());
 
   /* ---------- settings and language ---------- */
+  const SPOKEN = ['en', 'pl', 'de', 'cs', 'sk', 'uk', 'es', 'fr', 'it'];
   const autoLang = (() => {
     const all = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'])
       .map((l) => String(l).slice(0, 2).toLowerCase());
-    return all.find((l) => l === 'en' || l === 'pl') === 'pl' ? 'pl' : 'en';
+    return all.find((l) => SPOKEN.includes(l)) || 'en';
   })();
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
-    language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
+    language: ['auto', ...SPOKEN].includes(askedLang) ? askedLang : 'auto',
     toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, ask_attachment: true, ask_many: true, spell_check: true,
-    updates: 'off', usage_count: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
+    updates: 'off', usage_count: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5,
+    backup_secret_keys: true, pgp_sign: false, pgp_autocrypt: true, ...startSettings,
   };
   const SLIPS = {
     teh: ['the'], recieve: ['receive'], adress: ['address'], wich: ['which'], seperate: ['separate'], definately: ['definitely'],
@@ -87,12 +89,15 @@ function installTelexDemo(options) {
     dziekuje: ['dziękuję'], napewno: ['na pewno'], wogóle: ['w ogóle'], pozatym: ['poza tym'], spotkanei: ['spotkanie'],
   };
   const ownWords = new Set(); // Add to dictionary, for this visit
-  const lang = () => (settings.language === 'auto' ? autoLang : settings.language === 'pl' ? 'pl' : 'en');
+  const lang = () => (settings.language === 'auto' ? autoLang : SPOKEN.includes(settings.language) ? settings.language : 'en');
   const fill = (s, vars) => (vars ? s.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : s);
-  // The core's tr!: every sentence in English and Polish, in the interface's language.
+  // The core's tr!: every sentence in English and Polish, in the interface's language (the demo
+  // has no catalogs: the other languages get the English).
   const tr = (en, pl, vars) => fill(lang() === 'pl' ? pl : en, vars);
   const fail = (en, pl, vars) => { throw tr(en, pl, vars); };
   const DEMO = {
+    vcard: ['This is a demo: it doesn’t read or write vCard files. Download Telex to bring your contacts in and out.',
+      'To tylko demo: nie czyta ani nie zapisuje plików vCard. Pobierz Telex, aby przenosić swoje kontakty.'],
     servers: ['This is a demo: it can’t log in to real mail servers. Download Telex to use your own mail.',
       'To tylko demo: nie łączy się z prawdziwymi serwerami poczty. Pobierz Telex, aby używać własnej poczty.'],
     open: ['This is a demo: its attachments are only names, with nothing inside to open. Download Telex to open your own.',
@@ -109,6 +114,8 @@ function installTelexDemo(options) {
       'Przeglądarka zablokowała okno. Zezwól tej stronie na wyskakujące okna, aby otwierać wiadomości w osobnych oknach.'],
     backup: ['This is a demo: it doesn’t write or read files. Download Telex to back up your own mail.',
       'To tylko demo: nie zapisuje ani nie czyta plików. Pobierz Telex, aby robić kopie zapasowe własnej poczty.'],
+    eml: ['This is a demo: it doesn’t write files. Download Telex to save your own mail as .eml files.',
+      'To tylko demo: nie zapisuje plików. Pobierz Telex, aby zapisywać własną pocztę jako pliki .eml.'],
     mbox: ['This is a demo: it doesn’t write or read mail files. Download Telex to save folders as mbox and bring mail in from files.',
       'To tylko demo: nie zapisuje ani nie czyta plików z pocztą. Pobierz Telex, aby zapisywać foldery jako mbox i wczytywać pocztę z plików.'],
     away: ['This is a demo: it doesn’t send automatic replies. Download Telex to set one up for your own mail.',
@@ -117,6 +124,10 @@ function installTelexDemo(options) {
       'To tylko demo: nie pobiera słowników. Pobierz Telex, aby sprawdzać pisownię.'],
     move: ['This is a demo: it doesn’t look for other mail programs or read their files. Download Telex to bring your mail from Thunderbird or Outlook.',
       'To tylko demo: nie szuka innych programów pocztowych ani nie czyta ich plików. Pobierz Telex, aby przenieść pocztę z Thunderbirda albo Outlooka.'],
+    pgp: ['This is a demo: it keeps no OpenPGP keys. Download Telex to sign and encrypt your own mail.',
+      'To tylko demo: nie przechowuje kluczy OpenPGP. Pobierz Telex, aby podpisywać i szyfrować własną pocztę.'],
+    smime: ['This is a demo: it keeps no certificates. Download Telex to sign and encrypt with yours.',
+      'To tylko demo: nie przechowuje certyfikatów. Pobierz Telex, aby podpisywać i szyfrować swoim.'],
     update: ['This is a demo: it doesn’t update itself. Download the newest Telex instead.',
       'To tylko demo: nie aktualizuje się. Pobierz najnowszego Telexa.'],
   };
@@ -163,9 +174,18 @@ function installTelexDemo(options) {
     bcc: m.bcc || '', subject: m.subject || '', date: m.date, size_kb: Math.max(1, m.size_kb || 1), unread: !!m.unread,
     flagged: !!m.flagged, remote_images: !!m.remote_images, note: (startLang === 'pl' && m.note_pl) || m.note || null,
     attachments: (m.attachments || []).map((a) => ({ name: a.name, size_kb: a.size_kb })), body: m.body || '', html: m.html || null,
-    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, out: null, ...extra,
+    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, invite: m.invite ? clone(m.invite) : null, out: null, tags: [...(m.tags || [])].sort(), ...extra,
   });
-  const msgs = picked.map((m) => message({ ...m, date: shiftDate(m.date), body: shiftText(m.body || '') }));
+  // An invitation's times move with its message; its rule in words follows the language.
+  const shiftInvite = (iv) => {
+    if (!iv) return null;
+    const x = clone(iv), ev = x.event;
+    for (const o of [ev, ev.zone].filter(Boolean)) for (const k of ['start', 'end']) if (o[k]) o[k] = shiftDate(o[k]);
+    if (startLang === 'pl' && ev.repeats_pl) ev.repeats = ev.repeats_pl;
+    delete ev.repeats_pl;
+    return x;
+  };
+  const msgs = picked.map((m) => message({ ...m, date: shiftDate(m.date), body: shiftText(m.body || ''), invite: shiftInvite(m.invite) }));
   const byId = (id) => msgs.find((m) => m.id === id);
   const need = (id) => byId(id) ?? fail('message {id} does not exist', 'wiadomość {id} nie istnieje', { id });
 
@@ -246,7 +266,65 @@ function installTelexDemo(options) {
   const summary = (m) => ({
     id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, subject: m.subject,
     date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged, has_attachments: m.attachments.length > 0,
+    ...(goesOf(m) ? { goes: goesOf(m) } : {}),
+    ...(m.tags.length ? { tags: [...m.tags] } : {}),
   });
+  // Mail sent later (or waiting out its moment): when it goes, as the core says it.
+  const goesOf = (m) => m.out && !m.out.held && m.out.send_after ? fmt(new RealDate(m.out.send_after)) : null;
+  /* ---------- tags (tags.rs) ---------- */
+  // Thunderbird's five, named in the interface's language until renamed, then the user's own.
+  const TAG_DEFAULTS = { $label1: ['Important', 'Ważne'], $label2: ['Work', 'Praca'], $label3: ['Personal', 'Osobiste'], $label4: ['To do', 'Do zrobienia'], $label5: ['Later', 'Później'] };
+  const TAG_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray'];
+  let tagDefs = [['$label1', 'red'], ['$label2', 'orange'], ['$label3', 'green'], ['$label4', 'blue'], ['$label5', 'purple']].map(([keyword, color]) => ({ keyword, name: null, color }));
+  const tagName = (d) => d.name ?? (TAG_DEFAULTS[d.keyword] ? tr(...TAG_DEFAULTS[d.keyword]) : d.keyword);
+  const tagList = () => tagDefs.map((d) => ({ keyword: d.keyword, name: tagName(d), color: d.color, count: msgs.filter((m) => m.tags.includes(d.keyword)).length }));
+  const tagGone = () => fail('That tag no longer exists.', 'Tej etykiety już nie ma.');
+  function setTag(ids, keyword, on) {
+    if (!tagDefs.some((d) => d.keyword === keyword)) tagGone();
+    return ids.reduce((n, id) => {
+      const m = byId(id);
+      if (!m || m.tags.includes(keyword) === on) return n;
+      m.tags = on ? [...m.tags, keyword].sort() : m.tags.filter((k) => k !== keyword);
+      return n + 1;
+    }, 0);
+  }
+  // tags.rs's keyword_for for plain names: spaces and ()/{%*<>"\ become _, lowercase.
+  function saveTag({ tag }) {
+    const name = String(tag.name ?? '').trim(), keyword = String(tag.keyword ?? '').trim().toLowerCase();
+    const isDefault = !!TAG_DEFAULTS[keyword];
+    if (name.length > 40 || (!name && !isDefault)) fail('Give the tag a name of 1–40 characters.', 'Nadaj etykiecie nazwę od 1 do 40 znaków.');
+    if (!TAG_COLORS.includes(tag.color)) fail('Pick one of the tag colors.', 'Wybierz jeden z kolorów etykiet.');
+    const shown = name || tr(...TAG_DEFAULTS[keyword]);
+    if (tagDefs.some((d) => d.keyword !== keyword && fold(tagName(d)) === fold(shown))) fail('A tag already has that name.', 'Etykieta o tej nazwie już istnieje.');
+    const stored = !name || (isDefault && shown === tr(...TAG_DEFAULTS[keyword])) ? null : name;
+    let d = tagDefs.find((x) => x.keyword === keyword);
+    if (!keyword) {
+      if (tagDefs.length >= 50) fail('Telex keeps up to 50 tags.', 'Telex przechowuje do 50 etykiet.');
+      let k = fold(name).replace(/[\s()/{%*<>"\\\]]/g, '_').replace(/[^\x21-\x7e]/g, '') || 't';
+      while (tagDefs.some((x) => x.keyword === k)) k += 'a';
+      d = { keyword: k, name: stored, color: tag.color };
+      tagDefs.push(d);
+    } else if (!d) tagGone();
+    else Object.assign(d, { name: stored, color: tag.color });
+    return tagList().find((x) => x.keyword === d.keyword);
+  }
+  function deleteTag({ keyword }) {
+    const n = setTag(msgs.filter((m) => m.tags.includes(keyword)).map((m) => m.id), keyword, false);
+    tagDefs = tagDefs.filter((d) => d.keyword !== keyword);
+    return n;
+  }
+  function moveTag({ keyword, delta }) {
+    const from = tagDefs.findIndex((d) => d.keyword === keyword);
+    if (from < 0) return null;
+    const [d] = tagDefs.splice(from, 1);
+    tagDefs.splice(Math.max(0, Math.min(tagDefs.length, from + delta)), 0, d);
+    return null;
+  }
+  // list.rs's tag_keywords: the tag of that name or keyword, else those whose name starts so.
+  function tagKeywords(wanted) {
+    const exact = tagDefs.filter((d) => fold(tagName(d)) === wanted || d.keyword === wanted);
+    return (exact.length ? exact : tagDefs.filter((d) => fold(tagName(d)).startsWith(wanted))).map((d) => d.keyword);
+  }
   // The quick filter's operators: from: to: subject: is: has:file after: before: larger: smaller:.
   function tokens(filter) {
     const out = []; let cur = '', quoted = false;
@@ -280,19 +358,21 @@ function installTelexDemo(options) {
     return number && !Number.isNaN(n) && factor && n >= 0 ? Math.round(n * factor) : null;
   }
   function parseTerms(filter) {
-    const t = { text: '', from: [], to: [], subject: [], unread: null, flagged: null, has_file: false, after: null, before: null, larger: null, smaller: null };
+    const t = { text: '', from: [], to: [], subject: [], unread: null, flagged: null, tags: [], tagged: null, has_file: false, after: null, before: null, larger: null, smaller: null };
     const words = [];
     for (const token of tokens(filter)) {
       const at = token.indexOf(':');
       if (at < 0) { words.push(token); continue; }
       const key = token.slice(0, at).toLowerCase(), value = token.slice(at + 1).replace(/^"+|"+$/g, '').trim();
-      const known = ['from', 'to', 'subject', 'is', 'has', 'after', 'before', 'larger', 'smaller'].includes(key);
+      const known = ['from', 'to', 'subject', 'tag', 'is', 'has', 'after', 'before', 'larger', 'smaller'].includes(key);
       if (known && !value) continue; // still being typed
       let used = true;
       const v = value.toLowerCase();
       if (key === 'from') t.from.push(v);
       else if (key === 'to') t.to.push(v);
       else if (key === 'subject') t.subject.push(v);
+      else if (key === 'tag') t.tags.push(fold(value));
+      else if (key === 'is' && (v === 'tagged' || v === 'untagged')) t.tagged = v === 'tagged';
       else if (key === 'is') {
         if (v === 'unread' || v === 'new') t.unread = true;
         else if (v === 'read' || v === 'seen') t.unread = false;
@@ -342,6 +422,8 @@ function installTelexDemo(options) {
       && t.to.every((v) => has(v, [m.to, m.cc, m.bcc]))
       && t.subject.every((v) => has(v, [m.subject]))
       && (t.unread == null || m.unread === t.unread) && (t.flagged == null || m.flagged === t.flagged)
+      && (t.tagged == null || (m.tags.length > 0) === t.tagged)
+      && t.tags.every((v) => tagKeywords(v).some((k) => m.tags.includes(k)))
       && (!t.has_file || m.attachments.length > 0)
       && (!t.after || m.date >= t.after) && (!t.before || m.date < t.before)
       && (t.larger == null || m.size_kb >= t.larger) && (t.smaller == null || m.size_kb < t.smaller);
@@ -427,7 +509,7 @@ function installTelexDemo(options) {
     // Each account's storage and last check, as usage.rs keeps them (the status-bar meter).
     const quota = Object.fromEntries(Object.entries(data.quota || {}).filter(([, q]) => q));
     const synced = Object.fromEntries(Object.entries(lastSync).filter(([, at]) => at));
-    return { accounts, counts, problems: {}, away: [], quota, synced };
+    return { accounts, counts, problems: {}, away: [], quota, synced, tags: tagList() };
   }
 
   /* ---------- changes to mail (store.rs) ---------- */
@@ -456,17 +538,55 @@ function installTelexDemo(options) {
   }
   // markdown.rs: messages oldest first, each a heading, its header as a list, then its text.
   function messageMarkdown({ ids }) {
-    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() === 'pl' ? ',' : '.')} MB`);
+    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() !== 'en' ? ',' : '.')} MB`);
     const line = (s) => String(s ?? '').split(/\s+/).filter(Boolean).join(' ');
     return ids.map(need).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map((m) => {
       const from = !m.from_name || m.from_name.toLowerCase() === m.from_email.toLowerCase() ? m.from_email : `${m.from_name} <${m.from_email}>`;
       const fields = [[tr('From', 'Od'), from], [tr('To', 'Do'), m.to], [tr('Cc', 'DW'), m.cc],
         [tr('Bcc', 'UDW'), isOutgoing(kindOf(m.folder)) ? m.bcc : ''], [tr('Date', 'Data'), m.date.slice(0, 16).replace('T', ' ')],
-        [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')]];
+        [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')],
+        [tr('Tags', 'Etykiety'), tagList().filter((x) => m.tags.includes(x.keyword)).map((x) => x.name).join(', ')]];
       const head = fields.map(([k, v]) => [k, line(v)]).filter(([, v]) => v).map(([k, v]) => `- **${k}:** ${v}\n`).join('');
       const text = String(m.body || '').replace(/\r\n/g, '\n').replace(/^\n+|\s+$/g, '');
       return `# ${line(m.subject)}\n\n${head}${text ? `\n${text}\n` : ''}`;
     }).join('\n---\n\n');
+  }
+  // View source and All headers (export.rs): the demo's messages have no raw form, so one is
+  // written from what they have, as a plain-text or HTML message.
+  function messageSource({ id }) {
+    const m = need(id);
+    const day = parse(m.date);
+    const date = `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][day.getDay()]}, ${day.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][day.getMonth()]} ${day.getFullYear()} ${m.date.slice(11, 19)} +0200`;
+    const headers = [['From', m.from_name && m.from_name !== m.from_email ? `${m.from_name} <${m.from_email}>` : m.from_email],
+      ['To', m.to], ['Cc', m.cc], ['Subject', m.subject], ['Date', date], ['Message-ID', `<demo-${m.id}@telexmail.app>`],
+      ['MIME-Version', '1.0'], ['Content-Type', `${m.html ? 'text/html' : 'text/plain'}; charset=utf-8`], ['Content-Transfer-Encoding', '8bit']]
+      .filter(([, v]) => v).map(([name, value]) => ({ name, value: String(value) }));
+    const text = `${headers.map((h) => `${h.name}: ${h.value}`).join('\n')}\n\n${String(m.html || m.body || '').replace(/\r\n/g, '\n')}\n`;
+    return { text, cut: false, bytes: new TextEncoder().encode(text).length, headers };
+  }
+  // Print… and Save as PDF (export.rs's print_document): the header, then the HTML as the
+  // window shows it, or the text.
+  function printDocument({ id, html, loadImages }) {
+    const m = need(id);
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const line = (s) => String(s ?? '').split(/\s+/).filter(Boolean).join(' ');
+    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() === 'pl' ? ',' : '.')} MB`);
+    const from = !m.from_name || m.from_name.toLowerCase() === m.from_email.toLowerCase() ? m.from_email : `${m.from_name} <${m.from_email}>`;
+    const d = m.date;
+    const fields = [[tr('From', 'Od'), from], [tr('To', 'Do'), m.to], [tr('Cc', 'DW'), m.cc],
+      [tr('Bcc', 'UDW'), isOutgoing(kindOf(m.folder)) ? m.bcc : ''],
+      [tr('Date', 'Data'), lang() === 'pl' ? `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}, ${d.slice(11, 16)}` : d.slice(0, 16).replace('T', ' ')],
+      [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')]];
+    const rows = fields.map(([k, v]) => [k, line(v)]).filter(([, v]) => v).map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
+    const shown = html && m.html ? getHtml({ id, loadImages, dark: null }) : null;
+    const body = shown ? `<div class="mail">${(shown.document.match(/<body[^>]*>([\s\S]*)<\/body>/i) || [, ''])[1]}</div>`
+      : `<div class="text">${esc(String(m.body || '').replace(/\r\n/g, '\n').trimEnd())}</div>`;
+    const style = ".tp{color:#000;background:#fff;font:10.5pt/1.45 'Segoe UI',system-ui,sans-serif;overflow-wrap:anywhere}.tp h1{font-size:15pt;line-height:1.25;margin:0 0 8pt}"
+      + '.tp .hd{border-collapse:collapse;margin:0 0 12pt;width:100%;border-bottom:.75pt solid #777}.tp .hd th{text-align:left;font-weight:600;padding:1pt 12pt 1pt 0;vertical-align:top;white-space:nowrap;color:#333}'
+      + '.tp .hd td{padding:1pt 0;width:100%}.tp .hd tr:last-child th,.tp .hd tr:last-child td{padding-bottom:8pt}.tp .text{white-space:pre-wrap}'
+      + '.tp img{max-width:100%;height:auto}.tp table{max-width:100%}.tp a{color:#1d4690}.tp blockquote{margin:6pt 0 6pt 2pt;padding-left:8pt;border-left:2pt solid #8a9bb8}';
+    const title = esc(line(m.subject));
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>${style}</style></head><body><div class="tp"><h1>${title}</h1><table class="hd">${rows}</table>${body}</div></body></html>`;
   }
   // The menu's Spam and Not spam (spam.rs's mark_spam): to the account's Spam folder or back to
   // its Inbox. The demo's filter learns nothing; spam_status counts what the folders hold.
@@ -530,7 +650,11 @@ function installTelexDemo(options) {
     if (f.kind !== 'custom') fail('Archive and Trash on this PC stay as they are.', 'Archiwum i Kosz na tym komputerze zostają takie, jakie są.');
     return f;
   }
-  function createLocalFolder({ name }) {
+  // With `account`, a folder of a POP3 account; the demo's accounts are all IMAP.
+  function createLocalFolder({ name, account }) {
+    if (account && account !== LOCAL) {
+      fail('The folders of {email} are on its server: make them there, or on this PC.', 'Foldery konta {email} są na jego serwerze: utwórz je tam albo na tym komputerze.', { email: account });
+    }
     const n = localName(name), pc = thisPc();
     const base = n.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '') || 'folder';
     let id = base;
@@ -590,22 +714,47 @@ function installTelexDemo(options) {
     }
     return (asked !== LOCAL && account(asked)) || servers[0] || needAccount(asked);
   }
-  function startDraft({ kind, of, account: acct }) {
+  // drafts.rs's lay_out: a greeting, room to type, the signature, the quote; the same in HTML.
+  function layOut(draft, greeting, sig, sigHtml, tail) {
+    const g = (greeting || '').trimEnd(), head = g ? `${g}\n\n` : '';
+    draft.caret_line = g ? g.split('\n').length + 1 : 0;
+    draft.body = head + layout(sig, tail ? tail.text : null);
+    draft.html = fromText(head + '\n') + (sig ? `<div><br></div><div class="telex-signature">${sigHtml}</div>` : '') + (tail ? '<div><br></div>' + tail.html : '');
+    return draft;
+  }
+  // Folders' own templates (store/templates.rs): folder key → {folder, new_template, reply_template, reply_header}.
+  const folderTemplates = new Map();
+  function saveFolderTemplate({ template: t }) {
+    if (!folderOf(t.folder)) fail('That folder no longer exists.', 'Ten folder już nie istnieje.');
+    const x = { folder: t.folder, new_template: t.new_template || '', reply_template: t.reply_template || '', reply_header: t.reply_header || '' };
+    if (![x.new_template, x.reply_template, x.reply_header].some((v) => v.trim())) folderTemplates.delete(t.folder);
+    else folderTemplates.set(t.folder, x);
+  }
+  function startDraft({ kind, of, account: acct, folder }) {
     const m = kind === 'new' ? null : of != null ? need(of) : fail('Select a message first.', 'Najpierw wybierz wiadomość.');
     const a = sender(m, acct);
     const me = m ? identityFor(a, m) : defaultIdentity(a);
     const sig = m && settings.sign_replies === false ? '' : (me.signature || '').trimEnd();
-    const draft = { account: a.id, identity: me.id, to: '', cc: '', subject: '', body: layout(sig, null), attachments: [], reply_to: null, forward_of: null };
-    if (!m) return draft;
+    const sigHtml = me.signature_html || fromText(sig);
+    const own = folderTemplates.get(m ? m.folder : folder) || {};
+    const pick = (k) => (own[k] || '').trim() ? own[k].trimEnd() : (me[k] || '').trimEnd();
+    const draft = { account: a.id, identity: me.id, to: '', cc: '', subject: '', body: '', html: '', caret_line: 0, attachments: [], reply_to: null, forward_of: null };
+    const now = new Date();
+    const today = { name: '', first: '', email: '', from: '', subject: '', date: `${pad(now.getDate())}.${pad(now.getMonth() + 1)}.${now.getFullYear()}`, time: `${pad(now.getHours())}:${pad(now.getMinutes())}` };
+    const fill = (tpl, v) => ['name', 'first', 'email', 'from', 'date', 'time', 'subject'].reduce((s, k) => s.split(`{${k}}`).join(v[k]), tpl || '');
+    if (!m) return layOut(draft, fill(pick('new_template'), today), sig, sigHtml, null);
     const d = parse(m.date);
     const vars = {
-      name: m.from_name.trim() ? m.from_name : m.from_email, email: m.from_email, from: addressLine(m.from_name, m.from_email),
+      name: m.from_name.trim() ? m.from_name : m.from_email, first: (m.from_name.trim().split(/\s+/)[0] || '').replace(/@.*/, ''), email: m.from_email, from: addressLine(m.from_name, m.from_email),
       date: `${pad(d.getDate())}.${pad(d.getMonth() + 1)}.${d.getFullYear()}`, time: `${pad(d.getHours())}:${pad(d.getMinutes())}`, subject: m.subject,
     };
-    const expand = (tpl) => ['name', 'email', 'from', 'date', 'time', 'subject'].reduce((s, k) => s.split(`{${k}}`).join(vars[k]), tpl || '');
+    const expand = (tpl) => fill(tpl, vars);
+    // The original's own HTML in the quote (html::quotable): remote pictures left out.
+    const quotable = m.html ? cleanHtml(m.html.replace(/<img\b[^>]*\bsrc\s*=\s*"https?:[^>]*>/gi, '')) : null;
     if (kind === 'forward') {
-      return { ...draft, subject: `Fwd: ${stripPrefixes(m.subject)}`, attachments: m.attachments, forward_of: m.id,
-        body: layout(sig, `${expand(me.forward_header)}\n\n${textLines(m.body).join('\n')}`) };
+      const header = expand(me.forward_header), text = textLines(m.body).join('\n');
+      layOut(draft, '', sig, sigHtml, { text: `${header}\n\n${text}`, html: `${fromText(header)}<blockquote>${quotable ?? fromText(text)}</blockquote>` });
+      return { ...draft, subject: `Fwd: ${stripPrefixes(m.subject)}`, attachments: m.attachments, forward_of: m.id };
     }
     // Replying to your own message goes to its recipients again.
     const outgoing = isOutgoing(kindOf(m.folder));
@@ -623,8 +772,10 @@ function installTelexDemo(options) {
       add(cc, m.cc);
     }
     const quote = textLines(m.body).map((l) => (l.startsWith('>') ? '>' + l : '> ' + l)).join('\n');
-    return { ...draft, to: to.join(', '), cc: cc.join(', '), subject: `Re: ${stripPrefixes(m.subject)}`, reply_to: m.id,
-      body: layout(sig, `${expand(me.reply_header)}\n${quote}`) };
+    const header = expand(pick('reply_header'));
+    layOut(draft, expand(pick('reply_template')), sig, sigHtml,
+      { text: `${header}\n${quote}`, html: fromText(header) + (quotable != null ? `<blockquote>${quotable}</blockquote>` : fromText(quote)) });
+    return { ...draft, to: to.join(', '), cc: cc.join(', '), subject: `Re: ${stripPrefixes(m.subject)}`, reply_to: m.id };
   }
 
   /* ---------- HTML compose (html.rs) ---------- */
@@ -650,7 +801,28 @@ function installTelexDemo(options) {
     return out;
   }
   const COMPOSE_TAGS = new Set(['a', 'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'br', 'p', 'div', 'span', 'ul', 'ol', 'li', 'blockquote',
-    'pre', 'code', 'h1', 'h2', 'h3', 'hr']);
+    'pre', 'code', 'h1', 'h2', 'h3', 'hr', 'img', 'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'caption', 'sub', 'sup', 'h4', 'h5', 'h6']);
+  // html::TEXT_COLORS, MARK_COLORS, FONT_SIZES: the only styles kept.
+  const TEXT_COLORS = ['#c00000', '#b45309', '#15803d', '#1d4ed8', '#7e22ce', '#6b7280'], MARK_COLORS = ['#fff59d', '#c8f7c5', '#cfe8ff', '#ffd6e7'];
+  const hexOf = (v) => {
+    const m = /^#([0-9a-f]{6})$/i.exec(v) || /^#([0-9a-f]{3})$/i.exec(v);
+    if (m) return '#' + (m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1]).toLowerCase();
+    const r = /^rgb\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)\s*\)$/i.exec(v);
+    return r ? '#' + r.slice(1).map((x) => Number(x).toString(16).padStart(2, '0')).join('') : null;
+  };
+  function composeStyle(style) {
+    const kept = new Map();
+    for (const decl of String(style).split(';')) {
+      const at = decl.indexOf(':');
+      if (at < 0) continue;
+      const prop = decl.slice(0, at).trim().toLowerCase(), v = decl.slice(at + 1).replace(/!important/i, '').trim().toLowerCase();
+      if (prop === 'color' && TEXT_COLORS.includes(hexOf(v))) kept.set('color', hexOf(v));
+      else if ((prop === 'background-color' || prop === 'background') && MARK_COLORS.includes(hexOf(v))) kept.set('background-color', hexOf(v));
+      else if (prop === 'font-size') { const f = { small: '12px', 'x-large': '18px', '12px': '12px', '18px': '18px' }[v]; if (f) kept.set('font-size', f); }
+    }
+    return [...kept].map(([k, v]) => `${k}:${v}`).join(';');
+  }
+  const dataPicture = (src) => /^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=]+$/i.test(src);
   const DROPPED = new Set(['script', 'style', 'head', 'title', 'template', 'iframe', 'object', 'noscript', 'svg', 'math']);
   // html::compose_clean: those tags, links to http(s) and mailto only, nothing else.
   function cleanHtml(html) {
@@ -665,10 +837,18 @@ function installTelexDemo(options) {
           if (!COMPOSE_TAGS.has(tag)) { out += walk(n); continue; }
           if (tag === 'br' || tag === 'hr') { out += `<${tag}>`; continue; }
           let attrs = '';
+          if (tag === 'img') {
+            const src = (n.getAttribute('src') || '').trim();
+            if (dataPicture(src)) out += `<img src="${src}"${n.getAttribute('alt') != null ? ` alt="${escHtml(n.getAttribute('alt'))}"` : ''}>`;
+            continue;
+          }
           if (tag === 'a') {
             const href = (n.getAttribute('href') || '').trim();
             if (/^(https?:|mailto:)/i.test(href)) attrs = ` href="${escHtml(href)}"`;
           }
+          if (tag === 'div' && /\btelex-signature\b/.test(n.getAttribute('class') || '')) attrs += ' class="telex-signature"';
+          const style = composeStyle(n.getAttribute('style') || '');
+          if (style) attrs += ` style="${style}"`;
           out += `<${tag}${attrs}>${walk(n)}</${tag}>`;
         }
       }
@@ -861,7 +1041,8 @@ function installTelexDemo(options) {
     const clean = d.html != null ? cleanHtml(d.html) : null;
     const body = clean != null ? toText(clean) : String(d.body || '');
     const attachments = (d.attachments || []).map((x) => ({ name: x.name, size_kb: Math.max(1, x.size_kb | 0) }));
-    const orig = d.reply_to != null ? byId(d.reply_to) : null, replaced = d.replaces != null ? removeLocal(d.replaces) : null;
+    // An autosave (store.rs: stays on this PC) leaves the draft being edited as it is.
+    const orig = d.reply_to != null ? byId(d.reply_to) : null, replaced = d.replaces == null ? null : d.autosave ? byId(d.replaces) : removeLocal(d.replaces);
     if (d.autosaved != null) discardDraft({ id: d.autosaved });
     let thread = replaced?.thread ?? null;
     if (orig) thread = orig.thread ??= `t${orig.id}`;
@@ -889,10 +1070,51 @@ function installTelexDemo(options) {
     }
     return lines;
   }
-  function sendMessage({ draft }) {
+  // Send later (later.rs): in an hour, tomorrow or Monday at 08:00, or a time of one's own.
+  function laterWhen(later) {
+    const d = now(), at = (days) => new RealDate(d.getFullYear(), d.getMonth(), d.getDate() + days, 8, 0, 0);
+    if (later.kind === 'hour') { const h = new RealDate(nowMs() + 3600e3); h.setSeconds(0, 0); return h; }
+    if (later.kind === 'tomorrow') return at(1);
+    if (later.kind === 'monday') return at(7 - ((d.getDay() + 6) % 7));
+    const picked = parse(later.at);
+    picked.setSeconds(0, 0);
+    if (picked.getTime() < nowMs() + 60e3) fail('Pick a time later than now.', 'Wybierz godzinę późniejszą niż teraz.');
+    return picked;
+  }
+  function laterChoices() {
+    return ['hour', 'tomorrow', 'monday'].filter((kind) => kind !== 'monday' || now().getDay() !== 0)
+      .map((kind) => ({ kind, when: fmt(laterWhen({ kind })) }));
+  }
+  // Mail sent later goes at its time while the page is open (a timer, as in the app).
+  function sendWhenDue(m) {
+    const at = m.out.send_after, left = at - nowMs();
+    if (left < 2 ** 31 - 1) {
+      setTimeout(() => {
+        if (byId(m.id) !== m || !m.out || m.out.held || m.out.send_after !== at) return;
+        const sent = sendOutbox(acctId(m.folder));
+        if (sent.length) emit('outbox-sent', { queued: 0, sent, errors: [] });
+      }, Math.max(0, left) + 300);
+    }
+  }
+  function sendNow({ id }) {
+    const m = need(id);
+    if (!m.out) fail('This message can\'t go as it is. Press E to change it first.', 'Ta wiadomość nie może wyjść w obecnej postaci. Naciśnij E, żeby ją najpierw zmienić.');
+    m.out = { send_after: null, held: false };
+    m.note = null;
+    return { queued: id, wait: 0, goes: null, sent: sendOutbox(acctId(m.folder)), errors: [] };
+  }
+  function sendMessage({ draft, later = null }) {
     checkFiles(draft.attachments);
     checkRecipients(draft);
     needAccount(draft.account);
+    if (later) {
+      const goes = laterWhen(later);
+      const m = written(draft, 'outbox');
+      m.out = { send_after: goes.getTime(), held: false };
+      msgs.push(m);
+      sendWhenDue(m);
+      return { queued: m.id, wait: 0, goes: fmt(goes), sent: [], errors: [] };
+    }
     const wait = settings.undo_send | 0;
     const m = written(draft, 'outbox');
     m.out = { send_after: wait ? nowMs() + wait * 1000 : null, held: false };
@@ -902,6 +1124,39 @@ function installTelexDemo(options) {
     setTimeout(() => emit('outbox-sent', { queued: m.id, sent: sendOutbox(acct), errors: [] }), wait * 1000 + 300);
     return { queued: m.id, wait, sent: [], errors: [] };
   }
+  /* ---------- calendar invitations (calendar/invites.rs) ---------- */
+  // What the card says now: no answering from Spam.
+  function inviteNow(m) {
+    const iv = clone(m.invite);
+    iv.spam = kindOf(m.folder) === 'spam';
+    if (iv.method !== 'request') iv.blocked = 'not_invitation';
+    else if (iv.spam) iv.blocked = 'spam';
+    return iv;
+  }
+  // Accept, Maybe, Decline: an answer to the organizer, sent at once, and a note.
+  function answerInvite({ id, answer, comment }) {
+    const m = need(id), iv = inviteNow(m), ev = iv.event;
+    if (!['accepted', 'tentative', 'declined'].includes(answer)) fail('This isn’t an invitation to answer.', 'To nie jest zaproszenie, na które można odpowiedzieć.');
+    if (iv.blocked === 'spam') fail('Invitations in Spam aren’t answered. Move it out of Spam first.', 'Na zaproszenia w Spamie nie można odpowiadać. Najpierw przenieś je ze Spamu.');
+    if (iv.blocked) fail('This isn’t an invitation to answer.', 'To nie jest zaproszenie, na które można odpowiedzieć.');
+    const acct = acctId(m.folder), a = needAccount(acct), me = ev.attendees.find((x) => x.me);
+    const who = me?.name || defaultIdentity(a).name;
+    const subject = { accepted: tr('Accepted: {s}', 'Zaakceptowano: {s}', { s: ev.summary }), tentative: tr('Tentative: {s}', 'Wstępnie zaakceptowano: {s}', { s: ev.summary }), declined: tr('Declined: {s}', 'Odrzucono: {s}', { s: ev.summary }) }[answer];
+    const said = { accepted: tr('{who} accepted the invitation: {s}', '{who} akceptuje zaproszenie: {s}', { who, s: ev.summary }), tentative: tr('{who} may attend: {s}', '{who} może wziąć udział: {s}', { who, s: ev.summary }), declined: tr('{who} declined the invitation: {s}', '{who} odrzuca zaproszenie: {s}', { who, s: ev.summary }) }[answer];
+    const body = said + (String(comment || '').trim() ? '\n\n' + String(comment).trim() : '') + '\n';
+    const org = ev.organizer;
+    const reply = written({ account: acct, to: `${org.name} <${org.email}>`, cc: '', bcc: '', subject, body, reply_to: id, attachments: [{ name: 'invite.ics', size_kb: 1 }] }, 'outbox');
+    reply.out = { send_after: null, held: false };
+    msgs.push(reply);
+    const when = stamp(), d = parse(when), pad2 = (n) => String(n).padStart(2, '0');
+    const at = lang() === 'pl' ? `${pad2(d.getDate())}.${pad2(d.getMonth() + 1)}.${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+      : `${d.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()]} ${d.getFullYear()}, ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    addNote(m, { accepted: tr('You accepted on {at}.', 'Zaakceptowano {at}.', { at }), tentative: tr('You answered maybe on {at}.', 'Odpowiedziano „może” {at}.', { at }), declined: tr('You declined on {at}.', 'Odrzucono {at}.', { at }) }[answer]);
+    m.invite.answered = { answer, at: when, earlier: false };
+    m.invite.mine = answer;
+    for (const x of m.invite.event.attendees) if (x.me) x.answer = answer;
+    return { sent: sendOutbox(acct), errors: [], invite: inviteNow(m) };
+  }
   function holdMessage({ id }) {
     const m = byId(id);
     if (!m || !m.out || m.out.held || !m.out.send_after || m.out.send_after <= nowMs()) {
@@ -910,6 +1165,37 @@ function installTelexDemo(options) {
     m.out = { send_after: null, held: true };
     m.note = tr('Not sent: you took it back. Press E to change it and send it, or Del to drop it.',
       'Nie wysłano: cofnięto wysyłanie. Naciśnij E, żeby ją zmienić i wysłać, albo Del, żeby ją usunąć.');
+  }
+  /* ---------- unsubscribe (unsubscribe.rs) ---------- */
+  // The demo's lists and how each says to leave it (List-Unsubscribe in real mail).
+  const LISTS = {
+    'newsletter@frontendweekly.news': { method: 'one_click', target: 'frontendweekly.news' },
+    'shop@spokeandchain-cycles.co.uk': { method: 'link', target: 'spokeandchain-cycles.co.uk' },
+    'offers@seo-wizard24.biz': { method: 'mail', target: 'remove@seo-wizard24.biz' },
+  };
+  const unsubscribed = new Map(); // sender -> when
+  function unsubscribeOffer(m) {
+    const list = LISTS[m.from_email], kind = kindOf(m.folder);
+    if (!list || isOutgoing(kind)) return null;
+    return { ...list, done: unsubscribed.get(m.from_email) ?? null, spam: kind === 'spam' };
+  }
+  function unsubscribe({ id }) {
+    const m = need(id), offer = unsubscribeOffer(m);
+    if (!offer) fail('This message doesn\'t say how to unsubscribe.', 'Ta wiadomość nie podaje, jak się wypisać.');
+    if (offer.spam) {
+      fail('Telex doesn\'t unsubscribe from mail in Spam: that would tell the sender your address is read. Delete it instead.',
+        'Telex nie wypisuje z poczty w Spamie: nadawca dowiedziałby się, że ktoś czyta ten adres. Lepiej ją usuń.');
+    }
+    const at = stamp(), when = at.slice(8, 10) + '.' + at.slice(5, 7) + '.' + at.slice(0, 4);
+    unsubscribed.set(m.from_email, at);
+    const note = {
+      one_click: tr('Unsubscribed with one click on {when}.', 'Wypisano jednym kliknięciem {when}.', { when }),
+      mail: tr('Unsubscribed by a mail to {to} on {when}.', 'Wypisano mailem do {to} {when}.', { to: offer.target, when }),
+      link: tr('The unsubscribe page on {server} was opened on {when}.', 'Otwarto stronę wypisania na {server} {when}.', { server: offer.target, when }),
+    }[offer.method];
+    if (!String(m.note || '').includes(note)) m.note = m.note ? m.note + ' ' + note : note;
+    const sent = offer.method === 'mail' ? [tr('"{subject}" to {who}', '„{subject}” do {who}', { subject: 'unsubscribe', who: offer.target })] : [];
+    return { method: offer.method, done: true, sent, errors: [] };
   }
   function saveOutgoing({ draft }) {
     checkFiles(draft.attachments);
@@ -943,6 +1229,41 @@ function installTelexDemo(options) {
       }
     }
   }
+  const kbOf = (v) => {
+    const s = String(v).trim().toLowerCase().replace(/b$/, ''), n = parseFloat(s.replace(',', '.'));
+    return Number.isFinite(n) ? n * ({ m: 1024, g: 1048576 }[s.slice(-1)] ?? 1) : NaN;
+  };
+  const patternOf = (v) => {
+    const p = String(v).trim();
+    if (p.length > 1000) fail('Keep a pattern within 1,000 characters.', 'Wzorzec może mieć do 1000 znaków.');
+    try { return new RegExp([...p].map((ch) => (ch.charCodeAt(0) > 127 ? fold(ch) : ch)).join(''), 'i'); }
+    catch (e) { fail('The pattern “{value}” can\'t be used: {detail}', 'Wzorca „{value}” nie da się użyć: {detail}', { value: p, detail: e.message }); }
+  };
+  function checkWhen(r) {
+    if (!r.schedule) { if (r.on_arrival === false) fail('Pick when the rule runs: on new mail, on a schedule, or both.', 'Wybierz, kiedy reguła działa: na nowej poczcie, według harmonogramu albo obie.'); return; }
+    if (r.on_arrival === false && r.actions.some((x) => x.type === 'auto_reply' || x.type === 'forward')) fail('Automatic replies and forwards answer new mail only: let the rule run on new mail too.', 'Automatyczne odpowiedzi i przekazania działają tylko na nowej poczcie: niech reguła działa też na nowej poczcie.');
+    if (!r.schedule.folders?.length || r.schedule.folders.length > 20) fail('Pick 1–20 folders for the schedule.', 'Wybierz od 1 do 20 folderów dla harmonogramu.');
+    if (r.schedule.folders.some((k) => !folderOf(k) || (r.account && acctId(k) !== r.account))) fail('A folder of the schedule no longer exists: pick the folders again.', 'Jednego z folderów harmonogramu już nie ma: wybierz foldery ponownie.');
+  }
+  function checkConditions(r) {
+    for (const c of r.conditions) {
+      if (c.field === 'received' && !(Number.isInteger(Number(c.value)) && c.value >= 1 && c.value <= 36500)) fail('Enter a number of days, such as 30.', 'Wpisz liczbę dni, np. 30.');
+      if (c.field === 'size' && !(kbOf(c.value) >= 0)) fail('Enter a size, such as 500k or 5m.', 'Wpisz rozmiar, np. 500k lub 5m.');
+      if (c.op === 'matches') patternOf(c.value);
+    }
+  }
+  // Rules whose schedule is due (filters::due): never ran, or their period has passed.
+  function runScheduled() {
+    const period = { hour: 36e5, day: 864e5, week: 7 * 864e5 }, runs = [];
+    for (const r of rules.filter((x) => x.enabled && x.schedule)) {
+      const last = r.last_run ? Date.parse(r.last_run) : null;
+      if (last !== null && last <= nowMs() && nowMs() - last < period[r.schedule.every]) continue;
+      const ids = msgs.filter((m) => r.schedule.folders.includes(m.folder)).map((m) => m.id);
+      runs.push({ rule: r.id, name: r.name, ...runRules(ids, false, [r]) });
+      r.last_run = stamp();
+    }
+    return runs;
+  }
   function candidates(field, m) {
     const from = [m.from_email, m.from_name];
     const to = splitAddresses(`${m.to}, ${m.cc}`).flatMap((x) => {
@@ -956,10 +1277,22 @@ function installTelexDemo(options) {
     if (c.field === 'header') values = Object.entries(m.headers || {}).filter(([name]) => name.toLowerCase() === (c.header || '').toLowerCase()).flatMap(([,value]) => Array.isArray(value) ? value : [String(value)]);
     if (c.field === 'attachment_name') values = m.attachments.map(a=>a.name);
     if (c.field === 'attachment_type') values = m.attachments.map(a=>a.content_type || ({pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'}[a.name.split('.').pop().toLowerCase()] || 'application/octet-stream'));
+    if (c.field === 'received') {
+      const since = nowMs() - Number(c.value) * 864e5, at = Date.parse(m.date);
+      return c.op === 'older_than' ? at < since : at >= since;
+    }
+    if (c.field === 'size') return c.op === 'larger_than' ? m.size_kb >= kbOf(c.value) : m.size_kb < kbOf(c.value);
+    if (c.field === 'state') return { read: !m.unread, unread: m.unread, flagged: m.flagged, unflagged: !m.flagged }[c.value] ?? false;
+    if (c.field === 'tag') {
+      const hasIt = m.tags.includes(c.value);
+      return c.op === 'exists' ? m.tags.length > 0 : c.op === 'not_exists' ? !m.tags.length : c.op === 'not_contains' ? !hasIt : hasIt;
+    }
     if (c.op === 'exists') return values.length > 0;
     if (c.op === 'not_exists') return values.length === 0;
     const needle = fold(String(c.value).trim()), all = values.map(fold);
-    const hit = (s) => (c.op === 'is' ? s === needle : c.op === 'starts_with' ? s.startsWith(needle) : c.op === 'ends_with' ? s.endsWith(needle) : s.includes(needle));
+    // Patterns see the folded text too; JavaScript's RegExp stands in for the regex crate.
+    const pattern = c.op === 'matches' ? patternOf(c.value) : null;
+    const hit = (s) => (pattern ? pattern.test(s) : c.op === 'is' ? s === needle : c.op === 'starts_with' ? s.startsWith(needle) : c.op === 'ends_with' ? s.endsWith(needle) : s.includes(needle));
     return c.op === 'not_contains' ? !all.some(hit) : all.some(hit);
   }
   const ruleMatches = (r, m) => (r.match_all ? r.conditions.every((c) => conditionMatches(c, m)) : r.conditions.some((c) => conditionMatches(c, m)));
@@ -986,9 +1319,9 @@ function installTelexDemo(options) {
     return true;
   }
   // Run the enabled rules, top to bottom, on these messages; each one they change gets a note.
-  function runRules(ids, arrival) {
+  function runRules(ids, arrival, only = null) {
     const report = { matched: 0, moved: 0, replied: 0, copied:0, forwarded:0, problems: [] };
-    const enabled = rules.filter((r) => r.enabled);
+    const enabled = only ?? rules.filter((r) => r.enabled && (!arrival || r.on_arrival !== false));
     for (const id of ids) {
       const m = byId(id);
       if (!m || !enabled.length) continue;
@@ -1000,6 +1333,11 @@ function installTelexDemo(options) {
         for (const x of rule.actions) {
           if (x.type === 'mark_read' && was.unread) { m.unread = false; did.push(tr('marked it read', 'oznaczyła ją jako przeczytaną')); }
           else if (x.type === 'flag' && !was.flagged) { m.flagged = true; did.push(tr('flagged it', 'oznaczyła ją flagą')); }
+          else if (x.type === 'add_tag' || x.type === 'remove_tag') {
+            const def = tagList().find((d) => d.keyword === x.tag), on = x.type === 'add_tag';
+            if (!def) report.problems.push(tr('rule "{name}" uses a tag that no longer exists', 'reguła „{name}” używa etykiety, której już nie ma', { name }));
+            else if (setTag([m.id], x.tag, on)) did.push(on ? tr('tagged it {tag}', 'oznaczyła ją etykietą {tag}', { tag: def.name }) : tr('took the tag {tag} off it', 'zdjęła z niej etykietę {tag}', { tag: def.name }));
+          }
           else if (x.type === 'move' && x.folder !== was.folder) {
             const f = folderOf(x.folder);
             if (f && (acctId(x.folder) === acct || acctId(x.folder) === LOCAL)) {
@@ -1031,9 +1369,10 @@ function installTelexDemo(options) {
     return report;
   }
   function saveRule({ rule: r }) {
-    checkRule(r);
+    checkRule(r); checkConditions(r); checkWhen(r);
     const clean = { id: r.id | 0, name: String(r.name).trim(), enabled: r.enabled !== false, account: r.account || null, match_all: r.match_all !== false,
-      conditions: r.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value, ...(c.field === 'header' ? {header:c.header} : {}) })), actions: r.actions.map((x) => ({ ...x })), stop: !!r.stop };
+      conditions: r.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value, ...(c.field === 'header' ? {header:c.header} : {}) })), actions: r.actions.map((x) => ({ ...x })), stop: !!r.stop,
+      on_arrival: r.on_arrival !== false, ...(r.schedule ? { schedule: clone(r.schedule) } : {}), last_run: rules.find((x) => x.id === (r.id | 0))?.last_run ?? null };
     if (!clean.id) { clean.id = rules.reduce((n, x) => Math.max(n, x.id), 0) + 1; rules.push(clean); }
     else {
       const i = rules.findIndex((x) => x.id === clean.id);
@@ -1065,8 +1404,12 @@ function installTelexDemo(options) {
     const ok = at > 0 && email.indexOf('@', at + 1) < 0 && email.slice(at + 1).includes('.') && !/\s/.test(email);
     if (!ok) fail('"{email}" doesn\'t look like an email address.', '„{email}” nie wygląda na adres e-mail.', { email });
     const a = needAccount(i.account);
-    const saved = { id: i.id | 0, account: a.id, name: i.name.trim(), email, signature: i.signature ?? '', reply_header: i.reply_header ?? '',
-      forward_header: i.forward_header ?? '', is_default: !!i.is_default };
+    // Model's Identity::prepared: an HTML signature cleaned, its text made from it; none without formatting.
+    const sigClean = i.signature_html != null ? cleanHtml(i.signature_html) : null;
+    const plainSig = sigClean != null && !/<(?!\/?(div|br|p)>)/.test(sigClean);
+    const saved = { id: i.id | 0, account: a.id, name: i.name.trim(), email, signature: sigClean != null ? toText(sigClean) : i.signature ?? '',
+      signature_html: sigClean != null && !plainSig ? sigClean : null, new_template: i.new_template ?? '', reply_template: i.reply_template ?? '',
+      reply_header: i.reply_header ?? '', forward_header: i.forward_header ?? '', is_default: !!i.is_default };
     if (!saved.id) {
       saved.id = accounts.flatMap((x) => x.identities).reduce((n, x) => Math.max(n, x.id), 0) + 1;
       a.identities.push(saved);
@@ -1120,8 +1463,71 @@ function installTelexDemo(options) {
       received.set(k, r);
     }
     for (const r of received.values()) note(r.name, r.email, r.at, r.count, false);
-    return [...people.values()].sort((a, b) => (b.sent * 5 + b.received) - (a.sent * 5 + a.received) || (b.last > a.last ? 1 : b.last < a.last ? -1 : 0)
-      || (a.email < b.email ? -1 : 1)).slice(0, 2000).map(({ name, email, sent, received: got }) => ({ name, email, sent, received: got }));
+    // The address book's contacts first, with their saved names (recipients.rs).
+    const book = contacts.flatMap((c) => c.emails.filter((e) => !own.includes(e.toLowerCase())).map((email) => {
+      const p = people.get(email.toLowerCase()) ?? { name: '', sent: 0, received: 0 };
+      people.delete(email.toLowerCase());
+      return { name: c.name || p.name, email, sent: p.sent, received: p.received, contact: c.id };
+    }));
+    return book.concat([...people.values()].sort((a, b) => (b.sent * 5 + b.received) - (a.sent * 5 + a.received) || (b.last > a.last ? 1 : b.last < a.last ? -1 : 0)
+      || (a.email < b.email ? -1 : 1)).slice(0, 2000).map(({ name, email, sent, received: got }) => ({ name, email, sent, received: got })));
+  }
+
+  /* ---------- the address book (contacts.rs) ---------- */
+  // Two people the demo mailbox writes to, and a group of them; changes last until the page reloads.
+  let contacts = [], groups = [], bookSeeded = false;
+  const owner = (email, except = 0) => contacts.find((c) => c.id !== except && c.emails.some((e) => e.toLowerCase() === String(email).toLowerCase()));
+  function seedBook() {
+    if (bookSeeded) return;
+    bookSeeded = true;
+    const top = recipients().filter((p) => p.sent > 0).slice(0, 2);
+    contacts = top.map((p, i) => ({ id: i + 1, uid: `demo-${i + 1}`, name: p.name, emails: [p.email], phone: '', organization: '', note: '', groups: [] }));
+    if (contacts.length) {
+      groups = [{ id: 1, name: 'Team', members: contacts.map((c) => ({ contact: c.id, name: c.name, email: c.emails[0] })) }];
+      contacts.forEach((c) => { c.groups = [1]; });
+    }
+  }
+  const byName = (a, b) => (a.name || a.emails?.[0] || '').localeCompare(b.name || b.emails?.[0] || '');
+  function readGroups() {
+    return groups.map((g) => ({ ...g, members: g.members.map((m) => {
+      const c = m.contact && contacts.find((x) => x.id === m.contact);
+      return c ? { contact: c.id, name: c.name, email: c.emails[0] ?? '' } : { ...m, contact: null };
+    }).filter((m) => m.contact || m.email) })).sort(byName);
+  }
+  function saveContact({ contact }) {
+    seedBook();
+    const c = clone(contact);
+    c.name = String(c.name || '').trim(); c.emails = (c.emails || []).map((e) => String(e).trim()).filter(Boolean);
+    for (const e of c.emails) {
+      if (!/^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/.test(e)) fail('“{email}” isn’t an email address.', '„{email}” nie jest adresem e-mail.', { email: e });
+      const o = owner(e, c.id);
+      if (o) fail('{email} is in the address book already, as {name}.', '{email} jest już w książce adresowej, jako {name}.', { email: e, name: o.name || e });
+    }
+    if (!c.name && !c.emails.length) fail('Give the contact a name or an address.', 'Podaj imię i nazwisko albo adres kontaktu.');
+    if (!c.id) { c.id = Math.max(0, ...contacts.map((x) => x.id)) + 1; c.uid = `demo-${c.id}`; }
+    c.groups = (c.groups || []).filter((id) => groups.some((g) => g.id === id));
+    for (const g of groups) {
+      const has = g.members.some((m) => m.contact === c.id);
+      if (c.groups.includes(g.id) && !has) g.members.push({ contact: c.id, name: '', email: '' });
+      if (!c.groups.includes(g.id) && has) g.members = g.members.filter((m) => m.contact !== c.id);
+    }
+    contacts = contacts.filter((x) => x.id !== c.id).concat(c);
+    return clone(c);
+  }
+  function saveGroup({ group }, restore) {
+    seedBook();
+    const g = clone(group);
+    g.name = String(g.name || '').trim().replace(/\s+/g, ' ');
+    if (!g.name || g.name.length > 80 || /[,;<>"@]/.test(g.name)) fail('Give the group a name of 1–80 characters, without , ; < > " or @.', 'Nadaj grupie nazwę od 1 do 80 znaków, bez , ; < > " ani @.');
+    if (groups.some((x) => (restore || x.id !== g.id) && x.name.toLowerCase() === g.name.toLowerCase())) fail('A group already has that name.', 'Grupa o takiej nazwie już jest.');
+    g.members = (g.members || []).map((m) => {
+      const c = m.contact ? contacts.find((x) => x.id === m.contact) : owner(m.email);
+      return c ? { contact: c.id, name: '', email: '' } : { contact: null, name: m.name || '', email: String(m.email || '').trim() };
+    }).filter((m, i, all) => (m.contact || m.email) && all.findIndex((o) => (m.contact ? o.contact === m.contact : o.email.toLowerCase() === m.email.toLowerCase())) === i);
+    if (!g.id || (restore && groups.some((x) => x.id === g.id))) g.id = Math.max(0, ...groups.map((x) => x.id)) + 1;
+    groups = groups.filter((x) => x.id !== g.id).concat(g);
+    contacts.forEach((c) => { c.groups = groups.filter((x) => x.members.some((m) => m.contact === c.id)).map((x) => x.id); });
+    return readGroups().find((x) => x.id === g.id);
   }
 
   /* ---------- connections (servers.rs) ---------- */
@@ -1274,12 +1680,13 @@ function installTelexDemo(options) {
 
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
-    theme: THEMES, language: ['auto', 'en', 'pl'], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
+    theme: THEMES, language: ['auto', ...SPOKEN], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'], usage_count: ['ask', 'on', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20], spam_filter: ['off', 'careful', 'normal', 'strict'],
   };
-  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'ask_attachment', 'ask_many', 'spell_check', 'risk_checks', 'sign_replies'];
+  const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'ask_attachment', 'ask_many', 'spell_check', 'risk_checks', 'sign_replies',
+    'backup_secret_keys', 'pgp_sign', 'pgp_autocrypt'];
   const settingsView = () => ({ settings: { ...settings }, language: lang(), offer: null, fresh: false });
   function updateSettings({ changes }) {
     for (const [k, v] of Object.entries(changes || {})) {
@@ -1366,19 +1773,40 @@ function installTelexDemo(options) {
       const m = need(id);
       return { id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, cc: m.cc,
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
-        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk };
+        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk,
+        goes: goesOf(m), unsubscribe: unsubscribeOffer(m), ...(m.invite ? { invite: inviteNow(m) } : {}),
+        contacts: (seedBook(), [m.from_email, ...splitAddresses(`${m.to}, ${m.cc}`).map((e) => mailboxParts(e)[1])])
+          .map((email) => ({ email, c: owner(email) })).filter((x) => x.c).map((x) => ({ email: x.email, id: x.c.id, name: x.c.name })) };
     },
+    answer_invite: answerInvite,
     message_markdown: messageMarkdown,
+    message_source: messageSource,
+    print_document: printDocument,
+    // The browser prints, and its print dialog saves PDFs; files it doesn't write.
+    save_pdf: () => 'print_dialog',
+    save_messages: () => refuse('eml'),
+    drag_out: () => refuse('eml'),
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
     set_unread_many: ({ ids, unread }) => setMany(ids, 'unread', !!unread),
     set_flagged_many: ({ ids, flagged }) => setMany(ids, 'flagged', !!flagged),
+    set_tag_many: ({ ids, keyword, on }) => setTag(ids, keyword, !!on),
+    save_tag: saveTag,
+    delete_tag: deleteTag,
+    move_tag: moveTag,
     // store.rs's choose_folder: a server folder becomes Sent (Drafts, Archive, Spam, Trash).
     choose_folder: ({ folder, kind }) => {
       const f = needFolder(folder), a = account(acctId(folder));
       if (!a?.imap || f.kind === 'inbox' || f.kind === 'outbox' || !['sent', 'drafts', 'archive', 'spam', 'trash'].includes(kind)) fail('folder "{k}" does not exist', 'folder „{k}” nie istnieje', { k: folder });
       for (const x of a.folders) if (x.kind === kind) x.kind = 'custom';
       f.kind = kind;
+      return null;
+    },
+    // store.rs's set_sent_copy: who files sent mail in Sent (auto, server, telex).
+    set_sent_copy: ({ account: id, mode }) => {
+      const a = account(id);
+      if (!a?.imap) fail('account "{a}" does not exist', 'konto „{a}” nie istnieje', { a: id });
+      a.sent_copy = ['server', 'telex'].includes(mode) ? mode : 'auto';
       return null;
     },
     mark_folder_read: ({ folder }) => { needFolder(folder); return setMany(msgs.filter((m) => m.folder === folder).map((m) => m.id), 'unread', false); },
@@ -1397,8 +1825,35 @@ function installTelexDemo(options) {
     usage,
     connections,
     wake_server: () => {},
-    recipients,
+    recipients: () => (seedBook(), recipients()),
+    contacts: () => (seedBook(), clone(contacts).sort(byName)),
+    contact_groups: () => (seedBook(), readGroups()),
+    save_contact: saveContact,
+    delete_contacts: ({ ids }) => {
+      const gone = clone(contacts.filter((c) => ids.includes(c.id)));
+      contacts = contacts.filter((c) => !ids.includes(c.id));
+      groups.forEach((g) => { g.members = g.members.filter((m) => !ids.includes(m.contact)); });
+      return gone;
+    },
+    restore_contacts: ({ contacts: back }) => { for (const c of back) { contacts.push(clone({ ...c, emails: c.emails.filter((e) => !owner(e)) })); for (const id of c.groups) groups.find((g) => g.id === id)?.members.push({ contact: c.id, name: '', email: '' }); } },
+    save_group: (args) => saveGroup(args, false),
+    restore_group: (args) => saveGroup(args, true),
+    delete_group: ({ id }) => { const g = readGroups().find((x) => x.id === id) ?? null; groups = groups.filter((x) => x.id !== id); contacts.forEach((c) => { c.groups = c.groups.filter((x) => x !== id); }); return g; },
+    suggested_contacts: () => (seedBook(), recipients().filter((p) => !p.contact && p.sent > 0).slice(0, 50)),
+    import_vcards: () => refuse('vcard'),
+    export_vcards: () => refuse('vcard'),
     start_draft: startDraft,
+    folder_templates: () => [...folderTemplates.values()],
+    save_folder_template: saveFolderTemplate,
+    // images::prepare: the demo puts a picture in as it is.
+    editor_image: ({ path, data }) => (data != null ? Promise.resolve(data) : new Promise((ok, no) => {
+      const file = files.get(path);
+      if (!file) { no(tr('Drop "{name}" again: Telex reads only files chosen in it.', 'Upuść plik „{name}” jeszcze raz: Telex czyta tylko pliki wybrane w nim.', { name: path })); return; }
+      const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no('?'); r.readAsDataURL(file);
+    })).then((src) => {
+      if (!dataPicture(src)) return Promise.reject(tr('That isn\'t a picture Telex can put in a message: use PNG, JPEG, GIF or WebP.', 'Tego obrazu Telex nie wstawi do wiadomości: użyj PNG, JPEG, GIF lub WebP.'));
+      return { src, width: 0, height: 0, bytes: Math.round(src.length * 0.75), smaller: false };
+    }),
     save_outgoing: saveOutgoing,
     discard_draft: discardDraft,
     draft_html: ({ id }) => need(id).clean ?? null,
@@ -1407,6 +1862,9 @@ function installTelexDemo(options) {
     clean_html: ({ html }) => cleanHtml(html),
     send_message: sendMessage,
     hold_message: holdMessage,
+    send_now: sendNow,
+    send_later_choices: laterChoices,
+    unsubscribe,
     check_mail: checkMail,
     push_changes: () => ({ new: [], new_in: null, sent: [], sorted: 0, errors: [], busy }),
     download_older: downloadOlder,
@@ -1433,6 +1891,7 @@ function installTelexDemo(options) {
     move_rule: moveRule,
     move_account: moveAccount,
     run_rules: ({ folder }) => { needFolder(folder); return runRules(msgs.filter((m) => m.folder === folder).map((m) => m.id), false); },
+    run_scheduled_rules: () => runScheduled(),
     save_identity: saveIdentity,
     delete_identity: deleteIdentity,
     get_settings: settingsView,
@@ -1499,6 +1958,18 @@ function installTelexDemo(options) {
     // The away reply: off, and the demo can't turn it on.
     get_away: ({ account }) => ({ account, enabled: false, starts: null, ends: null, subject: '', body: '', days: 4, place: 'telex', script: null, created: false }),
     save_away: () => refuse('away'),
+    // OpenPGP (openpgp.rs): the demo has no keys, so mail goes out as it is.
+    pgp_keys: () => [],
+    pgp_compose: () => ({ own: null, unlocked: false, missing: [], can_encrypt: false, sign: false, encrypt: false,
+      smime_own: null, smime_unlocked: false, smime_missing: [], smime_can_encrypt: false, smime: false }),
+    pgp_import: () => refuse('pgp'), pgp_import_text: () => refuse('pgp'), pgp_import_offered: () => refuse('pgp'),
+    pgp_generate: () => refuse('pgp'), pgp_export: () => refuse('pgp'), pgp_public_text: () => refuse('pgp'),
+    pgp_unlock: () => refuse('pgp'), pgp_delete: () => refuse('pgp'), pgp_verify: () => refuse('pgp'), pgp_forget: () => null,
+    // S/MIME (smime.rs): no certificates either.
+    smime_certs: () => [],
+    smime_pick: () => refuse('smime'), smime_import_p12: () => refuse('smime'), smime_cancel_p12: () => null,
+    smime_export: () => refuse('smime'), smime_delete: () => refuse('smime'), smime_verify: () => refuse('smime'),
+    smime_unlock: () => refuse('smime'), smime_forget: () => null,
   };
   const asText = (e) => (typeof e === 'string' ? e : String(e?.message ?? e));
   // Like Tauri's invoke: arguments and answers cross as JSON; a failure is the core's sentence.

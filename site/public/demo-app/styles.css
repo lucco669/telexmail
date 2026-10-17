@@ -5,7 +5,7 @@
   /* HTML mail is designed for white paper, so its canvas stays white in every theme. */
   --mail-bg:#ffffff;
   --font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
-  --font-list:"IBM Plex Sans Condensed","Segoe UI",system-ui,sans-serif;
+  --font-list:"IBM Plex Sans Condensed","IBM Plex Sans","Segoe UI",system-ui,sans-serif;
   --font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace;
   --row:20px; --row-tree:22px;
 }
@@ -14,9 +14,10 @@
 /* Fonts (Settings › Appearance; data-font on <html>, and on each card there): a face for the
    window, one for the message list and a mono one for dates, sizes and plain-text writing.
    Plex, Inter, Atkinson and Source are bundled (fonts.css); System and Classic are Windows' own, with
-   the system's faces standing in elsewhere. Elements that set a face of their own read these
+   the system's faces standing in elsewhere. Plex Sans draws the Cyrillic Plex Sans Condensed
+   lacks. Elements that set a face of their own read these
    variables, so a card shows its set whatever the window uses. */
-[data-font="plex"]{--font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"IBM Plex Sans Condensed","Segoe UI",system-ui,sans-serif;--font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace}
+[data-font="plex"]{--font-ui:"IBM Plex Sans","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"IBM Plex Sans Condensed","IBM Plex Sans","Segoe UI",system-ui,sans-serif;--font-data:"IBM Plex Mono",Consolas,ui-monospace,monospace}
 [data-font="system"]{--font-ui:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;--font-list:"Segoe UI Variable Small","Segoe UI",system-ui,sans-serif;--font-data:"Cascadia Mono",Consolas,ui-monospace,monospace}
 [data-font="classic"]{--font-ui:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-list:Tahoma,Verdana,"DejaVu Sans",sans-serif;--font-data:Consolas,"Lucida Console","DejaVu Sans Mono",monospace}
 [data-font="inter"]{--font-ui:Inter,"Segoe UI",system-ui,sans-serif;--font-list:Inter,"Segoe UI",system-ui,sans-serif;--font-data:"JetBrains Mono",Consolas,ui-monospace,monospace}
@@ -174,7 +175,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .adot.pc{display:inline-block;position:relative;width:10px;height:8px;margin:0 0 2px;border-radius:1.5px;background:none;box-shadow:inset 0 0 0 1.5px var(--muted)}
 .adot.pc::after{content:"";position:absolute;left:2.5px;right:2.5px;bottom:-2.5px;height:1.5px;background:var(--muted)}
 .pcrow{display:flex;align-items:center;margin-top:6px;padding-top:4px;border-top:1px solid var(--line-soft)}
-.pcrow .acct{flex:1;min-width:0}
+.pcrow .acct{flex:1 0 auto;width:auto;max-width:75%;min-width:0}
 .pcadd{flex:none;display:inline-grid;place-items:center;width:22px;height:20px;margin-right:6px;padding:0;border:1px solid transparent;border-radius:3px;background:none;color:var(--muted);cursor:pointer}
 .pcadd:hover{border-color:var(--line);background:var(--hover);color:var(--fg)}
 .pcadd svg{width:12px;height:12px}
@@ -248,6 +249,28 @@ tbody tr.thread-new :is(td.c-from,td.c-subj){font-weight:600}
 .thread-count{flex-shrink:0;border:1px solid var(--line);border-radius:3px;padding:0 4px;font:10px var(--font-data);line-height:14px;color:var(--muted)}
 .thread-new .thread-count{color:inherit;border-color:currentColor}
 .thread-child .thread-subject{padding-left:16px}
+/* Tags: chips in the tag's own pair of tokens (tag-<color>, tag-<color>-fg in themes.css), before
+   the subject in a row (at most three, then +n) and under it above a message; a dot in menus. */
+.t-red{--tb:var(--tag-red);--tf:var(--tag-red-fg)} .t-orange{--tb:var(--tag-orange);--tf:var(--tag-orange-fg)}
+.t-yellow{--tb:var(--tag-yellow);--tf:var(--tag-yellow-fg)} .t-green{--tb:var(--tag-green);--tf:var(--tag-green-fg)}
+.t-teal{--tb:var(--tag-teal);--tf:var(--tag-teal-fg)} .t-blue{--tb:var(--tag-blue);--tf:var(--tag-blue-fg)}
+.t-purple{--tb:var(--tag-purple);--tf:var(--tag-purple-fg)} .t-gray{--tb:var(--tag-gray);--tf:var(--tag-gray-fg)}
+.tgs{display:inline-flex;gap:3px;margin-right:5px;max-width:60%}
+.thread-subject .tgs{flex:0 1 auto;margin-right:1px;min-width:0}
+.tg{display:inline-block;min-width:0;max-width:9em;overflow:hidden;text-overflow:ellipsis;padding:0 5px;border-radius:3px;background:var(--tb,var(--chip-bg));color:var(--tf,var(--chip-fg));font:500 10.5px/15px var(--font-ui)}
+.tg.more{flex:none;background:var(--chip-bg);color:var(--chip-fg)}
+.ph-tags:empty{display:none}
+.ph-tags{margin:-2px 0 6px}
+.ph-tags .tg{max-width:16em;font-size:11.5px;line-height:18px;padding:0 7px}
+.tdot{display:inline-block;width:9px;height:9px;margin-right:7px;border-radius:50%;background:var(--tf);vertical-align:0}
+.stag .tkey{flex:0 0 20px;text-align:center}
+.tswatch{flex:none;width:20px;height:20px;border:1px solid var(--field);border-radius:4px;background:var(--tb);padding:0;cursor:pointer;box-shadow:inset 0 0 0 4px var(--tb),inset 0 0 0 20px var(--tf)}
+.stag .tgname{flex:0 1 220px;min-width:80px;height:24px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.stag .tgname:focus{border-color:var(--accent);outline:0}
+.stag .em{color:var(--muted)}
+.tarmed{margin:2px 0 8px 28px}
+.rvalue select[data-k="value"]{flex:1;min-width:0}
+@media (forced-colors: active){ .tg{border:1px solid CanvasText} .tdot,.tswatch{forced-color-adjust:none} }
 .list:focus tr.sel .thread-count{color:inherit;border-color:currentColor}
 tbody tr.sel td,tbody tr.picked td{background:var(--sel)}
 .list:focus tbody tr.sel td{background:var(--accent);color:var(--accent-fg)}
@@ -350,6 +373,39 @@ button.ph-who:hover .pn{text-decoration:underline}
 .risk-details li span{flex:1;min-width:0}
 .risk-details li>b{font:12px var(--font-data);color:var(--muted)}
 .risk-details p{margin:3px 0;color:var(--muted);font-size:11.5px;overflow-wrap:anywhere}
+/* A calendar invitation above the text (inviteHtml): what, when, where, who, the answer. */
+.invite{padding:6px 14px 7px;background:var(--panel);color:var(--fg);border-bottom:1px solid var(--line-soft);font:12.5px/1.45 var(--font-ui)}
+.iv-top{display:flex;align-items:center;gap:8px;min-height:22px}
+.iv-top>svg{flex:none;width:16px;height:16px;color:var(--accent)}
+.iv-kind{flex:none;color:var(--muted);font-size:11px;letter-spacing:.04em;text-transform:uppercase}
+.iv-what{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.invite.off .iv-what{text-decoration:line-through}
+.iv-tools{flex:none;display:inline-flex;align-items:center;gap:6px}
+.iv-tools .btn{height:22px;padding:0 8px}
+.iv-grid{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:1px 12px;margin:3px 0 0}
+.iv-grid dt{color:var(--muted);font-size:12px}
+.iv-grid dd{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 10px;margin:0;min-width:0;overflow-wrap:anywhere}
+.iv-grid small{color:var(--muted);font-size:12px}
+.iv-when{font-weight:500;font-variant-numeric:tabular-nums}
+.iv-link{font-weight:500}
+.iv-people{display:flex;flex-wrap:wrap;gap:0 12px}
+.iv-p{white-space:nowrap}
+.iv-p i{display:inline-block;width:1.1em;font-style:normal;font-weight:700}
+.iv-p[data-a="declined"],.iv-p[data-a="needs_action"]{color:var(--muted)}
+.iv-p small{color:var(--muted);font-size:inherit}
+.iv-people:not(.open) .iv-extra{display:none}
+.iv-desc{max-height:8.7em;overflow:auto;white-space:pre-wrap}
+.iv-line{width:fit-content;margin:5px 0 0;padding:1px 7px;border-radius:3px}
+.iv-line q{color:var(--muted)}
+.iv-you{background:var(--chip-bg);color:var(--chip-fg)}
+.iv-warn{background:var(--warn-bg);color:var(--warn-fg)}
+.iv-warn.iv-off{background:var(--note-bg);color:var(--note-fg)}
+.iv-answer{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:6px}
+.iv-answer .seg button{height:22px;padding:0 10px;font-size:11px}
+.iv-answer .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg)}
+.iv-answer .seg button:disabled{cursor:progress}
+.iv-comment{flex:1;min-width:160px;max-width:440px;height:24px;padding:0 7px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:12px var(--font-ui)}
+.iv-comment::placeholder{color:var(--faint)}
 /* The address under the pointer, like a browser's status bubble: Telex's, outside the mail, never in the way. */
 .linktip{position:fixed;z-index:3;display:flex;align-items:baseline;gap:8px;min-width:0;padding:2px 8px;background:var(--panel);color:var(--muted);border:1px solid var(--field);border-radius:3px 3px 0 0;box-shadow:0 1px 4px var(--shadow);font:11.5px/1.5 var(--font-ui);pointer-events:none;white-space:nowrap;overflow:hidden}
 .linktip .lt-host{flex:none;color:var(--fg);font:600 11.5px var(--font-data);direction:ltr;unicode-bidi:isolate}
@@ -436,6 +492,20 @@ button.ph-who:hover .pn{text-decoration:underline}
 .btn[disabled]{opacity:.65;cursor:default}
 .btn.danger{color:var(--note-fg)}
 .btn.danger:hover{border-color:var(--note-fg)}
+/* Send later: the clock joined to Send, and the line where a time of one's own is picked. */
+.cbar .csend{border-top-right-radius:0;border-bottom-right-radius:0}
+.cbar .cwhen{margin-left:-5px;padding:0 7px;border-top-left-radius:0;border-bottom-left-radius:0}
+.cbar .cwhen svg{color:inherit}
+.clater{background:var(--panel);color:var(--fg)}
+.clater input{height:24px;padding:0 6px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:12px var(--font-data)}
+td.c-subj .goes{font-weight:600}
+.goesbar span{margin-right:2px}
+/* Unsubscribe and the like: words in the row of buttons above a message, as quiet as they are. */
+.pbtn.ptext{width:auto;padding:0 7px;font-size:11.5px;white-space:nowrap}
+.pbtn.ptext[aria-disabled="true"]{cursor:default}
+.pbtn.ptext[aria-disabled="true"]:hover{color:var(--muted);border-color:var(--field)}
+.unsubbar .btn{height:22px;color:var(--fg)}
+.unsubbar .btn.primary{color:var(--accent-fg)}
 
 /* HTML mail on a dark theme's paper, and the sun/moon button that switches it to white */
 .pbody.html.dark,.pbody.html.dark .hframe{background:var(--surface)}
@@ -481,6 +551,35 @@ button.ph-who:hover .pn{text-decoration:underline}
 .hedit blockquote.cfold{max-height:calc(3 * 1.55em);overflow:hidden;cursor:pointer;-webkit-mask-image:linear-gradient(#000 45%,transparent);mask-image:linear-gradient(#000 45%,transparent)}
 .hedit ul,.hedit ol{margin:2px 0;padding-left:24px}
 .hedit p{margin:0 0 8px}
+/* The palette: what is sent is made for white paper (html::TEXT_COLORS, MARK_COLORS); the editor
+   shows each in the theme's own readable shade (--pal-*, --mark-*), whichever way it is written:
+   as saved (color:#c00000) or as the browser wrote it just now (color: rgb(192, 0, 0)). The text
+   and highlight colors differ, so "color:" never matches a highlight's "background-color:". */
+.hedit [style*="color:#c00000"],.hedit [style*="color: rgb(192, 0, 0)"]{color:var(--pal-1)!important}
+.hedit [style*="color:#b45309"],.hedit [style*="color: rgb(180, 83, 9)"]{color:var(--pal-2)!important}
+.hedit [style*="color:#15803d"],.hedit [style*="color: rgb(21, 128, 61)"]{color:var(--pal-3)!important}
+.hedit [style*="color:#1d4ed8"],.hedit [style*="color: rgb(29, 78, 216)"]{color:var(--pal-4)!important}
+.hedit [style*="color:#7e22ce"],.hedit [style*="color: rgb(126, 34, 206)"]{color:var(--pal-5)!important}
+.hedit [style*="color:#6b7280"],.hedit [style*="color: rgb(107, 114, 128)"]{color:var(--pal-6)!important}
+.hedit [style*="background-color:#fff59d"],.hedit [style*="background-color: rgb(255, 245, 157)"]{background-color:var(--mark-1)!important}
+.hedit [style*="background-color:#c8f7c5"],.hedit [style*="background-color: rgb(200, 247, 197)"]{background-color:var(--mark-2)!important}
+.hedit [style*="background-color:#cfe8ff"],.hedit [style*="background-color: rgb(207, 232, 255)"]{background-color:var(--mark-3)!important}
+.hedit [style*="background-color:#ffd6e7"],.hedit [style*="background-color: rgb(255, 214, 231)"]{background-color:var(--mark-4)!important}
+.hedit [style*="font-size: small"],.hedit [style*="font-size:12px"]{font-size:12px!important}
+.hedit [style*="font-size: x-large"],.hedit [style*="font-size:18px"]{font-size:18px!important}
+.hedit [style*="font-size: medium"]{font-size:inherit!important}
+/* Automatic and No highlight: stand-in colors (NO_COLOR, NO_MARK in app.js) the core leaves out. */
+.hedit [style*="color: rgb(1, 2, 3)"]{color:inherit!important}
+.hedit [style*="background-color: rgb(1, 2, 4)"]{background-color:transparent!important}
+.hedit img{max-width:100%;height:auto;vertical-align:bottom}
+.hedit img:hover{outline:1px dashed var(--field)}
+.hedit table{border-collapse:collapse;max-width:100%}
+.hedit td,.hedit th{padding:2px 6px;vertical-align:top}
+.hedit .telex-signature{color:var(--fg)}
+.fb .sw{width:14px;height:4px;margin-top:1px;border-radius:1px;background:var(--pal-1)}
+.fb.fcolor,.fb.fmark{grid-template-rows:auto auto;gap:0;line-height:1}
+.fb.fmark .sw{background:var(--mark-1)}
+.fsep{width:1px;align-self:stretch;margin:3px 3px;background:var(--line)}
 /* Dialogs */
 .dlg{width:min(460px,calc(100vw - 32px));padding:0;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--fg);box-shadow:0 12px 32px var(--shadow)}
 .dlg::backdrop{background:var(--scrim)}
@@ -489,18 +588,19 @@ button.ph-who:hover .pn{text-decoration:underline}
 .hostrow{display:flex;align-items:center;gap:6px;min-width:0}
 .hostrow input:first-child{flex:1}
 .hostrow input[type="number"]{width:62px;font-family:var(--font-data);font-size:12px}
+/* The account form: IMAP's fields or POP3's, and what stays on a POP3 server. */
+#acct-form:not(.pop3) .pop-only,#acct-form.pop3 .imap-only{display:none}
+.akeep{display:grid;gap:3px;min-width:0}
+#acct-form .akeep .rcheck{margin:0;padding:0;align-self:center;flex-wrap:wrap}
+#acct-form .akeep input[type="checkbox"]{height:auto;padding:0}
+.akeep input[type="number"]{width:62px;font-family:var(--font-data);font-size:12px}
 .dnote{margin:0;padding:0 14px 10px;font-size:11.5px;color:var(--muted)}
 .derr{margin:0 14px 10px;padding:5px 8px;border-radius:3px;background:var(--note-bg);color:var(--note-fg);font-size:12px;overflow-wrap:anywhere}
 .derr:empty{display:none}
 .dhead{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding-right:14px}
 /* The language on the first start, each named in itself */
-.langpick{display:inline-flex;flex:none;margin-top:10px;border:1px solid var(--field);border-radius:4px;overflow:hidden}
-.langpick button{height:22px;padding:0 9px;border:0;background:var(--surface);font-size:11.5px;cursor:pointer}
-.langpick button+button{border-left:1px solid var(--field)}
-.langpick button:hover{background:var(--hover)}
-.langpick button[aria-pressed="true"]{background:var(--accent);color:var(--accent-fg);font-weight:500}
-.langpick button:focus-visible{outline-offset:-3px}
-.langpick button[aria-pressed="true"]:focus-visible{outline-color:var(--accent-fg)}
+.langpick{flex:none;margin-top:10px;height:24px;padding:0 4px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:11.5px;cursor:pointer}
+.langpick:hover{background:var(--hover)}
 /* Account wizard: a provider tip, then one line per step */
 .whint{margin:0 14px 10px;padding:6px 9px;border-radius:3px;background:var(--chip-bg);color:var(--chip-fg);font-size:12px;line-height:1.45}
 .whint.warn{background:var(--warn-bg);color:var(--warn-fg)}
@@ -533,6 +633,26 @@ button.ph-who:hover .pn{text-decoration:underline}
 .rh{margin:12px 14px 6px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .rcheck{display:flex;align-items:center;gap:7px;margin:12px 14px 10px;font-size:12px}
 
+/* View source and All headers: the message as it came, in the mono face */
+.dlg.src{width:min(920px,calc(100vw - 32px))}
+.dlg.src .seg{margin-top:11px}
+.dlg.src .dnote:empty{display:none}
+.srctext,.srchd{height:min(62vh,580px);margin:6px 14px 12px;padding:8px 10px;overflow:auto;border:1px solid var(--line);border-radius:4px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data)}
+.srctext{white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
+.srchd{display:grid;grid-template-columns:max-content minmax(0,1fr);column-gap:14px;row-gap:3px;align-content:start}
+.srchd dt{font-weight:600;color:var(--muted)}
+.srchd dd{margin:0;overflow-wrap:anywhere}
+.srctext[hidden],.srchd[hidden]{display:none}
+
+/* Print… and Save as PDF: only the message made ready in #printout goes on paper. */
+#printout{display:none}
+@page{margin:15mm}
+@media print{
+  html,body{height:auto;overflow:visible;background:none}
+  body.printing>:not(#printout){display:none!important}
+  body.printing>#printout{display:block}
+}
+
 /* Folder picker: M moves, G goes */
 .dlg.pick{width:min(420px,calc(100vw - 32px));margin-top:12vh}
 .pkbox{padding:8px 14px 6px}
@@ -551,6 +671,60 @@ button.ph-who:hover .pn{text-decoration:underline}
 .pklist li.none{color:var(--muted);cursor:default}
 .pklist li.none:hover{background:none}
 .pknote{padding-top:4px}
+
+/* Address book (B): groups and contacts on the left, the one chosen on the right */
+.dlg.ab{width:min(780px,calc(100vw - 32px))}
+.abbody{display:grid;grid-template-columns:minmax(200px,38%) minmax(0,1fr);height:min(520px,calc(100vh - 150px));margin-top:8px;border-top:1px solid var(--line-soft)}
+.ablist{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line-soft)}
+.abq{position:relative;padding:8px 8px 6px}
+.abq input{width:100%;height:26px;padding:0 30px 0 8px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.abq input:focus{border-color:var(--accent);outline:0}
+.abq kbd{position:absolute;right:14px;top:13px;pointer-events:none}
+.abitems{flex:1;min-height:0;margin:0;padding:0 6px 6px;overflow:auto;list-style:none}
+.abitems:focus{outline:0}
+.abitems:focus-visible [aria-selected="true"]{outline:2px solid var(--accent);outline-offset:-2px}
+.abitems li[data-k]{display:flex;align-items:center;gap:7px;min-height:24px;padding:0 8px;border-radius:3px;font-size:12.5px;cursor:pointer}
+.abitems li[data-k]:hover{background:var(--hover)}
+.abitems li[aria-selected="true"]{background:var(--sel)}
+.abitems li svg{flex:none;width:14px;height:14px;color:var(--muted)}
+.abitems .nm{flex:none;max-width:62%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.abitems .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11.5px var(--font-data);color:var(--muted)}
+.abitems .linkbtn{flex:none;margin-left:auto;color:var(--accent);font-size:11.5px;font-weight:500;text-decoration:none}
+.abitems .abh{margin:8px 8px 3px;font:600 10.5px var(--font-ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.abitems .abh small{font-weight:400;letter-spacing:0}
+.abitems .none{padding:8px;font-size:12px;color:var(--muted)}
+.abedit{min-width:0;min-height:0;padding:4px 0 8px;overflow:auto}
+.abedit .rh{margin:10px 14px 2px}
+.abedit .sbtns{margin:4px 14px 8px}
+.abedit .dnote{padding-top:2px}
+.abempty{padding:16px 14px}
+.cf.df.abform{padding-top:6px}
+.abmails{display:flex;flex-direction:column;gap:4px;min-width:0}
+.abmail{display:flex;align-items:center;gap:6px;min-width:0}
+.abmail input{flex:1;font-family:var(--font-data);font-size:12px}
+.abmail .linkbtn,.abmails .radd{flex:none;margin:0;font-size:11.5px;font-weight:500;color:var(--accent);text-decoration:none}
+.abmails .radd{align-self:flex-start}
+.abtag{flex:none;padding:0 6px;border-radius:8px;background:var(--chip-bg);color:var(--chip-fg);font-size:11px;line-height:17px}
+.abgroups{display:flex;flex-wrap:wrap;gap:2px 12px;padding-top:3px}
+.abadd{position:relative;min-width:0}
+.abadd input{width:100%}
+.abadd .sugg{left:0;right:0;top:calc(100% + 2px)}
+.abmembers{max-height:220px;margin:0 14px 8px;padding:0;overflow:auto;list-style:none;border:1px solid var(--line-soft);border-radius:4px}
+.abmembers li{display:flex;align-items:center;gap:8px;min-height:26px;padding:0 3px 0 8px;border-bottom:1px solid var(--line-soft);font-size:12.5px}
+.abmembers li:last-child{border-bottom:0}
+.abmembers .nm{flex:none;max-width:50%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.abmembers .em{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:11.5px var(--font-data);color:var(--muted)}
+.abmembers .btn.icon{width:22px;height:22px;margin-left:auto}
+.abmembers .none{color:var(--muted);font-size:12px}
+.abperson{margin:4px 14px 8px;font-size:13px}
+.abperson .em{font:12px var(--font-data);color:var(--muted)}
+.abmsg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted)}
+/* The person button by a sender, and the marks of contacts and groups in compose's suggestions */
+.pbtn.ph-ab{align-self:center;width:20px;height:18px;margin-left:-8px}
+.pbtn.ph-ab svg{width:13px;height:13px}
+.pbtn.ph-ab.known{color:var(--accent)}
+.sugg .ct{display:inline-flex;margin-right:4px;vertical-align:-2px;color:var(--muted)}
+.sugg .ct svg{width:12px;height:12px}
 
 /* Update dialog */
 .u-brand{display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
@@ -606,6 +780,21 @@ button.ph-who:hover .pn{text-decoration:underline}
 .sig textarea{width:100%;min-height:58px;padding:5px 7px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data);resize:vertical}
 .sig textarea:focus{border-color:var(--accent);outline:0}
 .sig textarea::placeholder{color:var(--muted)}
+/* A signature's editor (Settings › Writing, the identity form): compose's bar and editor, small. */
+.cf .lab{align-self:start;padding-top:4px;color:var(--muted);font-size:12px}
+.sigedit{display:flex;flex-direction:column;min-width:0;border:1px solid var(--field);border-radius:3px;overflow:hidden;background:var(--surface)}
+.sigedit:focus-within{border-color:var(--accent)}
+.sigedit .fbar{padding:2px 4px}
+.sigedit .fb{min-width:22px;height:22px;padding:0 3px}
+.sigedit .hedit{min-height:58px;max-height:260px;padding:5px 8px;font-size:12.5px}
+.sigedit .hedit:focus{box-shadow:none}
+.hedit[data-placeholder]:empty::before{content:attr(data-placeholder);color:var(--muted)}
+/* A folder's templates (Settings › Writing). */
+.ftpl .ffields{display:grid;grid-template-columns:minmax(110px,max-content) minmax(0,1fr);gap:4px 8px;align-items:start;font-size:12px}
+.ftpl .ffields label{padding-top:5px;color:var(--muted)}
+.ftpl textarea,.ftpl input{width:100%;min-width:0;padding:4px 7px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:12px/1.45 var(--font-data);resize:vertical}
+.ftpl input{height:24px}
+.ftpl textarea:focus,.ftpl input:focus{border-color:var(--accent);outline:0}
 .sopt{display:flex;align-items:center;gap:8px;min-height:26px;font-size:12.5px;cursor:pointer}
 .sopt input{flex:none;margin:0}
 .sopt .sinline{min-width:0;height:24px}
@@ -726,6 +915,8 @@ button.ph-who:hover .pn{text-decoration:underline}
 .mvpw:disabled{opacity:.5}
 .mvlist .btn{flex:none}
 .mvbar{margin:-6px 0 12px}
+.mvtags{padding:8px 10px 0}
+.mvtags .tgs{flex-wrap:wrap;max-width:none;margin:0}
 /* Settings › Accounts: the list, and the wizard, server form and identities in the pane */
 .spane .cf.df{padding:8px 0 10px}
 .spane .rlist{padding:0 0 6px;max-height:none}
@@ -842,7 +1033,7 @@ button.cnwhy:hover,button.cnwhy:focus-visible{text-decoration:underline}
 .bkconfirm{margin:0 0 12px;padding:10px 12px 2px;border:1px solid var(--accent);border-radius:5px;background:var(--surface);font-size:12.5px}
 .bkconfirm p{margin:6px 0}
 .bkconfirm ul{margin:6px 0 10px;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.5}
-.bkchip{flex:none;margin-right:4px;border:0;cursor:pointer}
+.pcrow .bkchip{flex:0 1 auto;min-width:0;margin-right:4px;border:0;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width: 620px){
   .setbody{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}
   .settabs{flex-direction:row;padding:6px;border-right:0;border-bottom:1px solid var(--line-soft)}
@@ -853,7 +1044,7 @@ button.cnwhy:hover,button.cnwhy:focus-visible{text-decoration:underline}
    selection, pressed choices) gets the system's highlight; labels on tinted bars get borders. */
 @media (forced-colors: active){
   tbody tr.sel td,.list:focus tbody tr.sel td,tbody tr.picked td,.fold.active,.settabs [role="tab"][aria-selected="true"],
-  .seg2 input:checked+span,.langpick button[aria-pressed="true"],.seg button[aria-pressed="true"],
+  .seg2 input:checked+span,.seg button[aria-pressed="true"],
   .pklist li[aria-selected="true"],.sugg li[aria-selected="true"]{forced-color-adjust:none;background:Highlight;color:HighlightText}
   tr.unread .ic .dot{forced-color-adjust:none;background:CanvasText}
   .list:focus tr.sel.unread .ic .dot,tr.sel.unread .ic .dot{background:HighlightText}
@@ -937,6 +1128,11 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
 .cmenu li[aria-disabled="true"]:hover{background:none}
 .cmenu .msep{height:1px;margin:4px 0;background:var(--line-soft)}
 .cmenu .tick{display:inline-block;width:18px;font-style:normal;font-weight:700;color:var(--accent)}
+.cmenu .sw{display:inline-block;width:12px;height:12px;margin-right:8px;border:1px solid var(--field);border-radius:2px;vertical-align:-2px}
+.cmenu .sw.p1{background:var(--pal-1)}.cmenu .sw.p2{background:var(--pal-2)}.cmenu .sw.p3{background:var(--pal-3)}.cmenu .sw.p4{background:var(--pal-4)}.cmenu .sw.p5{background:var(--pal-5)}.cmenu .sw.p6{background:var(--pal-6)}
+.cmenu .sw.m1{background:var(--mark-1)}.cmenu .sw.m2{background:var(--mark-2)}.cmenu .sw.m3{background:var(--mark-3)}.cmenu .sw.m4{background:var(--mark-4)}
+.cmenu .sw.none{background:linear-gradient(135deg,transparent 45%,var(--note-fg) 45% 55%,transparent 55%)}
+.cmenu .fs-small{font-size:11px}.cmenu .fs-large{font-size:15px}
 .cmenu kbd{flex:none}
 @media (forced-colors: active){
   .cmenu{border-color:CanvasText}
@@ -1031,8 +1227,54 @@ kbd{display:inline-block;font:500 10px/1.5 var(--font-data);padding:0 4px;border
 .rvalue{display:flex;gap:6px;min-width:0}
 .rvalue input{min-width:0;flex:1}
 .rvalue input[data-k="header"]{flex:.65}
+.rvalue input[type="number"]{flex:0 0 76px}
+.rvalue .runit{align-self:center;font-size:12px;color:var(--muted)}
+.rvalue .rpattern{font-family:var(--font-data);font-size:12px}
+.rhint{padding:5px 14px 0}
+#r-when .rcheck{margin:4px 14px}
+#r-when .rcheck select{height:24px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.rfolders{margin:2px 14px 0 34px;max-height:132px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:1px 10px;font-size:12px}
+.rfgroup{grid-column:1/-1;font-size:11px;color:var(--muted);margin-top:4px}
+.rfold{display:flex;align-items:center;gap:6px;min-width:0}
+.rfold span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rpreview{border-top:1px solid var(--line);margin-top:12px;padding-top:8px;max-height:280px;overflow:auto}
 .preview-matches{margin:8px 0;padding-left:20px;font-size:12px}
 .preview-matches li{margin:5px 0}
 .preview-matches .dnote{display:block}
 .saved-searches .fold[aria-current="page"]{background:var(--hover);color:var(--accent);font-weight:600}
+/* OpenPGP: the lines above signed and encrypted mail, compose's switches, Settings › Keys */
+.bar.pgp{flex-wrap:nowrap;align-items:flex-start}
+.bar.pgp svg{width:14px;height:14px;flex:none;margin-top:2px}
+.bar.pgp.good,.bar.pgp.quiet{background:var(--panel);color:var(--fg)}
+.bar.pgp.good svg{color:var(--accent)}
+.bar.pgp.quiet{color:var(--muted)}
+.bar.pgp.info{background:var(--chip-bg);color:var(--chip-fg)}
+.bar.pgp.bad{background:var(--note-bg);color:var(--note-fg)}
+.bar.pgp .btn{color:var(--fg);height:22px}
+.pgpline{display:flex;flex:1;min-width:0;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.pgpfp,.kfp{font:12px var(--font-data);letter-spacing:.02em}
+.pgppass,#c-pass,.sfield{height:24px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.pgppass,#c-pass{width:14em}
+.pgppass:focus,#c-pass:focus,.sfield:focus{border-color:var(--accent);outline:0}
+textarea.sfield{height:auto;width:100%;padding:6px;font:12px var(--font-data);resize:vertical}
+.pgprem{display:inline-flex;align-items:center;gap:4px}
+.pgperr{font-weight:600}
+.pgpset{display:inline-flex;gap:4px}
+.pgpset[hidden],.cpgp[hidden],.pgptog[hidden]{display:none}
+.pgptog svg{width:13px;height:13px;color:var(--muted)}
+.pgptog[aria-pressed="true"]{background:var(--sel);color:var(--fg);border-color:var(--accent)}
+.pgptog[aria-pressed="true"] svg{color:var(--accent)}
+.klist{list-style:none;margin:0 0 10px;padding:0}
+.krow{padding:8px 0;border-bottom:1px solid var(--line-soft)}
+.khead{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.kchip{font-size:11px;padding:0 6px;border-radius:8px;background:var(--chip-bg);color:var(--chip-fg)}
+.kchip.warn{background:var(--warn-bg);color:var(--warn-fg)}
+.kchip.bad{background:var(--note-bg);color:var(--note-fg)}
+.kuids,.kmeta{font-size:12px;color:var(--muted)}
+.kfp{display:block;margin:2px 0;color:var(--fg)}
+.kbtns{display:flex;flex-wrap:wrap;gap:2px 14px;margin-top:3px}
+.kbtns .linkbtn{color:var(--accent);text-decoration:none;font-weight:500}
+.kbtns .linkbtn.danger{color:var(--note-fg);font-weight:600}
+.kmake{margin:8px 0 14px}
+.kmake summary{cursor:pointer;font-weight:600;padding:4px 0}
+.kpaste{margin:6px 0 10px}

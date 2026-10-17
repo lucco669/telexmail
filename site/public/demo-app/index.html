@@ -29,6 +29,7 @@
     <button class="tb" id="b-delete" type="button" title="Move to Trash (Del)" data-i18n></button>
     <span class="sep"></span>
     <button class="tb" id="b-rules" type="button" title="Rules that sort, flag and answer mail" data-i18n></button>
+    <button class="tb" id="b-book" type="button" title="Address book: contacts and groups (B)" data-i18n></button>
     <button class="tb" id="b-density" type="button" title="Switch row density" data-i18n></button>
     </div>
     <button class="tb" id="b-settings" type="button" title="Settings: accounts, theme, language, writing, usage (Ctrl+,)" data-i18n></button>
@@ -69,7 +70,7 @@
        the last check, help and the version. -->
   <footer class="status">
     <span class="st-side st-left"><span id="st-folder"></span><button class="chip" id="st-undo" type="button" hidden></button><span id="st-msg"></span></span>
-    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
+    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span class="more"><kbd>1</kbd>–<kbd>5</kbd> <span data-i18n>tags</span></span><span class="more"><kbd>B</kbd> <span data-i18n>address book</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
     <span class="st-side st-right">
       <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
       <span class="ask" id="st-count" title="Once a day Telex would send its version, the system, the language and the month it was first counted. No ID, and nothing about you or your mail." hidden data-i18n>Count this copy of Telex once a day, anonymously? <button type="button" class="linkbtn" data-count="on" data-i18n>Yes</button> <button type="button" class="linkbtn" data-count="off" data-i18n>No</button></span>
@@ -110,7 +111,9 @@
       <button type="button" role="tab" id="s-tab-accts" aria-controls="s-pane-accts" data-tab="accts" data-i18n>Accounts</button>
       <button type="button" role="tab" id="s-tab-mail" aria-controls="s-pane-mail" data-tab="mail" data-i18n>Mail</button>
       <button type="button" role="tab" id="s-tab-read" aria-controls="s-pane-read" data-tab="read" data-i18n>Reading</button>
+      <button type="button" role="tab" id="s-tab-tags" aria-controls="s-pane-tags" data-tab="tags" data-i18n>Tags</button>
       <button type="button" role="tab" id="s-tab-write" aria-controls="s-pane-write" data-tab="write" data-i18n>Writing</button>
+      <button type="button" role="tab" id="s-tab-keys" aria-controls="s-pane-keys" data-tab="keys" data-i18n>Keys</button>
       <button type="button" role="tab" id="s-tab-use" aria-controls="s-pane-use" data-tab="use" data-i18n>Usage</button>
       <button type="button" role="tab" id="s-tab-conn" aria-controls="s-pane-conn" data-tab="conn" data-i18n>Connections</button>
       <button type="button" role="tab" id="s-tab-backup" aria-controls="s-pane-backup" data-tab="backup" data-i18n>Backups</button>
@@ -175,11 +178,9 @@
           <div class="dhead">
             <h3 class="rh" data-i18n>Add a mail account</h3>
             <!-- On the first start only: the language, each named in itself. -->
-            <div class="langpick" id="w-lang" role="group" aria-label="Language · Język" hidden>
-              <button type="button" data-lang="en" lang="en">English</button><button type="button" data-lang="pl" lang="pl">Polski</button>
-            </div>
+            <select class="langpick" id="w-lang" aria-label="Language" hidden></select>
           </div>
-          <p class="whint" id="w-langhint" lang="pl" hidden>Telex jest też po polsku: wybierz „Polski” u góry.</p>
+          <p class="whint" id="w-langhint" hidden></p>
           <p class="dnote" data-i18n>Telex finds the server settings itself and logs in to check them before it saves anything.</p>
           <p class="whint" id="w-move" hidden></p>
           <div class="cf df">
@@ -205,10 +206,20 @@
           <p class="whint" id="a-hint" hidden></p>
           <div class="cf df">
             <label for="a-email" data-i18n>Email</label><input id="a-email" type="email" autocomplete="off" spellcheck="false">
-            <label for="a-host" data-i18n>IMAP server</label>
+            <label for="a-proto" data-i18n>Incoming mail</label>
+            <select id="a-proto"><option value="imap" data-i18n>IMAP: the folders are on the server</option><option value="pop3" data-i18n>POP3: the server keeps only the Inbox</option></select>
+            <label for="a-host" class="imap-only" data-i18n>IMAP server</label><label for="a-host" class="pop-only" data-i18n>POP3 server</label>
             <div class="hostrow"><input id="a-host" placeholder="mail.example.com" autocomplete="off" spellcheck="false"><label for="a-port" data-i18n>Port</label><input id="a-port" type="number" min="1" max="65535" value="993"></div>
-            <label for="a-isec" data-i18n>IMAP security</label>
-            <select id="a-isec"><option value="tls" data-i18n>SSL/TLS (usually port 993)</option><option value="starttls" data-i18n>STARTTLS (usually port 143)</option></select>
+            <label for="a-isec" class="imap-only" data-i18n>IMAP security</label>
+            <select id="a-isec" class="imap-only"><option value="tls" data-i18n>SSL/TLS (usually port 993)</option><option value="starttls" data-i18n>STARTTLS (usually port 143)</option></select>
+            <label for="a-psec" class="pop-only" data-i18n>POP3 security</label>
+            <select id="a-psec" class="pop-only"><option value="tls" data-i18n>SSL/TLS (usually port 995)</option><option value="starttls" data-i18n>STLS (usually port 110)</option></select>
+            <label class="pop-only" data-i18n>On the server</label>
+            <div class="pop-only akeep">
+              <label class="rcheck"><input type="checkbox" id="a-leave" checked> <span data-i18n>Leave mail on the server once it is here</span></label>
+              <label class="rcheck"><input type="checkbox" id="a-days-on"> <span data-i18n>Remove it from there after</span> <input id="a-days" type="number" min="1" max="3650" value="14" aria-label="Days" data-i18n> <span data-i18n>days</span></label>
+              <label class="rcheck"><input type="checkbox" id="a-until" checked> <span data-i18n>Remove it from there once it is deleted here (from Trash)</span></label>
+            </div>
             <label for="a-user" data-i18n>User name</label><input id="a-user" placeholder="Same as email" autocomplete="off" spellcheck="false">
             <label for="a-pass" data-i18n>Password</label><input id="a-pass" type="password" autocomplete="off">
             <label for="a-smtp" data-i18n>SMTP server</label>
@@ -217,7 +228,8 @@
             <select id="a-sec"><option value="tls" data-i18n>SSL/TLS (usually port 465)</option><option value="starttls" data-i18n>STARTTLS (usually port 587)</option></select>
             <label for="a-name" data-i18n>Your name</label><input id="a-name" placeholder="As people will see it" autocomplete="off" data-i18n>
           </div>
-          <p class="dnote" data-i18n>Telex connects only encrypted (SSL/TLS or STARTTLS) and checks both servers before saving. Reading, flagging, moving and deleting here does the same on the server. The first check downloads the newest 300 messages of each folder; older ones come on request. Your password is kept in the system’s password store and used for sending too.</p>
+          <p class="dnote pop-only" data-i18n>Telex connects only encrypted (SSL/TLS or STLS) and checks both servers before saving. A POP3 server keeps only the Inbox: your folders are here, and reading, flagging and moving change nothing there. The first check downloads the newest 300 messages; older ones come on request. Back up this mail now and then: Settings › Backups.</p>
+          <p class="dnote imap-only" data-i18n>Telex connects only encrypted (SSL/TLS or STARTTLS) and checks both servers before saving. Reading, flagging, moving and deleting here does the same on the server. The first check downloads the newest 300 messages of each folder; older ones come on request. Your password is kept in the system’s password store and used for sending too.</p>
           <p class="derr" id="a-err" role="alert"></p>
           <div class="sbtns">
             <button class="btn primary" type="submit" id="a-go"><span>Connect</span> <kbd>Enter</kbd></button>
@@ -238,6 +250,7 @@
           <h3 class="rh" id="f-title">Folders</h3>
           <p class="dnote" data-i18n>Which of the server’s folders Telex uses for each kind of mail. Telex finds them itself and prefers the one that holds mail; choose another where it got it wrong. Your choice stays.</p>
           <div class="cf df" id="f-list"></div>
+          <p class="dnote" id="f-sentnote"></p>
           <p class="derr" id="f-err" role="alert"></p>
           <div class="sbtns">
             <button class="btn" type="button" id="f-close" data-i18n>Back to accounts</button>
@@ -266,11 +279,13 @@
           <div class="cf df">
             <label for="i-name" data-i18n>Name</label><input id="i-name" autocomplete="off" placeholder="The name people see" data-i18n>
             <label for="i-email" data-i18n>Email</label><input id="i-email" type="email" autocomplete="off" spellcheck="false">
-            <label for="i-sig" data-i18n>Signature</label><textarea id="i-sig" rows="4"></textarea>
+            <span class="lab" id="i-sig-label" data-i18n>Signature</span><div class="sigedit" id="i-sigedit"></div>
+            <label for="i-newt" data-i18n>New messages open with</label><textarea id="i-newt" rows="2" spellcheck="false" placeholder="Hello," data-i18n></textarea>
+            <label for="i-replyt" data-i18n>Replies open with</label><textarea id="i-replyt" rows="2" spellcheck="false" placeholder="Hello {first}," data-i18n></textarea>
             <label for="i-reply" data-i18n>Reply header</label><input id="i-reply" autocomplete="off" spellcheck="false">
             <label for="i-fwd" data-i18n>Forward header</label><textarea id="i-fwd" rows="4" spellcheck="false"></textarea>
           </div>
-          <p class="dnote" data-i18n>In the headers, these are filled in from the original message: {name} {email} {from} {date} {time} {subject}.</p>
+          <p class="dnote" data-i18n>In the templates and headers, these are filled in from the original message: {name} {first} {email} {from} {date} {time} {subject}. A new message has only {date} and {time}, today’s.</p>
           <label class="rcheck"><input type="checkbox" id="i-default"> <span data-i18n>Default for this account</span></label>
           <p class="derr" id="i-form-err" role="alert"></p>
           <div class="sbtns">
@@ -329,6 +344,17 @@
           <div class="slist" id="s-trusted"></div>
         </fieldset>
       </section>
+      <section class="spane" role="tabpanel" id="s-pane-tags" aria-labelledby="s-tab-tags" hidden>
+        <fieldset class="sgroup">
+          <legend data-i18n>Tags</legend>
+          <div class="slist" id="s-tags"></div>
+          <div class="sbtns"><button class="btn" type="button" id="s-tag-new" data-i18n>New tag</button></div>
+          <p class="derr" id="s-tag-err" role="alert"></p>
+          <p class="dnote snote" data-i18n>Keys 1 to 5 put the first five tags on the selected messages, or take them off. A message’s menu and the tag button above it have every tag.</p>
+          <p class="dnote snote" data-i18n>On the server a tag is a keyword, so Thunderbird and other programs show it too. Thunderbird’s five tags are these first five. Deleting a tag takes it off every message, here and on the server.</p>
+          <p class="dnote snote" id="s-tag-here" hidden></p>
+        </fieldset>
+      </section>
       <section class="spane" role="tabpanel" id="s-pane-write" aria-labelledby="s-tab-write" hidden>
         <fieldset class="sgroup">
           <legend data-i18n>New messages</legend>
@@ -345,7 +371,18 @@
           <div class="sopts">
             <label class="sopt"><input type="checkbox" id="s-signrep"><span data-i18n>Sign replies and forwards too</span></label>
           </div>
-          <p class="dnote snote" data-i18n>Saved as you type. Reply and forward headers are with each identity: Edit identity.</p>
+          <p class="dnote snote" data-i18n>Saved as you type, with its formatting and a picture if you like; plain-text messages get its text. Greetings and reply and forward headers are with each identity: Edit identity.</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Folder templates</legend>
+          <div class="sigs" id="s-ftpl"></div>
+          <div class="sopts"><select id="s-ftpl-add" class="sselect" aria-label="Add templates for a folder" data-i18n></select></div>
+          <p class="dnote snote" data-i18n>A folder’s own greeting for new messages written while it is open and for replies to mail in it, and its own reply header. What is left empty comes from the identity. Also from a folder’s menu: Templates…</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Pictures</legend>
+          <div class="sopts" id="s-imgsize"></div>
+          <p class="dnote snote" data-i18n>Pictures pasted, dropped or inserted into an HTML message are made this size. A photo made smaller also loses its hidden details, such as where it was taken.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Spelling</legend>
@@ -368,6 +405,9 @@
             <label class="sopt"><input type="checkbox" id="s-askmany"><span data-i18n>Ask before a reply to all goes to 8 people or more</span></label>
           </div>
         </fieldset>
+      </section>
+      <section class="spane" role="tabpanel" id="s-pane-keys" aria-labelledby="s-tab-keys" hidden>
+        <div id="s-keys"></div>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-use" aria-labelledby="s-tab-use" hidden>
         <div id="u-usage"></div>
@@ -423,7 +463,7 @@
 <dialog class="dlg wide" id="rules-dlg" aria-labelledby="rules-title">
   <div id="r-list-view">
     <h2 class="dtitle" id="rules-title" data-i18n>Rules</h2>
-    <p class="dnote" data-i18n>Rules run top to bottom on new mail as it arrives in an Inbox. A message a rule changes says so above its text.</p>
+    <p class="dnote" data-i18n>Rules run top to bottom on new mail as it arrives in an Inbox, and on a schedule where they have one. A message a rule changes says so above its text.</p>
     <div class="rlist" id="r-list"></div>
     <p class="derr" id="r-err" role="alert"></p>
     <div class="cbar">
@@ -441,10 +481,18 @@
       <label for="r-match" data-i18n>If</label><select id="r-match"><option value="all" data-i18n>all of these match</option><option value="any" data-i18n>any of these matches</option></select>
     </div>
     <div class="rrows" id="r-conds"></div>
+    <p class="dnote rhint" id="r-pattern-hint" hidden data-i18n>A pattern is a regular expression on the text in lowercase without diacritics (ł is l, ą is a), so case doesn’t matter. It is found anywhere unless ^ or $ hold it to the start or end: ^re: · faktur[ay] · fv/\d+</p>
     <button type="button" class="linkbtn radd" id="r-add-cond" data-i18n>+ Condition</button>
     <h3 class="rh" data-i18n>Then</h3>
     <div class="rrows" id="r-acts"></div>
     <button type="button" class="linkbtn radd" id="r-add-act" data-i18n>+ Action</button>
+    <h3 class="rh" data-i18n>When</h3>
+    <div id="r-when">
+      <label class="rcheck"><input type="checkbox" id="r-arrival"> <span data-i18n>When new mail arrives in an Inbox</span></label>
+      <label class="rcheck"><input type="checkbox" id="r-sched"> <span data-i18n>On a schedule, while Telex runs:</span> <select id="r-every" aria-label="How often" data-i18n></select></label>
+      <div class="rfolders" id="r-sched-folders" role="group" aria-label="Folders the schedule runs on" data-i18n hidden></div>
+      <p class="dnote rhint" id="r-sched-note" hidden data-i18n>On a schedule the rule runs on these folders, never answers or forwards mail, and catches up once after Telex was closed.</p>
+    </div>
     <label class="rcheck"><input type="checkbox" id="r-stop"> <span data-i18n>Don’t run later rules on mail this rule matches</span></label>
     <p class="derr" id="r-form-err" role="alert"></p>
     <section id="r-preview-result" class="rpreview" aria-live="polite" hidden></section>
@@ -454,6 +502,39 @@
       <button class="btn" type="button" id="r-back" data-i18n>Back to the list</button>
     </div>
   </form>
+</dialog>
+
+<!-- View source (Ctrl+U) and All headers: the message as it came, to read and copy. -->
+<dialog class="dlg src" id="src-dlg" aria-labelledby="src-title">
+  <div class="dhead">
+    <h2 class="dtitle" id="src-title" data-i18n>Message source</h2>
+    <span class="seg" role="group" aria-label="Show" data-i18n><button type="button" data-src="source" aria-pressed="true" data-i18n>Source</button><button type="button" data-src="headers" aria-pressed="false" data-i18n>Headers</button></span>
+  </div>
+  <p class="dnote" id="src-note"></p>
+  <pre class="srctext" id="src-text" tabindex="0"></pre>
+  <dl class="srchd" id="src-headers" tabindex="0" hidden></dl>
+  <div class="cbar"><button class="btn" type="button" id="src-copy" data-i18n>Copy</button><button class="btn" type="button" id="src-save" data-i18n>Save as…</button><button class="btn" type="button" id="src-close"><span data-i18n>Close</span> <kbd>Esc</kbd></button></div>
+</dialog>
+
+<!-- B: the address book. Contacts and groups on the left (/ searches, N adds, Del removes, Z puts
+     back), the one chosen on the right; people written to are offered below, never added alone. -->
+<dialog class="dlg ab" id="ab-dlg" aria-labelledby="ab-title">
+  <h2 class="dtitle" id="ab-title" data-i18n>Address book</h2>
+  <div class="abbody">
+    <div class="ablist">
+      <div class="abq"><input id="ab-q" type="search" placeholder="Search" aria-label="Search the address book" aria-controls="ab-items" autocomplete="off" spellcheck="false" data-i18n><kbd>/</kbd></div>
+      <ul class="abitems" id="ab-items" role="listbox" aria-label="Contacts and groups" aria-multiselectable="true" tabindex="0" data-i18n></ul>
+    </div>
+    <div class="abedit" id="ab-edit"></div>
+  </div>
+  <div class="cbar">
+    <button class="btn" type="button" id="ab-new"><span data-i18n>New contact</span> <kbd>N</kbd></button>
+    <button class="btn" type="button" id="ab-newgroup" data-i18n>New group</button>
+    <button class="btn" type="button" id="ab-import" data-i18n>Import vCard…</button>
+    <button class="btn" type="button" id="ab-export" aria-haspopup="menu" data-i18n>Export vCard…</button>
+    <span class="cnote snotel abmsg" id="ab-msg" role="status"></span>
+    <button class="btn" type="button" id="ab-close"><span data-i18n>Close</span> <kbd>Esc</kbd></button>
+  </div>
 </dialog>
 
 <!-- M moves the selected messages, G opens a folder: type part of its name. -->

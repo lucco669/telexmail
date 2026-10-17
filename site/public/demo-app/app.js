@@ -49,6 +49,9 @@ const I = {
   mailOpen: sv('<path d="M1.5 6.8L8 2.3l6.5 4.5v6.7h-13z"/><path d="M2 7.2l6 4.3 6-4.3"/>'),
   clock: sv('<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.6"/>'),
   person: sv('<circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 14c.6-2.8 2.7-4.3 5.2-4.3s4.6 1.5 5.2 4.3"/>'),
+  personAdd: sv('<circle cx="6.5" cy="5.5" r="2.7"/><path d="M1.5 14c.6-2.8 2.6-4.3 5-4.3 1.2 0 2.3.4 3.2 1.1"/><path d="M12.5 8.5v5M10 11h5"/>'),
+  people: sv('<circle cx="6" cy="5.8" r="2.3"/><path d="M1.8 13.5c.5-2.4 2.2-3.6 4.2-3.6s3.7 1.2 4.2 3.6"/><path d="M10.2 3.8a2.3 2.3 0 010 4.1M11.8 10.2c1.3.5 2.1 1.6 2.4 3.3"/>'),
+  book: sv('<path d="M4 1.8h9v12.4H4z"/><path d="M2.5 4.5h3M2.5 8h3M2.5 11.5h3"/><circle cx="9" cy="6.6" r="1.6"/><path d="M6.6 11.2c.4-1.3 1.3-2 2.4-2s2 .7 2.4 2"/>'),
   plus: sv('<path d="M8 3v10M3 8h10"/>'),
   rules: sv('<path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5z"/>'),
   sun: sv('<circle cx="8" cy="8" r="2.7"/><path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1.05 1.05M11.45 11.45l1.05 1.05M3.5 12.5l1.05-1.05M11.45 4.55l1.05-1.05"/>'),
@@ -58,9 +61,14 @@ const I = {
   quote: sv('<path d="M3 3.5v9"/><path d="M6 5h7M6 8h7M6 11h5"/>'),
   link: sv('<path d="M6.8 9.2a2.6 2.6 0 003.7 0l2-2a2.6 2.6 0 00-3.7-3.7l-.8.8"/><path d="M9.2 6.8a2.6 2.6 0 00-3.7 0l-2 2a2.6 2.6 0 003.7 3.7l.8-.8"/>'),
   clear: sv('<path d="M5 3.5h7M8.5 3.5L7 12.5"/><path d="M3 3l10 10"/>'),
+  mark: sv('<path d="M9.8 2.6l3.6 3.6-5.6 5.6H4.2V8.2z"/><path d="M7.4 5l3.6 3.6"/>'),
+  picture: sv('<rect x="2" y="3" width="12" height="10" rx="1.2"/><circle cx="5.8" cy="6.3" r="1.1"/><path d="M2.6 12.2l3.6-3.6 2.4 2.4 1.9-1.9 2.9 2.9"/>'),
   popout: sv('<path d="M9.5 2.5H13.5V6.5"/><path d="M13.5 2.5L8 8"/><path d="M11.5 9.5v4h-9v-9h4"/>'),
+  cal: sv('<rect x="2.5" y="3.5" width="11" height="10" rx="1.2"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/>', 'class="cal"'),
   copy: sv('<rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 3.5v-.3a.7.7 0 00-.7-.7H3.2a.7.7 0 00-.7.7v6.6a.7.7 0 00.7.7h.3"/>'),
   spell: sv('<path d="M1.8 11.5L4.3 4l2.5 7.5M2.6 9h3.4"/><path d="M8.8 9.6l2 2 3.6-4.6"/>'),
+  dots: sv('<circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/>'),
+  tag: sv('<path d="M2.5 2.5h5.3l5.7 5.7-5.3 5.3-5.7-5.7z"/><circle cx="5.4" cy="5.4" r="1"/>'),
 };
 const KIND_ICON = {inbox:'inbox', outbox:'outbox', drafts:'drafts', sent:'sent', archive:'archive', spam:'spam', trash:'trash', custom:'folder', unread:'unread'};
 // Special folders have a name in the interface's language, whatever the server calls them.
@@ -73,6 +81,9 @@ let PROBLEMS = {}; // account id -> why its last check failed (kept by the core 
 let AWAY = []; // the away replies that are on: [{account, place, starts, ends}]
 let USAGE = null; // the last answer of `usage`, for the Usage tab
 let QUOTA = {}, SYNCED = {}; // account id -> its storage on the server; when its last check worked
+// Tags (tags.rs), in the window's order, with how many messages carry each; the accounts whose
+// server can't keep them, so they stay on this PC.
+let TAGS = [], TAGS_HERE = [];
 const bodies = new Map(); // id -> full message from get_message
 
 // "2026-10-10T06:12:00" (local time, no zone) -> Date
@@ -85,7 +96,7 @@ function parseDate(s){
 const fromSummary = s => ({
   id:s.id, f:s.folder, from:s.from_name, email:s.from_email, to:s.to, subj:s.subject,
   date:parseDate(s.date), kb:s.size_kb, unread:s.unread, flagged:s.flagged, hasAtt:s.has_attachments,
-  thread:s.thread ?? null,
+  thread:s.thread ?? null, goes:s.goes ? parseDate(s.goes) : null, tags:s.tags ?? [],
 });
 // Accounts, folders and how many messages each folder holds (the core counts them).
 async function loadTree(){
@@ -96,6 +107,7 @@ async function loadTree(){
   PROBLEMS = t.problems ?? {};
   AWAY = t.away ?? [];
   QUOTA = t.quota ?? {}; SYNCED = t.synced ?? {};
+  TAGS = t.tags ?? []; TAGS_HERE = t.tags_here ?? [];
   INITIALS = initialsOf(servers());
   try { SAVED_SEARCHES = await invoke('list_saved_searches'); } catch { SAVED_SEARCHES = []; }
 }
@@ -117,9 +129,11 @@ function initialsOf(accounts){
 // The core's errors and notes come in the interface's language already (its tr! macro).
 const tr = e => String(e);
 // Commands that change mail; the core queues them for the server and we push shortly after.
-// send_message counts: a sent message's copy for the server's Sent folder is queued too.
-const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'run_rules',
-  'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read', 'mark_spam']);
+// send_message counts: a sent message's copy for the server's Sent folder is queued too, and
+// save_outgoing: a saved draft goes to the server's Drafts (autosaves stay here).
+const CHANGES = new Set(['set_unread', 'set_flagged', 'send_message', 'save_outgoing', 'run_rules',
+  'set_unread_many', 'set_flagged_many', 'move_messages', 'delete_messages', 'mark_folder_read', 'mark_spam',
+  'send_now', 'unsubscribe', 'set_tag_many', 'delete_tag']);
 async function call(cmd, args){
   try {
     const result = await invoke(cmd, args);
@@ -161,7 +175,7 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 const pad = n => String(n).padStart(2, '0');
 const DOW = [N_('Sun'),N_('Mon'),N_('Tue'),N_('Wed'),N_('Thu'),N_('Fri'),N_('Sat')];
 const hm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
-const dmy = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + '.' + d.getFullYear();
+const dmy = d => pad(d.getDate()) + I18n.dateSep() + pad(d.getMonth() + 1) + I18n.dateSep() + d.getFullYear();
 function fmtList(d){
   if (colPref.dates === 'full') return dmy(d) + ' ' + hm(d);
   const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate());
@@ -173,8 +187,17 @@ function fmtList(d){
 const fmtFull = d => t(DOW[d.getDay()]) + ', ' + dmy(d) + ' ' + hm(d);
 const fmtSize = kb => kb >= 1048576 ? I18n.decimal(kb / 1048576) + ' GB' : kb >= 1024 ? I18n.decimal(kb / 1024) + ' MB' : kb + ' KB';
 // When something happened: the time today, the day and time before.
-const dm = d => pad(d.getDate()) + '.' + pad(d.getMonth() + 1);
+const dm = d => pad(d.getDate()) + I18n.dateSep() + pad(d.getMonth() + 1);
 const fmtWhen = d => d.toDateString() === new Date().toDateString() ? hm(d) : dm(d) + ' ' + hm(d);
+// When mail sent later goes: the time today, "tomorrow", the weekday within a week, else the date.
+function fmtGoes(d){
+  const day = x => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const ahead = Math.round((day(d) - day(new Date())) / 864e5);
+  if (ahead <= 0) return hm(d);
+  if (ahead === 1) return t('tomorrow') + ' ' + hm(d);
+  if (ahead < 7) return t(DOW[d.getDay()]) + ' ' + hm(d);
+  return dm(d) + ' ' + hm(d);
+}
 const nameOf = addr => {
   const s = String(addr || '').trim();
   if (!s) return t('(no recipient)');
@@ -209,12 +232,16 @@ const unreadAll = () => ACCOUNTS.reduce((n, a) => n + a.folders.filter(f => f.ki
 const countOf = key => !isEvery(key) ? COUNTS[key] ?? {total:0, unread:0}
   : key === UNREAD ? (n => ({total:n, unread:n}))(unreadAll())
   : servers().reduce((n, a) => { const c = COUNTS[keyOfKind(a.id, kindOf(key))]; return c ? {total:n.total + c.total, unread:n.unread + c.unread, stuck:n.stuck + (c.stuck ?? 0)} : n; }, {total:0, unread:0, stuck:0});
-const num = n => n.toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en');
+const num = n => n.toLocaleString(I18n.locale());
 // The folders on this PC ("On this PC"): mail kept only here. The core keeps them as an
 // account without servers, with this id, listed last.
 const LOCAL = 'local';
 const isLocal = key => acctId(String(key)) === LOCAL;
 const servers = () => ACCOUNTS.filter(a => a.imap); // the accounts that live on a server
+// A POP3 account's server has only an Inbox: all its folders are here, made and removed like
+// the folders on this PC. `keepsHere`: a folder of such an account, or one on this PC.
+const isPop3 = acct => !!ACCT[acct]?.imap?.pop3;
+const keepsHere = key => isLocal(key) || isPop3(acctId(String(key)));
 // A folder's name where it could be mistaken for a server folder: "Archive on this PC".
 const placeName = key => isLocal(key) ? t('{folder} on this PC', {folder:folderName(key)}) : folderName(key);
 // Who a folder belongs to, in words: the account's address, or "On this PC".
@@ -288,7 +315,7 @@ const persist = () => store.set({
 const THEMES = ['system', 'light', 'dark', 'paper', 'heather', 'fjord', 'phosphor', 'contrast-light', 'contrast-dark'];
 const THEME_NAMES = {system:N_('Match Windows'), light:N_('Light'), dark:N_('Dark'), paper:N_('Paper'), heather:N_('Heather'), fjord:N_('Fjord'),
   phosphor:N_('Phosphor'), 'contrast-light':N_('High contrast light'), 'contrast-dark':N_('High contrast dark')};
-const LANG_NAMES = {en:'English', pl:'Polski'}; // each in itself, never translated
+const LANG_NAMES = Object.fromEntries(I18n.languages); // each in itself, never translated
 const TOOLBAR_STYLES = [
   ['classic', N_('Classic|toolbar'), N_('Icons beside labels; adapts to the window.')],
   ['icons', N_('Icons only'), N_('Small buttons, more room for your mail.')],
@@ -307,7 +334,7 @@ const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true, ask_attachment:true, ask_many:true,
-    spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
+    image_size:'large', spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -345,12 +372,20 @@ function applySettings(){
   paintDensity();
   if (win.dataset.density !== rows) drawSoon(); // the list keeps the same rows on screen
   scheduleChecks();
-  if (SETTINGS.language !== I18n.lang()){ I18n.setLang(SETTINGS.language); relabel(); }
+  if (SETTINGS.language !== I18n.lang()) switchLanguage(SETTINGS.language);
   renderUpdates();
   try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font, toolbar:s.toolbar_style})); } catch {}
   fitToolbarSoon(); // labels, language, font and layout all change how wide the actions are
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
+// A language whose words are in a file of their own is shown once that file is here.
+async function switchLanguage(code){
+  const later = !I18n.ready(code);
+  if (later) await I18n.load(code);
+  if (SETTINGS.language !== code || I18n.lang() === code) return;
+  I18n.setLang(code); relabel();
+  if (later && sdlg.open) renderSettings(true);
+}
 // Saved at once; the window follows. Resolves to true when it worked.
 async function changeSettings(changes){
   const before = SETTINGS.language;
@@ -358,6 +393,7 @@ async function changeSettings(changes){
   try { next = await invoke('update_settings', {changes}); }
   catch (e){ say(tr(e), 8000); return false; }
   if (!next?.settings) return false;
+  await I18n.load(next.language); // so the window changes language in one go
   SETTINGS = next;
   applySettings();
   if (sdlg.open) SETTINGS.language === before ? syncSettings() : renderSettings(true);
@@ -372,6 +408,8 @@ function relabel(){
   if (helpDlg.open) renderHelp();
   if (!state.compose) renderPreview(); else { readCompose(); renderCompose(); }
   if (rdlg.open){ if (!$('r-list-view').hidden) showRuleList(); else { renderConditions(); renderActions(); } }
+  // Thunderbird's five tags are named in the interface's language until renamed: ask again.
+  loadTree().then(() => { drawRows(); paintTagChips(); if (sdlg.open && setTab === 'tags') renderTags(); }, () => {});
 }
 // Older versions kept these in the window; the first start with settings.json brings them over.
 async function bootSettings(){
@@ -385,6 +423,7 @@ async function bootSettings(){
     if (['daily', 'off'].includes(saved.updates)) changes.updates = saved.updates;
     try { const next = await invoke('update_settings', {changes}); if (next?.settings) SETTINGS = next; } catch {}
   }
+  await I18n.load(SETTINGS.language);
   applySettings();
 }
 let checkTimer = null, checkEvery = null;
@@ -404,7 +443,7 @@ function stepTextSize(dir){
 
 /* ---------- toolbar ---------- */
 const TOOLBAR = [['b-get','get',N_('Get mail')],['b-new','neu',N_('New|message')],['b-reply','reply',N_('Reply')],['b-replyall','replyall',N_('Reply all')],
-  ['b-forward','forward',N_('Forward')],['b-flag','flag',N_('Flag')],['b-delete','trash',N_('Delete')],['b-rules','rules',N_('Rules')],['b-settings','sliders',N_('Settings')],
+  ['b-forward','forward',N_('Forward')],['b-flag','flag',N_('Flag')],['b-delete','trash',N_('Delete')],['b-rules','rules',N_('Rules')],['b-book','book',N_('Contacts')],['b-settings','sliders',N_('Settings')],
   ['b-help','help',N_('Help')]];
 function paintToolbar(){
   TOOLBAR.forEach(([id, ic, label]) => {
@@ -578,7 +617,7 @@ function folderButton(a, f){
   // A special folder is named by its kind; its own name on the server is in the tooltip, and
   // next to it when another folder has the kind's name ("Sent · Wysłane" next to an unused "Sent").
   const shown = folderName(key), same = (x, y) => x.toLocaleLowerCase() === y.toLocaleLowerCase();
-  const own = f.kind !== 'custom' && !isLocal(key) && f.name && !same(f.name, shown) ? f.name : '';
+  const own = f.kind !== 'custom' && !keepsHere(key) && f.name && !same(f.name, shown) ? f.name : '';
   const twin = own && a.folders.some(x => x.kind === 'custom' && same(x.name, shown));
   return foldButton(key, f.kind, own, twin);
 }
@@ -599,6 +638,8 @@ function unsentGroup(){
   const keys = unsentKeys();
   return keys.length ? `<ul class="unsent" aria-label="${esc(t('Not sent yet'))}">${keys.map(key => foldButton(key, kindOf(key))).join('')}</ul>` : '';
 }
+// A new folder being named in this group (the folders on this PC, a POP3 account), first in it.
+const newFolderLine = acct => state.naming?.key === 'new' && state.naming.acct === acct ? `<li><span class="fold naming">${I.folder}${nameInput()}</span></li>` : '';
 // The box a folder on this PC is named in, in the tree itself.
 const nameInput = () => `<input id="nf-name" class="nfname" value="${esc(state.naming.value)}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Folder name'))}" placeholder="${esc(t('Folder name'))}">`;
 // The folders on this PC: their own group under the accounts, with a + for a new one. Archive
@@ -616,7 +657,7 @@ function localGroup(a){
   let items = '';
   if (open){
     const shown = a.folders.filter(f => f.kind === 'custom' || countOf(LOCAL + '/' + f.id).total > 0 || LOCAL + '/' + f.id === state.folder);
-    items = '<ul>' + (state.naming?.key === 'new' ? `<li><span class="fold naming">${I.folder}${nameInput()}</span></li>` : '')
+    items = '<ul>' + newFolderLine(LOCAL)
       + shown.map(f => folderButton(a, f)).join('') + '</ul>';
   }
   return `<div class="pcrow"><button type="button" class="acct" data-acct="${LOCAL}" aria-expanded="${open}" title="${esc(t('Mail kept only on this PC, on no server. Right-click a folder for more.'))}">${I.caret}${adot(LOCAL)}<span class="acct-mail">${esc(t('On this PC'))}</span></button>`
@@ -639,7 +680,7 @@ function renderTree(){
       const own = a.folders.filter(f => !COUNT_ALL.has(f.kind) || key(f) === state.folder);
       const shown = f => MAIN_KINDS.has(f.kind) || state.pinned.has(key(f)) || key(f) === state.folder;
       const main = own.filter(shown), rest = own.filter(f => !shown(f)), more = !!state.more[a.id];
-      items = '<ul>' + (more ? own : main).map(f => folderButton(a, f)).join('');
+      items = '<ul>' + newFolderLine(a.id) + (more ? own : main).map(f => folderButton(a, f)).join('');
       if (rest.length){
         const unread = more ? 0 : rest.reduce((n, f) => n + countOf(key(f)).unread, 0);
         items += `<li><button type="button" class="fold more" data-more="${esc(a.id)}" aria-expanded="${more}">${I.caret}<span>${esc(more ? t('Fewer folders') : tn(rest.length, '{n} more', '{n} more'))}</span>${unread ? `<span class="cnt">${num(unread)}</span>` : ''}</button></li>`;
@@ -704,8 +745,10 @@ function accountMenu(id){
     {label:t('Move up'), key:'Alt+↑', disabled:i === 0, run:() => moveAccount(id, -1)},
     {label:t('Move down'), key:'Alt+↓', disabled:i === list.length - 1, run:() => moveAccount(id, 1)},
     {sep:true},
+    ...(isPop3(id) ? [{label:t('New folder…'), run:() => startNaming('new', id)}] : []),
     {label:state.more[id] ? t('Show fewer folders') : t('Show all folders'), run:() => toggleMore(id)},
-    {label:t('Which folder is which…'), run:() => openFolderChoices(id)},
+    // A POP3 account's folders are Telex's own: nothing to choose on a server.
+    ...(isPop3(id) ? [] : [{label:t('Which folder is which…'), run:() => openFolderChoices(id)}]),
     {label:t('Account settings…'), run:() => { openSettings('accts'); editAccount(id); }},
   ];
 }
@@ -714,10 +757,12 @@ $('folder-select').addEventListener('change', e => setFolder(e.target.value));
 /* ---------- folders on this PC ---------- */
 // Made and renamed right in the tree: the name is typed where the folder shows; Enter keeps
 // it, Esc doesn't. Removed only when empty. Right-click (or the menu key) for more.
-function startNaming(key){
-  if (!ACCT[LOCAL]) return;
-  delete state.collapsed[LOCAL];
-  state.naming = {key, value:key === 'new' ? '' : folderName(key), busy:false};
+function startNaming(key, acct = key === 'new' ? LOCAL : acctId(key)){
+  if (!ACCT[acct]) return;
+  delete state.collapsed[acct];
+  // A new folder of a POP3 account shows with its others: all of them, not only the main ones.
+  if (key === 'new' && acct !== LOCAL) state.more[acct] = true;
+  state.naming = {key, acct, value:key === 'new' ? '' : folderName(key), busy:false};
   renderTree();
   const input = $('nf-name');
   input?.focus(); input?.select();
@@ -741,11 +786,12 @@ async function finishNaming(save){
   n.busy = true;
   try {
     if (n.key === 'new'){
-      const key = await invoke('create_local_folder', {name});
+      const key = await invoke('create_local_folder', {name, account:n.acct === LOCAL ? null : n.acct});
       state.naming = null;
       await loadTree();
       await setFolder(key);
-      say(t('Made the folder {folder} on this PC. Drag mail onto it, or press M.', {folder:name}), 6000);
+      say(n.acct === LOCAL ? t('Made the folder {folder} on this PC. Drag mail onto it, or press M.', {folder:name})
+        : t('Made the folder {folder}. Drag mail onto it, or press M.', {folder:name}), 6000);
       treeEl.querySelector(`[data-folder="${key}"]`)?.focus();
     } else {
       await invoke('rename_local_folder', {folder:n.key, name});
@@ -770,7 +816,7 @@ async function deleteFolder(key){
   let rules;
   try { rules = await invoke('delete_local_folder', {folder:key}); } catch (e){ say(tr(e), 8000); return; }
   await loadTree();
-  if (state.folder === key) setFolder(LOCAL + '/archive'); else renderTree();
+  if (state.folder === key) setFolder(isLocal(key) ? LOCAL + '/archive' : keyOfKind(acctId(key), 'inbox')); else renderTree();
   say(t('Removed the folder {folder}.', {folder:name}) + (rules ? ' ' + tn(rules, '{n} rule no longer moves mail there.', '{n} rules no longer move mail there.') : ''), 6000);
 }
 // A folder as one mbox file, which other mail programs read.
@@ -798,18 +844,20 @@ listenHere('import-progress', ({payload: p}) => say(t('Reading mail from {file}:
 function folderMenu(key){
   const f = folderOf(key);
   if (!f || isEvery(key)) return [];
-  const local = isLocal(key), own = local && f.kind === 'custom';
+  const local = isLocal(key), here = keepsHere(key), own = here && f.kind === 'custom';
   const sections = [
-    local ? [{label:t('New folder…'), run:() => startNaming('new')}] : [],
+    here ? [{label:t('New folder…'), run:() => startNaming('new', acctId(key))}] : [],
     // Inbox and Sent are always in view; the folders on this PC too.
     !local && !MAIN_KINDS.has(f.kind) ? [{label:t('Keep in view'), checked:state.pinned.has(key), run:() => togglePin(key)}] : [],
     // A server folder another program kept sent mail in ("Wysłane", "Sent Items").
-    !local && f.kind === 'custom' ? [{label:t('Use for sent mail'), run:() => chooseFolder(key, 'sent')},
+    !here && f.kind === 'custom' ? [{label:t('Use for sent mail'), run:() => chooseFolder(key, 'sent')},
       {label:t('Which folder is which…'), run:() => openFolderChoices(acctId(key))}] : [],
     own ? [{label:t('Rename…'), key:'F2', run:() => startNaming(key)}, {label:t('Delete folder'), disabled:countOf(key).total > 0, run:() => deleteFolder(key)}] : [],
     [...(countOf(key).unread ? [{label:t('Mark all as read'), key:'Shift+U', run:() => markFolderRead(key)}] : []),
-      ...(local && f.kind !== 'trash' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
+      ...(here && f.kind !== 'trash' && f.kind !== 'outbox' ? [{label:t('Bring mail in from files…'), run:() => importInto(key)}] : []),
       {label:t('Save as mbox…'), run:() => exportFolder(key)}],
+    // Its own greeting and reply header (Settings › Writing).
+    !['outbox', 'drafts', 'trash', 'spam'].includes(f.kind) ? [{label:t('Templates…'), run:() => openFolderTemplates(key)}] : [],
   ];
   return sections.filter(s => s.length).flatMap((s, i) => i ? [{sep:true}, ...s] : s);
 }
@@ -832,7 +880,7 @@ treeEl.addEventListener('keydown', e => {
     e.preventDefault(); e.stopPropagation();
     const r = el.getBoundingClientRect(), items = treeMenu(el);
     if (items.length) openMenu(r.left + 24, r.bottom, items, el);
-  } else if (e.key === 'F2' && el.dataset.folder && isLocal(el.dataset.folder) && kindOf(el.dataset.folder) === 'custom'){
+  } else if (e.key === 'F2' && el.dataset.folder && keepsHere(el.dataset.folder) && kindOf(el.dataset.folder) === 'custom'){
     e.preventDefault(); e.stopPropagation(); startNaming(el.dataset.folder);
   } else if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && el.dataset.acct && el.dataset.acct !== LOCAL){
     // Alt+↑ ↓ on an account: up or down in the tree, keeping the focus on it.
@@ -850,12 +898,13 @@ menuEl.className = 'cmenu'; menuEl.setAttribute('role', 'menu'); menuEl.hidden =
 document.body.append(menuEl);
 let menuItems = [], menuFrom = null;
 // An item with `checked` (true or false) is a choice that is on or off, with a tick when on.
+let menuAt = [0, 0]; // where the last menu opened, for one that follows it (Tags…)
 function openMenu(x, y, items, from){
-  menuItems = items; menuFrom = from;
+  menuItems = items; menuFrom = from; menuAt = [x, y];
   const ticks = items.some(it => 'checked' in it);
   menuEl.innerHTML = items.map((it, i) => it.sep ? '<li class="msep" role="separator"></li>'
     : `<li role="${'checked' in it ? 'menuitemcheckbox' : 'menuitem'}" tabindex="-1" data-i="${i}"${'checked' in it ? ` aria-checked="${!!it.checked}"` : ''}${it.disabled ? ' aria-disabled="true"' : ''}>`
-      + `<span>${ticks ? `<i class="tick" aria-hidden="true">${it.checked ? '✓' : ''}</i>` : ''}${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
+      + `<span${it.cls ? ` class="${it.cls}"` : ''}>${ticks ? `<i class="tick" aria-hidden="true">${it.checked ? '✓' : ''}</i>` : ''}${it.swatch ? `<i class="sw ${it.swatch}" aria-hidden="true"></i>` : ''}${it.color ? `<i class="tdot t-${esc(it.color)}" aria-hidden="true"></i>` : ''}${esc(it.label)}</span>${it.key ? `<kbd>${esc(it.key)}</kbd>` : ''}</li>`).join('');
   menuEl.hidden = false;
   const w = menuEl.offsetWidth, h = menuEl.offsetHeight;
   menuEl.style.left = Math.max(4, Math.min(x, innerWidth - w - 4)) + 'px';
@@ -1155,15 +1204,18 @@ function rowHtml(m, sel, hl, accounts){
   const count = head ? tn(th.count, '{n} message', '{n} messages') + (th.unread ? ', ' + tn(th.unread, '{n} unread', '{n} unread') : '') : '';
   const toggleLabel = t(expanded ? N_('Collapse thread') : N_('Expand thread'));
   const toggle = head ? `<button type="button" class="thread-toggle" data-thread="${th.id}" aria-expanded="${expanded}" aria-label="${esc(toggleLabel)}" title="${esc(toggleLabel)}">${expanded ? '▾' : '▸'}</button>` : '<span class="thread-slot" aria-hidden="true"></span>';
-  const subject = grouped() ? `<span class="thread-subject">${toggle}<span class="subject-text">${marked(m.subj, hl?.subject)}</span>${head ? `<span class="thread-count" title="${esc(count)}" aria-label="${esc(count)}">${num(th.count)}</span>` : ''}</span>` : marked(m.subj, hl?.subject);
+  const chips = m.tags?.length ? tagChips(m.tags, 3) : '';
+  const subject = grouped() ? `<span class="thread-subject">${toggle}${chips}<span class="subject-text">${marked(m.subj, hl?.subject)}</span>${head ? `<span class="thread-count" title="${esc(count)}" aria-label="${esc(count)}">${num(th.count)}</span>` : ''}</span>` : chips + marked(m.subj, hl?.subject);
   const [where, whose] = whereOf(m, accounts);
+  // Mail sent later says in the Outbox when it goes.
+  const goes = m.goes ? `<span class="goes">${esc(t('Goes {when}', {when:fmtGoes(m.goes)}))}</span> ` : '';
   // The dot and the flag are switches: a click marks read or unread, flags or unflags.
   const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
   const flag = `<b class="mk fl" title="${esc(m.flagged ? t('Remove the flag (F)') : t('Flag (F)'))}">${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : I.flagOff}</b>`;
   return `<tr data-id="${m.id}" class="${cls}" aria-selected="${on}">
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
 <td class="c-from" title="${esc(tip)}">${marked(whoOf(m), hl?.[out ? 'to' : 'from'])}</td>
-<td class="c-subj" title="${esc(m.subj)}">${subject}</td>
+<td class="c-subj" title="${esc(m.subj)}">${goes}${subject}</td>
 <td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(whose ? where + ' · ' + whose : where)}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
@@ -1356,7 +1408,7 @@ async function refresh({skip, arrived} = {}){
     selRow = list.rows.find(r => r.id === state.sel[selKey()]) ?? null;
     if (!selRow && !state.q.trim()){ selRow = list.rows[0] ?? null; state.sel[selKey()] = selRow?.id; }
   }
-  drawRows(); renderStatus();
+  drawRows(); renderStatus(); paintTagChips();
   // A change may have written a note on any message (rules, a refused send): read them again.
   const shown = selRow && bodies.get(selRow.id);
   bodies.clear();
@@ -1440,14 +1492,18 @@ function messageMenu(){
   const sort = [
     {label:many ? (unread ? t('Mark as unread|several') : t('Mark as read|several')) : unread ? t('Mark as unread') : t('Mark as read'), key:'U', run:toggleUnread},
     {label:flag ? t('Flag|rule action') : t('Remove the flag'), key:'F', run:toggleFlag},
+    {label:t('Tags…'), key:'1–5', run:() => openTagMenu(...menuAt)},
     {label:t('Move to…'), key:'M', run:() => openPicker('move')},
     ...(spamOk ? [inSpam ? {label:t('Not spam'), run:() => markSpam(false)} : {label:t('Mark as spam'), run:() => markSpam(true)}] : []),
     {label:trash ? t('Delete for good') : t('Move to Trash'), key:'Del', run:del},
   ];
   const md = {label:t('Copy as Markdown'), key:'Ctrl+C', run:() => copyMarkdown()};
-  if (many) return [...sort, {sep:true}, md];
+  const saveAs = {label:t('Save as…'), key:'Ctrl+S', run:() => saveMessages()};
+  if (many) return [...sort, {sep:true}, md, saveAs];
   const out = isOut(m.f), edit = ['drafts', 'outbox'].includes(kindOf(m.f));
   const to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0];
+  // The sender (in Sent: the first recipient) into the address book, or their contact there.
+  const who = out ? addresses(m.to)[0] : {name:m.from, email:m.email}, known = contactOf(who?.email);
   // Read or unread always comes first, where the pointer lands.
   return [
     sort[0],
@@ -1458,12 +1514,15 @@ function messageMenu(){
     {label:t('Reply all'), key:'Shift+R', run:() => openCompose('replyall')},
     {label:t('Forward'), key:'Shift+F', run:() => openCompose('forward')},
     md,
+    ...outItems(m.id, false),
     {sep:true},
     ...sort.slice(1),
     {sep:true},
     {label:t('Show the conversation'), key:'T', run:toggleThread},
     out ? {label:t('All mail to {name}', {name:nameOf(m.to)}), disabled:!to, run:() => filterAllMail('to:' + to)}
       : {label:t('All mail from {name}', {name:m.from || m.email}), run:() => filterAllMail('from:' + m.email)},
+    ...(who?.email ? [{label:known ? t('Open {name} in the address book', {name:known.name || who.email}) : t('Add {name} to the address book', {name:who.name || who.email}),
+      run:() => openAddressBook(who)}] : []),
     {label:out ? t('New rule for mail to {name}', {name:nameOf(m.to)}) : t('New rule for mail from {name}', {name:m.from || m.email}),
       run:() => { const r = ruleFrom(m); openRules().then(() => showRuleForm(null, r)); }},
   ];
@@ -1517,7 +1576,8 @@ function paintDrag(){
   const o = drag.over, el = o && !o.spring ? treeEl.querySelector(`[data-folder="${o.key}"]`) : null;
   if (el) el.classList.add(o.ok ? (drag.armed ? 'dropok' : 'dragover') : 'dropno');
   const what = drag.subject || tn(drag.ids.length, '{n} message', '{n} messages', {n:num(drag.ids.length)});
-  const hint = !o || o.spring ? t('Rest on a folder for a moment, then let go.')
+  const hint = !o && invoke ? t('Rest on a folder, then let go. Out of the window: save as a file.')
+    : !o || o.spring ? t('Rest on a folder for a moment, then let go.')
     : !o.ok ? (drag.folders.includes(o.key) ? t('It is in this folder already.') : t('Not to another account: put it in a folder on this PC first.'))
     : drag.armed ? t('Let go to move it to {folder}.', {folder:placeName(o.key)}) : t('Hold on {folder}…', {folder:placeName(o.key)});
   drag.ghost.innerHTML = `<b>${esc(what)}</b><span>${esc(hint)}</span>`;
@@ -1574,6 +1634,8 @@ listEl.addEventListener('pointermove', e => {
     startDrag();
     if (!drag) return;
   }
+  // Past the window's edge the messages leave as .eml files, for Explorer or the desktop.
+  if (invoke && (d.x < 0 || d.y < 0 || d.x >= innerWidth || d.y >= innerHeight)){ dragOut(); return; }
   // Above the pointer, so the folders below it stay in sight; below it at the top of the window.
   const gh = d.ghost.offsetHeight, gy = d.y - gh - 10 < 4 ? d.y + 18 : d.y - gh - 10;
   d.ghost.style.transform = `translate(${d.x + 14}px, ${gy}px)`;
@@ -1594,6 +1656,17 @@ listEl.addEventListener('pointerup', e => {
   if (d.over?.ok && d.armed){ moveChosen(d.over.key); listEl.focus({preventScroll:true}); }
   else if (d.over?.ok) say(t('Not moved: rest on the folder until it fills, then let go.'), 5000);
 });
+// The system's own drag takes over: Telex writes the messages as .eml files under the
+// temporary folder and hands them on; wherever they are dropped gets copies.
+function dragOut(){
+  const d = endDrag();
+  if (!d) return;
+  const n = d.ids.length;
+  say(tn(n, 'Drop it in a folder or on the desktop to save it as an .eml file.', 'Drop them in a folder or on the desktop to save them as .eml files.'), 0);
+  invoke('drag_out', {ids:d.ids})
+    .then(dropped => say(dropped ? tn(n, 'Saved as an .eml file where you dropped it.', '{n} messages saved as .eml files where you dropped them.', {n:num(n)}) : t('Nothing saved.'), 5000))
+    .catch(e => say(tr(e), 8000));
+}
 listEl.addEventListener('pointercancel', () => endDrag());
 listEl.addEventListener('lostpointercapture', () => { if (drag?.started) endDrag(); });
 // Esc while dragging: nothing moves.
@@ -2017,6 +2090,102 @@ async function copyMarkdown(ids = state.picked.size > 1 ? [...state.picked] : cu
   if (await copyText(md)) say(tn(ids.length, 'Copied as Markdown.', '{n} messages copied as Markdown.', {n:num(ids.length)}), 2500);
   else say(t('Couldn’t copy to the clipboard.'), 4000);
 }
+
+/* ---------- a message out of Telex ---------- */
+// Save as… (Ctrl+S): the selected messages as .eml files, byte for byte as they came; one
+// opens Save, several a folder for them all. Print… (Ctrl+P) and Save as PDF…: the message as
+// it shows (HTML or text) under its header. View source (Ctrl+U) and All headers: as it came.
+// `full`: the … button above a message has All headers too; the message menu is long enough.
+function outItems(id, full = true){
+  return [
+    {label:t('Save as…'), key:'Ctrl+S', run:() => saveMessages([id])},
+    {label:t('Print…'), key:'Ctrl+P', run:() => printMessage(id)},
+    {label:t('Save as PDF…'), run:() => savePdf(id)},
+    ...(full ? [{sep:true}] : []),
+    {label:t('View source'), key:'Ctrl+U', run:() => showSource(id)},
+    ...(full ? [{label:t('All headers'), run:() => showSource(id, 'headers')}] : []),
+  ];
+}
+async function saveMessages(ids = chosen()){
+  if (!ids.length) return;
+  const words = {title:ids.length > 1 ? t('Save {n} messages as .eml files in', {n:num(ids.length)}) : t('Save the message as'), filter:t('Mail messages')};
+  let path;
+  try { path = await invoke('save_messages', {ids, words}); } catch (e){ say(tr(e), 8000); return; }
+  if (path) say(ids.length > 1 ? t('Saved {n} messages in {path}.', {n:num(ids.length), path}) : t('Saved to {path}.', {path}), 6000);
+}
+// What goes on paper waits in #printout, which only print shows; the core's document goes into
+// a shadow root there, so the mail's markup and styles stay apart from the window's.
+const printEl = document.createElement('div');
+printEl.id = 'printout'; printEl.setAttribute('aria-hidden', 'true');
+document.body.append(printEl);
+let printTitle = null;
+async function preparePrint(id){
+  const doc = await call('print_document', {id, html:!pref().prefer_text, loadImages:state.images.has(id) ? true : null});
+  const page = new DOMParser().parseFromString(doc, 'text/html');
+  const root = printEl.shadowRoot ?? printEl.attachShadow({mode:'open'});
+  root.replaceChildren(...page.head.querySelectorAll('style'), ...page.body.childNodes);
+  await Promise.all([...root.querySelectorAll('img')].map(img => img.decode().catch(() => {})));
+  // The document's title names the PDF and the print job.
+  if (printTitle == null) printTitle = document.title;
+  document.title = page.title || 'Telex';
+  document.body.classList.add('printing');
+}
+function endPrint(){
+  document.body.classList.remove('printing');
+  printEl.shadowRoot?.replaceChildren();
+  if (printTitle != null){ document.title = printTitle; printTitle = null; }
+}
+window.addEventListener('afterprint', endPrint);
+async function printMessage(id = current()?.id){
+  if (id == null) return;
+  try { await preparePrint(id); } catch { endPrint(); return; }
+  window.print();
+}
+async function savePdf(id = current()?.id){
+  if (id == null) return;
+  try { await preparePrint(id); } catch { endPrint(); return; }
+  let done;
+  try { done = await invoke('save_pdf', {id, words:{title:t('Save as PDF'), filter:t('PDF documents')}}); }
+  catch (e){ endPrint(); say(tr(e), 8000); return; }
+  // No PDF of its own here (Linux): the print dialog's printers include one that writes a file.
+  if (done === 'print_dialog'){ say(t('Choose “Print to File” (PDF) as the printer.'), 8000); window.print(); return; }
+  endPrint();
+  if (done?.saved) say(t('Saved to {path}.', {path:done.saved}), 6000);
+}
+// View source and All headers: the message as it came, to read and copy; nothing in it runs.
+const srcDlg = $('src-dlg');
+let srcOf = null; // {id, source, tab}
+async function showSource(id = current()?.id, tab = 'source'){
+  if (id == null) return;
+  let source;
+  try { source = await invoke('message_source', {id}); } catch (e){ say(tr(e), 8000); return; }
+  srcOf = {id, source, tab};
+  $('src-text').textContent = source.text;
+  $('src-headers').innerHTML = source.headers.map(h => `<dt>${esc(h.name)}</dt><dd>${esc(h.value)}</dd>`).join('');
+  $('src-note').textContent = source.cut ? t('A long message: the first megabyte is shown. Save as… keeps all of it.') : '';
+  srcTab(tab);
+  srcDlg.showModal();
+  (tab === 'source' ? $('src-text') : $('src-headers')).focus();
+}
+function srcTab(tab){
+  srcOf.tab = tab;
+  srcDlg.querySelectorAll('[data-src]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.src === tab)));
+  $('src-text').hidden = tab !== 'source';
+  $('src-headers').hidden = tab !== 'headers';
+  $('src-title').textContent = tab === 'source' ? t('Message source') : t('All headers');
+}
+srcDlg.addEventListener('click', async e => {
+  const b = e.target.closest('button');
+  if (!b || !srcOf) return;
+  if (b.dataset.src){ srcTab(b.dataset.src); return; }
+  if (b.id === 'src-close') srcDlg.close();
+  if (b.id === 'src-save') saveMessages([srcOf.id]);
+  if (b.id === 'src-copy'){
+    const text = srcOf.tab === 'source' ? srcOf.source.text : srcOf.source.headers.map(h => `${h.name}: ${h.value}`).join('\n');
+    say(await copyText(text) ? (srcOf.tab === 'source' ? t('Source copied.') : t('Headers copied.')) : t('Couldn’t copy to the clipboard.'), 3000);
+  }
+});
+srcDlg.addEventListener('close', () => { srcOf = null; if (!VIEWER) listEl.focus({preventScroll:true}); });
 async function copyLink(info){
   if (!info) return;
   if (await copyText(info.href)) say(t('Link address copied.'), 2500);
@@ -2144,20 +2313,29 @@ function addresses(line){
 }
 // A person: the name, then the address in a quieter color; the address alone when there is no name.
 const person = (name, email) => name && name !== email ? `<span class="pn">${esc(name)}</span> <span class="pa">${esc(email)}</span>` : `<span class="pn">${esc(email || name)}</span>`;
-const people = line => addresses(line).map(p => `<span class="pp">${person(p.name, p.email)}</span>`).join(', ');
+// `rename` gives the address book's name for an address, when it has one.
+const people = (line, rename) => addresses(line).map(p => `<span class="pp">${person(rename ? rename(p.name, p.email) : p.name, p.email)}</span>`).join(', ');
 // The message's header: the subject with its buttons (`controls`), who it is from (a click shows all
-// their mail), when and how large, who it went to, and its attachments. One face throughout.
+// their mail; the person button adds them to the address book or opens their contact), when and
+// how large, who it went to, and its attachments. People in the address book go by its names.
 function headerHtml(m, controls){
+  const saved = new Map((m.contacts ?? []).map(c => [c.email.toLowerCase(), c.name]));
+  const named = (name, email) => saved.get(String(email).toLowerCase()) || name;
+  const from = named(m.from_name, m.from_email);
   const sender = m.from_email && !VIEWER
-    ? `<button type="button" class="ph-who" data-act="sender" title="${esc(t('Show all mail from {email}', {email:m.from_email}))}">${person(m.from_name, m.from_email)}</button>`
-    : `<span class="ph-who">${person(m.from_name, m.from_email)}</span>`;
+    ? `<button type="button" class="ph-who" data-act="sender" title="${esc(t('Show all mail from {email}', {email:m.from_email}))}">${person(from, m.from_email)}</button>`
+    : `<span class="ph-who">${person(from, m.from_email)}</span>`;
+  const known = saved.has(String(m.from_email).toLowerCase()), bookTip = known ? t('In your address book: open the contact') : t('Add to address book');
+  const book = m.from_email && !VIEWER && !isOut(m.folder)
+    ? `<button type="button" class="pbtn ph-ab${known ? ' known' : ''}" data-act="contact" title="${esc(bookTip)}" aria-label="${esc(bookTip)}">${known ? I.person : I.personAdd}</button>` : '';
   return `<header class="ph">
   <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${controls}</div>
+  <div class="ph-tags">${tagChips(m.tags)}</div>
   <dl class="ph-grid">
-    <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
-    <dt>${esc(t('To'))}</dt><dd>${m.to ? people(m.to) : esc(t('(no recipient)'))}</dd>
-    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${people(m.cc)}</dd>` : ''}
-    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${people(m.bcc)}</dd>` : ''}
+    <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}${book}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
+    <dt>${esc(t('To'))}</dt><dd>${m.to ? people(m.to, named) : esc(t('(no recipient)'))}</dd>
+    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${people(m.cc, named)}</dd>` : ''}
+    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${people(m.bcc, named)}</dd>` : ''}
   </dl>
   ${attsHtml(m.attachments)}
 </header>`;
@@ -2168,14 +2346,129 @@ const readButton = m => `<button type="button" class="pbtn" data-act="read" titl
 // The flag next to it, like F: a switch that shows the flag's color while the message has one.
 const flagTip = m => m.flagged ? t('Remove the flag (F)') : t('Flag (F)');
 const flagButton = m => `<button type="button" class="pbtn pflag" data-act="flag" aria-pressed="${!!m.flagged}" title="${esc(flagTip(m))}" aria-label="${esc(flagTip(m))}">${I.flag}</button>`;
+// Tags, like 1–5: the menu of every tag, ticked where the message has it.
+const tagButton = () => `<button type="button" class="pbtn" data-act="tags" aria-haspopup="menu" title="${esc(t('Tags (1–5)'))}" aria-label="${esc(t('Tags (1–5)'))}">${I.tag}</button>`;
 // Copy as Markdown, like Ctrl+C: the message ready to paste into notes or an AI chat.
 const mdButton = () => `<button type="button" class="pbtn" data-act="markdown" title="${esc(t('Copy as Markdown (Ctrl+C)'))}" aria-label="${esc(t('Copy as Markdown (Ctrl+C)'))}">${I.copy}</button>`;
+// Save as, print, save as PDF, the source and all headers, in a menu.
+const outButton = () => `<button type="button" class="pbtn" data-act="out" aria-haspopup="menu" title="${esc(t('Save, print, source'))}" aria-label="${esc(t('Save, print, source'))}">${I.dots}</button>`;
 function paintReadButton(){
   const b = previewEl.querySelector('[data-act="read"]'), m = current();
   if (!b || !m) return;
   b.innerHTML = m.unread ? I.mailOpen : I.mail;
   b.title = readTip(m); b.setAttribute('aria-label', b.title);
 }
+/* ---------- send later, in the open message ---------- */
+// Mail sent later says when it goes, with Send now and Hold; E changes it.
+function goesBar(m){
+  if (!m.goes || kindOf(m.folder) !== 'outbox') return '';
+  return `<div class="bar quiet goesbar"><span>${esc(t('Goes {when}.', {when:fmtFull(parseDate(m.goes))}))}</span>`
+    + `<button type="button" class="linkbtn" data-act="send-now">${esc(t('Send now'))}</button>`
+    + `<button type="button" class="linkbtn" data-act="hold">${esc(t('Hold'))}</button>`
+    + `<span>${esc(t('E changes it.'))}</span></div>`;
+}
+async function sendNow(m){
+  say(t('Sending…'), 0);
+  let r;
+  try { r = await call('send_now', {id:m.id}); } catch { return; }
+  bodies.delete(m.id);
+  await refresh();
+  const sent = sentText(r.sent);
+  if (r.errors.length) say([sent, r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
+  else say(sent || t('In the Outbox. It goes out with the next check.'), 6000);
+}
+async function holdLater(m){
+  try { await invoke('hold_message', {id:m.id}); } catch (e){ say(tr(e), 8000); return; }
+  bodies.delete(m.id);
+  await refresh();
+  if (!state.compose) renderPreview();
+  say(t('Held. It stays in the Outbox: press E to change it and send it.'), 6000);
+}
+
+/* ---------- unsubscribe ---------- */
+// Mail from a list offers a quiet Unsubscribe above it: one click where the list takes it (the
+// core posts the request), else a mail to the list or its page in the browser, each after a
+// line that says where it goes. Never in Spam. Once done, every message of the list says so,
+// and the sender's mail can go to Trash in one go (Z brings it back).
+let unsubAsk = null;   // the message whose confirmation line is open
+let unsubOffer = null; // {id, email, n}: after unsubscribing, the sender's mail to Trash
+function unsubButton(m){
+  const u = m.unsubscribe;
+  if (!u) return '';
+  if (u.spam){
+    const why = t('Not offered in Spam: unsubscribing would tell the sender your address is read. Delete the message instead.');
+    return `<button type="button" class="pbtn ptext" aria-disabled="true" title="${esc(why)}" aria-label="${esc(t('Unsubscribe') + '. ' + why)}">${esc(t('Unsubscribe'))}</button>`;
+  }
+  if (u.done){
+    const when = dmy(parseDate(u.done)), tip = t('You left this list on {date}. Click to ask again.', {date:when});
+    return `<button type="button" class="pbtn ptext" data-act="unsub" title="${esc(tip)}">${esc(t('Unsubscribed {date}', {date:dm(parseDate(u.done))}))}</button>`;
+  }
+  const tip = {one_click:t('Leave this mailing list with one click: Telex asks {target} to take you off.', u),
+    mail:t('Leave this mailing list: Telex mails {target} from your account.', u),
+    link:t('Leave this mailing list on its page at {target}, in your browser.', u)}[u.method];
+  return `<button type="button" class="pbtn ptext" data-act="unsub" title="${esc(tip)}">${esc(t('Unsubscribe'))}</button>`;
+}
+function unsubBar(m){
+  if (unsubAsk === m.id && m.unsubscribe){
+    const u = m.unsubscribe;
+    const what = u.method === 'mail' ? t('Telex sends an unsubscribe mail to {target} from your account.', u)
+      : t('The list’s page at {target} opens in your browser, where you finish unsubscribing.', u);
+    return `<div class="bar quiet unsubbar" role="alert"><span>${esc(what)}</span>`
+      + `<button type="button" class="btn primary" data-act="unsub-go">${esc(u.method === 'mail' ? t('Send it') : t('Open the page'))}</button>`
+      + `<button type="button" class="btn" data-act="unsub-no">${esc(t('Cancel'))}</button></div>`;
+  }
+  if (unsubOffer?.id === m.id && unsubOffer.n){
+    const o = unsubOffer;
+    return `<div class="bar quiet unsubbar"><span>${esc(tn(o.n, 'Move the {n} message from {email} to Trash?', 'Move the {n} messages from {email} to Trash?', {n:num(o.n), email:o.email}))}</span>`
+      + `<button type="button" class="btn" data-act="unsub-trash">${esc(t('Move to Trash'))}</button>`
+      + `<button type="button" class="linkbtn" data-act="unsub-keep">${esc(t('Keep them'))}</button></div>`;
+  }
+  return '';
+}
+async function startUnsubscribe(m){
+  const u = m.unsubscribe;
+  if (!u || u.spam) return;
+  unsubOffer = null;
+  if (u.method === 'one_click' || unsubAsk === m.id){ unsubAsk = null; unsubscribeNow(m); return; }
+  unsubAsk = m.id; renderPreview();
+}
+// The sender's mail in every folder but Spam and Trash: the list the trash offer works on.
+const senderView = email => ({folder:null, sort:'date', ascending:false, filter:'from:' + email, bodies:false, thread:null, unread:false, keep:[]});
+async function unsubscribeNow(m){
+  const u = m.unsubscribe;
+  say(u.method === 'mail' ? t('Sending…') : t('Unsubscribing…'), 0);
+  let r;
+  try { r = await call('unsubscribe', {id:m.id}); } catch { renderPreview(); return; }
+  bodies.delete(m.id);
+  if (!r.done){ // the mail waits in the Outbox: it isn't done until it goes
+    say([t('The unsubscribe mail waits in the Outbox.'), r.errors.join(' · ')].filter(Boolean).join(' '), 15000);
+    await refresh(); renderPreview(); return;
+  }
+  say(r.method === 'one_click' ? t('Unsubscribed. Mail already on its way may still arrive.')
+    : r.method === 'mail' ? t('Sent the unsubscribe mail to {target}.', u)
+    : t('The list’s page is open in your browser.'), 8000);
+  const email = m.from_email;
+  try {
+    const n = (await invoke('list_page', {view:senderView(email), at:'first', limit:1})).total;
+    unsubOffer = n ? {id:m.id, email, n} : null;
+  } catch { unsubOffer = null; }
+  await refresh();
+  if (current()?.id === m.id && !state.compose) renderPreview();
+}
+async function trashSenderMail(){
+  const o = unsubOffer; unsubOffer = null;
+  if (!o) return;
+  let ids, r;
+  try { ids = await invoke('list_ids', {view:senderView(o.email), from:null, to:null}); } catch (e){ say(tr(e), 8000); return; }
+  if (!ids.length){ renderPreview(); return; }
+  try { r = await call('delete_messages', {ids}); } catch { return; }
+  ids.forEach(id => bodies.delete(id));
+  setUndo(r.trashed.length ? {kind:'move', items:r.trashed.map(([id, from]) => ({id, from}))} : null);
+  say(tn(ids.length, 'Moved {n} message to Trash. Press Z to undo.', 'Moved {n} messages to Trash. Press Z to undo.', {n:num(ids.length)}));
+  await refresh();
+  if (!state.compose) renderPreview();
+}
+
 let pvSeq = 0;
 function riskHtml(m){
   const r = m.risk;
@@ -2206,7 +2499,120 @@ function riskHtml(m){
 }
 previewEl.addEventListener('keydown', e => {
   if (e.target.closest?.('.risk-panel') && ['Enter', ' '].includes(e.key)) e.stopPropagation();
+  if (e.target.closest?.('.invite') && ['Enter', ' '].includes(e.key)) e.stopPropagation();
+  if (e.target.classList?.contains('iv-comment') && e.key === 'Escape'){ e.stopPropagation(); e.target.blur(); }
 });
+
+/* ---------- calendar invitations ---------- */
+// The card above mail that holds an event (calendar/invites.rs): what, when in this PC's time
+// (and in the zone it was written in, when that clock differs), where, who and their answers.
+// Accept, Maybe and Decline send the reply to the organizer at once; Spam can't answer.
+const ANSWER = {accepted:N_('Accepted'), tentative:N_('Maybe'), declined:N_('Declined'), needs_action:N_('No answer yet'), delegated:N_('Delegated')};
+const ANSWER_MARK = {accepted:'✓', tentative:'?', declined:'✕', needs_action:'·', delegated:'→'};
+const IV_BLOCKED = {
+  spam:N_('Invitations in Spam aren’t answered. Move it out of Spam first.'),
+  cancelled:N_('This meeting was cancelled.'),
+  outdated:N_('A newer version of this invitation came. Answer that one.'),
+  organizer:N_('You organize this meeting.'),
+  no_organizer:N_('The invitation doesn’t say who organizes it, so it can’t be answered.'),
+  no_account:N_('Add an account to answer from.'),
+};
+const IV_YOU = {
+  accepted:N_('You accepted on {when}.'), tentative:N_('You answered maybe on {when}.'), declined:N_('You declined on {when}.'),
+};
+const IV_EARLIER = {
+  accepted:N_('You accepted an earlier version on {when}.'), tentative:N_('You answered maybe to an earlier version on {when}.'), declined:N_('You declined an earlier version on {when}.'),
+};
+const IV_THEY = {accepted:N_('{name} accepted.'), tentative:N_('{name} may attend.'), declined:N_('{name} declined.'), delegated:N_('{name} passed it on.'), needs_action:N_('{name} answered.')};
+const utcOffset = min => `UTC${min < 0 ? '−' : '+'}${Math.floor(Math.abs(min) / 60)}${Math.abs(min) % 60 ? ':' + pad(Math.abs(min) % 60) : ''}`;
+const ivDay = d => `${t(DOW[d.getDay()])} ${dmy(d)}`;
+function eventWhen(ev){
+  if (!ev.start) return '';
+  const s = parseDate(ev.start), e = ev.end ? parseDate(ev.end) : null;
+  if (ev.all_day) return (e && dmy(e) !== dmy(s) ? `${ivDay(s)} – ${ivDay(e)}` : ivDay(s)) + ` · ${t('all day')}`;
+  if (!e) return `${ivDay(s)}, ${hm(s)}`;
+  return dmy(e) === dmy(s) ? `${ivDay(s)}, ${hm(s)}–${hm(e)}` : `${ivDay(s)}, ${hm(s)} – ${ivDay(e)}, ${hm(e)}`;
+}
+function zoneWhen(ev){
+  const z = ev.zone;
+  if (!z || !ev.start) return '';
+  const s = parseDate(z.start), e = z.end ? parseDate(z.end) : null;
+  const day = dmy(s) !== dmy(parseDate(ev.start)) ? `${ivDay(s)}, ` : '';
+  return t('{time} in {zone} ({offset})', {time:day + hm(s) + (e ? '–' + hm(e) : ''), zone:z.name, offset:utcOffset(z.offset)});
+}
+const ivName = p => p.name || p.email;
+function ivPerson(a){
+  const answer = t(ANSWER[a.answer] ?? ANSWER.needs_action);
+  const extra = [a.me && t('you'), a.role === 'optional' && t('optional'), a.role === 'chair' && t('organizer'), a.room && t('room')].filter(Boolean);
+  return `<span class="iv-p" data-a="${esc(a.answer)}" title="${esc([answer, a.email].filter(Boolean).join(' · '))}"><i aria-hidden="true">${ANSWER_MARK[a.answer] ?? '·'}</i>${esc(ivName(a))}${extra.length ? ` <small>(${esc(extra.join(', '))})</small>` : ''}<span class="vh"> – ${esc(answer)}</span></span>`;
+}
+const IV_SHOWN = 8; // invited people shown before "n more"
+function inviteHtml(m, spam){
+  const iv = m.invite;
+  if (!iv) return '';
+  const ev = iv.event, off = iv.state === 'cancelled';
+  const kind = {request:t('Invitation'), cancel:t('Cancelled'), reply:t('Answer|invitation'), publish:t('Event'), counter:t('New time proposed'), other:t('Event')}[iv.method] ?? t('Event');
+  const rows = [];
+  const when = eventWhen(ev);
+  if (when) rows.push([t('When'), `<span class="iv-when">${esc(when)}</span>`
+    + (ev.zone ? `<small>${esc(zoneWhen(ev))}</small>` : '')
+    + (ev.repeats ? `<small>${esc(ev.repeats)}</small>` : '')
+    + (ev.one_date ? `<small>${esc(t('One date of a repeating event'))}</small>` : '')]);
+  const links = ev.links.map(l => spam
+    ? `<span class="iv-link">${esc(l.label)}</span>`
+    : `<button type="button" class="linkbtn iv-link" data-meet="${esc(l.url)}" title="${esc(l.url)}">${esc(t('Join on {service}', {service:l.label}))}</button>`).join(' ');
+  if (ev.location || links) rows.push([t('Where'), `${ev.location ? `<span>${esc(ev.location)}</span>` : ''}${links}`]);
+  if (ev.organizer) rows.push([t('Organizer'), `<span title="${esc(ev.organizer.email)}">${esc(ivName(ev.organizer))}</span>`]);
+  const people = ev.attendees.filter(a => !(ev.organizer && a.email === ev.organizer.email && a.role !== 'optional'));
+  if (people.length){
+    const more = people.length - IV_SHOWN + ev.more_attendees;
+    rows.push([t('Invited'), `<span class="iv-people">${people.map((a, i) => i < IV_SHOWN ? ivPerson(a) : ivPerson(a).replace('class="iv-p"', 'class="iv-p iv-extra"')).join('')}`
+      + (more > 0 ? `<button type="button" class="linkbtn iv-morep" data-act="iv-people">${esc(tn(more, '{n} more', '{n} more', {n:num(more)}))}</button>` : '') + '</span>']);
+  }
+  if (!m.body.trim() && ev.description) rows.push([t('Details'), `<span class="iv-desc">${esc(ev.description)}</span>`]);
+  // What the user did, or why they can't.
+  const lines = [];
+  if (iv.method === 'reply' && iv.from) lines.push(`<p class="iv-line">${esc(t(IV_THEY[iv.from.answer] ?? IV_THEY.needs_action, {name:ivName(iv.from)}))}${ev.comment ? ` <q>${esc(ev.comment)}</q>` : ''}</p>`);
+  if (iv.method === 'counter') lines.push(`<p class="iv-line">${esc(t('{name} proposes another time. Telex can’t answer that; answer from your calendar.', {name:ivName(ev.attendees[0] ?? ev.organizer ?? {email:m.from_email})}))}</p>`);
+  const answered = iv.answered && (iv.answered.earlier ? IV_EARLIER : IV_YOU)[iv.answered.answer];
+  if (answered) lines.push(`<p class="iv-line iv-you">${esc(t(answered, {when:`${dmy(parseDate(iv.answered.at))} ${hm(parseDate(iv.answered.at))}`}))}</p>`);
+  else if (iv.method === 'request' && iv.mine && iv.mine !== 'needs_action') lines.push(`<p class="iv-line iv-you">${esc(t('Your answer: {answer}', {answer:t(ANSWER[iv.mine])}))}</p>`);
+  if (iv.blocked && IV_BLOCKED[iv.blocked] && iv.method === 'request') lines.push(`<p class="iv-line iv-warn${iv.blocked === 'cancelled' || iv.blocked === 'spam' ? ' iv-off' : ''}">${esc(t(IV_BLOCKED[iv.blocked]))}</p>`);
+  else if (off) lines.push(`<p class="iv-line iv-warn iv-off">${esc(t('This meeting was cancelled.'))}</p>`);
+  const current = iv.answered && !iv.answered.earlier ? iv.answered.answer : iv.mine;
+  const answer = iv.method === 'request' && !iv.blocked
+    ? `<div class="iv-answer"><span class="seg" role="group" aria-label="${esc(t('Answer the invitation'))}">${[['accepted', N_('Accept')], ['tentative', N_('Maybe|answer')], ['declined', N_('Decline')]].map(([a, l]) =>
+      `<button type="button" data-answer="${a}" aria-pressed="${current === a}">${esc(t(l))}</button>`).join('')}</span>`
+      + `<input class="iv-comment" type="text" maxlength="2000" spellcheck="true" placeholder="${esc(t('Comment for the organizer (optional)'))}" aria-label="${esc(t('Comment for the organizer (optional)'))}"></div>` : '';
+  return `<section class="invite${off ? ' off' : ''}" aria-label="${esc(kind)}">
+  <div class="iv-top">${I.cal}<span class="iv-kind">${esc(kind)}</span><b class="iv-what">${esc(ev.summary || t('(no title)'))}</b>
+    <span class="iv-tools"><button type="button" class="btn" data-act="iv-add" title="${esc(t('Open it in your calendar app'))}">${esc(t('Add to calendar'))}</button><button type="button" class="pbtn" data-act="iv-save" title="${esc(t('Save as .ics…'))}" aria-label="${esc(t('Save as .ics…'))}">${I.get}</button></span></div>
+  ${rows.length ? `<dl class="iv-grid">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl>` : ''}
+  ${lines.join('')}${answer}
+</section>`;
+}
+let answering = false;
+async function answerInvite(answer){
+  const s = current();
+  if (!s || answering) return;
+  const comment = previewEl.querySelector('.iv-comment')?.value ?? '';
+  const buttons = [...previewEl.querySelectorAll('[data-answer]')];
+  answering = true; buttons.forEach(b => b.disabled = true);
+  say(t('Sending your answer…'), 0);
+  let r;
+  try { r = await call('answer_invite', {id:s.id, answer, comment}); }
+  catch { buttons.forEach(b => b.disabled = false); return; }
+  finally { answering = false; }
+  bodies.delete(s.id);
+  const sent = sentText(r.sent);
+  const text = r.errors.length ? [sent, r.errors.join(' · ')].filter(Boolean).join(' ') : sent || t('In the Outbox. It goes out with the next check.');
+  const ms = r.errors.length ? 15000 : 6000;
+  if (VIEWER){ tellMain({say:text, ms}); renderPreview(); return; }
+  schedulePush();
+  await refresh();
+  renderPreview();
+  say(text, ms);
+}
 async function renderPreview(){
   const seq = ++pvSeq, s = current();
   hideLink(); closeMenu(false);
@@ -2222,7 +2628,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     return;
   }
   if (state.picked.size > 1){
-    const keys = [['Del', N_('to Trash')], ['M', N_('move')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Ctrl+C', N_('copy as Markdown')], ['Esc', N_('clear the selection')]];
+    const keys = [['Del', N_('to Trash')], ['M', N_('move|messages')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Ctrl+C', N_('copy as Markdown')], ['Esc', N_('clear the selection')]];
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div><b>${esc(tn(state.picked.size, '{n} message selected', '{n} messages selected', {n:num(state.picked.size)}))}</b></div>`
       + `<div class="mkeys">${keys.map(([k, l]) => `<span><kbd>${k}</kbd> ${esc(t(l))}</span>`).join('')}</div></div>`;
     return;
@@ -2249,8 +2655,10 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
     : !hv && m.remote_images && !state.images.has(m.id) ? `<div class="bar">${esc(t('Remote images are blocked so the sender can’t see when you open this.'))} <button type="button" class="linkbtn" data-act="images">${esc(t('Load images'))}</button></div>` : '';
   const popout = VIEWER ? '' : `<button type="button" class="pbtn" data-act="window" title="${esc(t('Open in its own window (Enter)'))}" aria-label="${esc(t('Open in its own window (Enter)'))}">${I.popout}</button>`;
   previewEl.innerHTML = `<article>
-${headerHtml(m, `${readButton(s)}${flagButton(s)}${popout}${mdButton()}${paper}${views}`)}
+${headerHtml({...m, tags:s.tags ?? m.tags}, `${unsubButton(m)}${readButton(s)}${flagButton(s)}${tagButton()}${popout}${mdButton()}${outButton()}${paper}${views}`)}
+${inviteHtml(m, spam)}
 ${riskHtml(m)}
+${goesBar(m)}${unsubBar(m)}${pgpHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -2284,6 +2692,9 @@ previewEl.addEventListener('click', async e => {
     else saveAttachments(m.id);
     return;
   }
+  const answer = e.target.closest('[data-answer]'), meet = e.target.closest('[data-meet]');
+  if (answer && !state.compose){ answerInvite(answer.dataset.answer); return; }
+  if (meet){ call('open_link', {url:meet.dataset.meet}).then(() => say(t('Opened in your browser.'), 2500)).catch(() => {}); return; }
   const off = e.target.closest('[data-unattach]');
   if (off && state.compose){ state.compose.attachments.splice(Number(off.dataset.unattach), 1); renderComposeAtts(); return; }
   if (!act) return;
@@ -2303,9 +2714,28 @@ previewEl.addEventListener('click', async e => {
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
   if (act.dataset.act === 'markdown' && m){ copyMarkdown([m.id]); return; }
+  if (act.dataset.act === 'out' && m){ const r = act.getBoundingClientRect(); openMenu(r.left, r.bottom + 2, outItems(m.id), act); return; }
+  if ((act.dataset.act === 'iv-add' || act.dataset.act === 'iv-save') && m){
+    const iv = (await full(m.id)).invite;
+    if (iv) (act.dataset.act === 'iv-add' ? openAttachment : saveAttachment)(m.id, iv.file);
+    return;
+  }
+  if (act.dataset.act === 'iv-people'){ act.closest('.iv-people').classList.add('open'); act.remove(); return; }
   if (act.dataset.act === 'read' && m){ setUnread(m, !m.unread); return; }
   if (act.dataset.act === 'flag' && m){ setFlagged(m, !m.flagged); return; }
+  if (act.dataset.act === 'tags' && m){ const r = act.getBoundingClientRect(); openTagMenu(r.left, r.bottom + 2, act); return; }
   if (act.dataset.act === 'sender' && m){ filterAllMail((await full(m.id)).from_email); return; }
+  if (act.dataset.act === 'unsub' && m && act.getAttribute('aria-disabled') !== 'true'){ startUnsubscribe(await full(m.id)); return; }
+  if (act.dataset.act === 'unsub-go' && m){ unsubAsk = null; unsubscribeNow(await full(m.id)); return; }
+  if (act.dataset.act === 'unsub-no'){ unsubAsk = null; renderPreview(); return; }
+  if (act.dataset.act === 'unsub-trash'){ trashSenderMail(); return; }
+  if (act.dataset.act === 'unsub-keep'){ unsubOffer = null; renderPreview(); return; }
+  if (act.dataset.act === 'send-now' && m){ sendNow(m); return; }
+  if (act.dataset.act === 'hold' && m){ holdLater(m); return; }
+  if (act.dataset.act === 'later' && state.compose){ laterMenu(act); return; }
+  if (act.dataset.act === 'later-at' && state.compose){ sendAtPicked(); return; }
+  if (act.dataset.act === 'later-cancel' && state.compose){ $('c-later').hidden = true; $('c-when-btn')?.focus(); return; }
+  if (act.dataset.act === 'contact' && m){ const f = await full(m.id); openAddressBook({name:f.from_name, email:f.from_email}); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
     renderPreview();
@@ -2346,17 +2776,25 @@ async function openCompose(kind, preset = {}, of = null){
     if (kind === 'edit'){
       bodies.delete(s.id); // its note may have changed (taken back, refused)
       const m = await full(s.id), account = acctId(s.f), ids = ACCT[account]?.identities ?? [];
+      // Encrypted and still locked: its text isn't here to edit yet.
+      if (m.pgp?.encrypted && !m.pgp.decrypted){ say(t('It is encrypted: unlock it above the message first.'), 6000); return; }
       const me = ids.find(i => i.email.toLowerCase() === m.from_email.toLowerCase()) ?? ids.find(i => i.is_default) ?? ids[0];
+      // Mail sent later is held while it is changed, so it can't go meanwhile; Send keeps its time.
+      const later = m.goes && parseDate(m.goes) - Date.now() > 60000 ? m.goes : null;
+      if (later){ await invoke('hold_message', {id:s.id}); bodies.delete(s.id); }
       // Attachments come from the old message itself, which Send replaces.
       c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, bcc:m.bcc ?? '', subject:m.subject, body:m.body,
-        html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id};
+        html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id, later, pgpWas:m.pgp ?? null};
+      if (later) refresh();
     } else {
-      const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder)});
-      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, bcc:'', subject:d.subject, body:d.body, html:null,
+      // A new message takes the open folder's templates (a reply, its original's folder's).
+      const folder = state.folder && !state.folder.startsWith('*/') ? state.folder : null;
+      const d = await invoke('start_draft', {kind:kind === 'replyall' ? 'reply_all' : kind, of:kind === 'new' ? null : s.id, account:acctId(state.folder), folder});
+      c = {kind, account:d.account, identity:d.identity, to:d.to, cc:d.cc, bcc:'', subject:d.subject, body:d.body, html:null, caretLine:d.caret_line,
         attachments:d.attachments, replyTo:d.reply_to, forwardOf:d.forward_of, replaces:null};
       if (kind === 'reply' || kind === 'replyall'){
         const [other, orig] = await Promise.all([
-          invoke('start_draft', {kind:kind === 'reply' ? 'reply_all' : 'reply', of:s.id, account:acctId(state.folder)}).catch(() => null),
+          invoke('start_draft', {kind:kind === 'reply' ? 'reply_all' : 'reply', of:s.id, account:acctId(state.folder), folder}).catch(() => null),
           full(s.id).catch(() => null)]);
         const [one, all] = kind === 'reply' ? [d, other] : [other, d];
         // Only when the original had others besides the sender is there a choice to make.
@@ -2367,7 +2805,8 @@ async function openCompose(kind, preset = {}, of = null){
       const p = pref();
       const html = kind === 'new' ? p.compose_format === 'html'
         : p.reply_format === 'same' ? !!(await htmlView(s.id, false)) : p.reply_format === 'html';
-      if (html) c.html = await invoke('text_to_html', {text:c.body});
+      // The core's HTML: the signature as written, a reply's original in its own HTML.
+      if (html) c.html = d.html;
     }
   } catch (e){ say(tr(e), 8000); return; }
   Object.assign(c, preset); // e.g. {to} from a mailto: link
@@ -2377,6 +2816,7 @@ async function openCompose(kind, preset = {}, of = null){
   renderCompose();
   c.saved = shapeOf(readCompose()); // as it opened: nothing to autosave yet
   if (kept){ draftsChanged(); say(t('The message you were writing is in Drafts.'), 6000); }
+  else if (c.later) say(t('Held while you change it. Send keeps its time, {when}; Esc keeps it as a draft.', {when:fmtFull(parseDate(c.later))}), 8000);
 }
 const focusCompose = () => $('c-to')?.focus();
 // After a draft was saved or dropped: the Drafts folder's count and list (the main window's).
@@ -2391,24 +2831,81 @@ function fromOptions(c){
 async function changeIdentity(id){
   const c = readCompose(), next = allIdentities().find(i => i.id === id);
   if (!next) return;
-  const before = (allIdentities().find(i => i.id === c.identity)?.signature || '').trim(), after = (next.signature || '').trim();
+  const prev = allIdentities().find(i => i.id === c.identity);
+  const before = (prev?.signature || '').trim(), after = (next.signature || '').trim();
   Object.assign(c, {identity:next.id, account:next.account});
   previewEl.querySelector('.cnote').textContent = composeNote(c);
-  if (!before || before === after) return;
   if (c.html == null){
-    if (c.body.includes(before)){ c.body = c.body.replace(before, () => after); $('c-body').value = c.body; }
+    if (before && before !== after && c.body.includes(before)){ c.body = c.body.replace(before, () => after); $('c-body').value = c.body; }
     return;
   }
-  // The signature went into the HTML line by line, the same way: swap those lines.
-  const [b, a] = await Promise.all([invoke('text_to_html', {text:before}), after ? invoke('text_to_html', {text:after}) : '']);
-  const ed = $('c-html');
-  if (state.compose !== c || !ed || !ed.innerHTML.includes(b)) return;
-  ed.innerHTML = ed.innerHTML.replace(b, () => a); // a function: a "$&" in a signature stays as it is
+  // In HTML the signature has a block of its own: its content is swapped, as written.
+  const block = $('c-html')?.querySelector('.telex-signature');
+  if (!block || signatureHtml(prev) === signatureHtml(next)) return;
+  if (after) block.innerHTML = signatureHtml(next); else block.remove();
 }
-// The HTML editor's formatting bar: the browser's own editing commands.
+// The HTML editor's formatting bar: the browser's own editing commands, the palette's colors and
+// sizes, and pictures. Used by compose and by the signature editors (Settings).
 const FORMATS = [['bold', '<b>B</b>', N_('Bold (Ctrl+B)')], ['italic', '<i>I</i>', N_('Italic (Ctrl+I)')], ['underline', '<u>U</u>', N_('Underline (Ctrl+U)')],
-  ['strikeThrough', '<s>S</s>', N_('Strikethrough')], ['insertUnorderedList', I.ul, N_('Bulleted list')], ['insertOrderedList', I.ol, N_('Numbered list')],
-  ['quote', I.quote, N_('Quote')], ['link', I.link, N_('Link (Ctrl+K)')], ['removeFormat', I.clear, N_('Clear formatting')]];
+  ['strikeThrough', '<s>S</s>', N_('Strikethrough')], ['color', '<b>A</b><i class="sw"></i>', N_('Text color')], ['mark', I.mark + '<i class="sw"></i>', N_('Highlight')],
+  ['size', '<span>a<b>A</b></span>', N_('Text size')], ['insertUnorderedList', I.ul, N_('Bulleted list')], ['insertOrderedList', I.ol, N_('Numbered list')],
+  ['quote', I.quote, N_('Quote')], ['link', I.link, N_('Link (Ctrl+K)')], ['picture', I.picture, N_('Insert picture…')], ['removeFormat', I.clear, N_('Clear formatting')]];
+const MENU_CMDS = new Set(['color', 'mark', 'size']);
+function fbarHtml(urlId = ''){
+  return `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
+    `<button type="button" class="fb${cmd === 'color' ? ' fcolor' : cmd === 'mark' ? ' fmark' : ''}" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}"${MENU_CMDS.has(cmd) ? ' aria-haspopup="menu"' : ''}>${label}</button>`).join('')}`
+    + `<span class="flink" hidden><input${urlId ? ` id="${urlId}"` : ''} type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>`;
+}
+// The palette, as the core sends it (html::TEXT_COLORS, MARK_COLORS); the editor shows each in the
+// theme's shade (--pal-n, --mark-n in themes.css). The "none" colors are stand-ins the stylesheet
+// shows as the text's own and the core leaves out.
+const TEXT_COLORS = [['#c00000', N_('Red')], ['#b45309', N_('Orange')], ['#15803d', N_('Green')], ['#1d4ed8', N_('Blue')], ['#7e22ce', N_('Purple')], ['#6b7280', N_('Gray')]];
+const MARK_COLORS = [['#fff59d', N_('Yellow')], ['#c8f7c5', N_('Green')], ['#cfe8ff', N_('Blue')], ['#ffd6e7', N_('Pink')]];
+const NO_COLOR = '#010203', NO_MARK = '#010204';
+// Text in the palette's colors, highlighted or sized. styleWithCSS makes the browser write spans
+// with styles (color, background-color, font-size: small or x-large) instead of <font>.
+function formatWith(ed, kept, cmd, value){
+  ed.focus();
+  if (kept){ const sel = getSelection(); sel.removeAllRanges(); sel.addRange(kept); }
+  document.execCommand('styleWithCSS', false, true);
+  try { document.execCommand(cmd, false, value); } finally { document.execCommand('styleWithCSS', false, false); }
+}
+function paletteMenu(ed, btn, kind){
+  const sel = getSelection(), kept = sel.rangeCount && ed.contains(sel.anchorNode) ? sel.getRangeAt(0).cloneRange() : null;
+  const items = kind === 'color'
+    ? [{label:t('Automatic|text color'), swatch:'none', run:() => formatWith(ed, kept, 'foreColor', NO_COLOR)},
+      ...TEXT_COLORS.map(([hex, name], i) => ({label:t(name), swatch:'p' + (i + 1), run:() => formatWith(ed, kept, 'foreColor', hex)}))]
+    : kind === 'mark'
+    ? [{label:t('No highlight'), swatch:'none', run:() => formatWith(ed, kept, 'hiliteColor', NO_MARK)},
+      ...MARK_COLORS.map(([hex, name], i) => ({label:t(name), swatch:'m' + (i + 1), run:() => formatWith(ed, kept, 'hiliteColor', hex)}))]
+    : [['2', t('Small|text size'), 'fs-small'], ['3', t('Normal|text size'), ''], ['5', t('Large|text size'), 'fs-large']]
+      .map(([size, label, cls]) => ({label, cls, run:() => formatWith(ed, kept, 'fontSize', size)}));
+  const r = btn.getBoundingClientRect();
+  openMenu(r.left, r.bottom + 2, items, btn);
+}
+// Pictures in the HTML editor, pasted, dropped from Explorer or chosen with Insert picture…: the
+// core makes them the size Settings › Writing says (a signature's smaller) and they go in where
+// the caret is, as data: URIs; sending makes them parts of the message.
+async function insertPictures(ed, sources, signature = false){
+  for (const source of sources){
+    let p;
+    try { p = await invoke('editor_image', {...source, signature}); } catch (e){ say(tr(e), 9000); continue; }
+    if (!ed.isConnected) return;
+    ed.focus();
+    document.execCommand('insertHTML', false, `<img src="${p.src}" alt="">`);
+    if (p.smaller) say(t('Picture made smaller: {width} × {height} pixels.', {width:p.width, height:p.height}), 4000);
+  }
+}
+const isPicture = name => /\.(png|jpe?g|gif|webp)$/i.test(name);
+async function choosePictures(ed, signature){
+  let files;
+  try { files = await invoke('pick_files', {words:{title:t('Insert picture'), pictures:t('Pictures')}}); } catch (e){ say(tr(e), 8000); return; }
+  await insertPictures(ed, files.map(f => ({path:f.path})), signature);
+}
+const fileData = file => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; r.readAsDataURL(file); });
+// A plain-text signature in the editor: a line per <div>, as the core writes it.
+const linesHtml = text => (text || '').split('\n').map(l => `<div>${l ? esc(l) : '<br>'}</div>`).join('');
+const signatureHtml = i => i?.signature_html ?? linesHtml(i?.signature ?? '');
 function renderCompose(){
   const c = state.compose, html = c.html != null;
   const title = {new:t('New message'), reply:t('Reply|compose title'), replyall:t('Reply to all|compose title'), forward:t('Forward|compose title'), edit:t('Edit|compose title')}[c.kind];
@@ -2425,25 +2922,33 @@ function renderCompose(){
   <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
 </div>
 <div id="c-attbox">${composeAttsHtml(c)}</div>
-${html ? `<div class="fbar" role="toolbar" aria-label="${esc(t('Formatting'))}">${FORMATS.map(([cmd, label, tip]) =>
-    `<button type="button" class="fb" data-cmd="${cmd}" title="${esc(t(tip))}" aria-label="${esc(t(tip))}">${label}</button>`).join('')}<span class="flink" hidden><input id="c-url" type="url" placeholder="https://" spellcheck="false" aria-label="${esc(t('Link address'))}"><small>${esc(t('Enter sets the link, Esc cancels'))}</small></span></div>
+${html ? `${fbarHtml('c-url')}
 <div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
   : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
 ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>`}
+<div class="bar pgp warn cpgp" id="c-pgp" hidden></div>
 <div class="cask" id="c-ask" role="alert" hidden></div>
+<div class="cask clater" id="c-later" hidden><label for="c-when">${esc(t('Send at'))}</label><input id="c-when" type="datetime-local" step="60">
+  <button class="btn primary" type="button" data-act="later-at">${esc(t('Send later|button'))}</button><button class="btn" type="button" data-act="later-cancel">${esc(t('Cancel'))}</button></div>
 <div class="cbar">
-  <button class="btn primary" type="submit"><span>${esc(t('Send'))}</span> <kbd>Ctrl+Enter</kbd></button>
+  <button class="btn primary csend" type="submit"><span>${esc(laterLabel(c))}</span> <kbd>Ctrl+Enter</kbd></button><button class="btn primary cwhen" id="c-when-btn" type="button" data-act="later" aria-haspopup="menu" title="${esc(t('Send later (Ctrl+Shift+Enter)'))}" aria-label="${esc(t('Send later (Ctrl+Shift+Enter)'))}">${I.clock}</button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
   <button class="btn" type="button" data-act="attach" title="${esc(t('Attach files from this PC. You can also drop them on the window.'))}">${I.clip}<span>${esc(t('Attach…'))}</span></button>
   <button class="btn" type="button" data-act="discard">${esc(t('Discard'))}</button>
   <span class="cnote">${esc(note)}</span>
   <span class="csaved" aria-live="polite"></span>
+  ${pgpSetHtml()}
   <button class="btn spellchip" type="button" data-act="spell" aria-haspopup="menu">${I.spell}<span></span></button>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
   // Enter in a header field doesn't send: Ctrl+Enter does.
   $('cform').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && e.target.tagName === 'INPUT') e.preventDefault(); });
   $('c-from').addEventListener('change', e => changeIdentity(Number(e.target.value)));
+  // The picked time: Enter sends it then, Esc puts the line away (and doesn't close the message).
+  $('c-when').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey){ e.preventDefault(); e.stopPropagation(); sendAtPicked(); }
+    else if (e.key === 'Escape'){ e.preventDefault(); e.stopPropagation(); $('c-later').hidden = true; $('c-when-btn').focus(); }
+  });
   previewEl.querySelector('.cfmt').addEventListener('click', e => { const b = e.target.closest('[data-fmt]'); if (b) setFormat(b.dataset.fmt); });
   ['c-to', 'c-cc', 'c-bcc'].forEach(id => { if ($(id)) wireSuggestions($(id)); });
   const body = html ? $('c-html') : $('c-body');
@@ -2451,9 +2956,10 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   ['c-to', 'c-cc', 'c-bcc'].forEach(id => $(id)?.addEventListener('input', paintOthers));
   paintOthers();
   if (c.kind === 'new' || c.kind === 'forward' || (c.kind === 'edit' && !c.to)) $('c-to').focus();
-  else focusStart(body);
+  else focusStart(body, c.caretLine);
   wireSpelling();
   paintSpellChip();
+  wirePgp();
 }
 /* ---------- reply or reply all ---------- */
 // A reply knows both answers the core gave: to the sender (`one`) and to everyone (`all`). The
@@ -2537,7 +3043,7 @@ function attachOriginal(){
 // The text the user wrote: the HTML editor's without its quotes and links, or the plain text.
 function ownText(){
   const ed = $('c-html');
-  return ed ? editorText(ed).text : $('c-body')?.value ?? '';
+  return ed ? editorText(ed, 'blockquote, a, .telex-signature').text : $('c-body')?.value ?? '';
 }
 // Send's questions, in a line above the buttons: a file the text mentions but that isn't
 // attached, and a reply to all that goes to many people. Send again goes ahead.
@@ -2596,15 +3102,35 @@ function foldComposeQuote(ed){
 }
 const unfolded = html => html.replace(/ class="cfold"/g, '');
 /* ---------- recipient suggestions ---------- */
-// People come from the mail base (recipients): those written to first, then those who write
-// most. Typing in To, Cc or Bcc shows the ones whose name or address has a word starting with
-// what was typed since the last comma; ↓ ↑ choose, Enter or Tab takes one, Esc closes.
-let RECIPS = null, recipsAsked = null;
+// People come from the address book and the mail base (recipients): contacts first (marked),
+// then those written to, then those who write most. Typing in To, Cc or Bcc shows the ones whose
+// name or address has a word starting with what was typed since the last comma, after the
+// address book's groups whose name does; ↓ ↑ choose, Enter or Tab takes one, Esc closes. A group
+// goes in as its people's addresses, at once, so what is sent (and counted) is plain to see.
+let RECIPS = null, GROUPS = [], recipsAsked = null;
 function loadRecipients(){
-  if (!recipsAsked) recipsAsked = invoke('recipients').then(r => { RECIPS = r.map(withWords); }).catch(() => { recipsAsked = null; });
+  if (!recipsAsked) recipsAsked = Promise.all([invoke('recipients'), loadBook()]).then(([r]) => {
+    RECIPS = r.map(withWords);
+    GROUPS = (BOOK?.groups ?? []).filter(g => g.members.some(m => m.email)).map(g => ({...g, group:true, words:fold(g.name).split(/\s+/), folded:fold(g.name)}));
+  }).catch(() => { recipsAsked = null; });
   return recipsAsked;
 }
-const forgetRecipients = () => { RECIPS = null; recipsAsked = null; };
+const forgetRecipients = () => { RECIPS = null; GROUPS = []; recipsAsked = null; };
+// A group's people as an address line, leaving out those in `taken`.
+const groupLine = (g, taken = new Set()) => g.members.filter(m => m.email && !taken.has(m.email.toLowerCase())).map(addressOf).join(', ');
+// A group's name typed whole in To, Cc or Bcc (and left, or sent) goes in as its people.
+function expandGroupNames(input){
+  if (!input || !GROUPS.length || !input.value.trim()) return;
+  let changed = false;
+  const parts = addressesIn(input.value).map(a => {
+    if (a.text.includes('@')) return a.text;
+    const g = GROUPS.find(x => x.folded === fold(a.text.trim()));
+    if (!g) return a.text;
+    changed = true;
+    return groupLine(g);
+  });
+  if (changed) input.value = parts.filter(Boolean).join(', ') + ', ';
+}
 // "Kowalska, Anna" needs quotes in an address line; a plain name doesn't.
 const addressOf = p => !p.name ? p.email : /[",;<>@]/.test(p.name) ? `"${p.name.replace(/"/g, "'")}" <${p.email}>` : `${p.name} <${p.email}>`;
 // Where the address being typed starts: after the last comma or semicolon outside quotes.
@@ -2630,7 +3156,7 @@ function showSuggestions(input){
   const typed = fold(text.slice(tokenStart(text)).trim());
   if (!typed || !RECIPS){ closeSuggestions(); return; }
   const taken = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => ($(id)?.value ?? '').toLowerCase().match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []));
-  const found = [];
+  const found = GROUPS.filter(g => (g.words.some(w => w.startsWith(typed)) || g.folded.startsWith(typed)) && groupLine(g, taken)).slice(0, 3);
   for (const p of RECIPS){
     if (found.length >= 8) break;
     if (!taken.has(p.email.toLowerCase()) && matchesTyped(p, typed)) found.push(p);
@@ -2650,7 +3176,9 @@ function showSuggestions(input){
   }
   sugg.el.style.cssText = `top:${input.offsetTop + input.offsetHeight + 2}px;left:${input.offsetLeft}px;width:${Math.max(input.offsetWidth, 260)}px`;
   sugg.el.innerHTML = found.map((p, i) => `<li role="option" id="sugg-${i}" data-i="${i}" aria-selected="${i === sugg.at}">`
-    + `<span class="nm">${esc(p.name || p.email)}</span>${p.name ? `<span class="em">${esc(p.email)}</span>` : ''}</li>`).join('');
+    + (p.group ? `<span class="nm"><span class="ct">${I.people}</span>${esc(p.name)}</span><span class="em">${esc(t('group') + ' · ' + tn(p.members.length, '{n} person', '{n} people'))}</span>`
+      : `<span class="nm">${p.contact ? `<span class="ct" title="${esc(t('In your address book'))}">${I.person}</span>` : ''}${esc(p.name || p.email)}</span>${p.name ? `<span class="em">${esc(p.email)}</span>` : ''}`)
+    + '</li>').join('');
   input.setAttribute('aria-activedescendant', 'sugg-' + sugg.at);
 }
 function takeSuggestion(i){
@@ -2660,14 +3188,15 @@ function takeSuggestion(i){
   const before = input.value.slice(0, caret), after = input.value.slice(caret).replace(/^[^,;]*[,;]?\s*/, '');
   const start = tokenStart(before);
   const head = before.slice(0, start).trimEnd();
-  const value = (head ? head + ' ' : '') + addressOf(p) + ', ';
+  const taken = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => ($(id)?.value ?? '').toLowerCase().match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []));
+  const value = (head ? head + ' ' : '') + (p.group ? groupLine(p, taken) : addressOf(p)) + ', ';
   input.value = value + after;
   input.setSelectionRange(value.length, value.length);
   closeSuggestions();
 }
 function wireSuggestions(input){
   input.addEventListener('input', () => { sugg.at = 0; loadRecipients().then(() => { if (document.activeElement === input) showSuggestions(input); }); });
-  input.addEventListener('blur', () => setTimeout(() => { if (sugg.input === input) closeSuggestions(); }, 120));
+  input.addEventListener('blur', () => setTimeout(() => { if (sugg.input === input) closeSuggestions(); if (document.activeElement !== input) expandGroupNames(input); }, 120));
   input.addEventListener('keydown', e => {
     if (sugg.input !== input || !sugg.list.length) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
@@ -2715,7 +3244,7 @@ function dropSpot(x, y){
   const el = document.elementFromPoint(x / (devicePixelRatio || 1), y / (devicePixelRatio || 1));
   if (!el?.closest?.('#tree')) return null;
   const f = el.closest('[data-folder]');
-  return {folder:f && isLocal(f.dataset.folder) && kindOf(f.dataset.folder) !== 'trash' ? f : null};
+  return {folder:f && keepsHere(f.dataset.folder) && !['trash', 'outbox'].includes(kindOf(f.dataset.folder)) ? f : null};
 }
 listenHere('files-over', ({payload}) => {
   const f = payload ? dropSpot(payload[0], payload[1])?.folder ?? null : null;
@@ -2726,31 +3255,42 @@ listenHere('files-over', ({payload}) => {
 });
 listenHere('files-dropped', ({payload}) => {
   fileTarget?.classList.remove('dropok'); fileTarget = null;
-  if (document.querySelector('dialog[open]')) return; // not while a dialog is open
   const p = Array.isArray(payload) ? {files:payload} : payload; // the demo sends just the files
+  if (dropIntoEditor(p)) return; // pictures into an HTML editor, also a signature's in Settings
+  if (document.querySelector('dialog[open]')) return; // not while a dialog is open
   const spot = p.x != null ? dropSpot(p.x, p.y) : null;
   if (spot?.folder){ importInto(spot.folder.dataset.folder, p.files.map(f => f.path)); return; }
   if (spot){ say(t('To bring in mail files (.eml, mbox), drop them on a folder on this PC. Dropped anywhere else, files are attached to a message.'), 9000); return; }
   addFiles(p.files);
 });
-// The caret at the very start, above the quote, as in the plain-text editor.
-function focusStart(body){
+// The caret at the start of the line typing begins on (0, or below a template's greeting), above
+// the quote, as in the plain-text editor.
+function focusStart(body, line = 0){
   body.focus();
-  if (body.setSelectionRange) body.setSelectionRange(0, 0);
-  else { const r = document.createRange(); r.setStart(body, 0); r.collapse(true); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  if (body.setSelectionRange){
+    const at = line ? body.value.split('\n').slice(0, line).join('\n').length + 1 : 0;
+    body.setSelectionRange(at, at);
+  } else {
+    const r = document.createRange(); r.setStart(body.children[line] ?? body, 0); r.collapse(true);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  }
   body.scrollTop = 0;
 }
-// The HTML editor: formatting buttons, Ctrl+K for a link, pasted HTML cleaned by the core.
-function wireEditor(ed){
+// The HTML editor: formatting buttons, Ctrl+K for a link, colors and sizes from the palette,
+// pictures, pasted HTML cleaned by the core. `bar` is its formatting bar (compose's by default; a
+// signature editor has its own, drawn again with the dialog); the editor's own listeners go on once.
+function wireEditor(ed, bar = previewEl.querySelector('.fbar'), {signature = false} = {}){
   document.execCommand('defaultParagraphSeparator', false, 'div');
   document.execCommand('styleWithCSS', false, false);
-  const bar = previewEl.querySelector('.fbar'), box = bar.querySelector('.flink'), url = $('c-url');
+  const box = bar.querySelector('.flink'), url = box.querySelector('input');
   let kept = null; // the selection while the link box has the focus
   bar.addEventListener('mousedown', e => { if (e.target.closest('.fb')) e.preventDefault(); }); // keeps the selection
   bar.addEventListener('click', e => {
     const b = e.target.closest('[data-cmd]'); if (!b) return;
     ed.focus();
     if (b.dataset.cmd === 'link') openLinkBox();
+    else if (MENU_CMDS.has(b.dataset.cmd)) paletteMenu(ed, b, b.dataset.cmd);
+    else if (b.dataset.cmd === 'picture') choosePictures(ed, signature);
     else if (b.dataset.cmd === 'quote') document.execCommand('formatBlock', false, document.queryCommandValue('formatBlock') === 'blockquote' ? 'div' : 'blockquote');
     else document.execCommand(b.dataset.cmd);
   });
@@ -2776,17 +3316,46 @@ function wireEditor(ed){
     e.preventDefault(); e.stopPropagation(); // Esc here doesn't close the message
     closeLinkBox(e.key === 'Enter');
   });
+  ed.linkBox = openLinkBox; // the bar drawn last
+  if (ed.dataset.wired) return;
+  ed.dataset.wired = '1';
   ed.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'){ e.preventDefault(); openLinkBox(); }
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'){ e.preventDefault(); ed.linkBox(); }
   });
-  // A pasted web page brings styles, scripts and images: only what Telex sends goes in.
+  // A pasted picture goes in made the right size. A pasted web page brings styles, scripts and
+  // pictures: only what Telex sends goes in, and pictures from the web are left out, not fetched
+  // (fetching would tell their server; sending their addresses would let it see who reads).
   ed.addEventListener('paste', async e => {
+    const pictures = [...(e.clipboardData?.files ?? [])].filter(f => f.type.startsWith('image/'));
     const pasted = e.clipboardData?.getData('text/html'), plain = e.clipboardData?.getData('text/plain') ?? '';
+    if (pictures.length){
+      e.preventDefault();
+      const read = await Promise.all(pictures.map(f => fileData(f).catch(() => null)));
+      await insertPictures(ed, read.filter(Boolean).map(data => ({data})), signature);
+      return;
+    }
     if (!pasted) return;
     e.preventDefault();
+    const remote = (pasted.match(/<img\b[^>]*\bsrc\s*=\s*["']?\s*https?:/gi) ?? []).length;
     try { document.execCommand('insertHTML', false, await invoke('clean_html', {html:pasted})); }
     catch { document.execCommand('insertText', false, plain); }
+    if (remote) say(tn(remote, 'A picture from the web was left out: save it, then use Insert picture.', '{n} pictures from the web were left out: save them, then use Insert picture.'), 9000);
   });
+}
+// Files dropped from Explorer onto an HTML editor (compose's, or a signature's in Settings): the
+// pictures go in where they were dropped. True when it took them; other files are the caller's.
+function dropIntoEditor(p){
+  const dpr = devicePixelRatio || 1, x = p.x / dpr, y = p.y / dpr;
+  const ed = p.x != null ? document.elementFromPoint(x, y)?.closest?.('.hedit[contenteditable="true"]') : null;
+  const pictures = p.files.filter(f => isPicture(f.name));
+  if (!ed || !pictures.length) return false;
+  const r = document.caretRangeFromPoint?.(x, y);
+  ed.focus();
+  if (r && ed.contains(r.startContainer)){ const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
+  insertPictures(ed, pictures.map(f => ({path:f.path})), ed.dataset.signature === '1');
+  const others = p.files.filter(f => !isPicture(f.name));
+  if (others.length && ed.id === 'c-html') addFiles(others);
+  return true;
 }
 /* ---------- spelling ---------- */
 // Telex's own checker (spell.rs), in the languages of Settings › Writing: the words none of them
@@ -2804,11 +3373,13 @@ const spellSuggested = new Map(); // word → suggestions, until the languages c
 const spellMarks = window.Highlight && CSS.highlights ? new Highlight() : null;
 if (spellMarks) CSS.highlights.set('spell', spellMarks);
 const spellFields = () => ['c-subj', 'c-body', 'c-html'].map($).filter(Boolean);
+// An HTML editor (compose's or a signature's): its marks are highlights, not a layer.
+const rich = el => el.getAttribute?.('contenteditable') === 'true';
 const spellResize = new ResizeObserver(entries => entries.forEach(e => syncLayer(e.target)));
 // Telex's checking for one field. An input or textarea gets a box with the layer of lines.
 function spellField(el){
   if (!el || spellOf.has(el)) return;
-  if (el.id !== 'c-html' && !el.parentElement.classList.contains('spellfield')){
+  if (!rich(el) && !el.parentElement.classList.contains('spellfield')){
     const box = document.createElement('div');
     box.className = 'spellfield';
     el.before(box); box.append(el);
@@ -2823,7 +3394,7 @@ function spellField(el){
   el.addEventListener('pointerdown', () => { spellOf.get(el).typing = false; });
   el.addEventListener('click', () => { paintSpelling(el); spellTipAt(el); });
   el.addEventListener('blur', () => { spellOf.get(el).typing = false; paintSpelling(el); hideSpellTip(); });
-  if (el.id !== 'c-html'){
+  if (!rich(el)){
     // An input scrolls sideways with the caret, without a scroll event.
     for (const ev of ['scroll', 'keyup', 'click', 'select']) el.addEventListener(ev, () => scrollLayer(el));
     el.addEventListener('scroll', hideSpellTip);
@@ -2858,12 +3429,12 @@ function scheduleSpelling(el, ms = 400){
 }
 // The HTML editor's words as one text, each text node on a line of its own (quotes and links
 // left out), and where each node starts in it.
-function editorText(ed){
+function editorText(ed, skip = 'blockquote, a'){
   const nodes = [];
   let text = '';
   const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT);
   for (let n = walker.nextNode(); n; n = walker.nextNode()){
-    if (n.parentElement.closest('blockquote, a')) continue;
+    if (n.parentElement.closest(skip)) continue;
     if (text) text += '\n';
     nodes.push({node:n, at:text.length});
     text += n.data;
@@ -2873,7 +3444,7 @@ function editorText(ed){
 async function checkSpelling(el){
   const st = spellOf.get(el);
   if (!st || !el.isConnected) return;
-  const seq = ++st.seq, html = el.id === 'c-html';
+  const seq = ++st.seq, html = rich(el);
   const {text, nodes} = html ? editorText(el) : {text:el.value, nodes:null};
   let found = [];
   if (pref().spell_check && text.trim()){
@@ -2897,7 +3468,7 @@ function spellEdited(el){
   const st = spellOf.get(el);
   st.typing = true;
   if (!st.found.length) return;
-  if (el.id === 'c-html'){
+  if (rich(el)){
     st.found = st.found.filter(m => m.range && m.range.toString() === m.word);
   } else {
     const old = st.text, now = el.value, max = Math.min(old.length, now.length);
@@ -2913,7 +3484,7 @@ function spellEdited(el){
 // The mistake the caret is in or at the end of, in the text the checker got.
 function mistakeAtCaret(el){
   const found = spellOf.get(el)?.found ?? [];
-  if (el.id === 'c-html'){
+  if (rich(el)){
     const sel = getSelection();
     if (!sel.rangeCount || !el.contains(sel.anchorNode)) return null;
     return found.find(m => { try { return m.range?.comparePoint(sel.anchorNode, sel.anchorOffset) === 0; } catch { return false; } }) ?? null;
@@ -2927,10 +3498,12 @@ function paintSpelling(el){
   if (!st || !el.isConnected) return;
   const held = st.typing && document.activeElement === el ? mistakeAtCaret(el) : null;
   const shown = st.found.filter(m => m !== held);
-  if (el.id === 'c-html'){
+  if (rich(el)){
     if (!spellMarks) return;
-    spellMarks.clear();
-    for (const m of shown) if (m.range) spellMarks.add(m.range);
+    // One highlight for every editor: only this one's ranges change.
+    for (const r of st.painted ?? []) spellMarks.delete(r);
+    st.painted = shown.map(m => m.range).filter(Boolean);
+    for (const r of st.painted) spellMarks.add(r);
   } else paintLayer(el, shown);
 }
 function paintLayer(el, found){
@@ -2966,14 +3539,14 @@ function scrollLayer(el){
 }
 // Where a mistake is on screen.
 function mistakeRect(el, m){
-  if (el.id === 'c-html') return m.range?.getClientRects()[0] ?? null;
+  if (rich(el)) return m.range?.getClientRects()[0] ?? null;
   return el.parentElement.querySelector(`.spellmarks mark[data-s="${m.s}"]`)?.getClientRects()[0] ?? null;
 }
 const within = (r, x, y) => x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 // The marked word under the pointer, if there is one.
 function spellHit(el, x, y){
   const found = spellOf.get(el)?.found ?? [];
-  if (el.id === 'c-html') return found.find(m => m.range && [...m.range.getClientRects()].some(r => within(r, x, y)));
+  if (rich(el)) return found.find(m => m.range && [...m.range.getClientRects()].some(r => within(r, x, y)));
   const mark = [...(el.parentElement.querySelector('.spellmarks')?.querySelectorAll('mark') ?? [])]
     .find(mk => [...mk.getClientRects()].some(r => within(r, x, y)));
   return mark ? found.find(m => m.s === Number(mark.dataset.s)) : null;
@@ -2993,7 +3566,7 @@ spellTip.className = 'spelltip'; spellTip.hidden = true; spellTip.setAttribute('
 document.body.append(spellTip);
 let spellTipFor = null;
 async function spellTipAt(el){
-  const sel = el.id === 'c-html' ? getSelection() : null;
+  const sel = rich(el) ? getSelection() : null;
   if (sel ? !sel.isCollapsed : el.selectionStart !== el.selectionEnd) return hideSpellTip();
   const m = mistakeAtCaret(el);
   if (!m || spellTipFor?.m === m) return m ? null : hideSpellTip();
@@ -3049,7 +3622,7 @@ async function openSpellMenu(el, m, x, y){
 // The word as the menu found it, if the text still has it there.
 function selectWord(el, m){
   el.focus();
-  if (el.id === 'c-html'){
+  if (rich(el)){
     if (!m.range || m.range.toString() !== m.word) return false;
     const sel = getSelection(); sel.removeAllRanges(); sel.addRange(m.range);
     return true;
@@ -3076,7 +3649,7 @@ async function addWord(el, word){
 }
 // Where the selection starts (or ends), in the text the checker got.
 function caretAt(el, end){
-  if (el.id !== 'c-html') return (end ? el.selectionEnd : el.selectionStart) ?? 0;
+  if (!rich(el)) return (end ? el.selectionEnd : el.selectionStart) ?? 0;
   const sel = getSelection();
   if (!sel.rangeCount) return 0;
   const r = sel.getRangeAt(0), node = end ? r.endContainer : r.startContainer;
@@ -3113,8 +3686,8 @@ function spellKeys(el, e){
     hideSpellTip();
   }
 }
-// The other fields where people write prose: an identity's signature and the away reply.
-['i-sig', 'away-body'].map($).forEach(spellField);
+// The other fields where people write prose: the away reply (signatures get theirs as they are drawn).
+['away-body'].map($).forEach(spellField);
 // Once a session, when the language Telex speaks has no dictionary yet but one can be fetched.
 let spellNudged = false;
 async function spellNudge(){
@@ -3185,7 +3758,9 @@ let draftSaves = Promise.resolve();
 function inTurn(fn){ const p = draftSaves.then(fn); draftSaves = p.catch(() => {}); return p; }
 // Autosave: while a message is being written, what changed is kept every few seconds as a draft
 // of its own, each replacing the one before, so a crash or a frozen window loses little. The
-// draft it was opened from stays as it was until Esc, Save draft or Send.
+// draft it was opened from stays as it was until Esc, Save draft or Send. Autosaves stay on
+// this PC; what the user saves goes to the server's Drafts too (the core keeps the draft's
+// Message-ID and thread from the one it was opened from).
 const AUTOSAVE_MS = 15000;
 async function autosave(){
   const c = state.compose;
@@ -3194,7 +3769,7 @@ async function autosave(){
     await inTurn(async () => {
       if (state.compose !== c || c.done) return; // closed meanwhile, and saved or discarded
       const shape = shapeOf(c);
-      c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), replaces:null}});
+      c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), autosave:true}, pgp:pgpChoice(c)});
       c.saved = shape;
       const note = previewEl.querySelector('.csaved');
       if (note && state.compose === c) note.textContent = t('Draft saved {time}', {time:hm(new Date())});
@@ -3208,7 +3783,7 @@ setInterval(autosave, AUTOSAVE_MS);
 function saveCompose(){
   const c = readCompose();
   return inTurn(async () => {
-    await call('save_outgoing', {draft:draftOf(c)});
+    await call('save_outgoing', {draft:draftOf(c), pgp:pgpChoice(c)});
     c.done = true;
     return true;
   }).catch(() => false);
@@ -3263,7 +3838,54 @@ const sentText = sent => sent.length === 1 ? t('Sent {what}.', {what:sentLine(se
 // Real mail goes to the Outbox and out at once. It's only called sent once the SMTP
 // server has taken it; otherwise it waits in the Outbox and the status says why.
 let askedSubject = 0; // when Send last asked about a missing subject
-async function send(){
+// Send later: `c.later` is the time a message edited from the Outbox was to go, kept by Send.
+const laterKept = c => c.later && parseDate(c.later) - Date.now() > 60000 ? c.later : null;
+const laterLabel = c => laterKept(c) ? t('Send {when}', {when:fmtGoes(parseDate(c.later))}) : t('Send');
+const LATER_NAMES = {hour:N_('In an hour'), tomorrow:N_('Tomorrow morning'), monday:N_('Monday morning')};
+// The clock next to Send (or Ctrl+Shift+Enter): when the message goes, then it waits in the Outbox.
+async function laterMenu(from = $('c-when-btn')){
+  let choices;
+  try { choices = await invoke('send_later_choices'); } catch (e){ say(tr(e), 8000); return; }
+  const c = state.compose;
+  if (!c || !from) return;
+  const items = [
+    ...(laterKept(c) ? [{label:t('Send now'), run:() => send(null)}, {sep:true}] : []),
+    ...choices.map(ch => {
+      const d = parseDate(ch.when), today = d.toDateString() === new Date().toDateString();
+      return {label:t(LATER_NAMES[ch.kind]), key:today ? hm(d) : t(DOW[d.getDay()]) + ' ' + hm(d), run:() => send({kind:ch.kind})};
+    }),
+    {sep:true},
+    {label:t('Pick a date and time…'), run:pickLater},
+  ];
+  const r = from.getBoundingClientRect();
+  openMenu(r.left, r.bottom, items, from);
+  menuEl.style.top = Math.max(4, r.top - menuEl.offsetHeight - 4) + 'px'; // above the bar
+}
+// A time of the user's own: the line above the buttons, a minute from now at the earliest.
+function pickLater(){
+  const box = $('c-later'), input = $('c-when'), c = state.compose;
+  if (!box || !c) return;
+  const local = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${hm(d)}`;
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); tomorrow.setHours(8, 0, 0, 0);
+  input.min = local(new Date(Date.now() + 60000));
+  input.value = laterKept(c) ? c.later.slice(0, 16) : local(tomorrow);
+  box.hidden = false;
+  input.focus();
+}
+function sendAtPicked(){
+  const v = $('c-when')?.value;
+  if (!v){ say(t('Pick a date and time.')); $('c-when')?.focus(); return; }
+  send({kind:'at', at:v.length === 16 ? v + ':00' : v});
+}
+// later: undefined sends as the message says (now, or at the time it was to go), null sends now,
+// {kind, at} sends later.
+async function send(later){
+  const sc = state.compose;
+  [$('c-to'), $('c-cc'), $('c-bcc')].forEach(expandGroupNames);
+  if (!sc) return;
+  // Send again after a question goes the way the first press chose.
+  if (later === undefined) later = sc.askLater !== undefined ? sc.askLater : laterKept(sc) ? {kind:'at', at:sc.later} : null;
+  sc.askLater = later;
   if (![$('c-to'), $('c-cc'), $('c-bcc')].some(f => trimList(f?.value ?? ''))){ say(t('Add at least one recipient in To.')); $('c-to').focus(); return; }
   if (pref().ask_subject && !$('c-subj').value.trim() && Date.now() - askedSubject > 8000){
     askedSubject = Date.now();
@@ -3272,22 +3894,26 @@ async function send(){
     return;
   }
   askedSubject = 0;
+  if (!await pgpReady()) return;
   if (!await sendChecks()) return;
-  const btn = document.querySelector('#cform .btn.primary');
+  const btn = document.querySelector('#cform .csend');
   if (!btn || btn.disabled) return;
   const label = btn.querySelector('span');
-  btn.disabled = true; label.textContent = t('Sending…');
-  say(t('Sending…'), 0);
+  btn.disabled = true; label.textContent = later ? t('Saving…') : t('Sending…');
+  say(later ? t('Saving…') : t('Sending…'), 0);
   let r;
   const c = readCompose();
-  try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c)}); c.done = true; return r; }); }
-  catch { btn.disabled = false; label.textContent = t('Send'); return; } // e.g. a bad address: fix it and try again
+  try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c), later, pgp:pgpChoice(c)}); c.done = true; return r; }); }
+  catch { btn.disabled = false; label.textContent = laterLabel(c); return; } // e.g. a bad address: fix it and try again
   state.compose = null;
   leftCompose();
   forgetRecipients(); // someone new may be in it
+  // Sent later: it waits in the Outbox, where it says when it goes.
+  const scheduled = r.goes ? t('In the Outbox: it goes {when}. E changes it.', {when:fmtFull(parseDate(r.goes))}) : '';
   if (VIEWER){
     const sent = sentText(r.sent);
-    tellMain(r.wait ? {say:t('Sending in {n} s. Press Z to undo.', {n:r.wait}), ms:r.wait * 1000 + 500, undo:{kind:'send', id:r.queued, until:Date.now() + r.wait * 1000}}
+    tellMain(scheduled ? {say:scheduled, ms:8000}
+      : r.wait ? {say:t('Sending in {n} s. Press Z to undo.', {n:r.wait}), ms:r.wait * 1000 + 500, undo:{kind:'send', id:r.queued, until:Date.now() + r.wait * 1000}}
       : {say:r.errors.length ? [sent, r.errors.join(' · ')].filter(Boolean).join(' ') : sent || t('In the Outbox. It goes out with the next check.'), ms:r.errors.length ? 15000 : 6000});
     closeViewer();
     return;
@@ -3295,6 +3921,7 @@ async function send(){
   renderPreview();
   await refresh();
   listEl.focus();
+  if (scheduled){ say(scheduled, 8000); return; }
   if (r.wait){ // it waits a moment in the Outbox, so Z can still take it back
     setUndo({kind:'send', id:r.queued, until:Date.now() + r.wait * 1000});
     say(t('Sending in {n} s. Press Z to undo.', {n:r.wait}), r.wait * 1000 + 500);
@@ -3378,6 +4005,153 @@ function toggleUnread(){
   }
   const m = current(); if (m) setUnread(m, !m.unread);
 }
+/* ---------- tags ---------- */
+// Tags are IMAP keywords (tags.rs): the core keeps them and puts them on the server. The first
+// five have keys 1–5, which put a tag on the selection, or take it off when all of it has it.
+const TAG_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray'];
+const COLOR_NAMES = {red:N_('Red'), orange:N_('Orange'), yellow:N_('Yellow'), green:N_('Green'), teal:N_('Teal'), blue:N_('Blue'), purple:N_('Purple'), gray:N_('Gray')};
+const tagOf = k => TAGS.find(x => x.keyword === k);
+// A message's tags in the window's order as chips; in a row at most `most`, then "+n".
+function tagChips(keys, most = Infinity){
+  const tags = TAGS.filter(x => keys?.includes(x.keyword));
+  if (!tags.length) return '';
+  const shown = tags.slice(0, most), rest = tags.slice(most);
+  return `<span class="tgs">${shown.map(x => `<span class="tg t-${esc(x.color)}">${esc(x.name)}</span>`).join('')}`
+    + (rest.length ? `<span class="tg more" title="${esc(rest.map(x => x.name).join(', '))}">+${rest.length}</span>` : '') + '</span>';
+}
+// The chips above the open message, without drawing it again.
+function paintTagChips(){
+  const el = previewEl.querySelector('.ph-tags'), m = current();
+  if (el && m) el.innerHTML = tagChips(m.tags);
+}
+const tagRows = () => state.picked.size > 1 ? pickedRows() : [current()].filter(Boolean);
+function toggleTag(keyword){
+  const rows = tagRows();
+  if (rows.length) setTag(rows, keyword, !rows.every(r => r.tags?.includes(keyword)));
+}
+// A tag on messages or off, at once on screen; the core keeps it and tells the server.
+function setTag(rows, keyword, on){
+  const tag = tagOf(keyword);
+  if (!tag) return;
+  const ids = state.picked.size > 1 ? chosen() : rows.map(r => r.id), n = ids.length;
+  const before = new Map(rows.map(r => [r.id, r.tags ?? []]));
+  const show = r => {
+    const tags = before.get(r.id).filter(k => k !== keyword);
+    if (on) tags.push(keyword);
+    return tags.sort();
+  };
+  const paint = get => { for (const r of rows){ patch(r.id, {tags:get(r)}); const b = bodies.get(r.id); if (b) b.tags = get(r); } drawRows(); paintTagChips(); };
+  paint(show);
+  call('set_tag_many', {ids, keyword, on}).then(() => {
+    const name = tag.name;
+    say(n > 1 ? (on ? tn(n, 'Tagged {n} message “{name}”.', 'Tagged {n} messages “{name}”.', {n:num(n), name}) : tn(n, 'Took “{name}” off {n} message.', 'Took “{name}” off {n} messages.', {n:num(n), name}))
+      : on ? t('Tagged “{name}”.', {name}) : t('Took “{name}” off.', {name}), 2500);
+    if (n > 1) refresh(); else loadTree().catch(() => {});
+  }).catch(() => paint(r => before.get(r.id)));
+}
+// The tags of the selection, ticked where all of it has one; from the message menu or the tag
+// button above a message.
+function openTagMenu(x, y, from = listEl){
+  const rows = tagRows();
+  if (!rows.length) return;
+  const here = rows.some(r => TAGS_HERE.includes(acctId(r.f)));
+  openMenu(x, y, [
+    ...TAGS.map((x, i) => ({label:x.name, color:x.color, checked:rows.every(r => r.tags?.includes(x.keyword)), key:i < 5 ? String(i + 1) : '', run:() => toggleTag(x.keyword)})),
+    ...(TAGS.length ? [{sep:true}] : []),
+    ...(here ? [{label:t('On this account tags stay on this PC: its server can’t keep them.'), disabled:true}] : []),
+    {label:t('Manage tags…'), run:() => openSettings('tags')},
+  ], from);
+}
+
+// Settings › Tags: name, color and order; a new tag; deleting one asks first, since it comes off
+// every message, here and on the server.
+let tagEdit = {adding:false, armed:null, error:''};
+function renderTags(){
+  const el = $('s-tags');
+  if (!el) return;
+  const row = (x, i) => `<div class="srow stag" data-k="${esc(x.keyword)}">
+<span class="tkey">${i < 5 ? `<kbd>${i + 1}</kbd>` : ''}</span>
+<button type="button" class="tswatch t-${esc(x.color)}" data-tg="color" aria-haspopup="menu" title="${esc(t('Color: {color}', {color:t(COLOR_NAMES[x.color] ?? x.color)}))}" aria-label="${esc(t('Color: {color}', {color:t(COLOR_NAMES[x.color] ?? x.color)}))}"></button>
+<input class="tgname" data-tg="name" value="${esc(x.name)}" maxlength="40" spellcheck="false" autocomplete="off" aria-label="${esc(t('Tag name'))}">
+<span class="em" title="${esc(x.keyword)}">${esc(tn(x.count, '{n} message', '{n} messages', {n:num(x.count)}))}</span>
+<button type="button" class="btn icon" data-tg="up" title="${esc(t('Earlier'))}" aria-label="${esc(t('Earlier'))}"${i ? '' : ' disabled'}>↑</button>
+<button type="button" class="btn icon" data-tg="down" title="${esc(t('Later|order'))}" aria-label="${esc(t('Later|order'))}"${i < TAGS.length - 1 ? '' : ' disabled'}>↓</button>
+<button type="button" class="btn danger" data-tg="delete">${esc(tagEdit.armed === x.keyword ? t('Delete it') : t('Delete'))}</button></div>`
+    + (tagEdit.armed === x.keyword ? `<p class="dnote tarmed">${esc(x.count ? tn(x.count, 'It comes off {n} message, here and on the server.', 'It comes off {n} messages, here and on the server.', {n:num(x.count)}) : t('No message has it.'))}</p>` : '');
+  const free = TAG_COLORS.find(c => !TAGS.some(x => x.color === c)) ?? 'gray';
+  el.innerHTML = TAGS.map(row).join('') + (tagEdit.adding ? `<div class="srow stag" data-k="">
+<span class="tkey"></span><button type="button" class="tswatch t-${free}" data-tg="color" data-color="${free}" aria-haspopup="menu" aria-label="${esc(t('Color: {color}', {color:t(COLOR_NAMES[free])}))}"></button>
+<input class="tgname" id="s-tag-name" data-tg="new" maxlength="40" spellcheck="false" autocomplete="off" placeholder="${esc(t('Name of the new tag'))}" aria-label="${esc(t('Name of the new tag'))}">
+<button type="button" class="btn primary" data-tg="add">${esc(t('Add'))}</button><button type="button" class="btn" data-tg="cancel">${esc(t('Cancel'))}</button></div>` : '');
+  $('s-tag-new').hidden = tagEdit.adding;
+  $('s-tag-err').textContent = tagEdit.error;
+  const here = TAGS_HERE.map(id => ACCT[id]?.email ?? id);
+  $('s-tag-here').hidden = !here.length;
+  $('s-tag-here').textContent = here.length ? t('Tags of {accounts} stay on this PC: the server can’t keep them.', {accounts:here.join(', ')}) : '';
+}
+async function tagsChanged(){
+  tagEdit.error = '';
+  await refresh();
+  renderTags();
+}
+async function saveTag(x, changes){
+  try { await invoke('save_tag', {tag:{...x, ...changes}}); }
+  catch (e){ tagEdit.error = tr(e); renderTags(); return false; }
+  await tagsChanged();
+  return true;
+}
+async function addTag(){
+  const name = $('s-tag-name')?.value ?? '', color = $('s-tags').querySelector('[data-k=""] .tswatch')?.dataset.color ?? 'gray';
+  tagEdit.adding = false;
+  if (await saveTag({keyword:'', name, color, count:0}, {})) say(t('Tag “{name}” added.', {name:name.trim()}));
+  else { tagEdit.adding = true; renderTags(); const f = $('s-tag-name'); if (f){ f.value = name; f.focus(); } }
+}
+function colorMenu(button, x){
+  const r = button.getBoundingClientRect(), now = x?.color ?? button.dataset.color;
+  openMenu(r.left, r.bottom + 2, TAG_COLORS.map(c => ({label:t(COLOR_NAMES[c]), color:c, checked:c === now, run:() => {
+    if (x) saveTag(x, {color:c});
+    else { button.dataset.color = c; button.className = 'tswatch t-' + c; button.setAttribute('aria-label', t('Color: {color}', {color:t(COLOR_NAMES[c])})); button.focus(); }
+  }})), button);
+}
+$('s-tag-new').addEventListener('click', () => { tagEdit = {adding:true, armed:null, error:''}; renderTags(); $('s-tag-name')?.focus(); });
+$('s-tags').addEventListener('click', async e => {
+  const b = e.target.closest('[data-tg]'), row = e.target.closest('[data-k]');
+  if (!b || !row || b.tagName === 'INPUT') return;
+  const x = tagOf(row.dataset.k), act = b.dataset.tg;
+  if (act === 'color'){ colorMenu(b, x); return; }
+  if (act === 'add'){ addTag(); return; }
+  if (act === 'cancel'){ tagEdit.adding = false; renderTags(); $('s-tag-new').focus(); return; }
+  if (!x) return;
+  if (act === 'up' || act === 'down'){
+    try { await invoke('move_tag', {keyword:x.keyword, delta:act === 'up' ? -1 : 1}); } catch (err){ tagEdit.error = tr(err); renderTags(); return; }
+    await tagsChanged();
+    $('s-tags').querySelector(`[data-k="${CSS.escape(x.keyword)}"] [data-tg="${act}"]:not([disabled])`)?.focus();
+  }
+  if (act === 'delete'){
+    if (tagEdit.armed !== x.keyword){ tagEdit.armed = x.keyword; renderTags(); $('s-tags').querySelector(`[data-k="${CSS.escape(x.keyword)}"] [data-tg="delete"]`)?.focus(); return; }
+    tagEdit.armed = null;
+    let n;
+    try { n = await call('delete_tag', {keyword:x.keyword}); } catch (err){ tagEdit.error = tr(err); renderTags(); return; }
+    await tagsChanged();
+    say(n ? tn(n, 'Tag “{name}” deleted; it came off {n} message.', 'Tag “{name}” deleted; it came off {n} messages.', {n:num(n), name:x.name}) : t('Tag “{name}” deleted.', {name:x.name}));
+    $('s-tag-new').focus();
+  }
+});
+// A name is saved when it is left or Enter is pressed; Esc in it puts the old one back.
+$('s-tags').addEventListener('change', e => {
+  const row = e.target.closest('[data-k]'), x = row && tagOf(row.dataset.k);
+  if (x && e.target.dataset.tg === 'name' && e.target.value.trim() !== x.name) saveTag(x, {name:e.target.value});
+});
+$('s-tags').addEventListener('keydown', e => {
+  if (e.target.tagName !== 'INPUT') return;
+  if (e.key === 'Enter'){ e.preventDefault(); if (e.target.dataset.tg === 'new') addTag(); else e.target.blur(); }
+  else if (e.key === 'Escape'){
+    e.preventDefault(); e.stopPropagation();
+    if (e.target.dataset.tg === 'new'){ tagEdit.adding = false; renderTags(); $('s-tag-new').focus(); }
+    else { const x = tagOf(e.target.closest('[data-k]').dataset.k); e.target.value = x?.name ?? ''; }
+  }
+});
+
 // Shift+U: every message in the folder (or in the list, in all mail) read.
 async function markAllRead(){
   if (!list.total) return;
@@ -3683,7 +4457,7 @@ qEl.addEventListener('input', () => { setFilter(qEl.value); qs.at = -1; suggest(
 // (from:, or to: in Sent and Drafts). ↓ ↑ choose, Enter or a click takes one. Enter with none
 // chosen (or ↓ with none to choose) goes to the results; Esc clears the search.
 const qPop = $('q-pop');
-const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
+const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'tag:', 'is:tagged', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
 const qs = {items:[], at:-1};
 // The word the caret is in: where it starts and ends, and the word.
 function wordAtCaret(){
@@ -3702,6 +4476,10 @@ function suggest(){
     if ((key || low.length >= 2) && !OPERATORS_ALL.includes(low)){
       for (const op of OPERATORS_ALL) if (op.startsWith(low) && items.length < 4) items.push({kind:'op', text:op});
     }
+    if (key === 'tag'){
+      const typed = fold(word.slice(i + 1).replace(/"/g, ''));
+      for (const x of TAGS) if (items.length < 8 && fold(x.name).startsWith(typed)) items.push({kind:'tag', text:'tag:' + (/\s/.test(x.name) ? `"${x.name}"` : x.name), tag:x});
+    }
     const who = fold((key ? word.slice(i + 1) : word).replace(/"/g, ''));
     if ((!key || key === 'from' || key === 'to') && who.length >= 2 && RECIPS){
       const op = key || (isOut(state.folder) && !allMail() ? 'to' : 'from');
@@ -3717,6 +4495,7 @@ function suggest(){
   const row = (it, i) => {
     const body = it.kind === 'recent' ? `${I.clock}<span class="nm">${esc(it.text)}</span>`
       : it.kind === 'op' ? `${I.search}<span class="nm"><code>${esc(it.text)}</code></span><span class="em">${esc(opHint(it.text))}</span>`
+      : it.kind === 'tag' ? `<i class="tdot t-${esc(it.tag.color)}" aria-hidden="true"></i><span class="nm">${esc(it.tag.name)}</span><span class="em"><code>${esc(it.text)}</code></span>`
       : `${I.person}<span class="nm">${esc(it.name || it.email)}</span><span class="em">${esc(it.op === 'to' ? t('to {email}', {email:it.email}) : t('from {email}', {email:it.email}))}</span>`;
     return `<li role="option" id="q-opt-${i}" data-i="${i}" aria-selected="${i === qs.at}">${body}</li>`;
   };
@@ -3735,7 +4514,7 @@ function suggest(){
 // What an operator does, in a few words.
 function opHint(op){
   return {'from:':t('sender'), 'to:':t('recipient'), 'subject:':t('words in the subject'), 'is:unread':t('unread only'), 'is:read':t('read only'),
-    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
+    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'tag:':t('a tag, e.g. tag:work'), 'is:tagged':t('with any tag'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
     'before:':t('2026, 2026-09 or 15.09.2026'), 'larger:':t('size, e.g. 5m'), 'smaller:':t('size, e.g. 100k')}[op] ?? '';
 }
 function closeSuggest(){
@@ -3897,24 +4676,40 @@ function openAccountDialog(){
   $(me ? 'w-email' : 'w-name').focus();
 }
 // The first start: the language, right where Telex opens. Windows in English with Polish
-// formats gets a nudge, in Polish.
+// formats gets a nudge, in Polish (and likewise for the other languages).
+// Each nudge is written in the language it offers, so it is never translated.
+const OFFER_HINTS = {
+  en: 'Telex is also in English: choose “English” above.',
+  pl: 'Telex jest też po polsku: wybierz „Polski” u góry.',
+  de: 'Telex gibt es auch auf Deutsch: Wählen Sie oben „Deutsch“.',
+  cs: 'Telex je také v češtině: nahoře vyberte „Čeština“.',
+  sk: 'Telex je aj v slovenčine: hore vyberte „Slovenčina“.',
+  uk: 'Telex є й українською: виберіть угорі «Українська».',
+  es: 'Telex también está en español: elige «Español» arriba.',
+  fr: 'Telex existe aussi en français : choisissez « Français » en haut.',
+  it: 'Telex è anche in italiano: scegli «Italiano» in alto.',
+};
 function renderLangPick(){
-  const first = !ACCOUNTS.length, lang = I18n.lang();
-  $('w-lang').hidden = !first;
-  $('w-lang').querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
-  $('w-langhint').hidden = !(first && SETTINGS.offer === 'pl' && lang !== 'pl' && state.offered !== 'pl');
+  const first = !ACCOUNTS.length, lang = I18n.lang(), offer = SETTINGS.offer, pick = $('w-lang');
+  pick.hidden = !first;
+  pick.innerHTML = I18n.languages.map(([code, name]) => `<option value="${code}" lang="${code}"${code === lang ? ' selected' : ''}>${esc(name)}</option>`).join('');
+  pick.setAttribute('aria-label', lang === 'en' ? 'Language' : `${t('Language')} · Language`);
+  const hint = $('w-langhint');
+  hint.hidden = !(first && OFFER_HINTS[offer] && lang !== offer && state.offered !== offer);
+  hint.lang = offer || '';
+  hint.textContent = OFFER_HINTS[offer] ?? '';
 }
-$('w-lang').addEventListener('click', async e => {
-  const b = e.target.closest('[data-lang]');
-  if (!b || b.dataset.lang === I18n.lang()) return;
+$('w-lang').addEventListener('change', async e => {
+  const code = e.target.value;
+  if (code === I18n.lang()) return;
   state.offered = SETTINGS.offer || state.offered; persist();
-  if (await changeSettings({language:b.dataset.lang})) renderLangPick();
+  if (await changeSettings({language:code})) renderLangPick();
 });
 // Each account: who it is, where its servers are, how the last check went.
 function renderAccountList(){
   const real = servers();
   $('a-list').innerHTML = real.length ? real.map((a, i) => {
-    const where = `${a.email} · ${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = {sync_error:PROBLEMS[a.id], synced_at:SYNCED[a.id]};
+    const where = `${a.email} · ${a.imap.pop3 ? 'POP3 ' : ''}${a.imap.host}${a.smtp ? '' : ' · ' + t('no SMTP server yet')}`, u = {sync_error:PROBLEMS[a.id], synced_at:SYNCED[a.id]};
     // Their order in the folder tree, when there is more than one.
     const order = real.length < 2 ? '' : `<button type="button" class="btn icon" data-up="${esc(a.id)}" title="${esc(t('Move up'))}" aria-label="${esc(t('Move {email} up', {email:a.email}))}"${i ? '' : ' disabled'}>↑</button>`
       + `<button type="button" class="btn icon" data-down="${esc(a.id)}" title="${esc(t('Move down'))}" aria-label="${esc(t('Move {email} down', {email:a.email}))}"${i < real.length - 1 ? '' : ' disabled'}>↓</button>`;
@@ -3922,7 +4717,9 @@ function renderAccountList(){
       : u?.synced_at ? `<div class="st">${esc(t('Checked {when}', {when:fmtWhen(parseDate(u.synced_at))}))}</div>` : '';
     // The account and how its last check went on top; what can be done with it in a row below.
     return `<div class="sacct">${adot(a.id)}<div class="satext"><div class="sahead"><span class="nm">${esc(a.name)}</span>${sync}</div><div class="em" title="${esc(where)}">${esc(where)}</div>`
-      + `<div class="sacts"><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button><button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button>`
+      + `<div class="sacts"><button type="button" class="btn" data-edit="${esc(a.id)}">${esc(t('Edit'))}</button><button type="button" class="btn" data-ids="${esc(a.id)}">${esc(t('Identities'))}</button>`
+      // A POP3 account's folders are Telex's own: nothing to choose among a server's.
+      + (a.imap.pop3 ? '' : `<button type="button" class="btn" data-folders="${esc(a.id)}">${esc(t('Folders'))}</button>`)
       + `<button type="button" class="btn${awayOn(a.id) ? ' on' : ''}" data-away="${esc(a.id)}" title="${esc(awayOn(a.id) ? t('Auto-reply is on') : t('Auto-reply while you’re away'))}">${esc(t('Auto-reply'))}</button>`
       + `<span class="sgap"></span>${order}<button type="button" class="btn danger" data-remove="${esc(a.id)}">${esc(t('Remove'))}</button></div></div></div>`;
   }).join('') : `<p class="dnote">${esc(t('No accounts yet. Add one to start: Telex finds the servers itself.'))}</p>`;
@@ -3957,7 +4754,7 @@ listenMain('detect-progress', ({payload}) => {
   steps[steps.length - 1].detail = payload === 'guess' ? t('Trying the usual server names…') : t('Asking {domain} and its DNS records…', {domain});
   renderSteps();
 });
-const serverNames = s => s.host === s.smtp_host ? s.host : t('{a} and {b}', {a:s.host, b:s.smtp_host});
+const serverNames = s => (names => s.pop3 ? t('{servers} (POP3)', {servers:names}) : names)(s.host === s.smtp_host ? s.host : t('{a} and {b}', {a:s.host, b:s.smtp_host}));
 
 wForm.addEventListener('submit', async e => {
   e.preventDefault();
@@ -4022,7 +4819,9 @@ function openForm(v, error = '', d = null, note = ''){
   $('a-title').textContent = t('Server settings');
   $('a-go').querySelector('span').textContent = t('Connect');
   $('a-email').value = v.email ?? ''; $('a-name').value = v.name ?? '';
-  $('a-host').value = v.host ?? ''; $('a-port').value = v.port ?? 993; $('a-isec').value = v.imap_security ?? 'tls';
+  $('a-host').value = v.host ?? ''; $('a-port').value = v.port ?? (v.pop3 ? 995 : 993);
+  $('a-isec').value = $('a-psec').value = v.imap_security ?? 'tls';
+  setProto(v.pop3);
   $('a-user').value = v.username && v.username !== v.email ? v.username : '';
   $('a-pass').value = v.password ?? ''; $('a-pass').placeholder = '';
   $('a-smtp').value = v.smtp_host ?? ''; $('a-sport').value = v.smtp_port || 465; $('a-sec').value = v.smtp_security ?? 'tls';
@@ -4044,7 +4843,8 @@ function editAccount(id){
   $('a-go').querySelector('span').textContent = t('Save');
   $('a-email').value = a.email; $('a-name').value = a.name;
   $('a-host').value = a.imap.host; $('a-port').value = a.imap.port; $('a-user').value = a.imap.username;
-  $('a-isec').value = a.imap.security ?? 'tls';
+  $('a-isec').value = $('a-psec').value = a.imap.security ?? 'tls';
+  setProto(a.imap.pop3, true);
   $('a-smtp').value = a.smtp?.host ?? ''; $('a-sec').value = a.smtp?.security ?? 'tls';
   $('a-sport').value = a.smtp?.port ?? 465;
   $('a-pass').value = ''; $('a-pass').placeholder = t('Leave empty to keep the saved password');
@@ -4056,6 +4856,7 @@ function placeholders(){
   const email = $('a-email').value.trim(), domain = email.split('@')[1] || '';
   $('a-host').placeholder = domain.includes('.') ? t('e.g. mail.{domain}', {domain}) : 'mail.example.com';
   $('a-user').placeholder = email || t('Same as email');
+  $('a-smtp').placeholder = $('a-proto').value === 'pop3' ? t('Same as POP3 server') : t('Same as IMAP server');
 }
 $('a-email').addEventListener('input', placeholders);
 // The usual ports follow the security choice, unless the user typed another one.
@@ -4066,6 +4867,42 @@ $('a-sec').addEventListener('change', () => {
 $('a-isec').addEventListener('change', () => {
   const p = $('a-port');
   if (['993', '143', ''].includes(p.value)) p.value = $('a-isec').value === 'starttls' ? 143 : 993;
+});
+$('a-psec').addEventListener('change', () => {
+  const p = $('a-port');
+  if (['995', '110', ''].includes(p.value)) p.value = $('a-psec').value === 'starttls' ? 110 : 995;
+});
+// IMAP or POP3: the form shows the fields of the one chosen, and for POP3 what stays on the
+// server (`keep`: the account's, or Telex's default: everything, until deleted here). An
+// account keeps the protocol it has (`fixed`): its folders are the server's, or here.
+function setProto(keep, fixed = false){
+  const pop3 = !!keep;
+  $('a-proto').value = pop3 ? 'pop3' : 'imap';
+  $('a-proto').disabled = fixed;
+  aForm.classList.toggle('pop3', pop3);
+  const k = keep || {leave:true, days:null, until_deleted:true};
+  $('a-leave').checked = k.leave; $('a-until').checked = k.until_deleted;
+  $('a-days-on').checked = k.days != null; $('a-days').value = k.days ?? 14;
+  paintKeep();
+}
+// Without leaving mail on the server, how long it stays there doesn't arise.
+function paintKeep(){
+  const leave = $('a-leave').checked;
+  for (const id of ['a-days-on', 'a-until']) $(id).disabled = !leave;
+  $('a-days').disabled = !leave || !$('a-days-on').checked;
+}
+$('a-leave').addEventListener('change', paintKeep);
+$('a-days-on').addEventListener('change', paintKeep);
+$('a-proto').addEventListener('change', () => {
+  const pop3 = $('a-proto').value === 'pop3', p = $('a-port');
+  // The usual port of the other protocol, unless the user typed another one.
+  if (['993', '143', '995', '110', ''].includes(p.value)){
+    const starttls = (pop3 ? $('a-isec') : $('a-psec')).value === 'starttls';
+    p.value = pop3 ? (starttls ? 110 : 995) : (starttls ? 143 : 993);
+  }
+  $('a-isec').value = $('a-psec').value = (pop3 ? $('a-isec') : $('a-psec')).value;
+  aForm.classList.toggle('pop3', pop3);
+  placeholders();
 });
 $('a-back').addEventListener('click', () => {
   const back = editing || ACCOUNTS.some(a => a.imap) ? 'home' : 'start';
@@ -4083,10 +4920,14 @@ aForm.addEventListener('submit', async e => {
   if (go.disabled) return;
   const port = Number($('a-port').value), smtpPort = Number($('a-sport').value || 0);
   const badPort = p => !Number.isInteger(p) || p < 0 || p > 65535;
-  if (badPort(port) || !port){ aErr.textContent = t('The IMAP port is a number from 1 to 65535: usually 993 for SSL/TLS, 143 for STARTTLS.'); $('a-port').focus(); return; }
+  const pop3 = $('a-proto').value === 'pop3';
+  if (badPort(port) || !port){ aErr.textContent = pop3 ? t('The POP3 port is a number from 1 to 65535: usually 995 for SSL/TLS, 110 for STLS.') : t('The IMAP port is a number from 1 to 65535: usually 993 for SSL/TLS, 143 for STARTTLS.'); $('a-port').focus(); return; }
+  const days = Number($('a-days').value);
+  if (pop3 && $('a-leave').checked && $('a-days-on').checked && (!Number.isInteger(days) || days < 1 || days > 3650)){ aErr.textContent = t('The days are a number from 1 to 3650.'); $('a-days').focus(); return; }
   if (badPort(smtpPort)){ aErr.textContent = t('The SMTP port is a number from 1 to 65535: usually 465 for SSL/TLS, 587 for STARTTLS.'); $('a-sport').focus(); return; }
   const setup = {name:$('a-name').value, email:$('a-email').value, host:$('a-host').value, port, username:$('a-user').value,
-    imap_security:$('a-isec').value, smtp_host:$('a-smtp').value, smtp_port:smtpPort, smtp_security:$('a-sec').value};
+    imap_security:(pop3 ? $('a-psec') : $('a-isec')).value, smtp_host:$('a-smtp').value, smtp_port:smtpPort, smtp_security:$('a-sec').value,
+    pop3:pop3 ? {leave:$('a-leave').checked, days:$('a-days-on').checked ? days : null, until_deleted:$('a-until').checked} : null};
   const wasEditing = editing;
   aErr.textContent = '';
   go.disabled = true; label.textContent = t('Connecting…');
@@ -4218,13 +5059,22 @@ function renderAway(){
     return [ACCT[a.account].email, days, a.place === 'server' ? t('on the server') : t('Telex answers')].filter(Boolean).join(' · ');
   }).join('\n');
 }
-const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString(I18n.lang() === 'pl' ? 'pl-PL' : 'en-GB');
+const fmtDay = s => new Date(s + 'T12:00:00').toLocaleDateString(I18n.locale());
 $('st-away').addEventListener('click', () => { const a = AWAY.find(x => awayOn(x.account)); if (a) openAway(a.account); });
 
 /* ---------- which folder is which ---------- */
 // Per account, the server folder Telex uses for sent mail, drafts, archive, spam and trash.
 // The core finds them (the server's flags, the names, which holds mail); a choice here wins.
 const CHOOSABLE = [['sent', N_('Sent mail')], ['drafts', N_('Drafts')], ['archive', N_('Archive')], ['spam', N_('Spam')], ['trash', N_('Trash')]];
+// Who puts a copy of sent mail into the server's Sent: Gmail and Outlook.com file it themselves.
+const SENT_COPY = [['auto', N_('Automatically')], ['server', N_('The server keeps one')], ['telex', N_('Telex uploads one')]];
+function sentCopyNote(a){
+  if (a.sent_copy === 'server') return t('Telex uploads no copy of the mail you send; the server’s own shows in Sent after the next check.');
+  if (a.sent_copy === 'telex') return t('Telex uploads a copy of every message you send to Sent.');
+  return a.server_files_sent === true ? t('This server files the mail you send in Sent itself, so Telex uploads no copy.')
+    : a.server_files_sent === false ? t('This server doesn’t file the mail you send, so Telex uploads a copy to Sent.')
+    : t('Telex finds out with the first message you send: when the server files it in Sent itself, Telex uploads no copy.');
+}
 let foldersOf = null;
 function openFolderChoices(account){
   foldersOf = account;
@@ -4246,7 +5096,10 @@ function showFolderChoices(){
     const opts = (now ? '' : `<option value="" selected disabled>${esc(t('None on the server'))}</option>`)
       + server.map(f => `<option value="${esc(a.id + '/' + f.id)}"${f === now ? ' selected' : ''}>${esc(label(f))}</option>`).join('');
     return `<label for="f-${kind}">${esc(t(name))}</label><select id="f-${kind}" class="sselect" data-kind="${kind}">${opts}</select>`;
-  }).join('');
+  }).join('')
+    + `<label for="f-sentcopy">${esc(t('Copy of sent mail'))}</label><select id="f-sentcopy" class="sselect">`
+    + SENT_COPY.map(([mode, name]) => `<option value="${mode}"${(a.sent_copy ?? 'auto') === mode ? ' selected' : ''}>${esc(t(name))}</option>`).join('') + '</select>';
+  $('f-sentnote').textContent = sentCopyNote(a);
 }
 async function chooseFolder(key, kind){
   const name = folderOf(key)?.name ?? key;
@@ -4262,6 +5115,14 @@ $('f-list').addEventListener('change', async e => {
   if (await chooseFolder(sel.value, sel.dataset.kind)) showFolderChoices();
   else $('f-err').textContent = t('That didn’t work. Try again.');
   $('f-' + sel.dataset.kind)?.focus();
+});
+$('f-list').addEventListener('change', async e => {
+  if (e.target.id !== 'f-sentcopy') return;
+  try { await invoke('set_sent_copy', {account:foldersOf, mode:e.target.value}); }
+  catch (err){ $('f-err').textContent = tr(err); return; }
+  await loadTree();
+  showFolderChoices();
+  $('f-sentcopy')?.focus();
 });
 $('f-close').addEventListener('click', () => showAccountView('home'));
 
@@ -4287,11 +5148,14 @@ function showIdentityList(){
 function showIdentityForm(existing){
   const a = ACCT[idAccount], base = a.identities.find(i => i.is_default) ?? a.identities[0] ?? {};
   identity = existing ? structuredClone(existing) : {id:0, account:idAccount, name:'', email:a.email, signature:base.signature ?? '',
+    signature_html:base.signature_html ?? null, new_template:base.new_template ?? '', reply_template:base.reply_template ?? '',
     reply_header:base.reply_header ?? '', forward_header:base.forward_header ?? '', is_default:false};
   showAccountView('idform');
   $('i-form-err').textContent = '';
   $('i-form-title').textContent = existing ? t('Edit identity') : t('New identity');
-  $('i-name').value = identity.name; $('i-email').value = identity.email; $('i-sig').value = identity.signature; scheduleSpelling($('i-sig'), 0);
+  $('i-name').value = identity.name; $('i-email').value = identity.email;
+  signatureEditor($('i-sigedit'), identity).setAttribute('aria-labelledby', 'i-sig-label');
+  $('i-newt').value = identity.new_template ?? ''; $('i-replyt').value = identity.reply_template ?? '';
   $('i-reply').value = identity.reply_header; $('i-fwd').value = identity.forward_header;
   $('i-default').checked = identity.is_default;
   $('i-default').disabled = existing?.is_default === true; // switch by making another one the default
@@ -4299,7 +5163,8 @@ function showIdentityForm(existing){
 }
 $('i-form').addEventListener('submit', async e => {
   e.preventDefault();
-  Object.assign(identity, {name:$('i-name').value, email:$('i-email').value, signature:$('i-sig').value,
+  Object.assign(identity, {name:$('i-name').value, email:$('i-email').value, signature_html:$('i-sigedit').querySelector('.hedit').innerHTML,
+    new_template:$('i-newt').value, reply_template:$('i-replyt').value,
     reply_header:$('i-reply').value, forward_header:$('i-fwd').value, is_default:$('i-default').checked});
   try { await invoke('save_identity', {identity}); } catch (err){ $('i-form-err').textContent = tr(err); return; }
   await loadTree();
@@ -4317,8 +5182,20 @@ $('i-list').addEventListener('click', async e => {
   await loadTree();
   showIdentityList();
 });
-// Settings › Writing: every identity's signature, edited in place and saved as it is typed.
+// Settings › Writing: every identity's signature, edited in place with the HTML editor (formatting,
+// colors, a picture) and saved as it is typed. One without formatting is kept as plain text.
 const sigSaves = new Map(); // identity id → timer
+// A signature editor: its formatting bar and the editor, for `box` (a .sigedit).
+function signatureEditor(box, identity){
+  box.innerHTML = fbarHtml() + `<div class="hedit" contenteditable="true" role="textbox" aria-multiline="true" data-signature="1" spellcheck="false"
+ aria-label="${esc(t('Signature for {email}', {email:identity.email}))}" data-placeholder="${esc(t('No signature'))}"></div>`;
+  const ed = box.querySelector('.hedit');
+  ed.innerHTML = signatureHtml(identity);
+  if (!ed.textContent.trim() && !ed.querySelector('img')) ed.innerHTML = '';
+  wireEditor(ed, box.querySelector('.fbar'), {signature:true});
+  spellField(ed);
+  return ed;
+}
 function renderSignatures(){
   const el = $('s-sigs');
   const ids = allIdentities();
@@ -4327,17 +5204,18 @@ function renderSignatures(){
   el.innerHTML = ids.map(i => `<div class="sig" data-sig="${i.id}" data-account="${esc(i.account)}">
 <div class="sighead"><b>${esc(i.name || i.email)}</b><span class="sdim">${esc(i.email)}${several && i.email !== ACCT[i.account]?.email ? ' · ' + esc(ACCT[i.account]?.email ?? '') : ''}</span>
 <span class="sigstate" aria-live="polite"></span><button type="button" class="linkbtn" data-sig-edit>${esc(t('Edit identity|button'))}</button></div>
-<textarea rows="3" aria-label="${esc(t('Signature for {email}', {email:i.email}))}" placeholder="${esc(t('No signature'))}">${esc(i.signature || '')}</textarea></div>`).join('');
-  el.querySelectorAll('textarea').forEach(spellField);
+<div class="sigedit"></div></div>`).join('');
+  el.querySelectorAll('.sig').forEach(card => signatureEditor(card.querySelector('.sigedit'), ids.find(i => i.id === Number(card.dataset.sig))));
 }
 async function saveSignature(card){
   clearTimeout(sigSaves.get(card.dataset.sig)); sigSaves.delete(card.dataset.sig);
   const own = ACCT[card.dataset.account]?.identities?.find(i => i.id === Number(card.dataset.sig));
-  const text = card.querySelector('textarea').value, state = card.querySelector('.sigstate');
-  if (!own || own.signature === text) return;
+  const html = card.querySelector('.hedit').innerHTML, state = card.querySelector('.sigstate');
+  if (!own || signatureHtml(own) === html) return;
   try {
-    const saved = await invoke('save_identity', {identity:{...own, signature:text}});
-    own.signature = saved?.signature ?? text; // compose takes it from here, no reload needed
+    const saved = await invoke('save_identity', {identity:{...own, signature_html:html}});
+    // Compose takes it from here, no reload needed.
+    Object.assign(own, {signature:saved?.signature ?? own.signature, signature_html:saved ? saved.signature_html : html});
     state.textContent = t('Saved');
   } catch (err){ state.textContent = tr(err); }
 }
@@ -4348,7 +5226,7 @@ $('s-sigs').addEventListener('input', e => {
   clearTimeout(sigSaves.get(card.dataset.sig));
   sigSaves.set(card.dataset.sig, setTimeout(() => saveSignature(card), 700));
 });
-$('s-sigs').addEventListener('focusout', e => { const card = e.target.closest('.sig'); if (card && e.target.matches('textarea')) saveSignature(card); });
+$('s-sigs').addEventListener('focusout', e => { const card = e.target.closest('.sig'); if (card && e.target.matches('.hedit')) saveSignature(card); });
 $('s-sigs').addEventListener('click', e => {
   const card = e.target.closest('[data-sig-edit]')?.closest('.sig');
   if (!card) return;
@@ -4357,6 +5235,70 @@ $('s-sigs').addEventListener('click', e => {
   openIdentities(card.dataset.account);
   if (i) showIdentityForm(i);
 });
+/* ---------- folder templates ---------- */
+// Settings › Writing: a folder's own greeting for new messages written while it is open and for
+// replies to mail in it, and its own reply header; what is left empty is the identity's. Saved as
+// typed; all empty takes them away. From a folder's menu: Templates….
+let FTPL = null, ftplAsked = null; // [{folder, new_template, reply_template, reply_header}], from the core
+const loadTemplates = () => ftplAsked ??= invoke('folder_templates').catch(() => []).then(r => { FTPL = r; });
+const forgetTemplates = () => { FTPL = null; ftplAsked = null; };
+const ftplSaves = new Map(); // folder key → timer
+const templateFolders = () => [...servers(), ...ACCOUNTS.filter(a => a.id === LOCAL)].flatMap(a => a.folders
+  .filter(f => !['outbox', 'drafts', 'trash', 'spam'].includes(f.kind)).map(f => a.id + '/' + f.id));
+const folderWhere = key => isLocal(key) ? placeName(key) : `${folderName(key)} · ${ACCT[acctId(key)]?.email ?? ''}`;
+async function renderFolderTemplates(focusOn = null){
+  const el = $('s-ftpl'), add = $('s-ftpl-add');
+  await loadTemplates();
+  if (focusOn && !FTPL.some(x => x.folder === focusOn)) FTPL.push({folder:focusOn, new_template:'', reply_template:'', reply_header:''});
+  el.innerHTML = FTPL.map(x => `<div class="sig ftpl" data-ftpl="${esc(x.folder)}">
+<div class="sighead"><b>${esc(placeName(x.folder))}</b><span class="sdim">${esc(isLocal(x.folder) ? '' : ACCT[acctId(x.folder)]?.email ?? '')}</span>
+<span class="sigstate" aria-live="polite"></span><button type="button" class="linkbtn" data-ftpl-drop>${esc(t('Remove|templates'))}</button></div>
+<div class="ffields"><label>${esc(t('New messages open with'))}</label><textarea rows="2" data-k="new_template" spellcheck="false" placeholder="${esc(t('As the identity says'))}">${esc(x.new_template)}</textarea>
+<label>${esc(t('Replies open with'))}</label><textarea rows="2" data-k="reply_template" spellcheck="false" placeholder="${esc(t('As the identity says'))}">${esc(x.reply_template)}</textarea>
+<label>${esc(t('Reply header'))}</label><input data-k="reply_header" autocomplete="off" spellcheck="false" placeholder="${esc(t('As the identity says'))}" value="${esc(x.reply_header)}"></div></div>`).join('')
+    || `<p class="dnote">${esc(t('No folder has templates of its own.'))}</p>`;
+  const taken = new Set(FTPL.map(x => x.folder));
+  add.innerHTML = `<option value="">${esc(t('Templates for a folder…'))}</option>` + templateFolders().filter(k => !taken.has(k))
+    .map(k => `<option value="${esc(k)}">${esc(folderWhere(k))}</option>`).join('');
+  if (focusOn){
+    const card = el.querySelector(`[data-ftpl="${CSS.escape(focusOn)}"]`);
+    card?.scrollIntoView({block:'nearest'}); card?.querySelector('textarea')?.focus();
+  }
+}
+async function saveFolderTemplate(card){
+  const key = card.dataset.ftpl;
+  clearTimeout(ftplSaves.get(key)); ftplSaves.delete(key);
+  const x = FTPL?.find(f => f.folder === key);
+  if (!x) return;
+  const next = {folder:key};
+  card.querySelectorAll('[data-k]').forEach(f => { next[f.dataset.k] = f.value; });
+  if (['new_template', 'reply_template', 'reply_header'].every(k => next[k] === x[k])) return;
+  try { await invoke('save_folder_template', {template:next}); Object.assign(x, next); card.querySelector('.sigstate').textContent = t('Saved'); }
+  catch (err){ card.querySelector('.sigstate').textContent = tr(err); }
+}
+$('s-ftpl').addEventListener('input', e => {
+  const card = e.target.closest('.ftpl');
+  if (!card) return;
+  card.querySelector('.sigstate').textContent = '';
+  clearTimeout(ftplSaves.get(card.dataset.ftpl));
+  ftplSaves.set(card.dataset.ftpl, setTimeout(() => saveFolderTemplate(card), 700));
+});
+$('s-ftpl').addEventListener('focusout', e => { const card = e.target.closest('.ftpl'); if (card && e.target.dataset.k) saveFolderTemplate(card); });
+$('s-ftpl').addEventListener('click', async e => {
+  const card = e.target.closest('[data-ftpl-drop]')?.closest('.ftpl');
+  if (!card) return;
+  const key = card.dataset.ftpl;
+  clearTimeout(ftplSaves.get(key));
+  try { await invoke('save_folder_template', {template:{folder:key, new_template:'', reply_template:'', reply_header:''}}); } catch (err){ card.querySelector('.sigstate').textContent = tr(err); return; }
+  FTPL = FTPL.filter(x => x.folder !== key);
+  renderFolderTemplates();
+});
+$('s-ftpl-add').addEventListener('change', e => { const key = e.target.value; if (key) renderFolderTemplates(key); });
+// A folder's menu › Templates…: Settings › Writing, at that folder's templates.
+function openFolderTemplates(key){
+  openSettings('write');
+  renderFolderTemplates(key);
+}
 $('i-new').addEventListener('click', () => showIdentityForm(null));
 $('i-back').addEventListener('click', showIdentityList);
 $('i-close').addEventListener('click', () => showAccountView('home'));
@@ -4430,12 +5372,419 @@ $('ss-list').addEventListener('click', async e => {
   renderTree(); showSavedSearchList();
 });
 
+/* ---------- address book ---------- */
+// B, the toolbar's Contacts, or the person button by a sender. Groups and contacts on the left,
+// the one chosen on the right: / searches, N adds, Del removes (Z puts back), ↑ ↓ choose, Enter
+// goes to its fields, where Enter (Ctrl+Enter in the note) saves; leaving a changed one saves it.
+// People written to who aren't contacts are offered at the end, never added by themselves.
+const abdlg = $('ab-dlg');
+let BOOK = null, bookAsked = null; // {contacts, groups} from the core
+function loadBook(){
+  if (!bookAsked) bookAsked = Promise.all([invoke('contacts'), invoke('contact_groups')])
+    .then(([contacts, groups]) => { BOOK = {contacts, groups}; }).catch(() => { bookAsked = null; });
+  return bookAsked;
+}
+// After a change: the book again, compose's suggestions, and the names above messages.
+async function bookChanged(){
+  bookAsked = null; forgetRecipients(); bodies.clear();
+  await loadBook();
+  if (!state.compose && current()) renderPreview();
+}
+const sameEmail = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+const contactOf = email => email ? BOOK?.contacts.find(c => c.emails.some(e => sameEmail(e, email))) ?? null : null;
+// sel: the entry on the right ('c12', 'g3', 's' + an address offered, 'new', 'newgroup');
+// picked: more contacts for Del and Export (Ctrl+click, Shift+click).
+const ab = {sel:null, picked:new Set(), q:'', draft:null, dirty:false, undo:null, offers:[], err:'', gs:{list:[], at:0}};
+let abMsgTimer;
+function abSay(text, ms = 6000){
+  const el = $('ab-msg');
+  el.textContent = text; el.title = text;
+  clearTimeout(abMsgTimer);
+  if (ms) abMsgTimer = setTimeout(() => { el.textContent = ''; el.title = ''; }, ms);
+}
+// The list's entries in order: groups, contacts, then people to offer.
+function abEntries(){
+  const q = fold(ab.q.trim()), hit = (...s) => !q || s.some(x => fold(x ?? '').includes(q));
+  const groups = (BOOK?.groups ?? []).filter(g => hit(g.name)).map(g => ({key:'g' + g.id, kind:'group', g}));
+  const contacts = (BOOK?.contacts ?? []).filter(c => hit(c.name, c.organization, c.phone, ...c.emails)).map(c => ({key:'c' + c.id, kind:'contact', c}));
+  const offers = ab.offers.filter(p => !contactOf(p.email) && hit(p.name, p.email)).map(p => ({key:'s' + p.email.toLowerCase(), kind:'offer', p}));
+  return {groups, contacts, offers, all:[...groups, ...contacts, ...offers]};
+}
+const abFind = key => abEntries().all.find(e => e.key === key) ?? null;
+function abLoadDraft(person){
+  const s = ab.sel ?? '';
+  ab.err = ''; ab.dirty = false; ab.gs = {list:[], at:0};
+  if (s === 'new') ab.draft = {id:0, uid:'', name:person?.name && !sameEmail(person.name, person.email) ? person.name : '', emails:[person?.email ?? ''], phone:'', organization:'', note:'', groups:[]};
+  else if (s === 'newgroup') ab.draft = {id:0, name:'', members:[]};
+  else if (s[0] === 'c') ab.draft = structuredClone(BOOK?.contacts.find(c => 'c' + c.id === s) ?? null);
+  else if (s[0] === 'g') ab.draft = structuredClone(BOOK?.groups.find(g => 'g' + g.id === s) ?? null);
+  else ab.draft = null;
+}
+function renderAbList(){
+  const {groups, contacts, offers, all} = abEntries();
+  const head = (label, n) => `<li class="abh" role="presentation">${esc(label)}${n != null ? ` <small>${esc(num(n))}</small>` : ''}</li>`;
+  let i = 0;
+  const item = e => {
+    const [nm, em] = e.kind === 'group' ? [e.g.name, tn(e.g.members.length, '{n} person', '{n} people')]
+      : e.kind === 'contact' ? [e.c.name || e.c.emails[0] || e.c.phone, e.c.name ? e.c.emails[0] ?? e.c.organization : e.c.organization]
+      : [e.p.name || e.p.email, e.p.name ? e.p.email : ''];
+    const on = e.key === ab.sel || ab.picked.has(e.key);
+    return `<li role="option" id="ab-i-${i++}" data-k="${esc(e.key)}" aria-selected="${on}" class="${e.kind}">${e.kind === 'group' ? I.people : ''}`
+      + `<span class="nm">${esc(nm)}</span>${em ? `<span class="em">${esc(em)}</span>` : ''}`
+      + (e.kind === 'offer' ? `<button type="button" class="linkbtn" data-ab="take" tabindex="-1">${esc(t('Add'))}</button>` : '') + '</li>';
+  };
+  const parts = [];
+  if (groups.length) parts.push(head(t('Groups')), ...groups.map(item));
+  if (contacts.length || !all.length) parts.push(head(t('Contacts'), BOOK?.contacts.length ?? 0), ...contacts.map(item));
+  if (offers.length) parts.push(head(t('People you write to')), ...offers.map(item));
+  if (!all.length) parts.push(`<li class="none" role="presentation">${esc(ab.q.trim() ? t('Nothing matches.') : t('No contacts yet. N adds one; Import vCard brings them from a file.'))}</li>`);
+  const list = $('ab-items');
+  list.innerHTML = parts.join('');
+  const sel = list.querySelector(`[data-k="${CSS.escape(ab.sel ?? '')}"]`);
+  if (sel){ list.setAttribute('aria-activedescendant', sel.id); sel.scrollIntoView({block:'nearest'}); }
+  else list.removeAttribute('aria-activedescendant');
+  const picked = [...ab.picked].filter(k => k[0] === 'c').length;
+  $('ab-export').textContent = picked ? tn(picked, 'Export {n} selected…', 'Export {n} selected…') : t('Export vCard…');
+}
+function contactForm(d){
+  const groups = BOOK?.groups ?? [];
+  const mails = (d.emails.length ? d.emails : ['']).map((e, i) => `<div class="abmail"><input data-mail="${i}" value="${esc(e)}" aria-label="${esc(i ? t('Address {n}', {n:i + 1}) : t('Primary address'))}" autocomplete="off" spellcheck="false">`
+    + (i ? `<button type="button" class="linkbtn" data-ab="primary" data-i="${i}">${esc(t('Make primary'))}</button>` : `<span class="abtag">${esc(t('primary|address'))}</span>`)
+    + `<button type="button" class="btn icon" data-ab="rm-mail" data-i="${i}" title="${esc(t('Remove this address'))}" aria-label="${esc(t('Remove this address'))}">×</button></div>`).join('');
+  return `<h3 class="rh">${esc(d.id ? t('Contact') : t('New contact'))}</h3>
+<div class="cf df abform">
+  <label for="ab-name">${esc(t('Name|person'))}</label><input id="ab-name" value="${esc(d.name)}" autocomplete="off" spellcheck="false">
+  <label>${esc(t('Addresses'))}</label><div class="abmails">${mails}<button type="button" class="linkbtn radd" data-ab="add-mail">${esc(t('+ Address'))}</button></div>
+  <label for="ab-phone">${esc(t('Phone'))}</label><input id="ab-phone" value="${esc(d.phone)}" autocomplete="off" spellcheck="false">
+  <label for="ab-org">${esc(t('Organization'))}</label><input id="ab-org" value="${esc(d.organization)}" autocomplete="off" spellcheck="false">
+  <label for="ab-note">${esc(t('Note'))}</label><textarea id="ab-note" rows="3">${esc(d.note)}</textarea>
+  ${groups.length ? `<label>${esc(t('Groups'))}</label><div class="abgroups">${groups.map(g => `<label class="sopt"><input type="checkbox" data-group="${g.id}"${d.groups.includes(g.id) ? ' checked' : ''}><span>${esc(g.name)}</span></label>`).join('')}</div>` : ''}
+</div>`;
+}
+function groupForm(d){
+  const members = d.members.map((m, i) => `<li><span class="nm">${esc(m.name || m.email)}</span>${m.name && m.email ? `<span class="em">${esc(m.email)}</span>` : ''}`
+    + `${m.contact ? '' : `<span class="abtag">${esc(t('not a contact'))}</span>`}<button type="button" class="btn icon" data-ab="rm-member" data-i="${i}" title="${esc(t('Take out of the group'))}" aria-label="${esc(t('Take {name} out of the group', {name:m.name || m.email}))}">×</button></li>`).join('');
+  return `<h3 class="rh">${esc(d.id ? t('Group') : t('New group'))}</h3>
+<div class="cf df abform">
+  <label for="ab-gname">${esc(t('Name'))}</label><input id="ab-gname" value="${esc(d.name)}" autocomplete="off" spellcheck="false">
+  <label for="ab-gadd">${esc(t('Add'))}</label><div class="abadd"><input id="ab-gadd" role="combobox" aria-expanded="false" aria-controls="ab-gsugg" aria-autocomplete="list" placeholder="${esc(t('A contact’s name or an address, then Enter'))}" autocomplete="off" spellcheck="false"><ul class="sugg" id="ab-gsugg" role="listbox" hidden></ul></div>
+</div>
+<ul class="abmembers">${members || `<li class="none">${esc(t('No one in it yet.'))}</li>`}</ul>
+<p class="dnote">${esc(t('Type the group’s name in To, Cc or Bcc and it goes in as these addresses.'))}</p>`;
+}
+function offerPane(p){
+  return `<h3 class="rh">${esc(t('Someone you write to'))}</h3>
+<div class="abperson"><b>${esc(p.name || p.email)}</b>${p.name ? ` <span class="em">${esc(p.email)}</span>` : ''}</div>
+<p class="dnote">${esc(tn(p.sent, 'You wrote to them {n} time.', 'You wrote to them {n} times.', {n:num(p.sent)}))} ${esc(t('Telex offers the people you write to; it adds no one by itself.'))}</p>
+<div class="sbtns"><button type="button" class="btn primary" data-ab="take">${esc(t('Add to address book'))}</button><button type="button" class="btn" data-ab="write">${esc(t('Write to them'))}</button></div>`;
+}
+function renderAbEdit(){
+  const el = $('ab-edit'), d = ab.draft, s = ab.sel ?? '';
+  if (s[0] === 's'){ const e = abFind(s); el.innerHTML = e ? offerPane(e.p) : ''; return; }
+  if (!d){ el.innerHTML = `<p class="dnote abempty">${esc(t('Choose someone on the left, or press N for a new contact.'))}</p>`; return; }
+  const group = 'members' in d;
+  const reach = group ? d.members.some(m => m.email) : d.emails.some(e => e.trim());
+  el.innerHTML = (group ? groupForm(d) : contactForm(d)) + `<p class="derr" role="alert">${esc(ab.err)}</p>
+<div class="sbtns abbtns"><button type="button" class="btn primary" data-ab="save">${esc(t('Save'))}</button>`
+    + (reach ? `<button type="button" class="btn" data-ab="write">${esc(group ? t('Write to the group') : t('Write to them'))}</button>` : '')
+    + (d.id ? `<button type="button" class="btn danger" data-ab="delete">${esc(group ? t('Delete group') : t('Delete'))} <kbd>Del</kbd></button>` : '') + '</div>';
+}
+function renderAb(){ renderAbList(); renderAbEdit(); }
+// What the fields say now, into the draft.
+function abRead(){
+  const d = ab.draft, el = $('ab-edit');
+  if (!d || !el.querySelector('.abform')) return;
+  if ('members' in d){ d.name = $('ab-gname').value; return; }
+  d.name = $('ab-name').value; d.phone = $('ab-phone').value; d.organization = $('ab-org').value; d.note = $('ab-note').value;
+  d.emails = [...el.querySelectorAll('[data-mail]')].map(i => i.value);
+  d.groups = [...el.querySelectorAll('[data-group]')].filter(c => c.checked).map(c => Number(c.dataset.group));
+}
+async function abSave(){
+  if (!ab.draft) return true;
+  abRead();
+  const d = ab.draft, group = 'members' in d;
+  let saved;
+  try {
+    saved = group ? await invoke('save_group', {group:{id:d.id, name:d.name, members:d.members.map(m => ({contact:m.contact ?? null, name:m.name ?? '', email:m.email ?? ''}))}})
+      : await invoke('save_contact', {contact:{...d, emails:d.emails.filter(e => e.trim())}});
+  } catch (e){ ab.err = tr(e); renderAbEdit(); return false; }
+  ab.dirty = false; ab.err = '';
+  ab.sel = (group ? 'g' : 'c') + saved.id;
+  await bookChanged();
+  abLoadDraft();
+  renderAb();
+  abSay(t('Saved.'), 3000);
+  return true;
+}
+// Another entry on the right; a changed one is saved first (and stays when it can't be).
+async function abSelect(key){
+  if (key === ab.sel) return true;
+  if (ab.dirty && !await abSave()) return false;
+  ab.sel = key; abLoadDraft(); renderAb();
+  return true;
+}
+async function abNew(kind, person){
+  if (ab.dirty && !await abSave()) return;
+  ab.picked.clear(); ab.sel = kind; abLoadDraft(person); renderAb();
+  $(kind === 'new' ? 'ab-name' : 'ab-gname')?.focus();
+}
+async function abDelete(){
+  const keys = [...new Set([...ab.picked, ab.sel].filter(Boolean))];
+  const ids = keys.filter(k => k[0] === 'c').map(k => Number(k.slice(1)));
+  const group = keys.find(k => k[0] === 'g');
+  const before = abEntries().all.findIndex(e => e.key === ab.sel);
+  if (ids.length){
+    let gone;
+    try { gone = await invoke('delete_contacts', {ids}); } catch (e){ abSay(tr(e), 8000); return; }
+    ab.undo = {contacts:gone};
+    abSay(gone.length === 1 ? t('Deleted {name}. Press Z to undo.', {name:gone[0].name || gone[0].emails[0] || ''}) : tn(gone.length, 'Deleted {n} contact. Press Z to undo.', 'Deleted {n} contacts. Press Z to undo.'), 10000);
+  } else if (group){
+    let gone;
+    try { gone = await invoke('delete_group', {id:Number(group.slice(1))}); } catch (e){ abSay(tr(e), 8000); return; }
+    if (gone){ ab.undo = {group:gone}; abSay(t('Deleted the group {name}. Press Z to undo.', {name:gone.name}), 10000); }
+  } else if (ab.sel === 'new' || ab.sel === 'newgroup'){ ab.dirty = false; }
+  else return;
+  ab.picked.clear(); ab.dirty = false;
+  await bookChanged();
+  const after = abEntries().all;
+  ab.sel = after[Math.max(0, Math.min(before, after.length - 1))]?.key ?? null;
+  abLoadDraft(); renderAb();
+  $('ab-items').focus();
+}
+async function abUndo(){
+  const u = ab.undo; if (!u) return;
+  try { if (u.contacts) await invoke('restore_contacts', {contacts:u.contacts}); else await invoke('restore_group', {group:u.group}); }
+  catch (e){ abSay(tr(e), 8000); return; }
+  ab.undo = null;
+  await bookChanged();
+  const back = u.contacts ? contactOf(u.contacts[0].emails[0]) ?? BOOK?.contacts.find(c => c.id === u.contacts[0].id) : BOOK?.groups.find(g => g.name === u.group.name);
+  if (back) ab.sel = (u.contacts ? 'c' : 'g') + back.id;
+  abLoadDraft(); renderAb();
+  abSay(u.contacts ? tn(u.contacts.length, 'Put back {n} contact.', 'Put back {n} contacts.') : t('Put back the group {name}.', {name:u.group.name}), 4000);
+}
+// The person offered (or the one in a message) as a new contact, ready to save.
+function abTake(key){
+  const e = abFind(key);
+  if (e?.kind === 'offer') abNew('new', {name:e.p.name, email:e.p.email});
+}
+function abWrite(){
+  const d = ab.draft, s = ab.sel ?? '';
+  const to = s[0] === 's' ? [abFind(s)?.p].filter(Boolean)
+    : !d ? [] : 'members' in d ? d.members.filter(m => m.email) : d.emails.filter(e => e.trim()).slice(0, 1).map(email => ({name:d.name, email}));
+  if (!to.length) return;
+  abdlg.close();
+  openCompose('new', {to:to.map(addressOf).join(', ')});
+}
+async function abImport(){
+  let r;
+  try { r = await invoke('import_vcards', {words:{title:t('Import contacts'), filter:t('vCard files')}}); }
+  catch (e){ abSay(tr(e), 8000); return; }
+  if (!r) return; // cancelled
+  await bookChanged();
+  if (!ab.sel || !abFind(ab.sel)){ ab.sel = abEntries().all[0]?.key ?? null; abLoadDraft(); }
+  renderAb();
+  abSay(bookReport(r), 10000);
+}
+const bookReport = r => [r.added ? tn(r.added, '{n} new contact', '{n} new contacts', {n:num(r.added)}) : '',
+  r.updated ? tn(r.updated, '{n} contact filled in', '{n} contacts filled in', {n:num(r.updated)}) : '',
+  r.groups ? tn(r.groups, '{n} new group', '{n} new groups') : '',
+  r.same ? tn(r.same, '{n} was in the address book already', '{n} were in the address book already', {n:num(r.same)}) : ''].filter(Boolean).join(', ') || t('Nothing new.');
+async function abExport(){
+  const ids = [...ab.picked].filter(k => k[0] === 'c').map(k => Number(k.slice(1)));
+  if (!ids.length && !BOOK?.contacts.length){ abSay(t('There are no contacts to export yet.')); return; }
+  let path;
+  try { path = await invoke('export_vcards', {ids, words:{title:t('Export contacts'), filter:t('vCard files'), file_name:t('Contacts {date}', {date:ymd(new Date())}) + '.vcf'}}); }
+  catch (e){ abSay(tr(e), 8000); return; }
+  if (path) abSay(t('Saved to {path}.', {path}), 8000);
+}
+// Adding to a group: contacts and people written to whose name or address starts with what is
+// typed; Enter takes the one chosen, or the address typed.
+function abGroupSuggest(){
+  const input = $('ab-gadd'), box = $('ab-gsugg');
+  if (!input || !box) return;
+  const typed = fold(input.value.trim()), d = ab.draft;
+  const have = new Set(d.members.map(m => m.contact ? 'c' + m.contact : String(m.email).toLowerCase()));
+  const list = [];
+  if (typed){
+    for (const c of BOOK?.contacts ?? []){
+      if (list.length >= 8) break;
+      if (!c.emails.length || have.has('c' + c.id)) continue;
+      const words = fold(c.name + ' ' + c.emails.join(' ').replace(/[@.]/g, ' ')).split(/\s+/);
+      if (words.some(w => w.startsWith(typed))) list.push({contact:c.id, name:c.name, email:c.emails[0]});
+    }
+    for (const p of RECIPS ?? []){
+      if (list.length >= 8) break;
+      if (p.contact || have.has(p.email.toLowerCase()) || !matchesTyped(p, typed)) continue;
+      list.push({contact:null, name:p.name, email:p.email});
+    }
+  }
+  ab.gs = {list, at:Math.min(ab.gs.at, Math.max(0, list.length - 1))};
+  box.hidden = !list.length;
+  input.setAttribute('aria-expanded', String(!!list.length));
+  box.innerHTML = list.map((m, i) => `<li role="option" id="ab-gs-${i}" data-i="${i}" aria-selected="${i === ab.gs.at}"><span class="nm">${m.contact ? `<span class="ct" title="${esc(t('In your address book'))}">${I.person}</span>` : ''}${esc(m.name || m.email)}</span>${m.name ? `<span class="em">${esc(m.email)}</span>` : ''}</li>`).join('');
+  if (list.length) input.setAttribute('aria-activedescendant', 'ab-gs-' + ab.gs.at); else input.removeAttribute('aria-activedescendant');
+}
+function abAddMember(m){
+  abRead();
+  const d = ab.draft;
+  if (!m){
+    const typed = $('ab-gadd').value.trim(), parsed = addresses(typed)[0];
+    if (!parsed || !parsed.email.includes('@')){ ab.err = typed ? t('Choose a contact, or type an address.') : ''; renderAbEdit(); $('ab-gadd')?.focus(); return; }
+    const c = contactOf(parsed.email);
+    m = c ? {contact:c.id, name:c.name, email:c.emails[0]} : {contact:null, name:parsed.name, email:parsed.email};
+  }
+  if (!d.members.some(x => m.contact ? x.contact === m.contact : !x.contact && sameEmail(x.email, m.email))) d.members.push(m);
+  ab.dirty = true; ab.err = ''; ab.gs = {list:[], at:0};
+  renderAbEdit();
+  $('ab-gadd')?.focus();
+}
+async function openAddressBook(person){
+  if (VIEWER) return;
+  closeSuggestions();
+  await loadBook();
+  if (!BOOK){ say(t('The address book didn’t open. Try again.')); return; }
+  ab.q = ''; $('ab-q').value = ''; ab.picked.clear(); ab.err = ''; ab.dirty = false;
+  invoke('suggested_contacts').then(list => { ab.offers = list; if (abdlg.open) renderAbList(); }).catch(() => {});
+  loadRecipients();
+  const known = contactOf(person?.email);
+  ab.sel = known ? 'c' + known.id : person?.email ? 'new' : ab.sel && abFind(ab.sel) ? ab.sel : abEntries().all[0]?.key ?? null;
+  abLoadDraft(person);
+  if (!abdlg.open) abdlg.showModal();
+  renderAb();
+  if (ab.sel === 'new') $('ab-name')?.focus(); else $('ab-items').focus();
+}
+$('ab-close').addEventListener('click', async () => { if (!ab.dirty || await abSave()) abdlg.close(); });
+abdlg.addEventListener('cancel', e => {
+  if (ab.gs.list.length && !$('ab-gsugg')?.hidden){ e.preventDefault(); ab.gs = {list:[], at:0}; $('ab-gsugg').hidden = true; return; }
+  if (!ab.dirty) return;
+  e.preventDefault();
+  abSave().then(ok => ok && abdlg.close());
+});
+abdlg.addEventListener('close', () => { ab.dirty = false; if (!state.compose) listEl.focus({preventScroll:true}); });
+$('ab-new').addEventListener('click', () => abNew('new'));
+$('ab-newgroup').addEventListener('click', () => abNew('newgroup'));
+$('ab-import').addEventListener('click', abImport);
+$('ab-export').addEventListener('click', abExport);
+$('ab-q').addEventListener('input', () => {
+  ab.q = $('ab-q').value;
+  renderAbList();
+});
+$('ab-items').addEventListener('click', e => {
+  const li = e.target.closest('[data-k]');
+  if (!li) return;
+  const key = li.dataset.k;
+  if (e.target.closest('[data-ab="take"]')){ abTake(key); return; }
+  if ((e.ctrlKey || e.metaKey) && key[0] === 'c'){
+    if (!ab.picked.size && ab.sel?.[0] === 'c') ab.picked.add(ab.sel);
+    ab.picked.has(key) ? ab.picked.delete(key) : ab.picked.add(key);
+    renderAbList(); return;
+  }
+  if (e.shiftKey && key[0] === 'c' && ab.sel?.[0] === 'c'){
+    const keys = abEntries().contacts.map(x => x.key), a = keys.indexOf(ab.sel), b = keys.indexOf(key);
+    keys.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(k => ab.picked.add(k));
+    renderAbList(); return;
+  }
+  ab.picked.clear();
+  abSelect(key).then(() => renderAbList());
+});
+$('ab-items').addEventListener('dblclick', e => { if (e.target.closest('[data-k]')) $('ab-edit').querySelector('input')?.focus(); });
+$('ab-edit').addEventListener('input', e => {
+  if (e.target.id === 'ab-gadd'){ ab.gs.at = 0; abGroupSuggest(); return; }
+  ab.dirty = true;
+});
+$('ab-edit').addEventListener('change', e => { if (e.target.dataset.group) ab.dirty = true; });
+$('ab-edit').addEventListener('mousedown', e => {
+  const li = e.target.closest('#ab-gsugg [data-i]');
+  if (li){ e.preventDefault(); abAddMember(ab.gs.list[Number(li.dataset.i)]); }
+});
+$('ab-edit').addEventListener('click', e => {
+  const b = e.target.closest('[data-ab]');
+  if (!b) return;
+  const act = b.dataset.ab, i = Number(b.dataset.i);
+  if (act === 'save') abSave();
+  else if (act === 'delete') abDelete();
+  else if (act === 'write') abWrite();
+  else if (act === 'take') abTake(ab.sel);
+  else if (act === 'add-mail' || act === 'rm-mail' || act === 'primary' || act === 'rm-member'){
+    abRead();
+    const d = ab.draft;
+    if (act === 'add-mail') d.emails.push('');
+    else if (act === 'rm-mail') d.emails.splice(i, 1);
+    else if (act === 'primary') d.emails.unshift(...d.emails.splice(i, 1));
+    else d.members.splice(i, 1);
+    ab.dirty = true; renderAbEdit();
+    const focus = act === 'add-mail' ? `[data-mail="${d.emails.length - 1}"]` : act === 'primary' ? '[data-mail="0"]' : act === 'rm-member' ? '#ab-gadd' : '[data-ab="add-mail"]';
+    $('ab-edit').querySelector(focus)?.focus();
+  }
+});
+// ↑ ↓ Home End in the list, skipping its headings.
+function abStep(k){
+  const all = abEntries().all;
+  if (!all.length) return;
+  const at = all.findIndex(e => e.key === ab.sel);
+  const to = k === 'Home' ? 0 : k === 'End' ? all.length - 1 : Math.max(0, Math.min(all.length - 1, (at < 0 ? -1 : at) + (k === 'ArrowDown' ? 1 : -1)));
+  ab.picked.clear();
+  abSelect(all[to].key).then(() => renderAbList());
+}
+abdlg.addEventListener('keydown', e => {
+  const tg = e.target;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); abSave(); return; }
+  if (tg.id === 'ab-q'){
+    if (e.key === 'Escape' && tg.value){ e.preventDefault(); e.stopPropagation(); tg.value = ''; ab.q = ''; renderAbList(); }
+    else if (e.key === 'ArrowDown' || e.key === 'Enter'){
+      e.preventDefault();
+      const first = abEntries().all[0];
+      if (first) abSelect(first.key).then(() => { renderAbList(); $('ab-items').focus(); });
+    }
+    return;
+  }
+  if (tg.id === 'ab-gadd'){
+    const n = ab.gs.list.length;
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && n){ e.preventDefault(); ab.gs.at = (ab.gs.at + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; abGroupSuggest(); }
+    else if (e.key === 'Enter'){ e.preventDefault(); abAddMember(n ? ab.gs.list[ab.gs.at] : null); }
+    return;
+  }
+  if (tg.closest?.('input, textarea, select')){
+    if (e.key === 'Enter' && tg.tagName === 'INPUT' && tg.type !== 'checkbox'){ e.preventDefault(); abSave(); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if ((k === 'Enter' || k === ' ') && tg.closest?.('button, label')) return;
+  if (k === '/') $('ab-q').focus();
+  else if (k === 'n') abNew('new');
+  else if (k === 'Delete'){ if (!e.repeat) abDelete(); }
+  else if (k === 'z') abUndo();
+  else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(k) && tg.id === 'ab-items') abStep(k);
+  else if (k === 'Enter' && tg.id === 'ab-items'){ if (ab.sel?.[0] === 's') abTake(ab.sel); else $('ab-edit').querySelector('input, button')?.focus(); }
+  else return;
+  e.preventDefault();
+});
+$('b-book').addEventListener('click', () => openAddressBook());
+
 const rdlg = $('rules-dlg');
 let RULES = [], rule = null; // rule: the one being edited
 // Labels are English keys, translated where they are drawn.
-const FIELDS = [['from', N_('From')], ['to', N_('To or Cc')], ['subject', N_('Subject')], ['body', N_('Text|rule field')], ['anywhere', N_('Anywhere')], ['header', N_('Header')], ['attachment_name', N_('Attachment name')], ['attachment_type', N_('Attachment type')]];
-const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contain')], ['is', N_('is')], ['starts_with', N_('starts with')], ['ends_with', N_('ends with')], ['exists', N_('exists')], ['not_exists', N_('does not exist')]];
-const ACTIONS = [['move', N_('Move to folder')], ['copy', N_('Copy to folder')], ['forward', N_('Forward automatically')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
+const FIELDS = [['from', N_('From')], ['to', N_('To or Cc')], ['subject', N_('Subject')], ['body', N_('Text|rule field')], ['anywhere', N_('Anywhere')], ['header', N_('Header')], ['attachment_name', N_('Attachment name')], ['attachment_type', N_('Attachment type')],
+  ['received', N_('Date received')], ['size', N_('Size')], ['state', N_('Status|rule field')], ['tag', N_('Tag')]];
+// A condition on tags: has one (`value` its keyword), hasn't, has any, has none.
+const TAG_OPS = [['is', N_('has|tag')], ['not_contains', N_('doesn’t have|tag')], ['exists', N_('has any|tag')], ['not_exists', N_('has none|tag')]];
+const tagOptions = v => TAGS.map(x => `<option value="${esc(x.keyword)}"${x.keyword === v ? ' selected' : ''}>${esc(x.name)}</option>`).join('')
+  + (v && !tagOf(v) ? `<option value="${esc(v)}" selected>${esc(t('(deleted tag)'))}</option>` : '');
+const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contain')], ['is', N_('is')], ['starts_with', N_('starts with')], ['ends_with', N_('ends with')], ['exists', N_('exists')], ['not_exists', N_('does not exist')], ['matches', N_('matches pattern')]];
+// Date, size and status compare their own ways, each with a value to start from.
+const FACT_OPS = {received:[['older_than', N_('older than')], ['newer_than', N_('newer than')]], size:[['larger_than', N_('larger than')], ['smaller_than', N_('smaller than')]], state:[['is', N_('is')]]};
+const FACT_START = {received:'30', size:'5m', state:'read'};
+const STATES = [['read', N_('read|rule state')], ['unread', N_('unread|rule state')], ['flagged', N_('flagged|rule state')], ['unflagged', N_('not flagged|rule state')]];
+const RULE_EVERY = [['hour', N_('Every hour')], ['day', N_('Every day')], ['week', N_('Every week')]];
+const ALL_OPS = [...OPS, ...FACT_OPS.received, ...FACT_OPS.size];
+const opsFor = field => field === 'tag' ? TAG_OPS : FACT_OPS[field] ?? OPS;
+// A condition's way of comparing and value follow its field: a date takes days, not text.
+function fitCondition(c, before){
+  const ops = opsFor(c.field), kind = f => FACT_START[f] ? f : f === 'tag' ? 'tag' : 'text';
+  if (kind(before) !== kind(c.field) || !ops.some(([o]) => o === c.op)){ c.op = ops[0][0]; c.value = FACT_START[c.field] ?? (c.field === 'tag' ? TAGS[0]?.keyword ?? '' : ''); }
+}
+const ACTIONS = [['move', N_('Move to folder')], ['copy', N_('Copy to folder')], ['forward', N_('Forward automatically')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['add_tag', N_('Add a tag')], ['remove_tag', N_('Take a tag off')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
 const labelOf = (list, v) => { const l = list.find(([k]) => k === v)?.[1]; return l ? t(l) : v; };
 const options = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(t(l))}</option>`).join('');
 // Folders a rule can move mail to: its account's own but the Outbox, by their names on the
@@ -4448,11 +5797,27 @@ const folderOptions = (list, v) => [...new Set(list.map(x => x[2]))].map(g => `<
   + list.filter(x => x[2] === g).map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('') + '</optgroup>').join('');
 
 function ruleSummary(r){
-  const conds = r.conditions.map(c => ['exists','not_exists'].includes(c.op) ? `${labelOf(FIELDS,c.field)}${c.header ? ' ' + c.header : ''} ${labelOf(OPS,c.op)}` : t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field) + (c.header ? ' ' + c.header : ''), op:labelOf(OPS, c.op), value:c.value}))
+  const conds = r.conditions.map(c => c.field === 'tag' ? `${labelOf(FIELDS, 'tag')} ${labelOf(TAG_OPS, c.op)}${['exists','not_exists'].includes(c.op) ? '' : ' “' + tagName(c.value) + '”'}`
+    : ['exists','not_exists'].includes(c.op) ? `${labelOf(FIELDS,c.field)}${c.header ? ' ' + c.header : ''} ${labelOf(OPS,c.op)}`
+    : c.field === 'received' ? tn(+c.value || 0, '{field} {op} {n} day', '{field} {op} {n} days', {field:labelOf(FIELDS, c.field), op:labelOf(ALL_OPS, c.op)})
+    : c.field === 'state' ? t('{field} {op} {value}', {field:labelOf(FIELDS, c.field), op:labelOf(ALL_OPS, c.op), value:labelOf(STATES, c.value)})
+    : t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field) + (c.header ? ' ' + c.header : ''), op:labelOf(ALL_OPS, c.op), value:c.value}))
     .join(r.match_all ? t(' and ') : t(' or '));
-  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : a.type === 'copy' ? t('copy to {folder}', {folder:placeName(a.folder)}) : a.type === 'forward' ? t('forward to {to}',{to:a.to}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
+  const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : a.type === 'copy' ? t('copy to {folder}', {folder:placeName(a.folder)}) : a.type === 'forward' ? t('forward to {to}',{to:a.to})
+    : a.type === 'add_tag' ? t('tag it “{name}”', {name:tagName(a.tag)}) : a.type === 'remove_tag' ? t('take “{name}” off', {name:tagName(a.tag)}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
   return t('If {conds}: {acts}.', {conds, acts}) + (r.account ? ' ' + t('{name} only.', {name:ACCT[r.account]?.email ?? r.account}) : '') + (r.stop ? ' ' + t('Then stop.') : '');
 }
+// When a rule runs, for the list: "New mail · Every day on Inbox · last run 17.10 9:00".
+function ruleWhen(r){
+  const s = r.schedule, parts = r.on_arrival !== false ? [t('New mail')] : [];
+  if (s) parts.push(t('{every} on {folders}', {every:labelOf(RULE_EVERY, s.every), folders:s.folders.map(placeName).join(', ')}),
+    r.last_run ? t('last run {when}', {when:fmtWhen(parseDate(r.last_run))}) : t('not run yet'));
+  return parts.join(' · ');
+}
+// Folders a schedule can run on: the rule's account's (every account's for a rule on all of
+// them, and then the folders on this PC), not the Outbox.
+const scheduleTargets = acct => (acct ? [acct] : [...servers().map(a => a.id), LOCAL]).flatMap(id =>
+  (ACCT[id]?.folders ?? []).filter(f => f.kind !== 'outbox').map(f => [id + '/' + f.id, id === LOCAL ? folderName(id + '/' + f.id) : f.name, id === LOCAL ? t('On this PC') : ACCT[id].email]));
 async function openRules(){
   closeSuggest();
   rdlg.showModal();
@@ -4467,7 +5832,7 @@ async function showRuleList(){
   if (m) $('r-from').textContent = isOut(m.f) ? t('New rule for mail to {name}', {name:nameOf(m.to)}) : t('New rule for mail from {name}', {name:m.from || m.email});
   $('r-list').innerHTML = RULES.length ? RULES.map((r, i) => `<div class="rrule${r.enabled ? '' : ' off'}" data-id="${r.id}">
 <input type="checkbox" data-r="toggle"${r.enabled ? ' checked' : ''} title="${esc(t('On or off'))}" aria-label="${esc(t('Rule {name} on', {name:r.name}))}">
-<div class="rtext"><div class="rname">${esc(r.name)}${r.enabled ? '' : ` <span class="tag">${esc(t('Off|rule'))}</span>`}</div><div class="rsum" title="${esc(ruleSummary(r))}">${esc(ruleSummary(r))}</div></div>
+<div class="rtext"><div class="rname">${esc(r.name)}${r.enabled ? '' : ` <span class="tag">${esc(t('Off|rule'))}</span>`}</div><div class="rsum" title="${esc(ruleSummary(r))}">${esc(ruleSummary(r))}</div>${r.schedule || r.on_arrival === false ? `<div class="rsum" title="${esc(ruleWhen(r))}">${esc(ruleWhen(r))}</div>` : ''}</div>
 <button type="button" class="btn icon" data-r="up" title="${esc(t('Run earlier'))}" aria-label="${esc(t('Run earlier'))}"${i ? '' : ' disabled'}>↑</button>
 <button type="button" class="btn icon" data-r="down" title="${esc(t('Run later'))}" aria-label="${esc(t('Run later'))}"${i < RULES.length - 1 ? '' : ' disabled'}>↓</button>
 <button type="button" class="btn" data-r="edit">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-r="delete">${esc(t('Delete'))}</button></div>`).join('')
@@ -4487,21 +5852,58 @@ function showRuleForm(existing, start = null){
   const firstAccount = servers()[0]?.id ?? null;
   rule = existing ? structuredClone(existing) : start ?? {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
     conditions:[{field:'from', op:'contains', value:''}], actions:[{type:'flag'}], stop:false};
+  rule.on_arrival ??= true;
   $('r-list-view').hidden = true; $('r-form').hidden = false; $('r-form-err').textContent = '';
   $('r-form-title').textContent = existing ? t('Edit rule') : t('New rule');
   $('r-name').value = rule.name;
   $('r-acct').innerHTML = `<option value="">${esc(t('All accounts'))}</option>` + servers().map(a => `<option value="${esc(a.id)}"${a.id === rule.account ? ' selected' : ''}>${esc(a.name)} · ${esc(a.email)}</option>`).join('');
   $('r-match').value = rule.match_all ? 'all' : 'any';
   $('r-stop').checked = rule.stop;
-  renderConditions(); renderActions();
+  renderConditions(); renderActions(); renderWhen();
   $('r-name').focus();
+}
+function conditionValue(c){
+  if (['exists','not_exists'].includes(c.op)) return '';
+  if (c.field === 'tag') return `<select data-k="value" aria-label="${esc(t('Tag'))}">${tagOptions(c.value)}</select>`;
+  if (c.field === 'state') return `<select data-k="value" aria-label="${esc(t('Status|rule field'))}">${options(STATES, c.value)}</select>`;
+  if (c.field === 'received') return `<input data-k="value" type="number" min="1" max="36500" step="1" value="${esc(c.value)}" aria-label="${esc(t('Days'))}"><span class="runit">${esc(t('days|rule unit'))}</span>`;
+  if (c.field === 'size') return `<input data-k="value" value="${esc(c.value)}" placeholder="500k, 5m" autocomplete="off" spellcheck="false" aria-label="${esc(t('Size'))}">`;
+  if (c.op === 'matches') return `<input data-k="value" class="rpattern" value="${esc(c.value)}" placeholder="faktur(a|y)" maxlength="1000" autocomplete="off" spellcheck="false" aria-label="${esc(t('Pattern'))}">`;
+  return `<input data-k="value" value="${esc(c.value)}" placeholder="${esc(t('text to look for'))}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Text to look for'))}">`;
 }
 function renderConditions(){
   $('r-conds').innerHTML = rule.conditions.map((c, i) => `<div class="rrow" data-i="${i}">
-<select data-k="field" aria-label="${esc(t('Where'))}">${options(FIELDS, c.field)}</select><select data-k="op" aria-label="${esc(t('How'))}">${options(OPS, c.op)}</select>
-<div class="rvalue">${c.field === 'header' ? `<input data-k="header" value="${esc(c.header ?? '')}" placeholder="List-Id" aria-label="${esc(t('Header name'))}" autocomplete="off" spellcheck="false">` : ''}${['exists','not_exists'].includes(c.op) ? '' : `<input data-k="value" value="${esc(c.value)}" placeholder="${esc(t('text to look for'))}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Text to look for'))}">`}</div>
+<select data-k="field" aria-label="${esc(t('Where'))}">${options(FIELDS, c.field)}</select><select data-k="op" aria-label="${esc(t('How'))}">${options(opsFor(c.field), c.op)}</select>
+<div class="rvalue">${c.field === 'header' ? `<input data-k="header" value="${esc(c.header ?? '')}" placeholder="List-Id" aria-label="${esc(t('Header name'))}" autocomplete="off" spellcheck="false">` : ''}${conditionValue(c)}</div>
 <button type="button" class="btn icon" data-x="${i}" title="${esc(t('Remove this condition'))}" aria-label="${esc(t('Remove condition'))}">×</button></div>`).join('');
+  $('r-pattern-hint').hidden = !rule.conditions.some(c => c.op === 'matches');
 }
+// When the rule runs: on new mail, on a schedule over folders, or both.
+function renderWhen(){
+  const s = rule.schedule;
+  $('r-arrival').checked = rule.on_arrival;
+  $('r-sched').checked = !!s;
+  $('r-every').innerHTML = options(RULE_EVERY, s?.every ?? 'day');
+  $('r-every').disabled = !s;
+  const targets = scheduleTargets(rule.account);
+  $('r-sched-folders').hidden = $('r-sched-note').hidden = !s;
+  $('r-sched-folders').innerHTML = [...new Set(targets.map(x => x[2]))].map(g => `<div class="rfgroup">${esc(g)}</div>`
+    + targets.filter(x => x[2] === g).map(([k, l]) => `<label class="rfold"><input type="checkbox" value="${esc(k)}"${s?.folders.includes(k) ? ' checked' : ''}> <span>${esc(l)}</span></label>`).join('')).join('');
+}
+function readWhen(){
+  rule.on_arrival = $('r-arrival').checked;
+  rule.schedule = $('r-sched').checked ? {every:$('r-every').value || 'day', folders:[...$('r-sched-folders').querySelectorAll('input:checked')].map(x => x.value)} : null;
+}
+$('r-when').addEventListener('change', e => {
+  const had = !!rule.schedule;
+  readWhen();
+  // Turning the schedule on starts it on the account's Inbox.
+  if (!had && rule.schedule && !rule.schedule.folders.length){
+    const inbox = scheduleTargets(rule.account).find(([k]) => folderOf(k)?.kind === 'inbox');
+    if (inbox) rule.schedule.folders = [inbox[0]];
+  }
+  if (e.target.id !== 'r-every' && !e.target.closest('#r-sched-folders')) renderWhen();
+});
 function renderActions(){
   $('r-acts').innerHTML = rule.actions.map((a, i) => {
     let param = '<span class="none"></span>';
@@ -4511,6 +5913,8 @@ function renderActions(){
         : `<span class="none">${esc(t('Pick the rule’s account to choose a folder.'))}</span>`;
     } else if (a.type === 'auto_reply'){
       param = `<textarea data-k="body" aria-label="${esc(t('Reply text'))}" placeholder="${esc(t('Hello, I’m away until 20 October.'))}">${esc(a.body || '')}</textarea>`;
+    } else if (a.type === 'add_tag' || a.type === 'remove_tag'){
+      param = `<select data-k="tag" aria-label="${esc(t('Tag'))}">${tagOptions(a.tag)}</select>`;
     } else if (a.type === 'forward'){
       param = `<input data-k="to" value="${esc(a.to ?? '')}" aria-label="${esc(t('Forward to'))}" placeholder="${esc(t('Recipient addresses'))}" autocomplete="off" spellcheck="false">`;
     }
@@ -4526,14 +5930,18 @@ function fixAction(a){
   } else delete a.folder;
   if (a.type === 'auto_reply') a.body = a.body ?? ''; else delete a.body;
   if (a.type === 'forward') a.to = a.to ?? ''; else delete a.to;
+  if (a.type === 'add_tag' || a.type === 'remove_tag') a.tag = tagOf(a.tag) ? a.tag : TAGS[0]?.keyword ?? ''; else delete a.tag;
   return a;
 }
 $('r-conds').addEventListener('input', e => {
   const row = e.target.closest('[data-i]'); if (!row) return;
+  const before = rule.conditions[row.dataset.i].field;
   rule.conditions[row.dataset.i][e.target.dataset.k] = e.target.value;
   if (['field','op'].includes(e.target.dataset.k)){
     const c = rule.conditions[row.dataset.i];
     if (c.field === 'header') c.header ??= ''; else delete c.header;
+    if (e.target.dataset.k === 'field') fitCondition(c, before);
+    if (c.field === 'tag' && !['exists','not_exists'].includes(c.op) && !tagOf(c.value)) c.value = TAGS[0]?.keyword ?? '';
     renderConditions();
   }
 });
@@ -4556,16 +5964,24 @@ $('r-add-cond').addEventListener('click', () => {
   $('r-conds').querySelector('.rrow:last-child input')?.focus();
 });
 $('r-add-act').addEventListener('click', () => { rule.actions.push(fixAction({type:'mark_read'})); renderActions(); });
-$('r-acct').addEventListener('change', () => { rule.account = $('r-acct').value || null; rule.actions.forEach(fixAction); renderActions(); });
+$('r-acct').addEventListener('change', () => {
+  rule.account = $('r-acct').value || null; rule.actions.forEach(fixAction); renderActions();
+  // A rule of one account runs on that account's folders only.
+  if (rule.schedule){ const ok = new Set(scheduleTargets(rule.account).map(x => x[0])); rule.schedule.folders = rule.schedule.folders.filter(k => ok.has(k)); }
+  renderWhen();
+});
 $('r-form').addEventListener('submit', async e => {
   e.preventDefault();
-  Object.assign(rule, {name:$('r-name').value, match_all:$('r-match').value === 'all', stop:$('r-stop').checked});
+  readRuleForm();
   try { await invoke('save_rule', {rule}); } catch (err){ $('r-form-err').textContent = tr(err); return; }
-  say(t('Rule “{name}” saved. It runs on new mail as it arrives.', {name:rule.name.trim()}));
+  const name = rule.name.trim(), every = rule.schedule && labelOf(RULE_EVERY, rule.schedule.every).toLowerCase();
+  say(!rule.schedule ? t('Rule “{name}” saved. It runs on new mail as it arrives.', {name})
+    : rule.on_arrival ? t('Rule “{name}” saved. It runs on new mail and {every}, the first time within a minute.', {name, every})
+    : t('Rule “{name}” saved. It runs {every}, the first time within a minute.', {name, every}));
   await showRuleList();
 });
 $('r-back').addEventListener('click', showRuleList);
-const readRuleForm = () => Object.assign(rule, {name:$('r-name').value,match_all:$('r-match').value === 'all',stop:$('r-stop').checked});
+const readRuleForm = () => { Object.assign(rule, {name:$('r-name').value,match_all:$('r-match').value === 'all',stop:$('r-stop').checked}); readWhen(); return rule; };
 $('r-form').addEventListener('input', () => { $('r-preview-result').hidden = true; });
 $('r-preview').addEventListener('click', async () => {
   readRuleForm();
@@ -4615,6 +6031,18 @@ $('r-run').addEventListener('click', async () => {
   say([text, ...r.problems].join(' · '), r.problems.length ? 12000 : 6000);
 });
 $('b-rules').addEventListener('click', openRules);
+// Rules on a schedule run while Telex runs: every minute the core runs those that are due.
+async function runSchedules(){
+  if (!ACCOUNTS.length) return;
+  let runs;
+  try { runs = await invoke('run_scheduled_rules'); } catch { return; }
+  if (!runs.length) return;
+  const said = runs.map(r => [r.moved ? tn(r.moved, 'Rule “{name}” moved {n} message.', 'Rule “{name}” moved {n} messages.', {name:r.name})
+    : r.matched ? tn(r.matched, 'Rule “{name}” changed {n} message.', 'Rule “{name}” changed {n} messages.', {name:r.name}) : '', ...r.problems].filter(Boolean).join(' · ')).filter(Boolean);
+  if (runs.some(r => r.matched)){ schedulePush(); await refresh(); }
+  if (said.length) say(said.join(' · '), runs.some(r => r.problems.length) ? 12000 : 6000);
+  if (rdlg.open && !$('r-list-view').hidden) showRuleList(); // their last runs
+}
 
 /* ---------- settings window ---------- */
 // Every change is saved at once (changeSettings) and shows at once, theme cards included:
@@ -4699,7 +6127,7 @@ function renderSettings(keepFocus){
   const auto = LANG_NAMES[SETTINGS.settings.language === 'auto' ? SETTINGS.language : ''] ?? '';
   $('s-langs').innerHTML = radios('language', [
     ['auto', esc(t('Automatic, as in Windows')), auto ? `<small class="sdim">${esc(auto)}</small>` : ''],
-    ['en', '<span lang="en">English</span>'], ['pl', '<span lang="pl">Polski</span>'],
+    ...I18n.languages.map(([code, name]) => [code, `<span lang="${code}">${esc(name)}</span>`]),
   ], s.language);
   $('s-every').innerHTML = CHECK_EVERY.map(n => `<option value="${n}"${n === s.check_every ? ' selected' : ''}>${esc(
     n === 0 ? t('Only when I click Get mail') : n === 60 ? t('Every hour') : tn(n, 'Every {n} minute', 'Every {n} minutes'))}</option>`).join('');
@@ -4716,6 +6144,7 @@ function renderSettings(keepFocus){
   $('s-format').innerHTML = radios('compose_format', [['html', esc(t('HTML'))], ['plain', esc(t('Plain text'))]], s.compose_format);
   $('s-reply').innerHTML = radios('reply_format', [['html', esc(t('Always HTML'))], ['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))]], s.reply_format);
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
+  $('s-imgsize').innerHTML = radios('image_size', IMAGE_SIZES.map(([v, label]) => [v, esc(t(label))]), s.image_size ?? 'large');
   renderSignatures();
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-askfile').checked = s.ask_attachment !== false; $('s-askmany').checked = s.ask_many !== false;
@@ -4742,17 +6171,19 @@ function paneOpened(tab){
   }
   if (tab === 'read') renderTrusted();
   if (tab === 'mail') renderSpamStatus();
-  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); }
+  if (tab === 'tags'){ tagEdit = {adding:false, armed:null, error:''}; renderTags(); }
+  if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); forgetTemplates(); renderFolderTemplates(); }
   if (tab === 'use') renderUsage();
   if (tab === 'conn') renderConnections();
   if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
+  if (tab === 'keys'){ keys_.list = null; keys_.paste = false; keys_.armed = ''; keys_.p12 = null; keys_.p12err = ''; renderKeys(); }
 }
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
   const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, backup_every:s.backup_every, updates:s.updates};
+    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, image_size:s.image_size ?? 'large', backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-delay').value = String(s.read_delay);
@@ -4828,6 +6259,7 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'mail_paper'){ state.white.clear(); changeSettings({mail_paper:v}).then(() => { if (!state.compose) renderPreview(); }); }
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
   else if (el.name === 'reply_format') changeSettings({reply_format:v});
+  else if (el.name === 'image_size') changeSettings({image_size:v});
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
   else if (el.id === 's-askfile') changeSettings({ask_attachment:el.checked});
   else if (el.id === 's-askmany') changeSettings({ask_many:el.checked});
@@ -4860,9 +6292,11 @@ sdlg.addEventListener('close', () => {
 
 // Import and export. The file holds settings, rules, identities and account servers, never
 // passwords. Importing shows what would change first; nothing changes until Import.
+// How large pictures put into a message are made (images::prepare).
+const IMAGE_SIZES = [['large', N_('Large: at most 1600 pixels across')], ['medium', N_('Medium: at most 800 pixels across')], ['original', N_('As they are')]];
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
-  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
+  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), image_size:N_('Pictures'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
@@ -4883,6 +6317,7 @@ function settingValue(key, v){
     case 'updates': return v === 'ask' ? t('Not decided yet') : updatesText(v);
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
+    case 'image_size': return IMAGE_SIZES.find(([id]) => id === v) ? t(IMAGE_SIZES.find(([id]) => id === v)[1]) : v;
     case 'spam_filter': return SPAM_LEVELS.find(([id]) => id === v) ? t(SPAM_LEVELS.find(([id]) => id === v)[1]) : v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
     case 'threaded': case 'risk_checks': case 'sign_replies': case 'ask_subject': case 'ask_attachment': case 'ask_many': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
@@ -4907,10 +6342,11 @@ function counted(items){
   return [[n('add'), N_('{n} new')], [n('update'), N_('{n} updated')], [n('same'), N_('{n} unchanged')], [n('skip'), N_('{n} skipped')]]
     .filter(([c]) => c).map(([c, key]) => tn(c, key, key)).join(', ');
 }
-const why = i => i.status === 'skip' ? skipText(i.skip) : i.account ?? t('All accounts');
-function planItems(items){
+const why = (i, accounts = true) => i.status === 'skip' ? skipText(i.skip) : accounts ? i.account ?? t('All accounts') : '';
+// Items of a plan or report; tags belong to no account, so `accounts` false names none.
+function planItems(items, accounts = true){
   return `<ul class="ilist">${items.map(i => `<li><span class="ist ${i.status}">${esc(t(STATUS[i.status]))}</span><span class="iname">${esc(i.name)}</span>`
-    + `<span class="iwhy" title="${esc(why(i))}">${esc(why(i))}</span></li>`).join('')}</ul>`;
+    + `<span class="iwhy" title="${esc(why(i, accounts))}">${esc(why(i, accounts))}</span></li>`).join('')}</ul>`;
 }
 function planSection(part, title, items){
   if (!items.length) return '';
@@ -4929,8 +6365,8 @@ function renderMove(){
 <p class="dnote">${esc(t('Save your settings to a file, to set up Telex on another PC or keep a copy. The file holds no passwords.'))}</p>
 <div class="sopts">
   <label class="sopt"><input type="checkbox" data-ex="settings" checked><span>${esc(t('Settings: theme, language, rows, mail checks'))}</span></label>
-  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules'))}</span>${n('rules', N_('{n} rule'), '{n} rules')}</label>
-  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities and signatures'))}</span>${n('identities', N_('{n} identity'), '{n} identities')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="rules" checked><span>${esc(t('Rules and tags'))}</span>${n('rules', N_('{n} rule'), '{n} rules')}</label>
+  <label class="sopt"><input type="checkbox" data-ex="identities" checked><span>${esc(t('Identities, signatures and templates'))}</span>${n('identities', N_('{n} identity'), '{n} identities')}</label>
   <label class="sopt"><input type="checkbox" data-ex="servers" checked><span>${esc(t('Account servers and user names'))}</span>${n('accounts', N_('{n} account'), '{n} accounts')}</label>
 </div>
 <div class="sbtns"><button class="btn primary" type="button" id="s-export">${esc(t('Export…'))}</button>
@@ -4960,14 +6396,19 @@ ${move_.exported ? `<span class="sdone">${esc(t('Saved to {path}.', {path:move_.
     r.settings ? tn(r.settings, '{n} setting changed', '{n} settings changed') : '',
     r.rules_added ? tn(r.rules_added, '{n} rule added', '{n} rules added') : '',
     r.rules_updated ? tn(r.rules_updated, '{n} rule updated', '{n} rules updated') : '',
+    r.tags_added ? tn(r.tags_added, '{n} tag added', '{n} tags added') : '',
+    r.tags_updated ? tn(r.tags_updated, '{n} tag updated', '{n} tags updated') : '',
     r.identities_added ? tn(r.identities_added, '{n} identity added', '{n} identities added') : '',
     r.identities_updated ? tn(r.identities_updated, '{n} identity updated', '{n} identities updated') : '',
+    r.templates ? tn(r.templates, 'templates set for {n} folder', 'templates set for {n} folders') : '',
   ].filter(Boolean) : [];
+  // A folder's templates come with the identities.
+  const ids = [...p.identities, ...(p.templates ?? []).map(i => ({...i, name:t('Templates of {folder}', {folder:i.name})}))];
   el.innerHTML = `<h3 class="rh">${esc(r ? t('Imported') : t('Import'))}</h3>
 ${made ? `<p class="dnote">${esc(t('From {made}.', {made}))}</p>` : ''}
 ${p.newer ? `<p class="whint warn">${esc(t('This file comes from a newer Telex. What this version doesn’t know is left out.'))}</p>` : ''}
 ${r ? `<p class="whint">${esc(doneLines.length ? doneLines.join(', ') + '.' : t('Nothing needed changing.'))}</p>` + (r.problems.length ? `<p class="derr">${esc(r.problems.map(tr).join(' · '))}</p>` : '') : ''}
-${r ? accounts : settings + planSection('rules', t('Rules'), p.rules) + planSection('identities', t('Identities and signatures'), p.identities) + accounts}
+${r ? accounts : settings + planSection('rules', t('Rules and tags'), [...p.rules, ...(p.tags ?? []).map(i => ({...i, account:t('Tag')}))]) + planSection('identities', t('Identities, signatures and templates'), ids) + accounts}
 <p class="derr" role="alert">${esc(move_.error)}</p>
 <div class="sbtns">${r ? `<button class="btn" type="button" id="s-back">${esc(t('Done'))}</button>`
   : `<button class="btn primary" type="button" id="s-apply">${esc(t('Import'))}</button><button class="btn" type="button" id="s-back">${esc(t('Cancel'))}</button>`}</div>`;
@@ -5030,7 +6471,7 @@ $('s-move').addEventListener('click', async e => {
     catch (err){ move_.error = importError(err); renderMove(); return; }
     if (!plan) return; // cancelled
     const doable = items => items.some(i => i.status === 'add' || i.status === 'update');
-    move_ = {...move_, plan, report:null, choice:{settings:plan.settings.length > 0, rules:doable(plan.rules), identities:doable(plan.identities)}};
+    move_ = {...move_, plan, report:null, choice:{settings:plan.settings.length > 0, rules:doable(plan.rules) || doable(plan.tags ?? []), identities:doable(plan.identities)}};
     renderMove();
     ($('s-apply') ?? $('s-back'))?.focus();
   } else if (b.id === 's-apply'){
@@ -5063,7 +6504,7 @@ $('s-move').addEventListener('click', async e => {
 let moveIn = {sources:null, finding:null, source:null, choice:null, passwords:{}, running:null, report:null, error:''};
 const PROGRAMS = {thunderbird:'Thunderbird', betterbird:'Betterbird', seamonkey:'SeaMonkey', postbox:'Postbox', outlook:'Outlook', evolution:'Evolution', kmail:'KMail', folder:N_('Mail folder')};
 const programName = p => p === 'folder' ? t(PROGRAMS.folder) : PROGRAMS[p] ?? p;
-const BLOCKED = {oauth:N_('signs in with Google or Microsoft, which Telex can’t do yet'), pop3:N_('POP3: Telex reads mail over IMAP; its mail on this PC can come along below'),
+const BLOCKED = {oauth:N_('signs in with Google or Microsoft, which Telex can’t do yet'), pop3:N_('POP3 in Outlook: Telex can’t tell which mail Outlook already downloaded; add the account by hand. Its mail on this PC can come along below'),
   exchange:N_('Exchange or Microsoft 365: Telex can’t sign in there yet')};
 const canAdd = a => !a.present && !a.blocked;
 function findPrograms(){
@@ -5075,7 +6516,9 @@ function sourceSummary(s){
   const mail = s.folders.reduce((n, f) => n + f.bytes, 0);
   return [s.accounts.length ? tn(s.accounts.length, '{n} account', '{n} accounts') : '',
     s.folders.length ? t('{size} of mail', {size:fmtSize(Math.ceil(mail / 1024))}) : '',
-    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : ''].filter(Boolean).join(' · ');
+    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : '',
+    s.tags?.length ? tn(s.tags.length, '{n} tag', '{n} tags') : '',
+    s.books?.length ? tn(s.books.length, '{n} address book', '{n} address books') : ''].filter(Boolean).join(' · ');
 }
 function openMoveIn(path){
   openSettings('move');
@@ -5086,7 +6529,8 @@ function chooseSource(s){
   moveIn = {...moveIn, source:s, report:null, running:null, error:'', passwords:{}, choice:{
     accounts:new Set(s.accounts.filter(canAdd).map(a => a.key)),
     folders:new Set(s.folders.filter(f => f.tick).map(f => f.key)),
-    filters:s.filters > 0}};
+    filters:s.filters > 0 || s.tags?.length > 0,
+    books:new Set((s.books ?? []).filter(b => b.tick).map(b => b.key))}};
   renderMove();
   sdlg.querySelector('#s-move input:not([disabled])')?.focus();
 }
@@ -5107,7 +6551,7 @@ function renderSource(el){
   const s = moveIn.source, c = moveIn.choice, r = moveIn.report, run = moveIn.running;
   const title = `<h3 class="rh">${esc(programName(s.program))} · ${esc(s.name)}</h3>`;
   if (run){
-    const order = ['accounts', 'mail', 'rules'], at = order.indexOf(run.step);
+    const order = ['accounts', 'mail', 'rules', 'contacts'], at = order.indexOf(run.step);
     const step = (id, label, small) => `<li class="${run.step === id ? 'work' : order.indexOf(id) < at ? 'done' : ''}">${esc(label)}${small ? `<small>${esc(small)}</small>` : ''}</li>`;
     const size = n => fmtSize(Math.ceil(n / 1024));
     const accounts = c.accounts.size ? step('accounts', run.step === 'accounts' ? t('Adding accounts: {done} of {total}', {done:run.done, total:run.total}) : t('Adding accounts'),
@@ -5115,25 +6559,32 @@ function renderSource(el){
     const mail = c.folders.size ? step('mail', run.step === 'mail' ? t('Reading mail: {done} of {total}', {done:size(run.done), total:size(run.total)}) : t('Reading mail'),
       run.step === 'mail' ? run.name : '') : '';
     const rules = c.filters ? step('rules', t('Making rules of the filters'), '') : '';
+    const books = c.books.size ? step('contacts', t('Bringing the address books'), '') : '';
     const bar = run.step === 'mail' && run.total ? `<div class="ubar mvbar"><i style="width:${Math.min(100, run.done / run.total * 100).toFixed(1)}%"></i></div>` : '';
-    el.innerHTML = `${title}<ul class="wsteps" aria-live="polite">${accounts}${mail}${rules}</ul>${bar}
+    el.innerHTML = `${title}<ul class="wsteps" aria-live="polite">${accounts}${mail}${rules}${books}</ul>${bar}
 <p class="dnote">${esc(t('Telex keeps working meanwhile. Mail already here isn’t brought twice.'))}</p>`;
     return;
   }
   if (r){
     const ok = r.accounts.filter(a => !a.error), bad = r.accounts.filter(a => a.error);
-    const made = r.rules.filter(i => i.status === 'add' || i.status === 'update').length;
+    const changed = items => (items ?? []).filter(i => i.status === 'add' || i.status === 'update').length;
+    const made = changed(r.rules), tagged = changed(r.tags);
     const lines = [ok.length ? tn(ok.length, '{n} account added', '{n} accounts added') : '',
       r.mail.added ? tn(r.mail.added, '{n} message in folders on this PC', '{n} messages in folders on this PC', {n:num(r.mail.added)}) : '',
       r.mail.already ? tn(r.mail.already, '{n} was here already', '{n} were here already', {n:num(r.mail.already)}) : '',
-      made ? tn(made, '{n} rule', '{n} rules') : ''].filter(Boolean);
+      tagged ? tn(tagged, '{n} tag', '{n} tags') : '',
+      made ? tn(made, '{n} rule', '{n} rules') : '',
+      r.contacts?.added ? tn(r.contacts.added, '{n} new contact', '{n} new contacts', {n:num(r.contacts.added)}) : '',
+      r.contacts?.updated ? tn(r.contacts.updated, '{n} contact filled in', '{n} contacts filled in', {n:num(r.contacts.updated)}) : '',
+      r.contacts?.groups ? tn(r.contacts.groups, '{n} new group', '{n} new groups') : ''].filter(Boolean);
     const accounts = r.accounts.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Accounts'))}</b><span>${esc(bad.length ? tn(bad.length, '{n} needs attention', '{n} need attention') : t('all logged in'))}</span></div>`
       + `<ul class="ilist">${r.accounts.map(a => `<li><span class="ist ${a.error ? 'skip' : 'add'}">${esc(a.error ? t('Check|account') : t('Added|account'))}</span><span class="iname">${esc(a.email)}</span>`
       + `<span class="iwhy" title="${esc(a.error ? tr(a.error) : '')}">${esc(a.error ? tr(a.error) : '')}</span></li>`).join('')}</ul>`
       + (bad.length ? `<p class="dnote">${esc(t('Fix these in Settings › Accounts › Edit: the account is there and needs its password or servers.'))}</p>` : '') + '</section>' : '';
+    const tags = r.tags?.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Tags'))}</b><span>${esc(counted(r.tags))}</span></div>${planItems(r.tags, false)}</section>` : '';
     const rules = r.rules.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Filters'))}</b><span>${esc(counted(r.rules))}</span></div>${planItems(r.rules)}</section>` : '';
     el.innerHTML = `${title}<p class="whint">${esc(lines.length ? lines.join(', ') + '.' : t('Nothing needed bringing.'))}</p>
-${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${rules}
+${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join(' · '))}</p>` : ''}${accounts}${tags}${rules}
 <div class="sbtns"><button class="btn primary" type="button" id="mv-done">${esc(t('Done'))}</button></div>`;
     return;
   }
@@ -5151,10 +6602,18 @@ ${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join('
       `<li><label class="mvpick">${ticked(c.folders.has(f.key), `data-mv="folder" data-key="${esc(f.key)}"`)}<span class="iname">${esc(f.name)}</span></label>`
       + `<span class="iwhy">${esc([f.messages != null ? tn(f.messages, '{n} message', '{n} messages', {n:num(f.messages)}) : '', fmtSize(Math.ceil(f.bytes / 1024))].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>`
     + `<p class="dnote">${esc(t('Each folder comes into a folder on this PC of the same name.'))}</p></section>` : '';
-  const filters = s.filters ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(t('Filters'))}</b><span>${esc(tn(s.filters, '{n} filter', '{n} filters'))}</span></label>`
-    + `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p></section>` : '';
-  const nothing = !c.accounts.size && !c.folders.size && !c.filters;
-  el.innerHTML = `${title}${accounts}${folders}${filters}<p class="derr" role="alert">${esc(moveIn.error)}</p>
+  // The tags come with the filters: filters use them, and so does the mail brought in.
+  const stags = s.tags ?? [];
+  const filters = s.filters || stags.length ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(stags.length ? t('Filters and tags') : t('Filters'))}</b>`
+    + `<span>${esc([s.filters ? tn(s.filters, '{n} filter', '{n} filters') : '', stags.length ? tn(stags.length, '{n} tag', '{n} tags') : ''].filter(Boolean).join(' · '))}</span></label>`
+    + (stags.length ? `<p class="mvtags"><span class="tgs">${stags.map(x => `<span class="tg t-${esc(x.color)}" title="${esc(x.keyword)}">${esc(x.name)}</span>`).join('')}</span></p>` : '')
+    + (s.filters ? `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p>` : '')
+    + (stags.length ? `<p class="dnote">${esc(t('Tags keep their keywords, so mail tagged there is tagged here too: on the servers and in the mail brought in.'))}</p>` : '') + '</section>' : '';
+  const books = s.books?.length ? `<section class="ipart"><label class="ihead">${ticked(s.books.every(b => c.books.has(b.key)), 'data-mv="all-books"')}<b>${esc(t('Address books'))}</b><span>${esc(tn(c.books.size, '{n} ticked', '{n} ticked'))}</span></label><ul class="ilist">${s.books.map(b =>
+      `<li><label class="mvpick">${ticked(c.books.has(b.key), `data-mv="book" data-key="${esc(b.key)}"`)}<span class="iname">${esc(b.name)}</span></label><span class="iwhy">${esc(tn(b.contacts, '{n} card', '{n} cards', {n:num(b.contacts)}))}</span></li>`).join('')}</ul>`
+    + `<p class="dnote">${esc(t('Contacts and lists come into the address book (B); people already in it are only filled in. Thunderbird’s Collected Addresses are everyone it ever saw, so they start unticked.'))}</p></section>` : '';
+  const nothing = !c.accounts.size && !c.folders.size && !c.filters && !c.books.size;
+  el.innerHTML = `${title}${accounts}${folders}${filters}${books}<p class="derr" role="alert">${esc(moveIn.error)}</p>
 <div class="sbtns"><button class="btn primary" type="button" id="mv-go"${nothing ? ' disabled' : ''}>${esc(t('Bring in'))}</button><button class="btn" type="button" id="mv-back">${esc(t('Back'))}</button></div>`;
 }
 // A tick in the source's lists: the counts and the buttons follow; typed passwords stay.
@@ -5163,6 +6622,8 @@ function moveInTick(el){
   if (el.dataset.mv === 'account'){ on ? c.accounts.add(key) : c.accounts.delete(key); }
   else if (el.dataset.mv === 'folder'){ on ? c.folders.add(key) : c.folders.delete(key); }
   else if (el.dataset.mv === 'filters') c.filters = on;
+  else if (el.dataset.mv === 'book'){ on ? c.books.add(key) : c.books.delete(key); }
+  else if (el.dataset.mv === 'all-books') c.books = new Set(on ? s.books.map(b => b.key) : []);
   else if (el.dataset.mv === 'all-accounts') c.accounts = new Set(on ? s.accounts.filter(canAdd).map(a => a.key) : []);
   else if (el.dataset.mv === 'all-folders') c.folders = new Set(on ? s.folders.map(f => f.key) : []);
   const again = el.dataset.mv + (key ? `"][data-key="${key}` : '');
@@ -5173,9 +6634,9 @@ async function bringIn(){
   const s = moveIn.source, c = moveIn.choice;
   const passwords = {};
   c.accounts.forEach(k => { if (moveIn.passwords[k]) passwords[k] = moveIn.passwords[k]; });
-  const choice = {accounts:[...c.accounts], passwords, folders:[...c.folders], filters:c.filters};
+  const choice = {accounts:[...c.accounts], passwords, folders:[...c.folders], filters:c.filters, books:[...c.books]};
   moveIn.passwords = {}; // typed once, sent once
-  moveIn.running = {step:c.accounts.size ? 'accounts' : c.folders.size ? 'mail' : 'rules', done:0, total:c.accounts.size, name:''};
+  moveIn.running = {step:c.accounts.size ? 'accounts' : c.folders.size ? 'mail' : c.filters ? 'rules' : 'contacts', done:0, total:c.accounts.size, name:''};
   moveIn.error = '';
   renderMove();
   let r;
@@ -5185,6 +6646,7 @@ async function bringIn(){
   moveIn.sources = null; // what is in Telex now has changed
   if (sdlg.open && setTab === 'move') renderMove();
   await refresh();
+  if (r.contacts?.added || r.contacts?.updated || r.contacts?.groups) bookChanged();
   if (r.accounts.some(a => !a.error)) getMail({quiet:true});
   say(t('Moved in from {program}.', {program:programName(s.program)}));
 }
@@ -5382,7 +6844,7 @@ const purposeText = p => ({check:t('Check|connection'), push:t('Changes|connecti
 const stepText = (s, purpose) => s === 'work'
   ? ({check:t('checking'), push:t('sending changes'), older:t('downloading'), test:t('folder list'), watch:t('watching'), send:t('sending')}[purpose] ?? purpose)
   : ({lookup:t('address|step'), wait:t('waiting|step'), connect:t('connecting|step'), starttls:'STARTTLS', tls:'TLS', greeting:t('greeting|step'), login:t('login|step')}[s] ?? s);
-const fmtMs = ms => ms < 1000 ? t('{n} ms', {n:num(ms)}) : t('{n} s|duration', {n:(ms / 1000).toLocaleString(I18n.lang() === 'pl' ? 'pl-PL' : 'en', {maximumFractionDigits:1})});
+const fmtMs = ms => ms < 1000 ? t('{n} ms', {n:num(ms)}) : t('{n} s|duration', {n:(ms / 1000).toLocaleString(I18n.locale(), {maximumFractionDigits:1})});
 const hms = d => hm(d) + ':' + pad(d.getSeconds());
 const connWhen = text => { const d = parseDate(text); return d.toDateString() === new Date().toDateString() ? hms(d) : dmy(d) + ' ' + hms(d); };
 // The account a connection was for: the one that logs in with that user name, on that server
@@ -5535,6 +6997,8 @@ function renderBackups(){
     : `<p class="dnote">${esc(t('There is no mail base yet: it is made when you add your first account.'))}</p>`;
   html += `<h3 class="rh">${esc(t('Back up'))}</h3>
 <p class="dnote">${esc(t('One file with your mail, the folders on this PC, rules and identities. Passwords stay in the system’s password store.'))}</p>
+<label class="sopt"><input type="checkbox" id="bk-secret"${p.backup_secret_keys !== false ? ' checked' : ''}><span>${esc(t('Include the secret parts of my OpenPGP keys (locked with their passphrases)'))}</span></label>
+<p class="dnote">${esc(t('Without them a backup can still check signatures, but mail encrypted to you can be read only with your keys backed up some other way (Settings › Keys › Back up secret key).'))}</p>
 <div class="sbtns"><button type="button" class="btn primary" id="bk-now"${off || !s.base ? ' disabled' : ''}>${esc(work === 'backup' || s.running ? t('Backing up…') : t('Back up now'))}</button>
 <span class="sdone">${newest ? esc(t('Last backup {when}, {size}.', {when:when(newest), size:fmtBytes(newest.bytes)})) : esc(t('No backups yet.'))}</span></div>
 <div class="sgrid"><span class="lab" id="bk-every">${esc(t('Automatically'))}</span><div class="segs" role="radiogroup" aria-labelledby="bk-every">${segs('backup_every', [['off', esc(t('Never'))], ['daily', esc(t('Every day'))], ['weekly', esc(t('Every week'))]], p.backup_every)}</div>
@@ -5601,7 +7065,10 @@ $('s-backup').addEventListener('click', async e => {
     });
   }
 });
-$('s-backup').addEventListener('change', e => { if (e.target.id === 's-keep') changeSettings({backup_keep:Number(e.target.value)}); });
+$('s-backup').addEventListener('change', e => {
+  if (e.target.id === 's-keep') changeSettings({backup_keep:Number(e.target.value)});
+  if (e.target.id === 'bk-secret') changeSettings({backup_secret_keys:e.target.checked});
+});
 // Backups by themselves: a minute after start, then every hour, when the settings say one is due.
 let backupWarned = false;
 async function autoBackup(){
@@ -5623,6 +7090,446 @@ function sayRestored(){
   const file = String(r.aside).split(/[\\/]/).pop();
   say(t('Restored the backup{when}. The mail base as it was is kept as {file}.', {when:r.made ? ' ' + t('from {when}', {when:fmtWhenFull(parseDate(r.made))}) : '', file}), 15000);
 }
+
+/* ---------- OpenPGP: signed and encrypted mail, keys ---------- */
+// The core reads, decrypts and checks (openpgp.rs); the window shows what it found above the
+// message, asks for passphrases, offers Sign and Encrypt in compose and lists the keys.
+const PGP_I = {
+  seal: sv('<path d="M8 1.6l1.5 1.1 1.9-.1.6 1.8 1.5 1.1-.6 1.8.6 1.8-1.5 1.1-.6 1.8-1.9-.1L8 14.4l-1.5-1.1-1.9.1-.6-1.8-1.5-1.1.6-1.8-.6-1.8 1.5-1.1.6-1.8 1.9.1z"/><path d="M5.9 8l1.4 1.4 2.8-2.8"/>'),
+  lock: sv('<rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/>'),
+  key: sv('<circle cx="5" cy="10.5" r="2.5"/><path d="M6.8 8.7L13 2.5M11 4.5l1.6 1.6M9.4 6.1L11 7.7"/>'),
+};
+// "ABCD 1234 …": a fingerprint in groups of four, as people read them out to each other.
+const fpText = fp => String(fp || '').replace(/(.{4})(?=.)/g, '$1 ');
+const keyName = k => k?.name || fpText(k?.fingerprint).slice(-19);
+// Whatever was shown may read differently after a key or passphrase changed.
+function pgpChanged(){ bodies.clear(); htmlViews.clear(); }
+function pgpHtml(m){
+  const p = m.pgp;
+  if (!p) return '';
+  // S/MIME says "certificate" and "password" where OpenPGP says "key" and "passphrase".
+  const smime = !!p.smime, scheme = smime ? ' data-scheme="smime"' : '';
+  const lines = [];
+  if (p.encrypted){
+    if (p.decrypted) lines.push(['good', PGP_I.lock, esc(t('Encrypted. Decrypted on this PC only: its text isn’t kept or searched.'))]);
+    else if (p.problem === 'locked'){
+      const k = p.locked[0];
+      const intro = smime ? t('Encrypted to your certificate {name}.', {name:keyName(k)}) : t('Encrypted to your key {name}.', {name:keyName(k)});
+      const word = smime ? t('Password') : t('Passphrase');
+      const label = smime ? t('Password for {name}', {name:keyName(k)}) : t('Passphrase for {name}', {name:keyName(k)});
+      lines.push(['warn', PGP_I.lock, `${esc(intro)}
+<input type="password" class="pgppass" data-fp="${esc(k.fingerprint)}"${scheme} autocomplete="off" spellcheck="false" placeholder="${esc(word)}" aria-label="${esc(label)}">
+<label class="pgprem"><input type="checkbox" class="pgpremember"> ${esc(t('Remember it on this PC'))}</label>
+<button type="button" class="btn" data-pgp="unlock">${esc(t('Unlock'))}</button><span class="pgperr" role="alert"></span>`]);
+    } else {
+      const why = {
+        not_for_you: smime ? t('Encrypted to someone else’s certificate: this PC has no certificate that can read it.') : t('Encrypted to someone else’s key: this PC has no key that can read it.'),
+        failed: t('Encrypted, but it can’t be decrypted: it is damaged or was changed on the way.'),
+        too_large: t('Encrypted, and too large to decrypt here.'),
+        unsupported: t('Encrypted in an old or rare format Telex doesn’t read.'),
+      }[p.problem] ?? t('Encrypted.');
+      lines.push(['bad', PGP_I.lock, esc(why)]);
+    }
+  }
+  const s = p.signature;
+  if (s){
+    const name = keyName(s.key), fp = s.key ? ` title="${esc(fpText(s.key.fingerprint))}"` : '', issuer = s.issuer || '?';
+    const part = p.partial ? ' ' + esc(t('Only part of the message is signed: what is outside it may have been added.')) : '';
+    const confirm = s.key ? `<code class="pgpfp">${esc(fpText(s.key.fingerprint))}</code><button type="button" class="btn" data-pgp="confirm" data-fp="${esc(s.key.fingerprint)}"${scheme}>${esc(smime ? t('Confirm certificate') : t('Confirm key'))}</button>` : '';
+    const line = smime ? {
+      good: ['good', `<span${fp}>${esc(t('Signed by {name}, certified by {issuer}.', {name, issuer}))}</span>${part}`],
+      unconfirmed: ['info', `${esc(t('Signed by {name}, with a certificate this PC can’t confirm (from {issuer}). Compare its fingerprint with them, then confirm it:', {name, issuer}))} ${confirm}${part}`],
+      other_sender: ['bad', `<span${fp}>${esc(t('Signed by {name}, not by the sender: the certificate belongs to another address.', {name}))}</span>`],
+      no_key: ['info', esc(t('Signed with a certificate the message doesn’t carry (serial {id}).', {id:s.key_id}))],
+      bad: ['bad', esc(t('The signature doesn’t match: the message was changed after it was signed, or the signature is broken.'))],
+      revoked: ['bad', `<span${fp}>${esc(t('Signed with a certificate that was revoked ({name}).', {name}))}</span>`],
+      expired: ['warn', `<span${fp}>${esc(t('Signed with a certificate that wasn’t valid at the time ({name}).', {name}))}</span>`],
+      unsupported: ['info', esc(t('Signed in a way Telex can’t check.'))],
+    }[s.status] : {
+      good: ['good', `<span${fp}>${esc(t('Signed by {name}.', {name}))}</span>${part}`],
+      unconfirmed: ['info', `${esc(t('Signed by {name}, with a key that came with their mail. Compare its fingerprint with them, then confirm it:', {name}))} ${confirm}${part}`],
+      other_sender: ['bad', `<span${fp}>${esc(t('Signed by {name}, not by the sender: the key belongs to another address.', {name}))}</span>`],
+      no_key: ['info', `${esc(t('Signed with a key Telex doesn’t have ({id}).', {id:fpText(s.key_id)}))} <button type="button" class="linkbtn" data-pgp="keys">${esc(t('Keys…'))}</button>`],
+      bad: ['bad', esc(t('The signature doesn’t match: the message was changed after it was signed, or the signature is broken.'))],
+      revoked: ['bad', `<span${fp}>${esc(t('Signed with a key its owner has revoked ({name}).', {name}))}</span>`],
+      expired: ['warn', `<span${fp}>${esc(t('Signed with a key that had expired ({name}).', {name}))}</span>`],
+      unsupported: ['info', esc(t('Signed in a way Telex can’t check.'))],
+    }[s.status];
+    if (line) lines.push([line[0], PGP_I.seal, line[1]]);
+  }
+  if (p.offered?.length){
+    const names = p.offered.map(keyName).join(', ');
+    lines.push(['quiet', PGP_I.key, `${esc(tn(p.offered.length, 'This message carries a key: {names}.', 'This message carries {n} keys: {names}.', {names}))} <button type="button" class="linkbtn" data-pgp="import">${esc(t('Import|key'))}</button>`]);
+  }
+  return lines.map(([kind, icon, html]) => `<div class="bar pgp ${kind}">${icon}<span class="pgpline">${html}</span></div>`).join('');
+}
+// A passphrase (OpenPGP) or a certificate's password (S/MIME): true when it opened the key.
+async function pgpUnlock(fp, passphrase, remember, smime = false){
+  try {
+    return smime ? await invoke('smime_unlock', {fingerprint:fp, password:passphrase, remember})
+      : await invoke('pgp_unlock', {fingerprint:fp, passphrase, remember});
+  } catch (e){ say(tr(e), 8000); return false; }
+}
+previewEl.addEventListener('click', async e => {
+  const b = e.target.closest('[data-pgp]');
+  if (!b) return;
+  if (state.compose){ pgpToggle(b.dataset.pgp); return; }
+  const m = current();
+  if (!m) return;
+  const kind = b.dataset.pgp;
+  if (kind === 'unlock'){
+    const field = previewEl.querySelector('.pgppass'), err = previewEl.querySelector('.pgperr');
+    if (!field?.value) { field?.focus(); return; }
+    const smime = field.dataset.scheme === 'smime';
+    b.disabled = true;
+    const ok = await pgpUnlock(field.dataset.fp, field.value, !!previewEl.querySelector('.pgpremember')?.checked, smime);
+    b.disabled = false;
+    if (!ok){ if (err) err.textContent = smime ? t('That password doesn’t open the certificate.') : t('That passphrase doesn’t open the key.'); field.select(); return; }
+    pgpChanged(); renderPreview();
+  } else if (kind === 'confirm'){
+    const smime = b.dataset.scheme === 'smime';
+    try { await invoke(smime ? 'smime_verify' : 'pgp_verify', {fingerprint:b.dataset.fp, verified:true}); } catch (err){ say(tr(err), 8000); return; }
+    pgpChanged(); renderPreview();
+    say(smime ? t('Certificate confirmed. Its signatures count as the sender’s from now on.') : t('Key confirmed. Its signatures count as the sender’s from now on.'), 5000);
+  } else if (kind === 'import'){
+    let r;
+    try { r = await invoke('pgp_import_offered', {id:m.id}); } catch (err){ say(tr(err), 8000); return; }
+    pgpChanged(); renderPreview(); say(importedText(r), 6000);
+  } else if (kind === 'keys') openSettings('keys');
+});
+previewEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.classList?.contains('pgppass')){ e.preventDefault(); previewEl.querySelector('[data-pgp="unlock"]')?.click(); }
+});
+const importedText = r => {
+  const n = r.added.length + r.updated.length;
+  if (!n) return r.unchanged.length ? t('Telex had that key already.') : t('Nothing was imported.');
+  return tn(n, 'Imported {names}.', 'Imported {n} keys: {names}.', {names:[...r.added, ...r.updated].map(keyName).join(', ')});
+};
+
+/* compose: Sign, Encrypt, My key, and OpenPGP or S/MIME */
+// What the core says about the message as typed (pgp_compose), asked again as recipients
+// change. Until the user touches a switch, it starts where the core suggests: a reply to
+// encrypted mail encrypted, otherwise as last chosen for these people; S/MIME when the sender
+// has only a certificate, answers S/MIME mail, or only certificates reach everyone.
+let pgpTimer = 0;
+async function pgpComposeState(c, first = false){
+  let st;
+  try {
+    st = await invoke('pgp_compose', {draft:draftOf($('cform') ? readCompose() : c)});
+  } catch { return; }
+  if (state.compose !== c) return;
+  c.pgp = st;
+  if (!c.pgpTouched){
+    c.smime = !!st.smime && !!st.smime_own;
+    c.sign = st.sign;
+    c.encrypt = st.encrypt || (first && !!c.pgpWas?.encrypted && !!(c.smime ? st.smime_own : st.own));
+  }
+  if (c.smime && !st.smime_own) c.smime = false;
+  if (!c.smime && !st.own && st.smime_own) c.smime = true;
+  paintPgp();
+}
+// The sender's key or certificate for the scheme compose is on, and what it is missing.
+function pgpNow(c){
+  const st = c?.pgp;
+  if (!st) return {own:null, unlocked:false, missing:[]};
+  return c.smime ? {own:st.smime_own, unlocked:st.smime_unlocked, missing:st.smime_missing ?? []}
+    : {own:st.own, unlocked:st.unlocked, missing:st.missing ?? []};
+}
+function wirePgp(){
+  const c = state.compose;
+  if (!c) return;
+  const again = () => { clearTimeout(pgpTimer); pgpTimer = setTimeout(() => pgpComposeState(c), 450); };
+  ['c-to', 'c-cc', 'c-bcc'].forEach(id => $(id)?.addEventListener('input', again));
+  $('c-from')?.addEventListener('change', () => setTimeout(() => pgpComposeState(c), 0));
+  pgpComposeState(c, !c.pgp);
+}
+function paintPgp(){
+  const c = state.compose, set = previewEl.querySelector('.pgpset'), hint = $('c-pgp');
+  if (!c || !set) return;
+  const st = c.pgp, now = pgpNow(c);
+  set.hidden = !now.own;
+  const button = kind => set.querySelector(`[data-pgp="${kind}"]`);
+  const press = (kind, on) => button(kind)?.setAttribute('aria-pressed', String(!!on));
+  press('sign', c.sign); press('encrypt', c.encrypt); press('key', c.attachKey);
+  // Both a key and a certificate: a switch between them.
+  const scheme = button('scheme');
+  if (scheme){
+    scheme.hidden = !(st?.own && st?.smime_own);
+    scheme.querySelector('span').textContent = c.smime ? 'S/MIME' : 'OpenPGP';
+  }
+  const key = button('key');
+  if (key) key.hidden = !!c.smime;
+  set.setAttribute('aria-label', c.smime ? 'S/MIME' : t('OpenPGP'));
+  button('sign')?.setAttribute('title', c.smime ? t('Sign with your certificate: the recipients can check it is from you and unchanged') : t('Sign with your OpenPGP key: the recipients can check it is from you and unchanged'));
+  button('encrypt')?.setAttribute('title', c.smime ? t('Encrypt to the recipients’ certificates and yours: only you and they can read it') : t('Encrypt to the recipients’ keys and yours: only you and they can read it'));
+  if (!hint) return;
+  const missing = c.encrypt && now.missing.length ? now.missing : [];
+  hint.hidden = !missing.length;
+  if (missing.length){
+    const list = missing.join(', ');
+    const text = c.smime
+      ? tn(missing.length, 'No certificate for {list}: they can’t read encrypted mail yet. A signed message from them brings it, or import it in Settings › Keys. Or turn Encrypt off.', 'No certificates for {list}: they can’t read encrypted mail yet. A signed message from each brings it, or import them in Settings › Keys. Or turn Encrypt off.', {list})
+      : tn(missing.length, 'No key for {list}: they can’t read encrypted mail yet. Import their key in Settings › Keys, or turn Encrypt off.', 'No keys for {list}: they can’t read encrypted mail yet. Import their keys in Settings › Keys, or turn Encrypt off.', {list});
+    hint.innerHTML = `${PGP_I.lock}<span>${esc(text)}</span>`;
+  }
+}
+function pgpToggle(kind){
+  const c = state.compose;
+  if (!c || !pgpNow(c).own) return;
+  c.pgpTouched = true;
+  if (kind === 'sign') c.sign = !c.sign;
+  else if (kind === 'encrypt'){ c.encrypt = !c.encrypt; if (c.encrypt) c.sign = true; }
+  else if (kind === 'key') c.attachKey = !c.attachKey;
+  else if (kind === 'scheme' && c.pgp?.own && c.pgp?.smime_own){ c.smime = !c.smime; hideComposeAsk(); }
+  paintPgp();
+}
+const pgpSetHtml = () => `<span class="pgpset" hidden role="group" aria-label="${esc(t('OpenPGP'))}">
+<button class="btn pgptog pgpscheme" type="button" data-pgp="scheme" hidden title="${esc(t('Sign and encrypt with OpenPGP or with your S/MIME certificate'))}">${PGP_I.key}<span>OpenPGP</span></button>
+<button class="btn pgptog" type="button" data-pgp="sign" aria-pressed="false" title="${esc(t('Sign with your OpenPGP key: the recipients can check it is from you and unchanged'))}">${PGP_I.seal}<span>${esc(t('Sign'))}</span></button>
+<button class="btn pgptog" type="button" data-pgp="encrypt" aria-pressed="false" title="${esc(t('Encrypt to the recipients’ keys and yours: only you and they can read it'))}">${PGP_I.lock}<span>${esc(t('Encrypt'))}</span></button>
+<button class="btn pgptog" type="button" data-pgp="key" aria-pressed="false" title="${esc(t('Attach your public key, so they can encrypt their replies'))}">${PGP_I.key}<span>${esc(t('My key'))}</span></button></span>`;
+// What compose asks of OpenPGP or S/MIME for this message; null when the sender has neither.
+const pgpChoice = c => pgpNow(c).own ? {sign:!!c.sign, encrypt:!!c.encrypt, attach_key:!c.smime && !!c.attachKey, smime:!!c.smime} : null;
+// Before Send: a signature needs the key's passphrase (or the certificate's password), and
+// encryption a key or certificate for everyone.
+async function pgpReady(){
+  const c = state.compose, box = $('c-ask'), now = pgpNow(c);
+  if (!now.own) return true;
+  if (c.encrypt && now.missing.length){ paintPgp(); say(c.smime ? t('Encryption needs a certificate for every recipient.') : t('Encryption needs a key for every recipient.'), 6000); return false; }
+  if (!c.sign || now.unlocked) return true;
+  if (box && !box.hidden && box.dataset.kind === 'pass'){
+    const field = $('c-pass');
+    if (!field?.value){ field?.focus(); return false; }
+    const ok = await pgpUnlock(now.own.fingerprint, field.value, !!$('c-pass-rem')?.checked, !!c.smime);
+    if (state.compose !== c) return false;
+    if (!ok){ box.querySelector('.pgperr').textContent = c.smime ? t('That password doesn’t open the certificate.') : t('That passphrase doesn’t open the key.'); field.select(); return false; }
+    if (c.smime) c.pgp.smime_unlocked = true; else c.pgp.unlocked = true;
+    pgpChanged(); hideComposeAsk();
+    return true;
+  }
+  if (!box) return false;
+  box.dataset.kind = 'pass';
+  const word = c.smime ? t('Password') : t('Passphrase');
+  box.innerHTML = `<span>${esc(c.smime ? t('Signing needs the password of the certificate {name}.', {name:keyName(now.own)}) : t('Signing needs the passphrase of {name}.', {name:keyName(now.own)}))}</span>
+<input type="password" id="c-pass" autocomplete="off" spellcheck="false" aria-label="${esc(word)}" placeholder="${esc(word)}">
+<label class="pgprem"><input type="checkbox" id="c-pass-rem"> ${esc(t('Remember it on this PC'))}</label>
+<button type="button" class="btn" data-act="ask-send">${esc(t('Unlock and send'))}</button><span class="pgperr"></span>`;
+  box.hidden = false;
+  $('c-pass').focus();
+  $('c-pass').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); send(); } });
+  return false;
+}
+
+/* settings: keys */
+// certs: S/MIME certificates; p12: the name of a picked .p12 waiting for its password.
+const keys_ = {list:null, certs:[], error:'', paste:false, making:false, armed:'', loading:false, p12:null, p12err:''};
+async function loadKeys(){
+  try { [keys_.list, keys_.certs] = await Promise.all([invoke('pgp_keys'), invoke('smime_certs')]); keys_.error = ''; }
+  catch (e){ keys_.error = tr(e); }
+  if (sdlg.open && setTab === 'keys') renderKeys();
+}
+const sourceText = k => k.secret ? (k.source === 'own' ? t('made in Telex') : t('imported with its secret part'))
+  : {file:t('from a file'), autocrypt:t('from their mail (Autocrypt)'), message:t('attached to a message')}[k.source] ?? k.source;
+function keyRow(k){
+  const dates = [t('made {date}', {date:dmy(parseDate(k.created))}), k.expires ? t('expires {date}', {date:dmy(parseDate(k.expires))}) : ''].filter(Boolean).join(' · ');
+  const chips = [
+    k.revoked ? `<span class="kchip bad">${esc(t('revoked'))}</span>` : '',
+    !k.secret && k.verified ? `<span class="kchip">${esc(t('confirmed'))}</span>` : '',
+    !k.secret && !k.verified ? `<span class="kchip warn">${esc(t('not confirmed'))}</span>` : '',
+    !k.can_encrypt && !k.revoked ? `<span class="kchip warn">${esc(t('can’t encrypt'))}</span>` : '',
+    k.secret && k.protected ? `<span class="kchip">${esc(k.remembered ? t('passphrase remembered') : k.unlocked ? t('unlocked until Telex closes') : t('locked'))}</span>` : '',
+    k.secret && !k.protected ? `<span class="kchip warn">${esc(t('no passphrase'))}</span>` : '',
+  ].join('');
+  const fp = esc(k.fingerprint), armed = keys_.armed === k.fingerprint;
+  const btns = [
+    `<button type="button" class="linkbtn" data-key="export" data-fp="${fp}">${esc(t('Export public key…'))}</button>`,
+    `<button type="button" class="linkbtn" data-key="copy" data-fp="${fp}">${esc(t('Copy public key'))}</button>`,
+    k.secret ? `<button type="button" class="linkbtn" data-key="secret" data-fp="${fp}">${esc(t('Back up secret key…'))}</button>` : '',
+    k.secret && (k.remembered || (k.protected && k.unlocked)) ? `<button type="button" class="linkbtn" data-key="forget" data-fp="${fp}">${esc(t('Forget passphrase'))}</button>` : '',
+    !k.secret ? `<button type="button" class="linkbtn" data-key="verify" data-fp="${fp}" data-on="${!k.verified}">${esc(k.verified ? t('Take back confirmation') : t('Confirm key'))}</button>` : '',
+    `<button type="button" class="linkbtn${armed ? ' danger' : ''}" data-key="delete" data-fp="${fp}">${esc(armed ? (k.secret ? t('Delete for good? Mail encrypted to it can’t be read then') : t('Delete for good?')) : t('Delete…'))}</button>`,
+  ].join('');
+  return `<li class="krow"><div class="khead"><b>${esc(k.user_ids[0] || k.emails[0] || '')}</b>${chips}</div>
+${k.user_ids.length > 1 ? `<div class="kuids">${k.user_ids.slice(1).map(esc).join('<br>')}</div>` : ''}
+<code class="kfp" title="${esc(t('Fingerprint'))}">${esc(fpText(k.fingerprint))}</code>
+<div class="kmeta">${esc([k.algorithm, dates, sourceText(k)].filter(Boolean).join(' · '))}</div>
+<div class="kbtns">${btns}</div></li>`;
+}
+// An S/MIME certificate on the keys page.
+function certRow(c){
+  const chips = [
+    c.expired ? `<span class="kchip bad">${esc(t('expired'))}</span>` : '',
+    !c.secret && c.trusted ? `<span class="kchip">${esc(t('from a trusted authority'))}</span>` : '',
+    !c.secret && !c.trusted && c.verified ? `<span class="kchip">${esc(t('confirmed'))}</span>` : '',
+    !c.secret && !c.trusted && !c.verified ? `<span class="kchip warn">${esc(t('not confirmed'))}</span>` : '',
+    !c.can_encrypt && !c.expired ? `<span class="kchip warn">${esc(t('can’t encrypt'))}</span>` : '',
+    c.secret && c.protected ? `<span class="kchip">${esc(c.remembered ? t('password remembered') : c.unlocked ? t('unlocked until Telex closes') : t('locked'))}</span>` : '',
+    c.secret && !c.protected ? `<span class="kchip warn">${esc(t('no password'))}</span>` : '',
+  ].join('');
+  const fp = esc(c.fingerprint), armed = keys_.armed === c.fingerprint;
+  const btns = [
+    `<button type="button" class="linkbtn" data-cert="export" data-fp="${fp}">${esc(t('Export certificate…'))}</button>`,
+    c.secret && (c.remembered || (c.protected && c.unlocked)) ? `<button type="button" class="linkbtn" data-cert="forget" data-fp="${fp}">${esc(t('Forget password'))}</button>` : '',
+    !c.secret && !c.trusted ? `<button type="button" class="linkbtn" data-cert="verify" data-fp="${fp}" data-on="${!c.verified}">${esc(c.verified ? t('Take back confirmation') : t('Confirm certificate'))}</button>` : '',
+    `<button type="button" class="linkbtn${armed ? ' danger' : ''}" data-cert="delete" data-fp="${fp}">${esc(armed ? (c.secret ? t('Delete for good? Mail encrypted to it can’t be read then') : t('Delete for good?')) : t('Delete…'))}</button>`,
+  ].join('');
+  const source = c.secret ? t('imported with its private key') : {file:t('from a file'), message:t('from their signed mail')}[c.source] ?? c.source;
+  const meta = [c.algorithm, t('issued by {issuer}', {issuer:c.issuer}), t('valid {from} to {to}', {from:dmy(parseDate(c.not_before)), to:dmy(parseDate(c.not_after))}), source];
+  return `<li class="krow"><div class="khead"><b>${esc(c.name)}</b>${chips}</div>
+<code class="kfp" title="${esc(t('Fingerprint (SHA-256)'))}">${esc(fpText(c.fingerprint))}</code>
+<div class="kmeta">${esc(meta.filter(Boolean).join(' · '))}</div>
+<div class="kbtns">${btns}</div></li>`;
+}
+function certsHtml(){
+  const own = keys_.certs.filter(c => c.secret), others = keys_.certs.filter(c => !c.secret);
+  let html = `<h3 class="rh">${esc(t('Certificates (S/MIME)'))}</h3>`;
+  html += own.length ? `<ul class="klist">${own.map(certRow).join('')}</ul>`
+    : `<p class="dnote">${esc(t('With a certificate of your own (a .p12 or .pfx file from your company or a certificate authority) you sign mail and read mail encrypted to you, as Outlook and Apple Mail do.'))}</p>`;
+  if (others.length) html += `<ul class="klist">${others.map(certRow).join('')}</ul>`;
+  html += `<p class="dnote">${esc(t('Other people’s certificates come with their signed mail. Windows says which authorities it trusts; others you confirm by comparing the fingerprint.'))}</p>`;
+  html += `<div class="sbtns"><button type="button" class="btn" data-cert="pick">${esc(t('Import certificate…'))}</button></div>`;
+  if (keys_.p12) html += `<div class="kpaste"><div class="sgrid"><label class="lab" for="k-p12">${esc(t('Password'))}</label><div><input type="password" id="k-p12" class="sfield" autocomplete="off" spellcheck="false" aria-describedby="k-p12-note"></div></div>
+<p class="dnote" id="k-p12-note">${esc(t('The password of {file}. Telex keeps the key locked with it.', {file:keys_.p12}))}</p>
+<label class="sopt"><input type="checkbox" id="k-p12-rem" checked><span>${esc(t('Remember the password on this PC (the system’s password store)'))}</span></label>
+<div class="sbtns"><button type="button" class="btn primary" data-cert="p12-go">${esc(t('Import'))}</button><button type="button" class="btn" data-cert="p12-cancel">${esc(t('Cancel'))}</button><span class="pgperr" role="alert">${esc(keys_.p12err)}</span></div></div>`;
+  return html;
+}
+function renderKeys(){
+  const el = $('s-keys'), p = pref();
+  if (!keys_.list){
+    el.innerHTML = keys_.error ? `<p class="derr">${esc(keys_.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
+    if (!keys_.error && !keys_.loading){ keys_.loading = true; loadKeys().finally(() => { keys_.loading = false; }); }
+    return;
+  }
+  const own = keys_.list.filter(k => k.secret), others = keys_.list.filter(k => !k.secret);
+  const ids = allIdentities(), keyed = new Set(own.flatMap(k => k.emails));
+  const free = ids.filter(i => !keyed.has(i.email.toLowerCase()));
+  const pick = free.length ? free : ids;
+  let html = `<h3 class="rh">${esc(t('Your keys'))}</h3>`;
+  html += own.length ? `<ul class="klist">${own.map(keyRow).join('')}</ul>`
+    : `<p class="dnote">${esc(t('With a key of your own you can sign your mail and read mail encrypted to you. Make one, or import the one you have (with its secret part).'))}</p>`;
+  html += `<details class="kmake"${own.length ? '' : ' open'}><summary>${esc(t('Make a key'))}</summary>
+<div class="sgrid">
+<label class="lab" for="k-who">${esc(t('For'))}</label><div><select id="k-who" class="sselect">${pick.map(i => `<option value="${i.id}">${esc(i.name ? `${i.name} <${i.email}>` : i.email)}</option>`).join('')}</select></div>
+<label class="lab" for="k-kind">${esc(t('Kind'))}</label><div><select id="k-kind" class="sselect"><option value="ed25519">${esc(t('Ed25519 (small and fast; recommended)'))}</option><option value="rsa3072">${esc(t('RSA 3072 (for old programs)'))}</option></select></div>
+<label class="lab" for="k-pass">${esc(t('Passphrase'))}</label><div><input type="password" id="k-pass" class="sfield" autocomplete="new-password" spellcheck="false"></div>
+<label class="lab" for="k-pass2">${esc(t('Once more'))}</label><div><input type="password" id="k-pass2" class="sfield" autocomplete="new-password" spellcheck="false"></div>
+</div>
+<label class="sopt"><input type="checkbox" id="k-rem" checked><span>${esc(t('Remember the passphrase on this PC (the system’s password store)'))}</span></label>
+<p class="dnote">${esc(t('The key is kept in the mail base, locked with the passphrase. Without the passphrase, mail encrypted to the key can’t be read, so keep it somewhere safe.'))}</p>
+<div class="sbtns"><button type="button" class="btn primary" data-key="make"${keys_.making || !ids.length ? ' disabled' : ''}>${esc(keys_.making ? t('Making the key…') : t('Make key'))}</button></div></details>`;
+  html += `<h3 class="rh">${esc(t('Other people’s keys'))}</h3>`;
+  html += others.length ? `<ul class="klist">${others.map(keyRow).join('')}</ul>`
+    : `<p class="dnote">${esc(t('Keys come from files you import, and from the mail of people whose programs send theirs (Autocrypt).'))}</p>`;
+  html += `<div class="sbtns"><button type="button" class="btn" data-key="import">${esc(t('Import key file…'))}</button><button type="button" class="btn" data-key="paste">${esc(t('Paste a key…'))}</button></div>`;
+  if (keys_.paste) html += `<div class="kpaste"><textarea id="k-text" class="sfield" rows="6" spellcheck="false" aria-label="${esc(t('Key'))}" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"></textarea>
+<div class="sbtns"><button type="button" class="btn primary" data-key="paste-go">${esc(t('Import'))}</button><button type="button" class="btn" data-key="paste-cancel">${esc(t('Cancel'))}</button></div></div>`;
+  html += certsHtml();
+  html += `<h3 class="rh">${esc(t('Sending'))}</h3><div class="sopts">
+<label class="sopt"><input type="checkbox" id="k-sign"${p.pgp_sign ? ' checked' : ''}><span>${esc(t('Sign new messages'))}</span></label>
+<label class="sopt"><input type="checkbox" id="k-autocrypt"${p.pgp_autocrypt !== false ? ' checked' : ''}><span>${esc(t('Send my public key along in each message’s header (Autocrypt)'))}</span></label></div>
+<p class="dnote">${esc(t('Compose has Sign and Encrypt for each message. A reply to encrypted mail starts encrypted, and Telex remembers what you chose for each person. Encrypted mail is decrypted only while it is open; its text is never kept or searched.'))}</p>`;
+  html += `<p class="derr" role="alert">${esc(keys_.error)}</p>`;
+  el.innerHTML = html;
+}
+async function keyWork(run){
+  keys_.error = '';
+  try { await run(); } catch (e){ keys_.error = tr(e); }
+  pgpChanged();
+  await loadKeys();
+}
+$('s-keys').addEventListener('click', async e => {
+  const b = e.target.closest('[data-key]');
+  if (!b || b.disabled) return;
+  const fp = b.dataset.fp, act = b.dataset.key;
+  if (act !== 'delete') keys_.armed = '';
+  if (act === 'export' || act === 'secret'){
+    const secret = act === 'secret';
+    keyWork(async () => {
+      const path = await invoke('pgp_export', {fingerprint:fp, secret, words:{title:secret ? t('Back up secret key') : t('Export public key'), filter:t('OpenPGP keys'), file_name:`${secret ? 'secret' : 'public'}-${fp.slice(-16)}.asc`}});
+      if (path) say(secret ? t('Saved to {path}. It is locked with the key’s passphrase.', {path}) : t('Saved to {path}.', {path}), 8000);
+    });
+  } else if (act === 'copy'){
+    try { if (await copyText(await invoke('pgp_public_text', {fingerprint:fp}))) say(t('Public key copied.'), 2500); } catch (err){ say(tr(err), 8000); }
+  } else if (act === 'forget') keyWork(async () => { await invoke('pgp_forget', {fingerprint:fp}); say(t('Telex will ask for the passphrase again.'), 5000); });
+  else if (act === 'verify') keyWork(() => invoke('pgp_verify', {fingerprint:fp, verified:b.dataset.on === 'true'}));
+  else if (act === 'delete'){
+    if (keys_.armed !== fp){ keys_.armed = fp; renderKeys(); return; }
+    keys_.armed = '';
+    keyWork(async () => { await invoke('pgp_delete', {fingerprint:fp}); say(t('Key deleted.'), 4000); });
+  } else if (act === 'import') keyWork(async () => {
+    const r = await invoke('pgp_import', {words:{title:t('Import key file'), filter:t('OpenPGP keys')}});
+    if (r) say(importedText(r), 6000);
+  });
+  else if (act === 'paste'){ keys_.paste = true; renderKeys(); $('k-text')?.focus(); }
+  else if (act === 'paste-cancel'){ keys_.paste = false; renderKeys(); }
+  else if (act === 'paste-go'){
+    const text = $('k-text')?.value ?? '';
+    keyWork(async () => { const r = await invoke('pgp_import_text', {text}); keys_.paste = false; say(importedText(r), 6000); });
+  } else if (act === 'make'){
+    const pass = $('k-pass').value, again = $('k-pass2').value, who = allIdentities().find(i => i.id === Number($('k-who').value));
+    if (!who) return;
+    if (!pass){ keys_.error = t('Choose a passphrase for the key.'); renderKeys(); return; }
+    if (pass !== again){ keys_.error = t('The two passphrases differ.'); renderKeys(); $('k-pass2')?.focus(); return; }
+    const kind = $('k-kind').value === 'rsa3072' ? 'rsa3072' : 'ed25519', remember = $('k-rem').checked;
+    keys_.making = true; renderKeys();
+    await keyWork(async () => {
+      const made = await invoke('pgp_generate', {name:who.name, email:who.email, passphrase:pass, kind, remember});
+      say(t('Made a key for {email}.', {email:who.email}), 6000);
+      return made;
+    });
+    keys_.making = false; renderKeys();
+  }
+});
+const certImported = r => {
+  const n = r.added.length + r.updated.length;
+  if (!n) return r.unchanged.length ? t('Telex had that certificate already.') : t('Nothing was imported.');
+  return tn(n, 'Imported the certificate of {names}.', 'Imported {n} certificates: {names}.', {names:[...r.added, ...r.updated].map(keyName).join(', ')});
+};
+async function importP12(){
+  const field = $('k-p12');
+  keys_.p12err = '';
+  let r;
+  try { r = await invoke('smime_import_p12', {password:field?.value ?? '', remember:!!$('k-p12-rem')?.checked}); }
+  catch (e){ keys_.p12err = tr(e); renderKeys(); $('k-p12')?.focus(); return; }
+  if (!r){ keys_.p12err = t('That password doesn’t open the file.'); renderKeys(); $('k-p12')?.select(); return; }
+  keys_.p12 = null;
+  say(certImported(r), 6000);
+  pgpChanged();
+  await loadKeys();
+}
+$('s-keys').addEventListener('click', async e => {
+  const b = e.target.closest('[data-cert]');
+  if (!b || b.disabled) return;
+  const fp = b.dataset.fp, act = b.dataset.cert;
+  if (act !== 'delete') keys_.armed = '';
+  if (act === 'pick') keyWork(async () => {
+    const r = await invoke('smime_pick', {words:{title:t('Import certificate'), filter:t('Certificates (.p12, .pfx, .cer, .pem)')}});
+    if (!r) return;
+    if (r.kind === 'password'){ keys_.p12 = r.name; keys_.p12err = ''; setTimeout(() => $('k-p12')?.focus(), 0); }
+    else say(certImported(r.report), 6000);
+  });
+  else if (act === 'p12-go') importP12();
+  else if (act === 'p12-cancel'){ keys_.p12 = null; keys_.p12err = ''; invoke('smime_cancel_p12').catch(() => {}); renderKeys(); }
+  else if (act === 'export') keyWork(async () => {
+    const path = await invoke('smime_export', {fingerprint:fp, words:{title:t('Export certificate'), filter:t('Certificates'), file_name:`certificate-${fp.slice(0, 16)}.cer`}});
+    if (path) say(t('Saved to {path}.', {path}), 8000);
+  });
+  else if (act === 'forget') keyWork(async () => { await invoke('smime_forget', {fingerprint:fp}); say(t('Telex will ask for the password again.'), 5000); });
+  else if (act === 'verify') keyWork(() => invoke('smime_verify', {fingerprint:fp, verified:b.dataset.on === 'true'}));
+  else if (act === 'delete'){
+    if (keys_.armed !== fp){ keys_.armed = fp; renderKeys(); return; }
+    keys_.armed = '';
+    keyWork(async () => { await invoke('smime_delete', {fingerprint:fp}); say(t('Certificate deleted.'), 4000); });
+  }
+});
+$('s-keys').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'k-p12'){ e.preventDefault(); importP12(); }
+});
+$('s-keys').addEventListener('change', e => {
+  if (e.target.id === 'k-sign') changeSettings({pgp_sign:e.target.checked});
+  else if (e.target.id === 'k-autocrypt') changeSettings({pgp_autocrypt:e.target.checked});
+});
 
 /* ---------- updates ---------- */
 // Only release builds can update themselves. Telex checks once a day if the user said yes
@@ -5787,6 +7694,9 @@ const KEYS = [
   {g:'read', k:'Q', d:N_('open or fold the quoted mail'), doc:'Q', run:true},
   {g:'read', k:'→ ←', d:N_('with threads on: expand or collapse a thread'), doc:'→ / ←'},
   {g:'read', k:'Ctrl+C', d:N_('the selected messages, or the open one, as Markdown for notes or an AI chat'), doc:'Ctrl+C'},
+  {g:'read', k:'Ctrl+S', d:N_('save as .eml files, as they came'), doc:'Ctrl+S'},
+  {g:'read', k:'Ctrl+P', d:N_('print, or save as PDF from the … above the message'), doc:'Ctrl+P'},
+  {g:'read', k:'Ctrl+U', d:N_('the message’s source and all its headers'), doc:'Ctrl+U'},
   {g:'select', k:'Shift+↑ ↓', d:N_('one more or one fewer'), doc:'Shift+↑ / ↓'},
   {g:'select', k:'Shift+Home End', d:N_('everything to the top or bottom'), doc:'Shift+↑ / ↓'},
   {g:'select', k:'Ctrl+click', d:N_('one more message'), doc:'Ctrl+click, Shift+click'},
@@ -5794,6 +7704,7 @@ const KEYS = [
   {g:'select', k:'Ctrl+A', d:N_('the whole list'), doc:'Ctrl+A'},
   {g:'select', k:'Esc', d:N_('just the one message again'), doc:'Esc'},
   {g:'act', k:'F', d:N_('flag or unflag'), doc:'F', run:true},
+  {g:'act', k:'1 2 3 4 5', d:N_('the first five tags on or off'), doc:'1 2 3 4 5'},
   {g:'act', k:'U', d:N_('read or unread'), doc:'U', run:true},
   {g:'act', k:'click', d:N_('the dot or the flag at the start of a row: read or unread, flagged or not'), doc:'click the dot / flag'},
   {g:'act', k:'Shift+U', d:N_('everything in the folder read'), doc:'Shift+U'},
@@ -5808,6 +7719,7 @@ const KEYS = [
   {g:'write', k:'Shift+F', d:N_('forward'), doc:'Shift+F', run:true},
   {g:'write', k:'E', d:N_('edit a draft or a message in the Outbox'), doc:'E', run:true},
   {g:'write', k:'Ctrl+Enter', d:N_('send'), doc:'Ctrl+Enter'},
+  {g:'write', k:'Ctrl+Shift+Enter', d:N_('send later: in an hour, tomorrow, Monday or when you pick'), doc:'Ctrl+Shift+Enter'},
   {g:'write', k:'Esc', d:N_('save as a draft and close'), doc:'Esc'},
   {g:'write', k:'Ctrl+B I U K', d:N_('bold, italic, underline, link in HTML'), doc:'Ctrl+B / I / U / K'},
   {g:'write', k:'F7', d:N_('the next spelling mistake, with suggestions; or click it'), doc:'F7'},
@@ -5820,6 +7732,7 @@ const KEYS = [
   {g:'tree', k:'Shift+F10 right-click', d:N_('a folder’s or account’s menu'), doc:'F2, Shift+F10'},
   {g:'tree', k:'Alt+↑ ↓', d:N_('an account up or down'), doc:'Alt+↑ / ↓'},
   {g:'window', k:'Ctrl+,', d:N_('settings'), doc:'Ctrl+,', run:true},
+  {g:'window', k:'B', d:N_('the address book: contacts and groups'), doc:'B', run:true},
   {g:'window', k:'Ctrl+= − 0', d:N_('larger, smaller or normal text'), doc:'Ctrl+= / Ctrl+− / Ctrl+0'},
   {g:'window', k:'? F1', d:N_('this help'), doc:'? / F1'},
 ];
@@ -5831,16 +7744,23 @@ const HELP_TIPS = [
   N_('Right-click the column headings for full dates and the Size column.'),
   N_('Right-click a folder › Keep in view, and it stays out of “more”.'),
   N_('Folders on this PC keep mail off the server; right-click one to save it as mbox.'),
+  N_('Drag messages out of the window onto the desktop or into a folder: they land there as .eml files.'),
   N_('Drop .eml or mbox files on a folder on this PC to bring that mail in.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),
+  N_('The clock next to Send sends a message later; it waits in the Outbox, which says when it goes. Telex sends it then, or at its next start if it was closed.'),
+  N_('Mail from a mailing list has Unsubscribe above it: one click where the list takes it, else a mail or the list’s page, after saying where. Never in Spam.'),
+  N_('In an HTML message, paste a picture or drop one where it should go; it goes in the text, not as a file. Settings › Writing says how large.'),
+  N_('A folder can have its own greeting and reply header: right-click it › Templates….'),
   N_('Spelling checks every ticked language at once; the end of the compose bar shows them.'),
   N_('Rules › “New rule for mail from …” starts a rule from the selected message.'),
   N_('The storage bar in the status bar shows how full the server is; click it for more.'),
   N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),
   N_('Errors and notes from rules show above the message they are about.'),
+  N_('The person button by a sender adds them to the address book. Type a group’s name in To and it goes in as its people.'),
+  N_('Tags are colored labels, several to a message: Settings › Tags names and colors them. Search with tag:work or is:tagged.'),
 ];
-const OPERATORS = 'from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
+const OPERATORS = 'from: to: subject: is:unread is:flagged tag:work is:tagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
 const MOUSE = {click:N_('click|mouse'), 'double-click':N_('double-click|mouse'), 'right-click':N_('right-click|mouse'), drag:N_('drag|mouse')};
 // "Shift+R" as keycaps; a mouse word as a word.
 const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/)
@@ -5882,7 +7802,7 @@ function renderHelp(){
       + '</section>';
   }).join('');
   const tips = HELP_TIPS.filter(tip => !words.length || hit(both(tip)));
-  helpBody.innerHTML = (cols ? `<div class="hcols" role="listbox" aria-label="${esc(t('Keys'))}">${cols}</div>` : '')
+  helpBody.innerHTML = (cols ? `<div class="hcols" role="listbox" aria-label="${esc(t('Keys|keyboard'))}">${cols}</div>` : '')
     + (tips.length ? `<section class="htips"><h3>${esc(t('Good to know'))}</h3><ul>${tips.map(tip => `<li>${esc(t(tip))}</li>`).join('')}</ul></section>` : '')
     + (!cols && !tips.length ? `<p class="hnone">${esc(t('No key or tip matches “{q}”.', {q:helpQ.value.trim()}))}</p>` : '');
   helpAt(words.length ? help.shown.findIndex(r => r.run) : -1);
@@ -5979,9 +7899,18 @@ function onKey(e){
   if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
   if (document.querySelector('dialog[open]')) return; // dialogs handle their own Enter and Esc
   if (mod && e.key === ','){ e.preventDefault(); openSettings(); return; }
+  // Ctrl+S, Ctrl+P, Ctrl+U: save as .eml, print, the source; in the search box too, never the
+  // webview's own. Compose keeps them (Ctrl+U underlines).
+  if (mod && !e.shiftKey && !state.compose && ['s', 'p', 'u'].includes(e.key.toLowerCase())){
+    e.preventDefault();
+    const k = e.key.toLowerCase();
+    if (k === 's') saveMessages(); else if (k === 'p') printMessage(); else showSource();
+    return;
+  }
   const tg = e.target;
-  if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); send(); return; }
-  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
+  if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.shiftKey){ e.preventDefault(); laterMenu(); return; }
+  if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); if (e.target.id === 'c-when') sendAtPicked(); else send(); return; }
+  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', 'b', 'B', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
     if (!linkTip.hidden){ e.preventDefault(); hideLink(); return; }
     if (state.compose){ e.preventDefault(); closeCompose().then(ok => ok && say(t('Saved to Drafts.'))); return; }
@@ -6031,8 +7960,10 @@ function onKey(e){
   else if (k === 'q') toggleQuotes();
   else if (k === 'm') openPicker('move');
   else if (k === 'g') openPicker('go');
+  else if (k === 'b') openAddressBook();
   else if (k === 't') toggleThread();
   else if (k === 'o') toggleUnreadOnly();
+  else if (/^[1-5]$/.test(k) && !shift && TAGS[Number(k) - 1]) toggleTag(TAGS[Number(k) - 1].keyword);
   else if (k === 'z') undo();
   else if (k === '/') qEl.focus();
   else if (k === '?') toggleHelp();
@@ -6078,7 +8009,7 @@ async function viewerShow(){
   try { m = await full(VIEWER); } catch { closeViewer(); return false; }
   state.folder = m.folder; state.sel[m.folder] = m.id;
   selRow = {id:m.id, f:m.folder, from:m.from_name, email:m.from_email, to:m.to, subj:m.subject, date:parseDate(m.date),
-    kb:m.size_kb, unread:m.unread, flagged:m.flagged, hasAtt:m.attachments.length > 0};
+    kb:m.size_kb, unread:m.unread, flagged:m.flagged, hasAtt:m.attachments.length > 0, tags:m.tags ?? []};
   renderStatus();
   if (!state.compose) await renderPreview();
   return true;
@@ -6117,6 +8048,7 @@ async function boot(){
   sayRestored();
   loadBackups(); // whether the folders on this PC are backed up
   setTimeout(autoBackup, 60e3); setInterval(autoBackup, 60 * 60e3);
+  setTimeout(runSchedules, 30e3); setInterval(runSchedules, 60e3); // overdue ones catch up once, after the first check
   // Real accounts: check now, then as often as the settings say, quietly.
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account

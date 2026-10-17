@@ -6175,7 +6175,7 @@ dependencies = [
 
 [[package]]
 name = "telex"
-version = "0.9.11"
+version = "0.9.20"
 dependencies = [
  "chrono",
  "futures-util",
@@ -6198,7 +6198,7 @@ dependencies = [
 
 [[package]]
 name = "telex-core"
-version = "0.9.11"
+version = "0.9.20"
 dependencies = [
  "aes",
  "ammonia",
@@ -6261,7 +6261,7 @@ dependencies = [
 
 [[package]]
 name = "telex-i18n"
-version = "0.9.11"
+version = "0.9.20"
 dependencies = [
  "serde_json",
 ]

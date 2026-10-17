@@ -10,8 +10,11 @@
    surface (list, message, fields), fg, muted (dates, labels), faint (the quietest text, still AA),
    line and line-soft (dividers), field (borders of fields and buttons), accent and accent-fg (links,
    counts, focus, the selected row in the focused list), sel (selected row and folder), hover, flag,
-   warn-*, note-* (errors, notes in Spam), chip-* (rule notes, tags), img-a/img-b (loaded image
-   stand-ins), acct-0 to acct-5 (one dot color per account, by position), scrim and shadow
+   warn-*, note-* (errors, notes in Spam), chip-* (rule notes), tag-<color> and tag-<color>-fg (a tag's
+   chip and its text, for each of tags::COLORS; the -fg also draws its dot), img-a/img-b (loaded image
+   stand-ins), acct-0 to acct-5 (one dot color per account, by position), pal-1 to pal-6
+   and mark-1 to mark-4 (the HTML editor's text colors and highlights as the editor shows them; what is sent is
+   html::TEXT_COLORS and MARK_COLORS, made for white paper), scrim and shadow
   (behind and under dialogs). */
 
 :root,[data-theme="light"]{
@@ -23,6 +26,11 @@
   --flag:#c2410c; --warn-bg:#fbf0d4; --warn-fg:#6b4a00; --note-bg:#fbe3e1; --note-fg:#8a1f17; --spell:#d1242f;
   --chip-bg:#dfe6f2; --chip-fg:#2c4a80; --img-a:#c9d7ee; --img-b:#eef2f8;
   --acct-0:#2453a6; --acct-1:#0e7f63; --acct-2:#b4541a; --acct-3:#7a47b5; --acct-4:#b3305a; --acct-5:#5b6b7a;
+  --tag-red:#ffd9d4; --tag-red-fg:#9c3b38; --tag-orange:#ffddc4; --tag-orange-fg:#944600;
+  --tag-yellow:#f4e5bd; --tag-yellow-fg:#7a5800; --tag-green:#d0f1d0; --tag-green-fg:#1d6d27;
+  --tag-teal:#bdf3ee; --tag-teal-fg:#006b67; --tag-blue:#cee9ff; --tag-blue-fg:#225ea5;
+  --tag-purple:#efdeff; --tag-purple-fg:#734a9b; --tag-gray:#e6e6e6; --tag-gray-fg:#5f5d5e;
+  --pal-1:#c00000; --pal-2:#b45309; --pal-3:#15803d; --pal-4:#1d4ed8; --pal-5:#7e22ce; --pal-6:#6b7280; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(15 20 28 / .32); --shadow:rgb(15 20 28 / .22);
 }
 
@@ -35,6 +43,11 @@
   --flag:#f08a4b; --warn-bg:#352b13; --warn-fg:#f0d697; --note-bg:#3a1c1c; --note-fg:#f2b6b2; --spell:#ff6b61;
   --chip-bg:#26304a; --chip-fg:#b8c8e8; --img-a:#26365a; --img-b:#1a2233;
   --acct-0:#6f9de6; --acct-1:#4cc29f; --acct-2:#f08a4b; --acct-3:#b28be8; --acct-4:#ec7a9c; --acct-5:#9aa8b5;
+  --tag-red:#572825; --tag-red-fg:#e19790; --tag-orange:#532d0f; --tag-orange-fg:#da9e75;
+  --tag-yellow:#463600; --tag-yellow-fg:#c3ab68; --tag-green:#1e4120; --tag-green-fg:#88bc89;
+  --tag-teal:#004340; --tag-teal-fg:#62c0ba; --tag-blue:#1d395b; --tag-blue-fg:#86b0e5;
+  --tag-purple:#402e55; --tag-purple-fg:#ba9fdb; --tag-gray:#383838; --tag-gray-fg:#adadad;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(0 0 0 / .5); --shadow:rgb(0 0 0 / .5);
 }
 
@@ -48,6 +61,11 @@
   --flag:#a5361b; --warn-bg:#f5e5bb; --warn-fg:#664400; --note-bg:#f5dcd3; --note-fg:#872414; --spell:#c4321f;
   --chip-bg:#dbe7e5; --chip-fg:#1b4d5a; --img-a:#d0e0dd; --img-b:#efebe0;
   --acct-0:#1d5b6c; --acct-1:#2f7a3a; --acct-2:#a85a14; --acct-3:#6c3f99; --acct-4:#a8304f; --acct-5:#5e5a50;
+  --tag-red:#ffd9d4; --tag-red-fg:#9c3b38; --tag-orange:#ffddc4; --tag-orange-fg:#944600;
+  --tag-yellow:#f4e5bd; --tag-yellow-fg:#7a5800; --tag-green:#d0f1d0; --tag-green-fg:#1d6d27;
+  --tag-teal:#bdf3ee; --tag-teal-fg:#006b67; --tag-blue:#cee9ff; --tag-blue-fg:#225ea5;
+  --tag-purple:#efdeff; --tag-purple-fg:#734a9b; --tag-gray:#e6e6e6; --tag-gray-fg:#5f5d5e;
+  --pal-1:#c00000; --pal-2:#b45309; --pal-3:#15803d; --pal-4:#1d4ed8; --pal-5:#7e22ce; --pal-6:#6c707a; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(42 38 32 / .3); --shadow:rgb(42 38 32 / .22);
 }
 
@@ -61,6 +79,11 @@
   --flag:#b0225a; --warn-bg:#f6ebd0; --warn-fg:#634500; --note-bg:#f8dee7; --note-fg:#8a1c42; --spell:#c41f45;
   --chip-bg:#e7dff6; --chip-fg:#4a2e80; --img-a:#d9cdf1; --img-b:#f2eef9;
   --acct-0:#6034a6; --acct-1:#1f7a5f; --acct-2:#a8561a; --acct-3:#2a5aa6; --acct-4:#b0225a; --acct-5:#5c5670;
+  --tag-red:#ffd9d4; --tag-red-fg:#9c3b38; --tag-orange:#ffddc4; --tag-orange-fg:#944600;
+  --tag-yellow:#f4e5bd; --tag-yellow-fg:#7a5800; --tag-green:#d0f1d0; --tag-green-fg:#1d6d27;
+  --tag-teal:#bdf3ee; --tag-teal-fg:#006b67; --tag-blue:#cee9ff; --tag-blue-fg:#225ea5;
+  --tag-purple:#efdeff; --tag-purple-fg:#734a9b; --tag-gray:#e6e6e6; --tag-gray-fg:#5f5d5e;
+  --pal-1:#c00000; --pal-2:#b45309; --pal-3:#15803d; --pal-4:#1d4ed8; --pal-5:#7e22ce; --pal-6:#6b7280; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(34 29 46 / .32); --shadow:rgb(34 29 46 / .22);
 }
 
@@ -74,6 +97,11 @@
   --flag:#f2a65a; --warn-bg:#3a2f17; --warn-fg:#f1d79a; --note-bg:#3d2026; --note-fg:#f4b7bf; --spell:#ff7b70;
   --chip-bg:#1e3a4a; --chip-fg:#a9dcea; --img-a:#24485c; --img-b:#18303e;
   --acct-0:#6cc4dc; --acct-1:#7fd1a8; --acct-2:#f2a65a; --acct-3:#b9a3f0; --acct-4:#f08fb0; --acct-5:#a3b3c4;
+  --tag-red:#572825; --tag-red-fg:#e19790; --tag-orange:#532d0f; --tag-orange-fg:#da9e75;
+  --tag-yellow:#463600; --tag-yellow-fg:#c3ab68; --tag-green:#1e4120; --tag-green-fg:#88bc89;
+  --tag-teal:#004340; --tag-teal-fg:#62c0ba; --tag-blue:#1d395b; --tag-blue-fg:#86b0e5;
+  --tag-purple:#402e55; --tag-purple-fg:#ba9fdb; --tag-gray:#383838; --tag-gray-fg:#adadad;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(5 10 16 / .55); --shadow:rgb(0 0 0 / .5);
 }
 
@@ -87,6 +115,11 @@
   --flag:#ffc24d; --warn-bg:#2e2a0e; --warn-fg:#f2de86; --note-bg:#3a1714; --note-fg:#ffb0a6; --spell:#ff6f5e;
   --chip-bg:#133322; --chip-fg:#9ff0bd; --img-a:#1a4a2e; --img-b:#0e2416;
   --acct-0:#4fe08a; --acct-1:#7cc8ff; --acct-2:#ffc24d; --acct-3:#d0a6ff; --acct-4:#ff9eb5; --acct-5:#a8c9b4;
+  --tag-red:#572825; --tag-red-fg:#e19790; --tag-orange:#532d0f; --tag-orange-fg:#da9e75;
+  --tag-yellow:#463600; --tag-yellow-fg:#c3ab68; --tag-green:#1e4120; --tag-green-fg:#88bc89;
+  --tag-teal:#004340; --tag-teal-fg:#62c0ba; --tag-blue:#1d395b; --tag-blue-fg:#86b0e5;
+  --tag-purple:#402e55; --tag-purple-fg:#ba9fdb; --tag-gray:#383838; --tag-gray-fg:#adadad;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(0 0 0 / .6); --shadow:rgb(0 0 0 / .6);
 }
 
@@ -100,6 +133,11 @@
   --flag:#a11b00; --warn-bg:#fff0bf; --warn-fg:#3b2900; --note-bg:#ffe1dc; --note-fg:#690e04; --spell:#b80000;
   --chip-bg:#e1e9ff; --chip-fg:#001f7a; --img-a:#c2d4f7; --img-b:#eef3fd;
   --acct-0:#0033a0; --acct-1:#006b3c; --acct-2:#8a3c00; --acct-3:#5b2a99; --acct-4:#9b1240; --acct-5:#3d3d3d;
+  --tag-red:#ffe5e1; --tag-red-fg:#812a29; --tag-orange:#ffe8d6; --tag-orange-fg:#7b3400;
+  --tag-yellow:#f9eed1; --tag-yellow-fg:#634500; --tag-green:#dff6de; --tag-green-fg:#095717;
+  --tag-teal:#d1f8f4; --tag-teal-fg:#005552; --tag-blue:#ddf0ff; --tag-blue-fg:#114a89;
+  --tag-purple:#f5e8ff; --tag-purple-fg:#5d3881; --tag-gray:#efeeee; --tag-gray-fg:#4b4a4b;
+  --pal-1:#991b1b; --pal-2:#9a3412; --pal-3:#166534; --pal-4:#1e40af; --pal-5:#6b21a8; --pal-6:#4b5563; --mark-1:#fff59d; --mark-2:#c8f7c5; --mark-3:#cfe8ff; --mark-4:#ffd6e7;
   --scrim:rgb(0 0 0 / .45); --shadow:rgb(0 0 0 / .3);
 }
 
@@ -113,5 +151,10 @@
   --flag:#ffb366; --warn-bg:#2b2200; --warn-fg:#ffe28c; --note-bg:#3b0a0a; --note-fg:#ffc4bf; --spell:#ff6666;
   --chip-bg:#0a2a4f; --chip-fg:#d2e5ff; --img-a:#1c3e69; --img-b:#0c1e33;
   --acct-0:#8cc0ff; --acct-1:#6fe3a8; --acct-2:#ffb366; --acct-3:#cfa8ff; --acct-4:#ff9ec4; --acct-5:#d0d0d0;
+  --tag-red:#3f1917; --tag-red-fg:#e3a8a2; --tag-orange:#3c1d05; --tag-orange-fg:#ddad8e;
+  --tag-yellow:#322400; --tag-yellow-fg:#c9b784; --tag-green:#112e13; --tag-green-fg:#9dc59d;
+  --tag-teal:#002f2d; --tag-teal-fg:#83c8c2; --tag-blue:#102743; --tag-blue-fg:#9abbe5;
+  --tag-purple:#2d1e3e; --tag-purple-fg:#c3aedd; --tag-gray:#272626; --tag-gray-fg:#b8b8b8;
+  --pal-1:#f87171; --pal-2:#fb923c; --pal-3:#4ade80; --pal-4:#60a5fa; --pal-5:#c084fc; --pal-6:#9ca3af; --mark-1:#694800; --mark-2:#006300; --mark-3:#1a517b; --mark-4:#782f54;
   --scrim:rgb(0 0 0 / .7); --shadow:rgb(255 255 255 / .12);
 }
