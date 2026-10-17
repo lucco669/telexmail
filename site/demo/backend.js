@@ -943,6 +943,41 @@ function installTelexDemo(options) {
       }
     }
   }
+  const kbOf = (v) => {
+    const s = String(v).trim().toLowerCase().replace(/b$/, ''), n = parseFloat(s.replace(',', '.'));
+    return Number.isFinite(n) ? n * ({ m: 1024, g: 1048576 }[s.slice(-1)] ?? 1) : NaN;
+  };
+  const patternOf = (v) => {
+    const p = String(v).trim();
+    if (p.length > 1000) fail('Keep a pattern within 1,000 characters.', 'Wzorzec może mieć do 1000 znaków.');
+    try { return new RegExp([...p].map((ch) => (ch.charCodeAt(0) > 127 ? fold(ch) : ch)).join(''), 'i'); }
+    catch (e) { fail('The pattern “{value}” can\'t be used: {detail}', 'Wzorca „{value}” nie da się użyć: {detail}', { value: p, detail: e.message }); }
+  };
+  function checkWhen(r) {
+    if (!r.schedule) { if (r.on_arrival === false) fail('Pick when the rule runs: on new mail, on a schedule, or both.', 'Wybierz, kiedy reguła działa: na nowej poczcie, według harmonogramu albo obie.'); return; }
+    if (r.on_arrival === false && r.actions.some((x) => x.type === 'auto_reply' || x.type === 'forward')) fail('Automatic replies and forwards answer new mail only: let the rule run on new mail too.', 'Automatyczne odpowiedzi i przekazania działają tylko na nowej poczcie: niech reguła działa też na nowej poczcie.');
+    if (!r.schedule.folders?.length || r.schedule.folders.length > 20) fail('Pick 1–20 folders for the schedule.', 'Wybierz od 1 do 20 folderów dla harmonogramu.');
+    if (r.schedule.folders.some((k) => !folderOf(k) || (r.account && acctId(k) !== r.account))) fail('A folder of the schedule no longer exists: pick the folders again.', 'Jednego z folderów harmonogramu już nie ma: wybierz foldery ponownie.');
+  }
+  function checkConditions(r) {
+    for (const c of r.conditions) {
+      if (c.field === 'received' && !(Number.isInteger(Number(c.value)) && c.value >= 1 && c.value <= 36500)) fail('Enter a number of days, such as 30.', 'Wpisz liczbę dni, np. 30.');
+      if (c.field === 'size' && !(kbOf(c.value) >= 0)) fail('Enter a size, such as 500k or 5m.', 'Wpisz rozmiar, np. 500k lub 5m.');
+      if (c.op === 'matches') patternOf(c.value);
+    }
+  }
+  // Rules whose schedule is due (filters::due): never ran, or their period has passed.
+  function runScheduled() {
+    const period = { hour: 36e5, day: 864e5, week: 7 * 864e5 }, runs = [];
+    for (const r of rules.filter((x) => x.enabled && x.schedule)) {
+      const last = r.last_run ? Date.parse(r.last_run) : null;
+      if (last !== null && last <= nowMs() && nowMs() - last < period[r.schedule.every]) continue;
+      const ids = msgs.filter((m) => r.schedule.folders.includes(m.folder)).map((m) => m.id);
+      runs.push({ rule: r.id, name: r.name, ...runRules(ids, false, [r]) });
+      r.last_run = stamp();
+    }
+    return runs;
+  }
   function candidates(field, m) {
     const from = [m.from_email, m.from_name];
     const to = splitAddresses(`${m.to}, ${m.cc}`).flatMap((x) => {
@@ -956,10 +991,18 @@ function installTelexDemo(options) {
     if (c.field === 'header') values = Object.entries(m.headers || {}).filter(([name]) => name.toLowerCase() === (c.header || '').toLowerCase()).flatMap(([,value]) => Array.isArray(value) ? value : [String(value)]);
     if (c.field === 'attachment_name') values = m.attachments.map(a=>a.name);
     if (c.field === 'attachment_type') values = m.attachments.map(a=>a.content_type || ({pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'}[a.name.split('.').pop().toLowerCase()] || 'application/octet-stream'));
+    if (c.field === 'received') {
+      const since = nowMs() - Number(c.value) * 864e5, at = Date.parse(m.date);
+      return c.op === 'older_than' ? at < since : at >= since;
+    }
+    if (c.field === 'size') return c.op === 'larger_than' ? m.size_kb >= kbOf(c.value) : m.size_kb < kbOf(c.value);
+    if (c.field === 'state') return { read: !m.unread, unread: m.unread, flagged: m.flagged, unflagged: !m.flagged }[c.value] ?? false;
     if (c.op === 'exists') return values.length > 0;
     if (c.op === 'not_exists') return values.length === 0;
     const needle = fold(String(c.value).trim()), all = values.map(fold);
-    const hit = (s) => (c.op === 'is' ? s === needle : c.op === 'starts_with' ? s.startsWith(needle) : c.op === 'ends_with' ? s.endsWith(needle) : s.includes(needle));
+    // Patterns see the folded text too; JavaScript's RegExp stands in for the regex crate.
+    const pattern = c.op === 'matches' ? patternOf(c.value) : null;
+    const hit = (s) => (pattern ? pattern.test(s) : c.op === 'is' ? s === needle : c.op === 'starts_with' ? s.startsWith(needle) : c.op === 'ends_with' ? s.endsWith(needle) : s.includes(needle));
     return c.op === 'not_contains' ? !all.some(hit) : all.some(hit);
   }
   const ruleMatches = (r, m) => (r.match_all ? r.conditions.every((c) => conditionMatches(c, m)) : r.conditions.some((c) => conditionMatches(c, m)));
@@ -986,9 +1029,9 @@ function installTelexDemo(options) {
     return true;
   }
   // Run the enabled rules, top to bottom, on these messages; each one they change gets a note.
-  function runRules(ids, arrival) {
+  function runRules(ids, arrival, only = null) {
     const report = { matched: 0, moved: 0, replied: 0, copied:0, forwarded:0, problems: [] };
-    const enabled = rules.filter((r) => r.enabled);
+    const enabled = only ?? rules.filter((r) => r.enabled && (!arrival || r.on_arrival !== false));
     for (const id of ids) {
       const m = byId(id);
       if (!m || !enabled.length) continue;
@@ -1031,9 +1074,10 @@ function installTelexDemo(options) {
     return report;
   }
   function saveRule({ rule: r }) {
-    checkRule(r);
+    checkRule(r); checkConditions(r); checkWhen(r);
     const clean = { id: r.id | 0, name: String(r.name).trim(), enabled: r.enabled !== false, account: r.account || null, match_all: r.match_all !== false,
-      conditions: r.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value, ...(c.field === 'header' ? {header:c.header} : {}) })), actions: r.actions.map((x) => ({ ...x })), stop: !!r.stop };
+      conditions: r.conditions.map((c) => ({ field: c.field, op: c.op, value: c.value, ...(c.field === 'header' ? {header:c.header} : {}) })), actions: r.actions.map((x) => ({ ...x })), stop: !!r.stop,
+      on_arrival: r.on_arrival !== false, ...(r.schedule ? { schedule: clone(r.schedule) } : {}), last_run: rules.find((x) => x.id === (r.id | 0))?.last_run ?? null };
     if (!clean.id) { clean.id = rules.reduce((n, x) => Math.max(n, x.id), 0) + 1; rules.push(clean); }
     else {
       const i = rules.findIndex((x) => x.id === clean.id);
@@ -1433,6 +1477,7 @@ function installTelexDemo(options) {
     move_rule: moveRule,
     move_account: moveAccount,
     run_rules: ({ folder }) => { needFolder(folder); return runRules(msgs.filter((m) => m.folder === folder).map((m) => m.id), false); },
+    run_scheduled_rules: () => runScheduled(),
     save_identity: saveIdentity,
     delete_identity: deleteIdentity,
     get_settings: settingsView,

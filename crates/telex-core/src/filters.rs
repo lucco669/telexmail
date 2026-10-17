@@ -6,15 +6,23 @@
 //! that says which rule did what. Moves and flags go to the server like the user's own
 //! changes. Auto-replies only answer new mail, and follow RFC 3834 so they never answer
 //! mailing lists, bulk mail, other robots or the same sender twice in a few days.
+//!
+//! A rule can also run on a schedule (every hour, day or week) over folders the user picks,
+//! besides new mail or instead of it: "move read mail older than 30 days from the Inbox to
+//! Archive". Scheduled runs happen while Telex runs (the window's timer asks [`run_scheduled`]
+//! every minute), catch up once when overdue, and like Run now never answer or forward mail.
 
 use std::cell::OnceCell;
 use std::collections::HashMap;
 
-use chrono::{DateTime, Local, TimeDelta};
+use chrono::{DateTime, Local, NaiveDateTime, TimeDelta, Timelike};
+use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
 use crate::mime::auto_reply_blocker;
-use crate::model::{account_of, Account, FolderKind, Message, MessageId, OutgoingDraft};
+use crate::model::{
+    account_of, Account, FolderKind, Message, MessageId, MessageSummary, OutgoingDraft,
+};
 use crate::smtp::{self, Originals};
 use crate::store::{MailStore, StoreError, LOCAL_ID};
 use crate::tr;
@@ -40,11 +48,69 @@ pub struct Rule {
     /// Later rules don't run on a message this one matched.
     #[serde(default)]
     pub stop: bool,
+    /// Runs on mail as it arrives in an Inbox (every rule from before schedules does).
+    #[serde(default = "yes")]
+    pub on_arrival: bool,
+    /// Runs on a schedule too, or instead, over these folders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<Schedule>,
+    /// When the schedule last ran it, local time; none before its first run. The store keeps
+    /// it: saving a rule leaves it as it was.
+    #[serde(default)]
+    pub last_run: Option<NaiveDateTime>,
+}
+
+impl Default for Rule {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            name: String::new(),
+            enabled: true,
+            account: None,
+            match_all: true,
+            conditions: Vec::new(),
+            actions: Vec::new(),
+            stop: false,
+            on_arrival: true,
+            schedule: None,
+            last_run: None,
+        }
+    }
 }
 
 fn yes() -> bool {
     true
 }
+
+/// When a rule runs by itself besides new mail, and on which folders.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Schedule {
+    pub every: Every,
+    /// Folder keys ("account/folder"): the rule's account's, or for a rule on every account,
+    /// any account's and the folders on this PC.
+    pub folders: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Every {
+    Hour,
+    Day,
+    Week,
+}
+
+impl Every {
+    pub fn period(self) -> TimeDelta {
+        match self {
+            Every::Hour => TimeDelta::hours(1),
+            Every::Day => TimeDelta::days(1),
+            Every::Week => TimeDelta::weeks(1),
+        }
+    }
+}
+
+/// At most this many folders on one rule's schedule.
+pub const SCHEDULE_FOLDERS: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Condition {
@@ -70,6 +136,20 @@ pub enum Field {
     Header,
     AttachmentName,
     AttachmentType,
+    /// When the message arrived (the server's INTERNALDATE, else its Date): `OlderThan` or
+    /// `NewerThan` a number of days.
+    Received,
+    /// `LargerThan` or `SmallerThan` a size: 500k, 5m (KB without a unit), as in search.
+    Size,
+    /// `Is` read, unread, flagged or unflagged.
+    State,
+}
+
+impl Field {
+    /// The fields whose conditions compare text.
+    fn is_text(self) -> bool {
+        !matches!(self, Field::Received | Field::Size | Field::State)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -82,7 +162,39 @@ pub enum Op {
     EndsWith,
     Exists,
     NotExists,
+    /// A regular expression, found anywhere in the text unless anchored with ^ or $.
+    Matches,
+    OlderThan,
+    NewerThan,
+    LargerThan,
+    SmallerThan,
 }
+
+impl Op {
+    /// Whether a condition on `field` can compare this way.
+    fn fits(self, field: Field) -> bool {
+        match field {
+            Field::Received => matches!(self, Op::OlderThan | Op::NewerThan),
+            Field::Size => matches!(self, Op::LargerThan | Op::SmallerThan),
+            Field::State => self == Op::Is,
+            _ => !matches!(
+                self,
+                Op::OlderThan | Op::NewerThan | Op::LargerThan | Op::SmallerThan
+            ),
+        }
+    }
+}
+
+/// The longest pattern a condition takes, in characters, and how big its compiled form may
+/// grow (bytes; the regex crate's own limit is 10 MB). The regex crate's engines take linear
+/// time on any text, never backtracking, and these keep a pattern's memory and start-up small,
+/// so one rule can't stall a check.
+pub const PATTERN_LENGTH: usize = 1_000;
+const PATTERN_SIZE: usize = 1 << 20;
+/// How deeply groups and repetitions may nest.
+const PATTERN_NESTING: u32 = 64;
+/// Most days an age condition takes: a hundred years.
+const MAX_DAYS: i64 = 36_500;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -120,11 +232,11 @@ impl Rule {
                 "Dodaj co najmniej jeden warunek."
             ));
         }
-        if self
-            .conditions
-            .iter()
-            .any(|c| c.value.trim().is_empty() && !matches!(c.op, Op::Exists | Op::NotExists))
-        {
+        if self.conditions.iter().any(|c| {
+            c.field.is_text()
+                && c.value.trim().is_empty()
+                && !matches!(c.op, Op::Exists | Op::NotExists)
+        }) {
             return Err(tr!(
                 "Every condition needs some text to look for.",
                 "Każdy warunek potrzebuje szukanego tekstu."
@@ -152,6 +264,7 @@ impl Rule {
                     "Wpisz nazwę nagłówka, np. List-Id lub X-Priority."
                 ));
             }
+            condition.check()?;
         }
         if self.actions.is_empty() {
             return Err(tr!(
@@ -257,33 +370,305 @@ impl Rule {
                 Action::MarkRead | Action::Flag | Action::Delete => {}
             }
         }
+        self.check_schedule(accounts, account)
+    }
+
+    /// When the rule runs: on new mail, on a schedule over folders that exist, or both.
+    fn check_schedule(
+        &self,
+        accounts: &[Account],
+        account: Option<&Account>,
+    ) -> Result<(), String> {
+        let Some(schedule) = &self.schedule else {
+            if self.on_arrival {
+                return Ok(());
+            }
+            return Err(tr!(
+                "Pick when the rule runs: on new mail, on a schedule, or both.",
+                "Wybierz, kiedy reguła działa: na nowej poczcie, według harmonogramu albo obie."
+            ));
+        };
+        if !self.on_arrival
+            && self
+                .actions
+                .iter()
+                .any(|a| matches!(a, Action::AutoReply { .. } | Action::Forward { .. }))
+        {
+            return Err(tr!(
+                "Automatic replies and forwards answer new mail only: let the rule run on new mail too.",
+                "Automatyczne odpowiedzi i przekazania działają tylko na nowej poczcie: niech reguła działa też na nowej poczcie."
+            ));
+        }
+        if schedule.folders.is_empty() || schedule.folders.len() > SCHEDULE_FOLDERS {
+            return Err(tr!(
+                "Pick 1–20 folders for the schedule.",
+                "Wybierz od 1 do 20 folderów dla harmonogramu."
+            ));
+        }
+        for key in &schedule.folders {
+            // A rule of one account runs on that account's mail only, as on new mail.
+            let owner = account_of(key);
+            let fits = account.is_none_or(|a| a.id == owner);
+            let exists = accounts
+                .iter()
+                .find(|a| a.id == owner)
+                .and_then(|a| a.folders.iter().find(|f| &a.folder_key(&f.id) == key))
+                .is_some_and(|f| f.kind != FolderKind::Outbox);
+            if !fits || !exists {
+                return Err(tr!(
+                    "A folder of the schedule no longer exists: pick the folders again.",
+                    "Jednego z folderów harmonogramu już nie ma: wybierz foldery ponownie."
+                ));
+            }
+        }
         Ok(())
     }
 
     pub fn matches(&self, m: &Message) -> bool {
-        self.matches_folded(&Folded::new(m))
+        self.matches_raw(m, None)
     }
+    /// With the original message, for header and attachment-type conditions. A pattern that
+    /// doesn't compile matches nothing (`check` refuses it before a rule is saved).
     pub fn matches_raw(&self, m: &Message, raw: Option<&[u8]>) -> bool {
-        self.matches_folded(&Folded::with_raw(m, raw))
+        Ready::new(self).is_ok_and(|ready| ready.matches(&Folded::with_raw(m, raw)))
+    }
+}
+
+/// A rule ready to run: its patterns compiled once for every message of a run.
+struct Ready<'r> {
+    rule: &'r Rule,
+    patterns: Vec<Option<Regex>>,
+}
+
+impl<'r> Ready<'r> {
+    fn new(rule: &'r Rule) -> Result<Self, String> {
+        let patterns = rule
+            .conditions
+            .iter()
+            .map(|c| (c.op == Op::Matches).then(|| pattern(&c.value)).transpose())
+            .collect::<Result<_, _>>()?;
+        Ok(Self { rule, patterns })
     }
 
-    fn matches_folded(&self, m: &Folded) -> bool {
-        let mut results = self.conditions.iter().map(|c| c.matches_folded(m));
-        if self.match_all {
+    fn matches(&self, m: &Folded) -> bool {
+        let mut results = (0..self.rule.conditions.len()).map(|i| self.condition(i, m));
+        if self.rule.match_all {
             results.all(|hit| hit)
         } else {
             results.any(|hit| hit)
         }
+    }
+
+    fn condition(&self, i: usize, m: &Folded) -> bool {
+        self.rule.conditions[i].matches_folded(m, self.patterns[i].as_ref())
+    }
+
+    /// Whether the message's summary alone (its date, size, read and flag) rules it out: a
+    /// scheduled run then never reads its text.
+    fn rules_out(&self, m: &MessageSummary, now: NaiveDateTime) -> bool {
+        let mut known = self.rule.conditions.iter().map(|c| c.on_summary(m, now));
+        if self.rule.match_all {
+            known.any(|hit| hit == Some(false))
+        } else {
+            known.all(|hit| hit == Some(false))
+        }
+    }
+}
+
+/// Compile a condition's pattern, or say what is wrong with it. Case is ignored, and the
+/// pattern's letters with diacritics are folded like the text (ł to l, Ą to a): a pattern sees
+/// the same lowercase text without diacritics as the other ways of comparing.
+pub fn pattern(value: &str) -> Result<Regex, String> {
+    let value = value.trim();
+    if value.chars().count() > PATTERN_LENGTH {
+        return Err(tr!(
+            "Keep a pattern within 1,000 characters.",
+            "Wzorzec może mieć do 1000 znaków."
+        ));
+    }
+    // The parser on its own first: its mistakes say where they are.
+    if let Err(e) = regex_syntax::ast::parse::ParserBuilder::new()
+        .nest_limit(PATTERN_NESTING)
+        .build()
+        .parse(value)
+    {
+        let at = e.span().start.column;
+        let what = pattern_mistake(e.kind());
+        return Err(tr!(
+            "The pattern “{value}” has a mistake at character {at}: {what}.",
+            "Wzorzec „{value}” ma błąd przy znaku {at}: {what}."
+        ));
+    }
+    let folded: String = value
+        .chars()
+        .map(|c| {
+            if c.is_ascii() {
+                c.to_string()
+            } else {
+                fold(&c.to_string())
+            }
+        })
+        .collect();
+    RegexBuilder::new(&folded)
+        .case_insensitive(true)
+        .size_limit(PATTERN_SIZE)
+        .dfa_size_limit(PATTERN_SIZE)
+        .nest_limit(PATTERN_NESTING)
+        .build()
+        .map_err(|e| match e {
+            regex::Error::CompiledTooBig(_) => tr!(
+                "The pattern “{value}” is too big to check quickly: make it simpler.",
+                "Wzorzec „{value}” jest zbyt duży, by sprawdzać go szybko: uprość go."
+            ),
+            // Rare after the parser: a Unicode class this build doesn't know, say.
+            e => {
+                let detail = e.to_string();
+                let detail = detail.lines().last().unwrap_or_default().trim();
+                tr!(
+                    "The pattern “{value}” can't be used: {detail}",
+                    "Wzorca „{value}” nie da się użyć: {detail}"
+                )
+            }
+        })
+}
+
+/// A pattern's mistake in a few words.
+fn pattern_mistake(kind: &regex_syntax::ast::ErrorKind) -> String {
+    use regex_syntax::ast::ErrorKind as K;
+    match kind {
+        K::GroupUnclosed => tr!("a ( isn't closed", "nawias ( nie jest zamknięty"),
+        K::GroupUnopened => tr!("a ) wasn't opened", "nawias ) nie był otwarty"),
+        K::ClassUnclosed => tr!("a [ isn't closed", "nawias [ nie jest zamknięty"),
+        K::ClassRangeInvalid | K::ClassRangeLiteral => {
+            tr!(
+                "the range in [ ] is backwards or unclear",
+                "zakres w [ ] jest odwrócony lub niejasny"
+            )
+        }
+        K::RepetitionMissing => tr!(
+            "*, + or ? has nothing before it to repeat (write \\* for the character itself)",
+            "*, + lub ? nie ma przed sobą nic do powtórzenia (sam znak to \\*)"
+        ),
+        K::RepetitionCountInvalid | K::RepetitionCountUnclosed | K::RepetitionCountDecimalEmpty => {
+            tr!("a count in {{ }} isn't right", "liczba w {{ }} jest błędna")
+        }
+        K::EscapeUnrecognized | K::EscapeUnexpectedEof | K::ClassEscapeInvalid => tr!(
+            "this \\ escape isn't known (write \\\\ for a backslash)",
+            "nieznana sekwencja z \\ (sam ukośnik to \\\\)"
+        ),
+        K::NestLimitExceeded(_) => tr!("it nests too deeply", "jest zbyt głęboko zagnieżdżony"),
+        K::UnsupportedLookAround | K::UnsupportedBackreference => tr!(
+            "look-around and back-references aren't supported",
+            "odwołania wstecz i warunki (?=…) nie są obsługiwane"
+        ),
+        other => other.to_string(),
     }
 }
 
 impl Condition {
     /// Case and diacritics don't matter: "faktura" finds "Fakturą".
     pub fn matches(&self, m: &Message) -> bool {
-        self.matches_folded(&Folded::new(m))
+        match self.op {
+            // A pattern that doesn't compile matches nothing.
+            Op::Matches => {
+                pattern(&self.value).is_ok_and(|p| self.matches_folded(&Folded::new(m), Some(&p)))
+            }
+            _ => self.matches_folded(&Folded::new(m), None),
+        }
     }
 
-    fn matches_folded(&self, m: &Folded) -> bool {
+    /// Catch a condition whose value doesn't fit what it compares.
+    fn check(&self) -> Result<(), String> {
+        if !self.op.fits(self.field) {
+            return Err(tr!(
+                "One condition compares in a way its field doesn't take: pick how again.",
+                "Jeden warunek porównuje w sposób, którego jego pole nie przyjmuje: wybierz ponownie."
+            ));
+        }
+        match self.field {
+            Field::Received if self.days().is_none() => Err(tr!(
+                "Enter a number of days, such as 30.",
+                "Wpisz liczbę dni, np. 30."
+            )),
+            Field::Size if crate::list::parse_kb(&self.value).is_none() => Err(tr!(
+                "Enter a size, such as 500k or 5m.",
+                "Wpisz rozmiar, np. 500k lub 5m."
+            )),
+            Field::State if self.state().is_none() => Err(tr!(
+                "Pick read, unread, flagged or not flagged.",
+                "Wybierz: przeczytana, nieprzeczytana, z flagą lub bez flagi."
+            )),
+            _ if self.op == Op::Matches => pattern(&self.value).map(drop),
+            _ => Ok(()),
+        }
+    }
+
+    fn days(&self) -> Option<i64> {
+        self.value
+            .trim()
+            .parse()
+            .ok()
+            .filter(|d| (1..=MAX_DAYS).contains(d))
+    }
+
+    /// (unread, flagged): which of the two a state condition asks about, and the answer.
+    fn state(&self) -> Option<(bool, bool)> {
+        match self.value.trim() {
+            "unread" => Some((true, true)),
+            "read" => Some((true, false)),
+            "flagged" => Some((false, true)),
+            "unflagged" => Some((false, false)),
+            _ => None,
+        }
+    }
+
+    /// The answer for the conditions a summary can answer (date, size, read, flag).
+    fn on_summary(&self, m: &MessageSummary, now: NaiveDateTime) -> Option<bool> {
+        self.on_facts(m.date, m.size_kb, m.unread, m.flagged, now)
+    }
+
+    fn on_facts(
+        &self,
+        date: NaiveDateTime,
+        size_kb: u32,
+        unread: bool,
+        flagged: bool,
+        now: NaiveDateTime,
+    ) -> Option<bool> {
+        match self.field {
+            Field::Received => {
+                let since = now - TimeDelta::days(self.days()?);
+                Some(match self.op {
+                    Op::OlderThan => date < since,
+                    _ => date >= since,
+                })
+            }
+            Field::Size => {
+                let kb = crate::list::parse_kb(&self.value)?;
+                Some(match self.op {
+                    Op::LargerThan => u64::from(size_kb) >= kb,
+                    _ => u64::from(size_kb) < kb,
+                })
+            }
+            Field::State => {
+                let (asks_unread, yes) = self.state()?;
+                Some(if asks_unread {
+                    unread == yes
+                } else {
+                    flagged == yes
+                })
+            }
+            _ => None,
+        }
+    }
+
+    fn matches_folded(&self, m: &Folded, pattern: Option<&Regex>) -> bool {
+        if !self.field.is_text() {
+            let msg = m.m;
+            return self
+                .on_facts(msg.date, msg.size_kb, msg.unread, msg.flagged, m.now)
+                .unwrap_or(false);
+        }
         let needle = fold(self.value.trim());
         let values = m.texts(self.field, self.header.as_deref());
         let present = if matches!(
@@ -305,6 +690,9 @@ impl Condition {
             Op::Is => c == needle,
             Op::StartsWith => c.starts_with(&needle),
             Op::EndsWith => c.ends_with(&needle),
+            Op::Matches => pattern.is_some_and(|p| p.is_match(c)),
+            // `check` keeps these to the fields above.
+            Op::OlderThan | Op::NewerThan | Op::LargerThan | Op::SmallerThan => false,
             Op::Exists | Op::NotExists => unreachable!(),
         });
         if self.op == Op::NotContains {
@@ -319,6 +707,8 @@ impl Condition {
 /// asks: a long body is folded once for all of a message's rules, not once per condition.
 struct Folded<'a> {
     m: &'a Message,
+    /// The clock age conditions compare with.
+    now: NaiveDateTime,
     from: OnceCell<[String; 2]>,
     to: OnceCell<Vec<String>>,
     subject: OnceCell<String>,
@@ -334,8 +724,12 @@ impl<'a> Folded<'a> {
         Self::with_raw(m, None)
     }
     fn with_raw(m: &'a Message, raw: Option<&'a [u8]>) -> Self {
+        Self::at(m, raw, Local::now().naive_local())
+    }
+    fn at(m: &'a Message, raw: Option<&'a [u8]>, now: NaiveDateTime) -> Self {
         Self {
             m,
+            now,
             from: OnceCell::new(),
             to: OnceCell::new(),
             subject: OnceCell::new(),
@@ -449,6 +843,7 @@ impl<'a> Folded<'a> {
                     })
                     .iter(),
             ),
+            Field::Received | Field::Size | Field::State => Box::new(std::iter::empty()),
         };
         texts.map(String::as_str).collect()
     }
@@ -484,6 +879,8 @@ pub fn fold(s: &str) -> String {
 pub enum Trigger {
     Arrival,
     OnDemand,
+    /// A rule's schedule: like Run now, no auto-replies or forwards.
+    Scheduled,
 }
 
 /// What a run did, for the status bar.
@@ -504,39 +901,77 @@ enum Destination {
     Trash,
 }
 
-/// Run the enabled rules, in order, on these messages.
+/// Run the enabled rules, in order, on these messages. On new mail only the rules that run on
+/// arrival; on demand every one.
 pub fn run(
     store: &mut MailStore,
     ids: &[MessageId],
     trigger: Trigger,
     now: DateTime<Local>,
 ) -> Result<RunReport, StoreError> {
-    let rules: Vec<Rule> = store.rules()?.into_iter().filter(|r| r.enabled).collect();
+    let rules: Vec<Rule> = store
+        .rules()?
+        .into_iter()
+        .filter(|r| r.enabled && (trigger != Trigger::Arrival || r.on_arrival))
+        .collect();
     let mut report = RunReport::default();
+    let ready: Vec<Ready> = rules
+        .iter()
+        .filter_map(|rule| match Ready::new(rule) {
+            Ok(ready) => Some(ready),
+            Err(e) => {
+                report.problems.push(skipped_rule(&rule.name, &e));
+                None
+            }
+        })
+        .collect();
+    run_ready(store, &ready, ids, trigger, now, &mut report)?;
+    Ok(report)
+}
+
+/// A rule left out of a run because its pattern no longer compiles (edited by hand, or from a
+/// Telex with other limits).
+fn skipped_rule(name: &str, why: &str) -> String {
+    tr!(
+        "rule \"{name}\" was left out: {why}",
+        "reguła „{name}” została pominięta: {why}"
+    )
+}
+
+fn run_ready(
+    store: &mut MailStore,
+    rules: &[Ready],
+    ids: &[MessageId],
+    trigger: Trigger,
+    now: DateTime<Local>,
+    report: &mut RunReport,
+) -> Result<(), StoreError> {
     if rules.is_empty() {
-        return Ok(report);
+        return Ok(());
     }
+    let needs_raw = rules.iter().any(|r| {
+        r.rule
+            .conditions
+            .iter()
+            .any(|c| matches!(c.field, Field::Header | Field::AttachmentType))
+    });
     for &id in ids {
         let Ok(message) = store.get(id) else {
             continue; // gone meanwhile
         };
         let account = account_of(&message.folder).to_owned();
-        let needs_raw = rules.iter().any(|r| {
-            r.conditions
-                .iter()
-                .any(|c| matches!(c.field, Field::Header | Field::AttachmentType))
-        });
         let raw = if needs_raw { store.raw_of(id)? } else { None };
-        let folded = Folded::with_raw(&message, raw.as_deref());
+        let folded = Folded::at(&message, raw.as_deref(), now.naive_local());
         let mut notes = Vec::new();
         let mut destination = None;
-        for rule in rules
+        for ready in rules
             .iter()
-            .filter(|r| r.account.as_deref().is_none_or(|a| a == account))
+            .filter(|r| r.rule.account.as_deref().is_none_or(|a| a == account))
         {
-            if !rule.matches_folded(&folded) {
+            if !ready.matches(&folded) {
                 continue;
             }
+            let rule = ready.rule;
             let name = &rule.name;
             // What the rule did, said of the message: "flagged it", "oznaczyła ją flagą".
             let mut did = Vec::new();
@@ -652,7 +1087,75 @@ pub fn run(
             None => {}
         }
     }
-    Ok(report)
+    Ok(())
+}
+
+/// What one scheduled run of a rule did, for the status bar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ScheduledRun {
+    pub rule: i64,
+    pub name: String,
+    #[serde(flatten)]
+    pub report: RunReport,
+}
+
+/// Whether a rule's schedule is due at `now`: it never ran, its period has passed since it
+/// last did, or the clock was put back past that.
+pub fn due(rule: &Rule, now: NaiveDateTime) -> bool {
+    let Some(schedule) = rule.schedule.as_ref().filter(|_| rule.enabled) else {
+        return false;
+    };
+    rule.last_run
+        .is_none_or(|last| last > now || now - last >= schedule.every.period())
+}
+
+/// Run every rule whose schedule is due on the folders it names, one rule at a time, and
+/// remember when. A rule overdue by many periods (Telex was closed for a week) runs once.
+/// Like Run now it answers and forwards nothing; its moves and flags are queued for the
+/// server like the user's own, and each message it changes gets a note.
+pub fn run_scheduled(
+    store: &mut MailStore,
+    now: DateTime<Local>,
+) -> Result<Vec<ScheduledRun>, StoreError> {
+    let clock = now.naive_local();
+    let clock = clock.with_nanosecond(0).unwrap_or(clock);
+    let mut runs = Vec::new();
+    for rule in store.rules()?.into_iter().filter(|r| due(r, clock)) {
+        let mut report = RunReport::default();
+        match Ready::new(&rule) {
+            Err(e) => report.problems.push(skipped_rule(&rule.name, &e)),
+            Ok(ready) => {
+                let mut ids = Vec::new();
+                for folder in rule.schedule.iter().flat_map(|s| &s.folders) {
+                    if store.folder_name(folder).is_none() {
+                        let name = &rule.name;
+                        report.problems.push(tr!(
+                            "rule \"{name}\" runs on a folder that no longer exists",
+                            "reguła „{name}” działa na folderze, którego już nie ma"
+                        ));
+                        continue;
+                    }
+                    // What the list's summaries rule out (too new, unread) is never read.
+                    ids.extend(
+                        store
+                            .list(folder)?
+                            .iter()
+                            .filter(|m| !ready.rules_out(m, clock))
+                            .map(|m| m.id),
+                    );
+                }
+                let ready = [ready];
+                run_ready(store, &ready, &ids, Trigger::Scheduled, now, &mut report)?;
+            }
+        }
+        store.set_rule_last_run(rule.id, clock)?;
+        runs.push(ScheduledRun {
+            rule: rule.id,
+            name: rule.name,
+            report,
+        });
+    }
+    Ok(runs)
 }
 
 /// Who answers automatically, and so who remembers whom it answered: a rule, or an account's
@@ -781,6 +1284,8 @@ pub fn preview(
     view: &crate::ListView,
 ) -> Result<RulePreview, StoreError> {
     rule.check(store.accounts()).map_err(StoreError::Invalid)?;
+    let ready = Ready::new(rule).map_err(StoreError::Invalid)?;
+    let now = Local::now().naive_local();
     let mut view = view.clone();
     view.grouped = false;
     view.expanded.clear();
@@ -823,18 +1328,16 @@ pub fn preview(
         } else {
             None
         };
-        let folded = Folded::with_raw(&m, raw.as_deref());
-        if rule.matches_folded(&folded) {
+        let folded = Folded::at(&m, raw.as_deref(), now);
+        if ready.matches(&folded) {
             report.matched += 1;
             if report.samples.len() < 50 {
                 report.samples.push(PreviewMessage {
                     id: m.id,
                     subject: m.subject.clone(),
                     from: m.from_email.clone(),
-                    conditions: rule
-                        .conditions
-                        .iter()
-                        .map(|c| c.matches_folded(&folded))
+                    conditions: (0..rule.conditions.len())
+                        .map(|i| ready.condition(i, &folded))
                         .collect(),
                 });
             }
@@ -1015,6 +1518,7 @@ mod tests {
             conditions,
             actions,
             stop: false,
+            ..Rule::default()
         }
     }
 
@@ -1690,5 +2194,349 @@ mod tests {
             crate::store::ChangeKind::Expunge,
             "it leaves the server in the same sync"
         );
+    }
+
+    // ---- Patterns, age and state, schedules ----
+
+    #[test]
+    fn patterns_see_the_folded_text_and_ignore_case() {
+        let m = message(
+            ("Paweł Mazur", "pawel@mazur-ksiegowosc.pl"),
+            "biuro@twojastudio.pl",
+            "Re: Faktura FV/2026/0137 za październik",
+            "Kwota: 1 230,00 zł",
+        );
+        let hit = |field, p: &str| cond(field, Op::Matches, p).matches(&m);
+        assert!(hit(Field::Subject, r"FV/\d{4}/\d+"));
+        assert!(hit(Field::Subject, "^re:"), "case ignored, anchored");
+        assert!(!hit(Field::Subject, "^faktura"), "anchors hold");
+        assert!(
+            hit(Field::Subject, "październik"),
+            "the pattern is folded too"
+        );
+        assert!(hit(Field::Subject, "pazdziernik"));
+        assert!(hit(Field::Subject, "PAŹDZIERNIK|listopad"));
+        assert!(hit(Field::From, r"^pawe[lł]\b"), "names count");
+        assert!(hit(Field::From, r"@mazur-[a-z]+\.pl$"), "and addresses");
+        assert!(hit(Field::Body, r"\d+,\d{2} zl"));
+        assert!(hit(Field::Anywhere, "twojastudio"));
+        assert!(!hit(Field::Body, "euro"));
+    }
+
+    #[test]
+    fn bad_and_huge_patterns_are_refused_with_where_and_why() {
+        let with = |p: &str| {
+            rule(
+                "p",
+                None,
+                vec![cond(Field::Subject, Op::Matches, p)],
+                vec![Action::Flag],
+            )
+            .check(&accounts())
+        };
+        assert_eq!(with(r"faktur(a|y)"), Ok(()));
+        assert_eq!(
+            with("(faktura").unwrap_err(),
+            "The pattern “(faktura” has a mistake at character 1: a ( isn't closed."
+        );
+        assert!(with("faktura)").unwrap_err().contains("a ) wasn't opened"));
+        assert!(with("[a-").unwrap_err().contains("a [ isn't closed"));
+        assert!(with("*faktura").unwrap_err().contains("nothing before it"));
+        assert!(with(r"(?=x)").unwrap_err().contains("look-around"));
+        assert!(with(&"a".repeat(PATTERN_LENGTH + 1))
+            .unwrap_err()
+            .contains("1,000 characters"));
+        assert!(with(r"(\w{100}){100}").unwrap_err().contains("too big"));
+        assert!(with(&format!("{}x{}", "(".repeat(80), ")".repeat(80)))
+            .unwrap_err()
+            .contains("nests too deeply"));
+        assert_eq!(
+            crate::i18n::with(crate::i18n::Lang::Pl, || with("(faktura").unwrap_err()),
+            "Wzorzec „(faktura” ma błąd przy znaku 1: nawias ( nie jest zamknięty."
+        );
+        // A pattern stored wrong (by hand) leaves its rule out of a run, saying so.
+        let mut store = sample_store();
+        let mut broken = rule(
+            "Zepsuta",
+            None,
+            vec![cond(Field::Subject, Op::Contains, "x")],
+            vec![Action::Flag],
+        );
+        broken = store.save_rule(&broken).unwrap();
+        broken.conditions[0].op = Op::Matches;
+        broken.conditions[0].value = "(x".into();
+        assert!(store.save_rule(&broken).is_err());
+        store.force_rule_conditions(broken.id, &broken.conditions);
+        let ids: Vec<_> = store
+            .list("firma/inbox")
+            .unwrap()
+            .iter()
+            .map(|m| m.id)
+            .collect();
+        let report = run(&mut store, &ids, Trigger::OnDemand, when(10)).unwrap();
+        assert_eq!(report.matched, 0);
+        assert!(report.problems[0].contains("\"Zepsuta\" was left out"));
+    }
+
+    #[test]
+    fn age_size_and_state_conditions_use_the_clock_given() {
+        let mut m = message(("A", "a@x.pl"), "b@y.pl", "Oferta", "");
+        m.date = when(1).naive_local();
+        m.size_kb = 600;
+        m.unread = false;
+        let at = |c: Condition, day: u32| {
+            Ready::new(&rule("r", None, vec![c], vec![Action::Flag]))
+                .unwrap()
+                .matches(&Folded::at(&m, None, when(day).naive_local()))
+        };
+        let older = cond(Field::Received, Op::OlderThan, "7");
+        assert!(!at(older.clone(), 8), "exactly 7 days is not older");
+        assert!(at(older.clone(), 9));
+        assert!(at(cond(Field::Received, Op::NewerThan, "7"), 8));
+        assert!(!at(cond(Field::Received, Op::NewerThan, "7"), 9));
+        assert!(at(cond(Field::Size, Op::LargerThan, "500k"), 1));
+        assert!(!at(cond(Field::Size, Op::LargerThan, "1m"), 1));
+        assert!(at(cond(Field::Size, Op::SmallerThan, "1m"), 1));
+        assert!(at(cond(Field::State, Op::Is, "read"), 1));
+        assert!(!at(cond(Field::State, Op::Is, "unread"), 1));
+        assert!(at(cond(Field::State, Op::Is, "unflagged"), 1));
+        assert!(!at(cond(Field::State, Op::Is, "flagged"), 1));
+
+        let check = |c: Condition| rule("r", None, vec![c], vec![Action::Flag]).check(&accounts());
+        assert_eq!(check(older), Ok(()));
+        assert!(check(cond(Field::Received, Op::OlderThan, "dużo"))
+            .unwrap_err()
+            .contains("number of days"));
+        assert!(check(cond(Field::Received, Op::OlderThan, "0")).is_err());
+        assert!(check(cond(Field::Size, Op::LargerThan, "huge"))
+            .unwrap_err()
+            .contains("500k"));
+        assert!(check(cond(Field::State, Op::Is, "maybe"))
+            .unwrap_err()
+            .contains("not flagged"));
+        assert!(check(cond(Field::Received, Op::Contains, "7"))
+            .unwrap_err()
+            .contains("doesn't take"));
+        assert!(check(cond(Field::Subject, Op::OlderThan, "7")).is_err());
+    }
+
+    #[test]
+    fn schedules_are_due_once_their_period_has_passed() {
+        let at = |day: u32, hour: u32| {
+            Local
+                .with_ymd_and_hms(2026, 10, day, hour, 0, 0)
+                .unwrap()
+                .naive_local()
+        };
+        let mut r = rule(
+            "r",
+            None,
+            vec![cond(Field::Subject, Op::Contains, "x")],
+            vec![Action::Flag],
+        );
+        assert!(!due(&r, at(10, 9)), "no schedule");
+        r.schedule = Some(Schedule {
+            every: Every::Hour,
+            folders: vec!["firma/inbox".into()],
+        });
+        assert!(due(&r, at(10, 9)), "never ran");
+        r.last_run = Some(at(10, 9));
+        assert!(!due(&r, at(10, 9) + TimeDelta::minutes(59)));
+        assert!(due(&r, at(10, 10)));
+        r.schedule.as_mut().unwrap().every = Every::Day;
+        assert!(!due(&r, at(10, 23)));
+        assert!(due(&r, at(11, 9)));
+        assert!(due(&r, at(30, 9)), "overdue for weeks: due (once)");
+        r.schedule.as_mut().unwrap().every = Every::Week;
+        assert!(!due(&r, at(16, 9)));
+        assert!(due(&r, at(17, 9)));
+        assert!(due(&r, at(9, 9)), "the clock went back");
+        r.enabled = false;
+        assert!(!due(&r, at(17, 9)));
+    }
+
+    #[test]
+    fn schedules_are_checked_before_saving() {
+        let (store, account, _) = holiday_store();
+        let mut r = rule(
+            "Stare",
+            Some(&account.id),
+            vec![cond(Field::Received, Op::OlderThan, "30")],
+            vec![Action::Flag],
+        );
+        r.on_arrival = false;
+        assert!(r
+            .check(store.accounts())
+            .unwrap_err()
+            .contains("Pick when the rule runs"));
+        r.schedule = Some(Schedule {
+            every: Every::Day,
+            folders: vec![],
+        });
+        assert!(r.check(store.accounts()).unwrap_err().contains("1–20"));
+        r.schedule.as_mut().unwrap().folders = vec!["firma/inbox".into()];
+        assert!(
+            r.check(store.accounts())
+                .unwrap_err()
+                .contains("no longer exists"),
+            "another account's folder"
+        );
+        r.schedule.as_mut().unwrap().folders = vec![account.folder_key("outbox")];
+        assert!(r.check(store.accounts()).is_err(), "never the Outbox");
+        r.schedule.as_mut().unwrap().folders = vec![account.folder_key("inbox")];
+        assert_eq!(r.check(store.accounts()), Ok(()));
+        r.actions.push(Action::AutoReply { body: "Hej".into() });
+        assert!(r
+            .check(store.accounts())
+            .unwrap_err()
+            .contains("new mail only"));
+        r.on_arrival = true;
+        assert_eq!(
+            r.check(store.accounts()),
+            Ok(()),
+            "both: replies on arrival"
+        );
+    }
+
+    /// The example from the roadmap: "move read mail older than 30 days from Inbox to Archive",
+    /// every day, never on new mail.
+    #[test]
+    fn a_daily_rule_files_old_read_mail_and_remembers_when() {
+        let (mut store, account, holiday) = holiday_store();
+        store.delete_rule(holiday.id).unwrap();
+        let mut folders = store.account(&account.id).unwrap().folders.clone();
+        folders.push(Folder {
+            id: "archive".into(),
+            name: "Archiwum".into(),
+            kind: FolderKind::Archive,
+            remote: Some("Archiwum".into()),
+        });
+        store.set_folders(&account.id, &folders).unwrap();
+        let date = |day: u32| format!("From: anna@x.pl\r\nDate: {day} Sep 2026 09:00:00 +0200\r\n");
+        let old_read = deliver(&mut store, &account, 1, &date(1));
+        let old_unread = deliver(&mut store, &account, 2, &date(2));
+        let new_read = deliver(&mut store, &account, 3, &date(28));
+        store.set_unread(old_read, false).unwrap();
+        store.set_unread(new_read, false).unwrap();
+        let mut r = rule(
+            "Archive old",
+            Some(&account.id),
+            vec![
+                cond(Field::State, Op::Is, "read"),
+                cond(Field::Received, Op::OlderThan, "30"),
+            ],
+            vec![
+                Action::Move {
+                    folder: account.folder_key("archive"),
+                },
+                // Allowed while it runs on new mail too, but never on a schedule.
+                Action::AutoReply { body: "Hej".into() },
+            ],
+        );
+        r.on_arrival = false;
+        r.schedule = Some(Schedule {
+            every: Every::Day,
+            folders: vec![account.folder_key("inbox")],
+        });
+        assert!(store.save_rule(&r).is_err(), "auto-reply needs new mail");
+        r.on_arrival = true;
+        let r = store.save_rule(&r).unwrap();
+        assert_eq!(r.last_run, None);
+
+        // On new mail, the age condition keeps it from anything just arrived.
+        assert_eq!(
+            run(&mut store, &[new_read], Trigger::Arrival, when(10))
+                .unwrap()
+                .matched,
+            0
+        );
+        let runs = run_scheduled(&mut store, when(10)).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            (runs[0].name.as_str(), runs[0].report.moved),
+            ("Archive old", 1)
+        );
+        assert_eq!(runs[0].report.replied, 0, "a schedule never answers");
+        assert_eq!(outbox(&store, &account), 0);
+        let m = store.get(old_read).unwrap();
+        assert_eq!(m.folder, account.folder_key("archive"));
+        assert_eq!(
+            m.note.as_deref(),
+            Some("Rule \"Archive old\" moved it to Archiwum.")
+        );
+        assert_eq!(
+            store.get(old_unread).unwrap().folder,
+            account.folder_key("inbox")
+        );
+        assert_eq!(
+            store.get(new_read).unwrap().folder,
+            account.folder_key("inbox")
+        );
+        assert!(store
+            .pending_changes(&account.id)
+            .unwrap()
+            .iter()
+            .any(|c| c.kind == crate::store::ChangeKind::Move(account.folder_key("archive"))));
+        let rules = store.rules().unwrap();
+        assert_eq!(rules[0].last_run, Some(when(10).naive_local()));
+
+        // Saving the rule again keeps its last run; it isn't due again until tomorrow.
+        store.save_rule(&rules[0]).unwrap();
+        assert_eq!(
+            store.rules().unwrap()[0].last_run,
+            Some(when(10).naive_local())
+        );
+        assert!(run_scheduled(&mut store, when(10) + TimeDelta::hours(5))
+            .unwrap()
+            .is_empty());
+        store.set_unread(old_unread, false).unwrap();
+        let runs = run_scheduled(&mut store, when(11)).unwrap();
+        assert_eq!(runs[0].report.moved, 1);
+        assert_eq!(
+            store.get(old_unread).unwrap().folder,
+            account.folder_key("archive")
+        );
+    }
+
+    #[test]
+    fn rules_off_new_mail_wait_for_their_schedule() {
+        let (mut store, account, holiday) = holiday_store();
+        store.delete_rule(holiday.id).unwrap();
+        let mut r = rule(
+            "Later",
+            Some(&account.id),
+            vec![cond(Field::Subject, Op::Matches, "^pyta")],
+            vec![Action::Flag],
+        );
+        r.on_arrival = false;
+        r.schedule = Some(Schedule {
+            every: Every::Hour,
+            folders: vec![account.folder_key("inbox")],
+        });
+        store.save_rule(&r).unwrap();
+        let id = deliver(&mut store, &account, 1, "From: anna@x.pl\r\n");
+        assert_eq!(
+            run(&mut store, &[id], Trigger::Arrival, when(10))
+                .unwrap()
+                .matched,
+            0
+        );
+        assert_eq!(
+            run(&mut store, &[id], Trigger::OnDemand, when(10))
+                .unwrap()
+                .matched,
+            1,
+            "Run now runs it"
+        );
+        let report = preview(
+            &store,
+            &r,
+            &crate::ListView {
+                folder: Some(account.folder_key("inbox")),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(report.matched, 1, "previews take patterns");
     }
 }

@@ -220,7 +220,7 @@ fn parse_day(value: &str) -> Option<String> {
 }
 
 /// A size in KB: "500k", "5m", "5 MB", "1.5g", "300" (KB).
-fn parse_kb(value: &str) -> Option<u64> {
+pub(crate) fn parse_kb(value: &str) -> Option<u64> {
     let v = value.trim().to_ascii_lowercase();
     let v = v.trim_end_matches('b').trim();
     let (number, unit) = match v.char_indices().find(|(_, c)| c.is_ascii_alphabetic()) {

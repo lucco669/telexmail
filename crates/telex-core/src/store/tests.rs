@@ -869,6 +869,7 @@ fn folders_on_this_pc_are_made_renamed_and_removed() {
         }],
         actions,
         stop: false,
+        ..Rule::default()
     };
     let to_key = Action::Move {
         folder: key.clone(),

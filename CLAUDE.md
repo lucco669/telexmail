@@ -81,7 +81,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/usage.rs       What the Usage tab shows: quota, sizes per folder, 30 days of mail in and
                      out, top senders, largest messages, the last sync.
   src/i18n.rs        The core's language: `tr!("English", "Polski")`, set from the settings.
-  src/filters.rs     Rules (the Sorting Office): conditions, actions, running them with notes,
+  src/filters.rs     Rules (the Sorting Office): conditions (patterns with the regex crate, age,
+                     size, read and flag), actions, running them with notes, schedules,
                      auto-replies with RFC 3834 safeguards (shared with the away reply), previews.
   src/saved_searches.rs  Saved list queries (schema 13); one unreadable row is left out alone.
   src/risk.rs        Scam warning signs of an opened message, offline (docs/mail-risk.md): brand
@@ -221,6 +222,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `preview_rule`   | `rule`, `view`               | how many of the list's first 2,000 messages the rule would match, with samples (`listed`, `read`, `limited`: the list was longer); changes and sends nothing |
 | `list_saved_searches`, `save_search` (`search`, id 0 = new), `delete_search` (`id`) | | saved list queries, A to Z |
 | `run_rules`      | `folder`                     | `{matched, moved, replied, problems}` (no auto-replies on demand) |
+| `run_scheduled_rules` | –                       | `[{rule, name, matched, moved, replied, problems}]`: the rules whose schedule was due, each run once on its folders (no auto-replies or forwards); the window asks every minute |
 | `start_draft`    | `kind` (new/reply/reply_all/forward), `of`, `account` | `{account, identity, to, cc, subject, body, attachments, reply_to, forward_of}` |
 | `save_identity`  | `identity` (id 0 = new)      | the saved identity, or a sentence saying what's wrong |
 | `delete_identity`| `id`                         | – (never the account's last one) |
@@ -429,7 +431,33 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- Rules with patterns, ages and schedules (schema version 15: `rules.on_arrival`, `schedule`,
+  `last_run`; a one-way upgrade):
+  - "matches pattern" (`Op::Matches`) on every text condition: a regular expression (the regex
+    crate: linear time, no backtracking), found anywhere unless anchored, on the same folded text
+    as the other operators (lowercase, no diacritics); the pattern's own letters with diacritics
+    are folded too, so `październik` and `pazdziernik` both work. At most 1,000 characters, 1 MB
+    compiled, 64 levels deep; `save_rule` refuses a mistake with where it is and what
+    ("The pattern “(faktura” has a mistake at character 1: a ( isn't closed", from regex-syntax's
+    parser). Each run compiles a rule's patterns once (`filters::Ready`); one that no longer
+    compiles leaves its rule out with a problem.
+  - Conditions on facts: Date received older / newer than N days (`Field::Received`, the
+    INTERNALDATE), Size larger / smaller than (500k, 5m, as search), Status is read, unread,
+    flagged or not flagged (`Field::State`). Run with the clock given (`Folded::at`).
+  - When a rule runs (the rule editor's "When"): on new mail (`on_arrival`, as before), on a
+    schedule (`Schedule {every: hour | day | week, folders}`: the rule's account's folders, or
+    any folder for a rule on every account), or both. The window calls `run_scheduled_rules`
+    30 s after start and every minute; `filters::run_scheduled` runs each due rule alone on its
+    folders (`due`: never ran, or a period since `last_run`, or the clock went back), once
+    however overdue, with `Trigger::Scheduled` (no auto-replies or forwards, like Run now), notes
+    as always and server changes queued; the window pushes and says "Rule “Archive old” moved 12
+    messages." The summaries rule out what the date, size and flags can before any text is read
+    (`Ready::rules_out`). A rule off new mail can't answer or forward. Run now still runs every
+    enabled rule. The rules list shows "Every day on Inbox · last run …".
+  - Settings files carry `on_arrival` and `schedule` (folders by account address, id and name;
+    a missing one skips the rule with `no_folder`). An older Telex skips rules with the new
+    conditions as `unreadable`; one that runs only on a schedule but has only old conditions it
+    would read as a rule on new mail.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
@@ -999,7 +1027,8 @@ then daily like `daily`),
    signatures, quoting a reply's original HTML instead of its text.
 4. ~~**Filters ("Sorting Office").**~~ Done; see Current state, with a rule started from a
    message in 0.5.0. Headers and attachment conditions, copy/forward actions, rule previews and
-   saved searches in 0.9.5. Not yet: regular expressions and rules that run on a schedule.
+   saved searches in 0.9.5. Patterns, age and state conditions and scheduled rules: see Not
+   released yet.
 5. **Gmail and Outlook.com.** OAuth2 login (both reject plain passwords over IMAP). Waiting
    for the owner to register OAuth clients with Google (Cloud project; Gmail's scope is
    restricted, so unverified apps stay in testing mode) and Microsoft (Entra app that allows

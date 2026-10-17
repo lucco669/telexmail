@@ -412,7 +412,7 @@
 <dialog class="dlg wide" id="rules-dlg" aria-labelledby="rules-title">
   <div id="r-list-view">
     <h2 class="dtitle" id="rules-title" data-i18n>Rules</h2>
-    <p class="dnote" data-i18n>Rules run top to bottom on new mail as it arrives in an Inbox. A message a rule changes says so above its text.</p>
+    <p class="dnote" data-i18n>Rules run top to bottom on new mail as it arrives in an Inbox, and on a schedule where they have one. A message a rule changes says so above its text.</p>
     <div class="rlist" id="r-list"></div>
     <p class="derr" id="r-err" role="alert"></p>
     <div class="cbar">
@@ -430,10 +430,18 @@
       <label for="r-match" data-i18n>If</label><select id="r-match"><option value="all" data-i18n>all of these match</option><option value="any" data-i18n>any of these matches</option></select>
     </div>
     <div class="rrows" id="r-conds"></div>
+    <p class="dnote rhint" id="r-pattern-hint" hidden data-i18n>A pattern is a regular expression on the text in lowercase without diacritics (ł is l, ą is a), so case doesn’t matter. It is found anywhere unless ^ or $ hold it to the start or end: ^re: · faktur[ay] · fv/\d+</p>
     <button type="button" class="linkbtn radd" id="r-add-cond" data-i18n>+ Condition</button>
     <h3 class="rh" data-i18n>Then</h3>
     <div class="rrows" id="r-acts"></div>
     <button type="button" class="linkbtn radd" id="r-add-act" data-i18n>+ Action</button>
+    <h3 class="rh" data-i18n>When</h3>
+    <div id="r-when">
+      <label class="rcheck"><input type="checkbox" id="r-arrival"> <span data-i18n>When new mail arrives in an Inbox</span></label>
+      <label class="rcheck"><input type="checkbox" id="r-sched"> <span data-i18n>On a schedule, while Telex runs:</span> <select id="r-every" aria-label="How often" data-i18n></select></label>
+      <div class="rfolders" id="r-sched-folders" role="group" aria-label="Folders the schedule runs on" data-i18n hidden></div>
+      <p class="dnote rhint" id="r-sched-note" hidden data-i18n>On a schedule the rule runs on these folders, never answers or forwards mail, and catches up once after Telex was closed.</p>
+    </div>
     <label class="rcheck"><input type="checkbox" id="r-stop"> <span data-i18n>Don’t run later rules on mail this rule matches</span></label>
     <p class="derr" id="r-form-err" role="alert"></p>
     <section id="r-preview-result" class="rpreview" aria-live="polite" hidden></section>

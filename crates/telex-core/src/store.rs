@@ -35,6 +35,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/012_away.sql"),
     include_str!("migrations/013_saved_searches_and_rule_actions.sql"),
     include_str!("migrations/014_spam_filter.sql"),
+    include_str!("migrations/015_rule_schedules.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -1214,13 +1215,18 @@ impl MailStore {
     /// Every rule, in the order they run.
     pub fn rules(&self) -> Result<Vec<Rule>, StoreError> {
         let mut stmt = self.db.prepare_cached(
-            "SELECT id, name, enabled, account, match_all, conditions, actions, stop
+            "SELECT id, name, enabled, account, match_all, conditions, actions, stop,
+                    on_arrival, schedule, last_run
              FROM rules ORDER BY position, id",
         )?;
         let rows = stmt.query_map([], |r| {
             let conditions: String = r.get(5)?;
             let actions: String = r.get(6)?;
+            let schedule: Option<String> = r.get(9)?;
             Ok(Rule {
+                on_arrival: r.get(8)?,
+                schedule: schedule.and_then(|s| serde_json::from_str(&s).ok()),
+                last_run: r.get(10)?,
                 id: r.get(0)?,
                 name: r.get(1)?,
                 enabled: r.get(2)?,
@@ -1240,18 +1246,36 @@ impl MailStore {
         let not_json = |e: serde_json::Error| StoreError::Database(e.to_string());
         let conditions = serde_json::to_string(&rule.conditions).map_err(not_json)?;
         let actions = serde_json::to_string(&rule.actions).map_err(not_json)?;
+        let schedule = rule
+            .schedule
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(not_json)?;
         let name = rule.name.trim();
+        // `last_run` is the store's own: what the window sends back is ignored.
         let id = if rule.id == 0 {
             self.db.execute(
-                "INSERT INTO rules (position, name, enabled, account, match_all, conditions, actions, stop)
-                 VALUES ((SELECT COALESCE(MAX(position) + 1, 0) FROM rules), ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![name, rule.enabled, rule.account, rule.match_all, conditions, actions, rule.stop],
+                "INSERT INTO rules (position, name, enabled, account, match_all, conditions, actions, stop,
+                     on_arrival, schedule)
+                 VALUES ((SELECT COALESCE(MAX(position) + 1, 0) FROM rules), ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    name,
+                    rule.enabled,
+                    rule.account,
+                    rule.match_all,
+                    conditions,
+                    actions,
+                    rule.stop,
+                    rule.on_arrival,
+                    schedule
+                ],
             )?;
             self.db.last_insert_rowid()
         } else {
             let changed = self.db.execute(
                 "UPDATE rules SET name = ?2, enabled = ?3, account = ?4, match_all = ?5,
-                     conditions = ?6, actions = ?7, stop = ?8
+                     conditions = ?6, actions = ?7, stop = ?8, on_arrival = ?9, schedule = ?10
                  WHERE id = ?1",
                 params![
                     rule.id,
@@ -1261,7 +1285,9 @@ impl MailStore {
                     rule.match_all,
                     conditions,
                     actions,
-                    rule.stop
+                    rule.stop,
+                    rule.on_arrival,
+                    schedule
                 ],
             )?;
             if changed == 0 {
@@ -1273,6 +1299,31 @@ impl MailStore {
             .into_iter()
             .find(|r| r.id == id)
             .ok_or_else(rule_gone)
+    }
+
+    /// When a rule's schedule last ran it.
+    pub fn set_rule_last_run(&mut self, id: i64, at: NaiveDateTime) -> Result<(), StoreError> {
+        self.db.execute(
+            "UPDATE rules SET last_run = ?2 WHERE id = ?1",
+            params![id, at],
+        )?;
+        Ok(())
+    }
+
+    /// A rule's conditions written as they are, past `check`: as if edited by hand.
+    #[cfg(test)]
+    pub(crate) fn force_rule_conditions(
+        &mut self,
+        id: i64,
+        conditions: &[crate::filters::Condition],
+    ) {
+        let conditions = serde_json::to_string(conditions).unwrap();
+        self.db
+            .execute(
+                "UPDATE rules SET conditions = ?2 WHERE id = ?1",
+                params![id, conditions],
+            )
+            .unwrap();
     }
 
     pub fn delete_rule(&mut self, id: i64) -> Result<(), StoreError> {

@@ -5093,6 +5093,8 @@ dependencies = [
  "outlook-pst",
  "outlook-pst-rw",
  "psl",
+ "regex",
+ "regex-syntax",
  "ring",
  "rusqlite",
  "serde",

@@ -4427,8 +4427,21 @@ $('ss-list').addEventListener('click', async e => {
 const rdlg = $('rules-dlg');
 let RULES = [], rule = null; // rule: the one being edited
 // Labels are English keys, translated where they are drawn.
-const FIELDS = [['from', N_('From')], ['to', N_('To or Cc')], ['subject', N_('Subject')], ['body', N_('Text|rule field')], ['anywhere', N_('Anywhere')], ['header', N_('Header')], ['attachment_name', N_('Attachment name')], ['attachment_type', N_('Attachment type')]];
-const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contain')], ['is', N_('is')], ['starts_with', N_('starts with')], ['ends_with', N_('ends with')], ['exists', N_('exists')], ['not_exists', N_('does not exist')]];
+const FIELDS = [['from', N_('From')], ['to', N_('To or Cc')], ['subject', N_('Subject')], ['body', N_('Text|rule field')], ['anywhere', N_('Anywhere')], ['header', N_('Header')], ['attachment_name', N_('Attachment name')], ['attachment_type', N_('Attachment type')],
+  ['received', N_('Date received')], ['size', N_('Size')], ['state', N_('Status|rule field')]];
+const OPS = [['contains', N_('contains')], ['not_contains', N_('doesn’t contain')], ['is', N_('is')], ['starts_with', N_('starts with')], ['ends_with', N_('ends with')], ['exists', N_('exists')], ['not_exists', N_('does not exist')], ['matches', N_('matches pattern')]];
+// Date, size and status compare their own ways, each with a value to start from.
+const FACT_OPS = {received:[['older_than', N_('older than')], ['newer_than', N_('newer than')]], size:[['larger_than', N_('larger than')], ['smaller_than', N_('smaller than')]], state:[['is', N_('is')]]};
+const FACT_START = {received:'30', size:'5m', state:'read'};
+const STATES = [['read', N_('read|rule state')], ['unread', N_('unread|rule state')], ['flagged', N_('flagged|rule state')], ['unflagged', N_('not flagged|rule state')]];
+const RULE_EVERY = [['hour', N_('Every hour')], ['day', N_('Every day')], ['week', N_('Every week')]];
+const ALL_OPS = [...OPS, ...FACT_OPS.received, ...FACT_OPS.size];
+const opsFor = field => FACT_OPS[field] ?? OPS;
+// A condition's way of comparing and value follow its field: a date takes days, not text.
+function fitCondition(c, before){
+  const ops = opsFor(c.field), kind = f => FACT_START[f] ? f : 'text';
+  if (kind(before) !== kind(c.field) || !ops.some(([o]) => o === c.op)){ c.op = ops[0][0]; c.value = FACT_START[c.field] ?? ''; }
+}
 const ACTIONS = [['move', N_('Move to folder')], ['copy', N_('Copy to folder')], ['forward', N_('Forward automatically')], ['mark_read', N_('Mark as read')], ['flag', N_('Flag|rule action')], ['delete', N_('Move to Trash')], ['auto_reply', N_('Answer automatically')]];
 const labelOf = (list, v) => { const l = list.find(([k]) => k === v)?.[1]; return l ? t(l) : v; };
 const options = (list, v) => list.map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(t(l))}</option>`).join('');
@@ -4442,11 +4455,25 @@ const folderOptions = (list, v) => [...new Set(list.map(x => x[2]))].map(g => `<
   + list.filter(x => x[2] === g).map(([k, l]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(l)}</option>`).join('') + '</optgroup>').join('');
 
 function ruleSummary(r){
-  const conds = r.conditions.map(c => ['exists','not_exists'].includes(c.op) ? `${labelOf(FIELDS,c.field)}${c.header ? ' ' + c.header : ''} ${labelOf(OPS,c.op)}` : t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field) + (c.header ? ' ' + c.header : ''), op:labelOf(OPS, c.op), value:c.value}))
+  const conds = r.conditions.map(c => ['exists','not_exists'].includes(c.op) ? `${labelOf(FIELDS,c.field)}${c.header ? ' ' + c.header : ''} ${labelOf(OPS,c.op)}`
+    : c.field === 'received' ? tn(+c.value || 0, '{field} {op} {n} day', '{field} {op} {n} days', {field:labelOf(FIELDS, c.field), op:labelOf(ALL_OPS, c.op)})
+    : c.field === 'state' ? t('{field} {op} {value}', {field:labelOf(FIELDS, c.field), op:labelOf(ALL_OPS, c.op), value:labelOf(STATES, c.value)})
+    : t('{field} {op} “{value}”', {field:labelOf(FIELDS, c.field) + (c.header ? ' ' + c.header : ''), op:labelOf(ALL_OPS, c.op), value:c.value}))
     .join(r.match_all ? t(' and ') : t(' or '));
   const acts = r.actions.map(a => a.type === 'move' ? t('move to {folder}', {folder:placeName(a.folder)}) : a.type === 'copy' ? t('copy to {folder}', {folder:placeName(a.folder)}) : a.type === 'forward' ? t('forward to {to}',{to:a.to}) : labelOf(ACTIONS, a.type).toLowerCase()).join(', ');
   return t('If {conds}: {acts}.', {conds, acts}) + (r.account ? ' ' + t('{name} only.', {name:ACCT[r.account]?.email ?? r.account}) : '') + (r.stop ? ' ' + t('Then stop.') : '');
 }
+// When a rule runs, for the list: "New mail · Every day on Inbox · last run 17.10 9:00".
+function ruleWhen(r){
+  const s = r.schedule, parts = r.on_arrival !== false ? [t('New mail')] : [];
+  if (s) parts.push(t('{every} on {folders}', {every:labelOf(RULE_EVERY, s.every), folders:s.folders.map(placeName).join(', ')}),
+    r.last_run ? t('last run {when}', {when:fmtWhen(parseDate(r.last_run))}) : t('not run yet'));
+  return parts.join(' · ');
+}
+// Folders a schedule can run on: the rule's account's (every account's for a rule on all of
+// them, and then the folders on this PC), not the Outbox.
+const scheduleTargets = acct => (acct ? [acct] : [...servers().map(a => a.id), LOCAL]).flatMap(id =>
+  (ACCT[id]?.folders ?? []).filter(f => f.kind !== 'outbox').map(f => [id + '/' + f.id, id === LOCAL ? folderName(id + '/' + f.id) : f.name, id === LOCAL ? t('On this PC') : ACCT[id].email]));
 async function openRules(){
   closeSuggest();
   rdlg.showModal();
@@ -4461,7 +4488,7 @@ async function showRuleList(){
   if (m) $('r-from').textContent = isOut(m.f) ? t('New rule for mail to {name}', {name:nameOf(m.to)}) : t('New rule for mail from {name}', {name:m.from || m.email});
   $('r-list').innerHTML = RULES.length ? RULES.map((r, i) => `<div class="rrule${r.enabled ? '' : ' off'}" data-id="${r.id}">
 <input type="checkbox" data-r="toggle"${r.enabled ? ' checked' : ''} title="${esc(t('On or off'))}" aria-label="${esc(t('Rule {name} on', {name:r.name}))}">
-<div class="rtext"><div class="rname">${esc(r.name)}${r.enabled ? '' : ` <span class="tag">${esc(t('Off|rule'))}</span>`}</div><div class="rsum" title="${esc(ruleSummary(r))}">${esc(ruleSummary(r))}</div></div>
+<div class="rtext"><div class="rname">${esc(r.name)}${r.enabled ? '' : ` <span class="tag">${esc(t('Off|rule'))}</span>`}</div><div class="rsum" title="${esc(ruleSummary(r))}">${esc(ruleSummary(r))}</div>${r.schedule || r.on_arrival === false ? `<div class="rsum" title="${esc(ruleWhen(r))}">${esc(ruleWhen(r))}</div>` : ''}</div>
 <button type="button" class="btn icon" data-r="up" title="${esc(t('Run earlier'))}" aria-label="${esc(t('Run earlier'))}"${i ? '' : ' disabled'}>↑</button>
 <button type="button" class="btn icon" data-r="down" title="${esc(t('Run later'))}" aria-label="${esc(t('Run later'))}"${i < RULES.length - 1 ? '' : ' disabled'}>↓</button>
 <button type="button" class="btn" data-r="edit">${esc(t('Edit'))}</button><button type="button" class="btn danger" data-r="delete">${esc(t('Delete'))}</button></div>`).join('')
@@ -4481,21 +4508,57 @@ function showRuleForm(existing, start = null){
   const firstAccount = servers()[0]?.id ?? null;
   rule = existing ? structuredClone(existing) : start ?? {id:0, name:'', enabled:true, account:firstAccount, match_all:true,
     conditions:[{field:'from', op:'contains', value:''}], actions:[{type:'flag'}], stop:false};
+  rule.on_arrival ??= true;
   $('r-list-view').hidden = true; $('r-form').hidden = false; $('r-form-err').textContent = '';
   $('r-form-title').textContent = existing ? t('Edit rule') : t('New rule');
   $('r-name').value = rule.name;
   $('r-acct').innerHTML = `<option value="">${esc(t('All accounts'))}</option>` + servers().map(a => `<option value="${esc(a.id)}"${a.id === rule.account ? ' selected' : ''}>${esc(a.name)} · ${esc(a.email)}</option>`).join('');
   $('r-match').value = rule.match_all ? 'all' : 'any';
   $('r-stop').checked = rule.stop;
-  renderConditions(); renderActions();
+  renderConditions(); renderActions(); renderWhen();
   $('r-name').focus();
+}
+function conditionValue(c){
+  if (['exists','not_exists'].includes(c.op)) return '';
+  if (c.field === 'state') return `<select data-k="value" aria-label="${esc(t('Status|rule field'))}">${options(STATES, c.value)}</select>`;
+  if (c.field === 'received') return `<input data-k="value" type="number" min="1" max="36500" step="1" value="${esc(c.value)}" aria-label="${esc(t('Days'))}"><span class="runit">${esc(t('days|rule unit'))}</span>`;
+  if (c.field === 'size') return `<input data-k="value" value="${esc(c.value)}" placeholder="500k, 5m" autocomplete="off" spellcheck="false" aria-label="${esc(t('Size'))}">`;
+  if (c.op === 'matches') return `<input data-k="value" class="rpattern" value="${esc(c.value)}" placeholder="faktur(a|y)" maxlength="1000" autocomplete="off" spellcheck="false" aria-label="${esc(t('Pattern'))}">`;
+  return `<input data-k="value" value="${esc(c.value)}" placeholder="${esc(t('text to look for'))}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Text to look for'))}">`;
 }
 function renderConditions(){
   $('r-conds').innerHTML = rule.conditions.map((c, i) => `<div class="rrow" data-i="${i}">
-<select data-k="field" aria-label="${esc(t('Where'))}">${options(FIELDS, c.field)}</select><select data-k="op" aria-label="${esc(t('How'))}">${options(OPS, c.op)}</select>
-<div class="rvalue">${c.field === 'header' ? `<input data-k="header" value="${esc(c.header ?? '')}" placeholder="List-Id" aria-label="${esc(t('Header name'))}" autocomplete="off" spellcheck="false">` : ''}${['exists','not_exists'].includes(c.op) ? '' : `<input data-k="value" value="${esc(c.value)}" placeholder="${esc(t('text to look for'))}" autocomplete="off" spellcheck="false" aria-label="${esc(t('Text to look for'))}">`}</div>
+<select data-k="field" aria-label="${esc(t('Where'))}">${options(FIELDS, c.field)}</select><select data-k="op" aria-label="${esc(t('How'))}">${options(opsFor(c.field), c.op)}</select>
+<div class="rvalue">${c.field === 'header' ? `<input data-k="header" value="${esc(c.header ?? '')}" placeholder="List-Id" aria-label="${esc(t('Header name'))}" autocomplete="off" spellcheck="false">` : ''}${conditionValue(c)}</div>
 <button type="button" class="btn icon" data-x="${i}" title="${esc(t('Remove this condition'))}" aria-label="${esc(t('Remove condition'))}">×</button></div>`).join('');
+  $('r-pattern-hint').hidden = !rule.conditions.some(c => c.op === 'matches');
 }
+// When the rule runs: on new mail, on a schedule over folders, or both.
+function renderWhen(){
+  const s = rule.schedule;
+  $('r-arrival').checked = rule.on_arrival;
+  $('r-sched').checked = !!s;
+  $('r-every').innerHTML = options(RULE_EVERY, s?.every ?? 'day');
+  $('r-every').disabled = !s;
+  const targets = scheduleTargets(rule.account);
+  $('r-sched-folders').hidden = $('r-sched-note').hidden = !s;
+  $('r-sched-folders').innerHTML = [...new Set(targets.map(x => x[2]))].map(g => `<div class="rfgroup">${esc(g)}</div>`
+    + targets.filter(x => x[2] === g).map(([k, l]) => `<label class="rfold"><input type="checkbox" value="${esc(k)}"${s?.folders.includes(k) ? ' checked' : ''}> <span>${esc(l)}</span></label>`).join('')).join('');
+}
+function readWhen(){
+  rule.on_arrival = $('r-arrival').checked;
+  rule.schedule = $('r-sched').checked ? {every:$('r-every').value || 'day', folders:[...$('r-sched-folders').querySelectorAll('input:checked')].map(x => x.value)} : null;
+}
+$('r-when').addEventListener('change', e => {
+  const had = !!rule.schedule;
+  readWhen();
+  // Turning the schedule on starts it on the account's Inbox.
+  if (!had && rule.schedule && !rule.schedule.folders.length){
+    const inbox = scheduleTargets(rule.account).find(([k]) => folderOf(k)?.kind === 'inbox');
+    if (inbox) rule.schedule.folders = [inbox[0]];
+  }
+  if (e.target.id !== 'r-every' && !e.target.closest('#r-sched-folders')) renderWhen();
+});
 function renderActions(){
   $('r-acts').innerHTML = rule.actions.map((a, i) => {
     let param = '<span class="none"></span>';
@@ -4524,10 +4587,12 @@ function fixAction(a){
 }
 $('r-conds').addEventListener('input', e => {
   const row = e.target.closest('[data-i]'); if (!row) return;
+  const before = rule.conditions[row.dataset.i].field;
   rule.conditions[row.dataset.i][e.target.dataset.k] = e.target.value;
   if (['field','op'].includes(e.target.dataset.k)){
     const c = rule.conditions[row.dataset.i];
     if (c.field === 'header') c.header ??= ''; else delete c.header;
+    if (e.target.dataset.k === 'field') fitCondition(c, before);
     renderConditions();
   }
 });
@@ -4550,16 +4615,24 @@ $('r-add-cond').addEventListener('click', () => {
   $('r-conds').querySelector('.rrow:last-child input')?.focus();
 });
 $('r-add-act').addEventListener('click', () => { rule.actions.push(fixAction({type:'mark_read'})); renderActions(); });
-$('r-acct').addEventListener('change', () => { rule.account = $('r-acct').value || null; rule.actions.forEach(fixAction); renderActions(); });
+$('r-acct').addEventListener('change', () => {
+  rule.account = $('r-acct').value || null; rule.actions.forEach(fixAction); renderActions();
+  // A rule of one account runs on that account's folders only.
+  if (rule.schedule){ const ok = new Set(scheduleTargets(rule.account).map(x => x[0])); rule.schedule.folders = rule.schedule.folders.filter(k => ok.has(k)); }
+  renderWhen();
+});
 $('r-form').addEventListener('submit', async e => {
   e.preventDefault();
-  Object.assign(rule, {name:$('r-name').value, match_all:$('r-match').value === 'all', stop:$('r-stop').checked});
+  readRuleForm();
   try { await invoke('save_rule', {rule}); } catch (err){ $('r-form-err').textContent = tr(err); return; }
-  say(t('Rule “{name}” saved. It runs on new mail as it arrives.', {name:rule.name.trim()}));
+  const name = rule.name.trim(), every = rule.schedule && labelOf(RULE_EVERY, rule.schedule.every).toLowerCase();
+  say(!rule.schedule ? t('Rule “{name}” saved. It runs on new mail as it arrives.', {name})
+    : rule.on_arrival ? t('Rule “{name}” saved. It runs on new mail and {every}, the first time within a minute.', {name, every})
+    : t('Rule “{name}” saved. It runs {every}, the first time within a minute.', {name, every}));
   await showRuleList();
 });
 $('r-back').addEventListener('click', showRuleList);
-const readRuleForm = () => Object.assign(rule, {name:$('r-name').value,match_all:$('r-match').value === 'all',stop:$('r-stop').checked});
+const readRuleForm = () => { Object.assign(rule, {name:$('r-name').value,match_all:$('r-match').value === 'all',stop:$('r-stop').checked}); readWhen(); return rule; };
 $('r-form').addEventListener('input', () => { $('r-preview-result').hidden = true; });
 $('r-preview').addEventListener('click', async () => {
   readRuleForm();
@@ -4609,6 +4682,18 @@ $('r-run').addEventListener('click', async () => {
   say([text, ...r.problems].join(' · '), r.problems.length ? 12000 : 6000);
 });
 $('b-rules').addEventListener('click', openRules);
+// Rules on a schedule run while Telex runs: every minute the core runs those that are due.
+async function runSchedules(){
+  if (!ACCOUNTS.length) return;
+  let runs;
+  try { runs = await invoke('run_scheduled_rules'); } catch { return; }
+  if (!runs.length) return;
+  const said = runs.map(r => [r.moved ? tn(r.moved, 'Rule “{name}” moved {n} message.', 'Rule “{name}” moved {n} messages.', {name:r.name})
+    : r.matched ? tn(r.matched, 'Rule “{name}” changed {n} message.', 'Rule “{name}” changed {n} messages.', {name:r.name}) : '', ...r.problems].filter(Boolean).join(' · ')).filter(Boolean);
+  if (runs.some(r => r.matched)){ schedulePush(); await refresh(); }
+  if (said.length) say(said.join(' · '), runs.some(r => r.problems.length) ? 12000 : 6000);
+  if (rdlg.open && !$('r-list-view').hidden) showRuleList(); // their last runs
+}
 
 /* ---------- settings window ---------- */
 // Every change is saved at once (changeSettings) and shows at once, theme cards included:
@@ -5977,6 +6062,7 @@ async function boot(){
   sayRestored();
   loadBackups(); // whether the folders on this PC are backed up
   setTimeout(autoBackup, 60e3); setInterval(autoBackup, 60 * 60e3);
+  setTimeout(runSchedules, 30e3); setInterval(runSchedules, 60e3); // overdue ones catch up once, after the first check
   // Real accounts: check now, then as often as the settings say, quietly.
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account

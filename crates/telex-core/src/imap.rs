@@ -2869,6 +2869,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
             }],
             actions: vec![Action::Flag],
             stop: false,
+            ..Rule::default()
         };
         store.lock().unwrap().save_rule(&flag_anna).unwrap();
         let mut session = login(addr, "secret").await.unwrap();

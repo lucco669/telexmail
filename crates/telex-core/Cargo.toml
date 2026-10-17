@@ -37,6 +37,10 @@ cfb = "0.14.0"
 # SHA-256 a fetched dictionary must match (ring is here for TLS already).
 spellbook = "0.4.2"
 ring = "0.17"
+# Rules' "matches pattern": regular expressions in linear time (no backtracking), and their
+# parser on its own, to say where a mistyped pattern goes wrong.
+regex = "1.13.1"
+regex-syntax = "0.8.11"
 
 # MX and SRV lookups for the add-account wizard, through Windows' own DNS resolver;
 # Windows' display languages for the interface language; Outlook's accounts in the registry.

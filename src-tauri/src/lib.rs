@@ -515,6 +515,13 @@ fn run_rules(state: State<'_, AppState>, folder: String) -> CmdResult<RunReport>
     })
 }
 
+/// Run the rules whose schedule is due (the window asks every minute while Telex runs). Like
+/// Run now, no auto-replies or forwards; the window pushes the changes as after any other.
+#[tauri::command(async)]
+fn run_scheduled_rules(state: State<'_, AppState>) -> CmdResult<Vec<filters::ScheduledRun>> {
+    with_store(&state, |s| filters::run_scheduled(s, Local::now()))
+}
+
 /// What Telex's provider list knows about an address, without going online: for tips
 /// while the user types it.
 #[tauri::command(async)]
@@ -1149,6 +1156,7 @@ pub fn run() {
             move_rule,
             move_account,
             run_rules,
+            run_scheduled_rules,
             start_draft,
             save_identity,
             delete_identity,

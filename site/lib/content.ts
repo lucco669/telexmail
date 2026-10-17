@@ -9,6 +9,7 @@ const V098 = '0.9.8';
 const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
+const V0912 = '0.9.12';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -404,6 +405,9 @@ export const featureRows: FeatureRow[] = [
       { text: 'Match any named header, attachment filename or MIME type, including presence and absence; combine all or any conditions', since: V095 },
       { text: 'Copy to another folder while keeping the original; forward newly arriving mail with duplicate and loop protection', since: V095 },
       { text: 'Preview an unsaved rule on the current folder or search: total matches, sample messages and each condition’s result, without changing or sending mail', since: V095 },
+      { text: 'Patterns (regular expressions) in any text condition, checked as you save; case and Polish letters don’t matter', since: V0912 },
+      { text: 'Rules on a schedule: every hour, day or week over the folders you pick, such as read mail older than 30 days from the Inbox to Archive', since: V0912 },
+      { text: 'Conditions on a message’s age, size, read state and flag; the list shows when each scheduled rule last ran', since: V0912 },
       'Automatic forwarding and replies run only on new arrivals; running rules by hand does not send old mail',
       { text: 'Start a rule from the selected message: “New rule for mail from …”', since: '0.5.0' },
       'Auto-replies skip mailing lists and robots, and answer each sender once in 4 days',

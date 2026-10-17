@@ -18,7 +18,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::filters::{Action, Condition, Rule};
+use crate::filters::{Action, Condition, Every, Rule, Schedule};
 use crate::model::{split_folder_key, Account, AccountSetup, Identity, ImapSettings, SmtpSettings};
 use crate::store::{MailStore, StoreError, LOCAL_ID};
 
@@ -675,6 +675,29 @@ struct RuleEntry {
     actions: Vec<ActionEntry>,
     #[serde(default)]
     stop: bool,
+    /// Missing in files from before schedules: those rules all ran on new mail.
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    on_arrival: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    schedule: Option<ScheduleEntry>,
+}
+
+/// [`Schedule`] with its folders spelled out, so they can be found on another PC.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ScheduleEntry {
+    every: Every,
+    folders: Vec<FolderEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FolderEntry {
+    /// Its name, and its id, which is tried first.
+    folder: String,
+    #[serde(default)]
+    folder_id: String,
+    /// Its account's address; none for a folder on this PC.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    account: Option<String>,
 }
 
 fn yes() -> bool {
@@ -683,6 +706,10 @@ fn yes() -> bool {
 
 fn is_false(b: &bool) -> bool {
     !*b
+}
+
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// [`Action`] with the folder spelled out, so it can be found on another PC.
@@ -775,6 +802,26 @@ fn rule_entry(rule: &Rule, accounts: &[Account]) -> RuleEntry {
         conditions: rule.conditions.clone(),
         actions,
         stop: rule.stop,
+        on_arrival: rule.on_arrival,
+        schedule: rule.schedule.as_ref().map(|s| ScheduleEntry {
+            every: s.every,
+            folders: s
+                .folders
+                .iter()
+                .map(|key| {
+                    let (owner, folder_id) = split_folder_key(key).unwrap_or(("", key.as_str()));
+                    let owner = accounts.iter().find(|a| a.id == owner);
+                    FolderEntry {
+                        folder: owner
+                            .and_then(|a| a.folders.iter().find(|f| f.id == folder_id))
+                            .map_or(folder_id, |f| f.name.as_str())
+                            .to_owned(),
+                        folder_id: folder_id.to_owned(),
+                        account: owner.filter(|a| a.id != LOCAL_ID).map(|a| a.email.clone()),
+                    }
+                })
+                .collect(),
+        }),
     }
 }
 
@@ -1250,6 +1297,32 @@ pub fn plan_rules(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<(S
                 ActionEntry::AutoReply { body } => Action::AutoReply { body: body.clone() },
             });
         }
+        // The schedule's folders: of the account with that address (or on this PC), by id,
+        // else by name.
+        let schedule = entry.schedule.as_ref().map(|s| Schedule {
+            every: s.every,
+            folders: s
+                .folders
+                .iter()
+                .filter_map(|f| {
+                    let owner = match &f.account {
+                        Some(email) => local(email),
+                        None => store.this_pc(),
+                    };
+                    let found = owner.and_then(|a| {
+                        a.folders
+                            .iter()
+                            .find(|x| !f.folder_id.is_empty() && x.id == f.folder_id)
+                            .or_else(|| a.folders.iter().find(|x| same_text(&x.name, &f.folder)))
+                            .map(|x| a.folder_key(&x.id))
+                    });
+                    if found.is_none() && missing.is_none() {
+                        missing = Some(f.folder.clone());
+                    }
+                    found
+                })
+                .collect(),
+        });
         let email = account.map(|a| a.email.clone());
         if let Some(folder) = missing {
             items.push(skipped(name, email, Skip::NoFolder { folder }));
@@ -1264,6 +1337,9 @@ pub fn plan_rules(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<(S
             conditions: entry.conditions,
             actions,
             stop: entry.stop,
+            on_arrival: entry.on_arrival,
+            schedule,
+            last_run: None,
         };
         if let Err(detail) = rule.check(accounts) {
             items.push(skipped(name, email, Skip::Invalid { detail }));
@@ -1280,7 +1356,9 @@ pub fn plan_rules(values: &[Value], store: &MailStore) -> (Vec<PlanItem>, Vec<(S
                     && e.match_all == rule.match_all
                     && e.conditions == rule.conditions
                     && e.actions == rule.actions
-                    && e.stop == rule.stop;
+                    && e.stop == rule.stop
+                    && e.on_arrival == rule.on_arrival
+                    && e.schedule == rule.schedule;
                 if unchanged {
                     Status::Same
                 } else {
@@ -1379,6 +1457,7 @@ mod tests {
                 Action::Flag,
             ],
             stop: true,
+            ..Rule::default()
         }
     }
 
@@ -1722,6 +1801,63 @@ mod tests {
         );
         let again = Import::read(&text, &new, &Settings::default()).unwrap();
         assert_eq!(again.plan.rules[0].status, Status::Same);
+    }
+
+    #[test]
+    fn scheduled_rules_with_patterns_and_ages_travel_to_another_pc() {
+        let (mut old, account) = store_with("anna@firma.pl", "faktury");
+        let mut rule = invoices_rule(&account, "faktury");
+        let cond = |field, op, value: &str| Condition {
+            field,
+            op,
+            value: value.into(),
+            header: None,
+        };
+        rule.conditions = vec![
+            cond(Field::Subject, Op::Matches, r"^fv/\d+"),
+            cond(Field::Received, Op::OlderThan, "30"),
+            cond(Field::State, Op::Is, "read"),
+            cond(Field::Size, Op::LargerThan, "5m"),
+        ];
+        rule.on_arrival = false;
+        rule.schedule = Some(Schedule {
+            every: Every::Week,
+            folders: vec![account.folder_key("inbox"), account.folder_key("faktury")],
+        });
+        let saved = old.save_rule(&rule).unwrap();
+        old.set_rule_last_run(saved.id, now()).unwrap();
+        let text = export(&old, &Settings::default(), ALL, "0.9.12", now()).unwrap();
+        assert!(text.contains("\"on_arrival\": false"), "{text}");
+        let (mut new, here) = store_with("anna@firma.pl", "invoices-here");
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert_eq!(import.plan.rules[0].status, Status::Add);
+        let (_, report) = import.apply(&mut new, EVERYTHING);
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        let rules = new.rules().unwrap();
+        assert_eq!(rules[0].conditions, rule.conditions);
+        assert!(!rules[0].on_arrival);
+        assert_eq!(
+            rules[0].schedule,
+            Some(Schedule {
+                every: Every::Week,
+                folders: vec![here.folder_key("inbox"), here.folder_key("invoices-here")],
+            }),
+            "folders found by id, else by name"
+        );
+        assert_eq!(rules[0].last_run, None, "this PC's own");
+        let again = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert_eq!(again.plan.rules[0].status, Status::Same);
+
+        // A scheduled folder that isn't here: skipped, saying which.
+        let text = text.replace("\"folder\": \"Inbox\"", "\"folder\": \"Nowhere\"");
+        let text = text.replace("\"folder_id\": \"inbox\"", "\"folder_id\": \"nowhere\"");
+        let import = Import::read(&text, &new, &Settings::default()).unwrap();
+        assert_eq!(
+            import.plan.rules[0].skip,
+            Some(Skip::NoFolder {
+                folder: "Nowhere".into()
+            })
+        );
     }
 
     #[test]

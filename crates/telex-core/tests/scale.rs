@@ -872,6 +872,7 @@ fn hundred_thousand_messages() {
         }],
         actions: vec![Action::Flag],
         stop: false,
+        ..Rule::default()
     };
     let report = measure("rule preview: body contains, all mail", 3, || {
         filters::preview(&store, &rule, &view(None, SortKey::Date, "", false)).unwrap()
