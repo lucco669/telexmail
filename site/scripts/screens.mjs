@@ -198,7 +198,8 @@ function page(scene, theme) {
   const { run = '', empty = false, lang = 'en', settings = {} } = scenes[scene];
   // The stand-in, as in the live demo but started by hand: a fixed clock, this scene's look.
   const options = { data: demo, scene, empty, version, theme, lang, settings, frozenNow: '2026-10-10T09:30:00' };
-  const mock = `<script>window.TELEX_DEMO_MANUAL = true;</script><script>${backend}</script>`
+  // The status bar's one-time "Press ? or F1" is taken as said, so it stays out of the pictures.
+  const mock = `<script>window.TELEX_DEMO_MANUAL = true; try { localStorage.setItem('telex-ui', '{"helpTold":true}'); } catch {}</script><script>${backend}</script>`
     + `<script>installTelexDemo(${scriptJson(options)});</script>`;
   // The folder tree's "Add account" button is drawn with the first render, with or without
   // accounts; with accounts, the list's first page comes right after.
