@@ -40,12 +40,12 @@ pub fn delete_local_folder(state: State<'_, AppState>, folder: String) -> CmdRes
 /// file, and for Save the file name to suggest.
 #[derive(Debug, Deserialize)]
 pub struct FileWords {
-    title: String,
-    filter: String,
+    pub(crate) title: String,
+    pub(crate) filter: String,
     #[serde(default)]
-    all: String,
+    pub(crate) all: String,
     #[serde(default)]
-    file_name: String,
+    pub(crate) file_name: String,
 }
 
 /// Save a folder as an mbox file where the user picks. It is read on a connection of its

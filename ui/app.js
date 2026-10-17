@@ -48,6 +48,9 @@ const I = {
   mailOpen: sv('<path d="M1.5 6.8L8 2.3l6.5 4.5v6.7h-13z"/><path d="M2 7.2l6 4.3 6-4.3"/>'),
   clock: sv('<circle cx="8" cy="8" r="5.8"/><path d="M8 4.8V8l2.2 1.6"/>'),
   person: sv('<circle cx="8" cy="5.5" r="2.7"/><path d="M2.8 14c.6-2.8 2.7-4.3 5.2-4.3s4.6 1.5 5.2 4.3"/>'),
+  personAdd: sv('<circle cx="6.5" cy="5.5" r="2.7"/><path d="M1.5 14c.6-2.8 2.6-4.3 5-4.3 1.2 0 2.3.4 3.2 1.1"/><path d="M12.5 8.5v5M10 11h5"/>'),
+  people: sv('<circle cx="6" cy="5.8" r="2.3"/><path d="M1.8 13.5c.5-2.4 2.2-3.6 4.2-3.6s3.7 1.2 4.2 3.6"/><path d="M10.2 3.8a2.3 2.3 0 010 4.1M11.8 10.2c1.3.5 2.1 1.6 2.4 3.3"/>'),
+  book: sv('<path d="M4 1.8h9v12.4H4z"/><path d="M2.5 4.5h3M2.5 8h3M2.5 11.5h3"/><circle cx="9" cy="6.6" r="1.6"/><path d="M6.6 11.2c.4-1.3 1.3-2 2.4-2s2 .7 2.4 2"/>'),
   plus: sv('<path d="M8 3v10M3 8h10"/>'),
   rules: sv('<path d="M2 3h12l-4.5 5.5V13l-3 1.5V8.5z"/>'),
   sun: sv('<circle cx="8" cy="8" r="2.7"/><path d="M8 1.6v1.5M8 12.9v1.5M1.6 8h1.5M12.9 8h1.5M3.5 3.5l1.05 1.05M11.45 11.45l1.05 1.05M3.5 12.5l1.05-1.05M11.45 4.55l1.05-1.05"/>'),
@@ -414,7 +417,7 @@ function stepTextSize(dir){
 
 /* ---------- toolbar ---------- */
 const TOOLBAR = [['b-get','get',N_('Get mail')],['b-new','neu',N_('New|message')],['b-reply','reply',N_('Reply')],['b-replyall','replyall',N_('Reply all')],
-  ['b-forward','forward',N_('Forward')],['b-flag','flag',N_('Flag')],['b-delete','trash',N_('Delete')],['b-rules','rules',N_('Rules')],['b-settings','sliders',N_('Settings')]];
+  ['b-forward','forward',N_('Forward')],['b-flag','flag',N_('Flag')],['b-delete','trash',N_('Delete')],['b-rules','rules',N_('Rules')],['b-book','book',N_('Contacts')],['b-settings','sliders',N_('Settings')]];
 function paintToolbar(){
   TOOLBAR.forEach(([id, ic, label]) => {
     const b = $(id);
@@ -1460,6 +1463,8 @@ function messageMenu(){
   if (many) return [...sort, {sep:true}, md, saveAs];
   const out = isOut(m.f), edit = ['drafts', 'outbox'].includes(kindOf(m.f));
   const to = String(m.to).match(/[^\s<>,;"]+@[^\s<>,;"]+/)?.[0];
+  // The sender (in Sent: the first recipient) into the address book, or their contact there.
+  const who = out ? addresses(m.to)[0] : {name:m.from, email:m.email}, known = contactOf(who?.email);
   // Read or unread always comes first, where the pointer lands.
   return [
     sort[0],
@@ -1477,6 +1482,8 @@ function messageMenu(){
     {label:t('Show the conversation'), key:'T', run:toggleThread},
     out ? {label:t('All mail to {name}', {name:nameOf(m.to)}), disabled:!to, run:() => filterAllMail('to:' + to)}
       : {label:t('All mail from {name}', {name:m.from || m.email}), run:() => filterAllMail('from:' + m.email)},
+    ...(who?.email ? [{label:known ? t('Open {name} in the address book', {name:known.name || who.email}) : t('Add {name} to the address book', {name:who.name || who.email}),
+      run:() => openAddressBook(who)}] : []),
     {label:out ? t('New rule for mail to {name}', {name:nameOf(m.to)}) : t('New rule for mail from {name}', {name:m.from || m.email}),
       run:() => { const r = ruleFrom(m); openRules().then(() => showRuleForm(null, r)); }},
   ];
@@ -2267,20 +2274,28 @@ function addresses(line){
 }
 // A person: the name, then the address in a quieter color; the address alone when there is no name.
 const person = (name, email) => name && name !== email ? `<span class="pn">${esc(name)}</span> <span class="pa">${esc(email)}</span>` : `<span class="pn">${esc(email || name)}</span>`;
-const people = line => addresses(line).map(p => `<span class="pp">${person(p.name, p.email)}</span>`).join(', ');
+// `rename` gives the address book's name for an address, when it has one.
+const people = (line, rename) => addresses(line).map(p => `<span class="pp">${person(rename ? rename(p.name, p.email) : p.name, p.email)}</span>`).join(', ');
 // The message's header: the subject with its buttons (`controls`), who it is from (a click shows all
-// their mail), when and how large, who it went to, and its attachments. One face throughout.
+// their mail; the person button adds them to the address book or opens their contact), when and
+// how large, who it went to, and its attachments. People in the address book go by its names.
 function headerHtml(m, controls){
+  const saved = new Map((m.contacts ?? []).map(c => [c.email.toLowerCase(), c.name]));
+  const named = (name, email) => saved.get(String(email).toLowerCase()) || name;
+  const from = named(m.from_name, m.from_email);
   const sender = m.from_email && !VIEWER
-    ? `<button type="button" class="ph-who" data-act="sender" title="${esc(t('Show all mail from {email}', {email:m.from_email}))}">${person(m.from_name, m.from_email)}</button>`
-    : `<span class="ph-who">${person(m.from_name, m.from_email)}</span>`;
+    ? `<button type="button" class="ph-who" data-act="sender" title="${esc(t('Show all mail from {email}', {email:m.from_email}))}">${person(from, m.from_email)}</button>`
+    : `<span class="ph-who">${person(from, m.from_email)}</span>`;
+  const known = saved.has(String(m.from_email).toLowerCase()), bookTip = known ? t('In your address book: open the contact') : t('Add to address book');
+  const book = m.from_email && !VIEWER && !isOut(m.folder)
+    ? `<button type="button" class="pbtn ph-ab${known ? ' known' : ''}" data-act="contact" title="${esc(bookTip)}" aria-label="${esc(bookTip)}">${known ? I.person : I.personAdd}</button>` : '';
   return `<header class="ph">
   <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${controls}</div>
   <dl class="ph-grid">
-    <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
-    <dt>${esc(t('To'))}</dt><dd>${m.to ? people(m.to) : esc(t('(no recipient)'))}</dd>
-    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${people(m.cc)}</dd>` : ''}
-    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${people(m.bcc)}</dd>` : ''}
+    <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}${book}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
+    <dt>${esc(t('To'))}</dt><dd>${m.to ? people(m.to, named) : esc(t('(no recipient)'))}</dd>
+    ${m.cc ? `<dt>${esc(t('Cc'))}</dt><dd>${people(m.cc, named)}</dd>` : ''}
+    ${m.bcc ? `<dt>${esc(t('Bcc'))}</dt><dd>${people(m.bcc, named)}</dd>` : ''}
   </dl>
   ${attsHtml(m.attachments)}
 </header>`;
@@ -2676,6 +2691,7 @@ previewEl.addEventListener('click', async e => {
   if (act.dataset.act === 'later' && state.compose){ laterMenu(act); return; }
   if (act.dataset.act === 'later-at' && state.compose){ sendAtPicked(); return; }
   if (act.dataset.act === 'later-cancel' && state.compose){ $('c-later').hidden = true; $('c-when-btn')?.focus(); return; }
+  if (act.dataset.act === 'contact' && m){ const f = await full(m.id); openAddressBook({name:f.from_name, email:f.from_email}); return; }
   if (act.dataset.act === 'paper' && m){
     if (state.white.has(m.id)) state.white.delete(m.id); else state.white.add(m.id);
     renderPreview();
@@ -2977,15 +2993,35 @@ function foldComposeQuote(ed){
 }
 const unfolded = html => html.replace(/ class="cfold"/g, '');
 /* ---------- recipient suggestions ---------- */
-// People come from the mail base (recipients): those written to first, then those who write
-// most. Typing in To, Cc or Bcc shows the ones whose name or address has a word starting with
-// what was typed since the last comma; ↓ ↑ choose, Enter or Tab takes one, Esc closes.
-let RECIPS = null, recipsAsked = null;
+// People come from the address book and the mail base (recipients): contacts first (marked),
+// then those written to, then those who write most. Typing in To, Cc or Bcc shows the ones whose
+// name or address has a word starting with what was typed since the last comma, after the
+// address book's groups whose name does; ↓ ↑ choose, Enter or Tab takes one, Esc closes. A group
+// goes in as its people's addresses, at once, so what is sent (and counted) is plain to see.
+let RECIPS = null, GROUPS = [], recipsAsked = null;
 function loadRecipients(){
-  if (!recipsAsked) recipsAsked = invoke('recipients').then(r => { RECIPS = r.map(withWords); }).catch(() => { recipsAsked = null; });
+  if (!recipsAsked) recipsAsked = Promise.all([invoke('recipients'), loadBook()]).then(([r]) => {
+    RECIPS = r.map(withWords);
+    GROUPS = (BOOK?.groups ?? []).filter(g => g.members.some(m => m.email)).map(g => ({...g, group:true, words:fold(g.name).split(/\s+/), folded:fold(g.name)}));
+  }).catch(() => { recipsAsked = null; });
   return recipsAsked;
 }
-const forgetRecipients = () => { RECIPS = null; recipsAsked = null; };
+const forgetRecipients = () => { RECIPS = null; GROUPS = []; recipsAsked = null; };
+// A group's people as an address line, leaving out those in `taken`.
+const groupLine = (g, taken = new Set()) => g.members.filter(m => m.email && !taken.has(m.email.toLowerCase())).map(addressOf).join(', ');
+// A group's name typed whole in To, Cc or Bcc (and left, or sent) goes in as its people.
+function expandGroupNames(input){
+  if (!input || !GROUPS.length || !input.value.trim()) return;
+  let changed = false;
+  const parts = addressesIn(input.value).map(a => {
+    if (a.text.includes('@')) return a.text;
+    const g = GROUPS.find(x => x.folded === fold(a.text.trim()));
+    if (!g) return a.text;
+    changed = true;
+    return groupLine(g);
+  });
+  if (changed) input.value = parts.filter(Boolean).join(', ') + ', ';
+}
 // "Kowalska, Anna" needs quotes in an address line; a plain name doesn't.
 const addressOf = p => !p.name ? p.email : /[",;<>@]/.test(p.name) ? `"${p.name.replace(/"/g, "'")}" <${p.email}>` : `${p.name} <${p.email}>`;
 // Where the address being typed starts: after the last comma or semicolon outside quotes.
@@ -3011,7 +3047,7 @@ function showSuggestions(input){
   const typed = fold(text.slice(tokenStart(text)).trim());
   if (!typed || !RECIPS){ closeSuggestions(); return; }
   const taken = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => ($(id)?.value ?? '').toLowerCase().match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []));
-  const found = [];
+  const found = GROUPS.filter(g => (g.words.some(w => w.startsWith(typed)) || g.folded.startsWith(typed)) && groupLine(g, taken)).slice(0, 3);
   for (const p of RECIPS){
     if (found.length >= 8) break;
     if (!taken.has(p.email.toLowerCase()) && matchesTyped(p, typed)) found.push(p);
@@ -3031,7 +3067,9 @@ function showSuggestions(input){
   }
   sugg.el.style.cssText = `top:${input.offsetTop + input.offsetHeight + 2}px;left:${input.offsetLeft}px;width:${Math.max(input.offsetWidth, 260)}px`;
   sugg.el.innerHTML = found.map((p, i) => `<li role="option" id="sugg-${i}" data-i="${i}" aria-selected="${i === sugg.at}">`
-    + `<span class="nm">${esc(p.name || p.email)}</span>${p.name ? `<span class="em">${esc(p.email)}</span>` : ''}</li>`).join('');
+    + (p.group ? `<span class="nm"><span class="ct">${I.people}</span>${esc(p.name)}</span><span class="em">${esc(t('group') + ' · ' + tn(p.members.length, '{n} person', '{n} people'))}</span>`
+      : `<span class="nm">${p.contact ? `<span class="ct" title="${esc(t('In your address book'))}">${I.person}</span>` : ''}${esc(p.name || p.email)}</span>${p.name ? `<span class="em">${esc(p.email)}</span>` : ''}`)
+    + '</li>').join('');
   input.setAttribute('aria-activedescendant', 'sugg-' + sugg.at);
 }
 function takeSuggestion(i){
@@ -3041,14 +3079,15 @@ function takeSuggestion(i){
   const before = input.value.slice(0, caret), after = input.value.slice(caret).replace(/^[^,;]*[,;]?\s*/, '');
   const start = tokenStart(before);
   const head = before.slice(0, start).trimEnd();
-  const value = (head ? head + ' ' : '') + addressOf(p) + ', ';
+  const taken = new Set(['c-to', 'c-cc', 'c-bcc'].flatMap(id => ($(id)?.value ?? '').toLowerCase().match(/[^\s<>,;"]+@[^\s<>,;"]+/g) ?? []));
+  const value = (head ? head + ' ' : '') + (p.group ? groupLine(p, taken) : addressOf(p)) + ', ';
   input.value = value + after;
   input.setSelectionRange(value.length, value.length);
   closeSuggestions();
 }
 function wireSuggestions(input){
   input.addEventListener('input', () => { sugg.at = 0; loadRecipients().then(() => { if (document.activeElement === input) showSuggestions(input); }); });
-  input.addEventListener('blur', () => setTimeout(() => { if (sugg.input === input) closeSuggestions(); }, 120));
+  input.addEventListener('blur', () => setTimeout(() => { if (sugg.input === input) closeSuggestions(); if (document.activeElement !== input) expandGroupNames(input); }, 120));
   input.addEventListener('keydown', e => {
     if (sugg.input !== input || !sugg.list.length) return;
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp'){
@@ -3689,6 +3728,7 @@ function sendAtPicked(){
 // {kind, at} sends later.
 async function send(later){
   const sc = state.compose;
+  [$('c-to'), $('c-cc'), $('c-bcc')].forEach(expandGroupNames);
   if (!sc) return;
   // Send again after a question goes the way the first press chose.
   if (later === undefined) later = sc.askLater !== undefined ? sc.askLater : laterKept(sc) ? {kind:'at', at:sc.later} : null;
@@ -4883,6 +4923,396 @@ $('ss-list').addEventListener('click', async e => {
   renderTree(); showSavedSearchList();
 });
 
+/* ---------- address book ---------- */
+// B, the toolbar's Contacts, or the person button by a sender. Groups and contacts on the left,
+// the one chosen on the right: / searches, N adds, Del removes (Z puts back), ↑ ↓ choose, Enter
+// goes to its fields, where Enter (Ctrl+Enter in the note) saves; leaving a changed one saves it.
+// People written to who aren't contacts are offered at the end, never added by themselves.
+const abdlg = $('ab-dlg');
+let BOOK = null, bookAsked = null; // {contacts, groups} from the core
+function loadBook(){
+  if (!bookAsked) bookAsked = Promise.all([invoke('contacts'), invoke('contact_groups')])
+    .then(([contacts, groups]) => { BOOK = {contacts, groups}; }).catch(() => { bookAsked = null; });
+  return bookAsked;
+}
+// After a change: the book again, compose's suggestions, and the names above messages.
+async function bookChanged(){
+  bookAsked = null; forgetRecipients(); bodies.clear();
+  await loadBook();
+  if (!state.compose && current()) renderPreview();
+}
+const sameEmail = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
+const contactOf = email => email ? BOOK?.contacts.find(c => c.emails.some(e => sameEmail(e, email))) ?? null : null;
+// sel: the entry on the right ('c12', 'g3', 's' + an address offered, 'new', 'newgroup');
+// picked: more contacts for Del and Export (Ctrl+click, Shift+click).
+const ab = {sel:null, picked:new Set(), q:'', draft:null, dirty:false, undo:null, offers:[], err:'', gs:{list:[], at:0}};
+let abMsgTimer;
+function abSay(text, ms = 6000){
+  const el = $('ab-msg');
+  el.textContent = text; el.title = text;
+  clearTimeout(abMsgTimer);
+  if (ms) abMsgTimer = setTimeout(() => { el.textContent = ''; el.title = ''; }, ms);
+}
+// The list's entries in order: groups, contacts, then people to offer.
+function abEntries(){
+  const q = fold(ab.q.trim()), hit = (...s) => !q || s.some(x => fold(x ?? '').includes(q));
+  const groups = (BOOK?.groups ?? []).filter(g => hit(g.name)).map(g => ({key:'g' + g.id, kind:'group', g}));
+  const contacts = (BOOK?.contacts ?? []).filter(c => hit(c.name, c.organization, c.phone, ...c.emails)).map(c => ({key:'c' + c.id, kind:'contact', c}));
+  const offers = ab.offers.filter(p => !contactOf(p.email) && hit(p.name, p.email)).map(p => ({key:'s' + p.email.toLowerCase(), kind:'offer', p}));
+  return {groups, contacts, offers, all:[...groups, ...contacts, ...offers]};
+}
+const abFind = key => abEntries().all.find(e => e.key === key) ?? null;
+function abLoadDraft(person){
+  const s = ab.sel ?? '';
+  ab.err = ''; ab.dirty = false; ab.gs = {list:[], at:0};
+  if (s === 'new') ab.draft = {id:0, uid:'', name:person?.name && !sameEmail(person.name, person.email) ? person.name : '', emails:[person?.email ?? ''], phone:'', organization:'', note:'', groups:[]};
+  else if (s === 'newgroup') ab.draft = {id:0, name:'', members:[]};
+  else if (s[0] === 'c') ab.draft = structuredClone(BOOK?.contacts.find(c => 'c' + c.id === s) ?? null);
+  else if (s[0] === 'g') ab.draft = structuredClone(BOOK?.groups.find(g => 'g' + g.id === s) ?? null);
+  else ab.draft = null;
+}
+function renderAbList(){
+  const {groups, contacts, offers, all} = abEntries();
+  const head = (label, n) => `<li class="abh" role="presentation">${esc(label)}${n != null ? ` <small>${esc(num(n))}</small>` : ''}</li>`;
+  let i = 0;
+  const item = e => {
+    const [nm, em] = e.kind === 'group' ? [e.g.name, tn(e.g.members.length, '{n} person', '{n} people')]
+      : e.kind === 'contact' ? [e.c.name || e.c.emails[0] || e.c.phone, e.c.name ? e.c.emails[0] ?? e.c.organization : e.c.organization]
+      : [e.p.name || e.p.email, e.p.name ? e.p.email : ''];
+    const on = e.key === ab.sel || ab.picked.has(e.key);
+    return `<li role="option" id="ab-i-${i++}" data-k="${esc(e.key)}" aria-selected="${on}" class="${e.kind}">${e.kind === 'group' ? I.people : ''}`
+      + `<span class="nm">${esc(nm)}</span>${em ? `<span class="em">${esc(em)}</span>` : ''}`
+      + (e.kind === 'offer' ? `<button type="button" class="linkbtn" data-ab="take" tabindex="-1">${esc(t('Add'))}</button>` : '') + '</li>';
+  };
+  const parts = [];
+  if (groups.length) parts.push(head(t('Groups')), ...groups.map(item));
+  if (contacts.length || !all.length) parts.push(head(t('Contacts'), BOOK?.contacts.length ?? 0), ...contacts.map(item));
+  if (offers.length) parts.push(head(t('People you write to')), ...offers.map(item));
+  if (!all.length) parts.push(`<li class="none" role="presentation">${esc(ab.q.trim() ? t('Nothing matches.') : t('No contacts yet. N adds one; Import vCard brings them from a file.'))}</li>`);
+  const list = $('ab-items');
+  list.innerHTML = parts.join('');
+  const sel = list.querySelector(`[data-k="${CSS.escape(ab.sel ?? '')}"]`);
+  if (sel){ list.setAttribute('aria-activedescendant', sel.id); sel.scrollIntoView({block:'nearest'}); }
+  else list.removeAttribute('aria-activedescendant');
+  const picked = [...ab.picked].filter(k => k[0] === 'c').length;
+  $('ab-export').textContent = picked ? tn(picked, 'Export {n} selected…', 'Export {n} selected…') : t('Export vCard…');
+}
+function contactForm(d){
+  const groups = BOOK?.groups ?? [];
+  const mails = (d.emails.length ? d.emails : ['']).map((e, i) => `<div class="abmail"><input data-mail="${i}" value="${esc(e)}" aria-label="${esc(i ? t('Address {n}', {n:i + 1}) : t('Primary address'))}" autocomplete="off" spellcheck="false">`
+    + (i ? `<button type="button" class="linkbtn" data-ab="primary" data-i="${i}">${esc(t('Make primary'))}</button>` : `<span class="abtag">${esc(t('primary|address'))}</span>`)
+    + `<button type="button" class="btn icon" data-ab="rm-mail" data-i="${i}" title="${esc(t('Remove this address'))}" aria-label="${esc(t('Remove this address'))}">×</button></div>`).join('');
+  return `<h3 class="rh">${esc(d.id ? t('Contact') : t('New contact'))}</h3>
+<div class="cf df abform">
+  <label for="ab-name">${esc(t('Name|person'))}</label><input id="ab-name" value="${esc(d.name)}" autocomplete="off" spellcheck="false">
+  <label>${esc(t('Addresses'))}</label><div class="abmails">${mails}<button type="button" class="linkbtn radd" data-ab="add-mail">${esc(t('+ Address'))}</button></div>
+  <label for="ab-phone">${esc(t('Phone'))}</label><input id="ab-phone" value="${esc(d.phone)}" autocomplete="off" spellcheck="false">
+  <label for="ab-org">${esc(t('Organization'))}</label><input id="ab-org" value="${esc(d.organization)}" autocomplete="off" spellcheck="false">
+  <label for="ab-note">${esc(t('Note'))}</label><textarea id="ab-note" rows="3">${esc(d.note)}</textarea>
+  ${groups.length ? `<label>${esc(t('Groups'))}</label><div class="abgroups">${groups.map(g => `<label class="sopt"><input type="checkbox" data-group="${g.id}"${d.groups.includes(g.id) ? ' checked' : ''}><span>${esc(g.name)}</span></label>`).join('')}</div>` : ''}
+</div>`;
+}
+function groupForm(d){
+  const members = d.members.map((m, i) => `<li><span class="nm">${esc(m.name || m.email)}</span>${m.name && m.email ? `<span class="em">${esc(m.email)}</span>` : ''}`
+    + `${m.contact ? '' : `<span class="abtag">${esc(t('not a contact'))}</span>`}<button type="button" class="btn icon" data-ab="rm-member" data-i="${i}" title="${esc(t('Take out of the group'))}" aria-label="${esc(t('Take {name} out of the group', {name:m.name || m.email}))}">×</button></li>`).join('');
+  return `<h3 class="rh">${esc(d.id ? t('Group') : t('New group'))}</h3>
+<div class="cf df abform">
+  <label for="ab-gname">${esc(t('Name'))}</label><input id="ab-gname" value="${esc(d.name)}" autocomplete="off" spellcheck="false">
+  <label for="ab-gadd">${esc(t('Add'))}</label><div class="abadd"><input id="ab-gadd" role="combobox" aria-expanded="false" aria-controls="ab-gsugg" aria-autocomplete="list" placeholder="${esc(t('A contact’s name or an address, then Enter'))}" autocomplete="off" spellcheck="false"><ul class="sugg" id="ab-gsugg" role="listbox" hidden></ul></div>
+</div>
+<ul class="abmembers">${members || `<li class="none">${esc(t('No one in it yet.'))}</li>`}</ul>
+<p class="dnote">${esc(t('Type the group’s name in To, Cc or Bcc and it goes in as these addresses.'))}</p>`;
+}
+function offerPane(p){
+  return `<h3 class="rh">${esc(t('Someone you write to'))}</h3>
+<div class="abperson"><b>${esc(p.name || p.email)}</b>${p.name ? ` <span class="em">${esc(p.email)}</span>` : ''}</div>
+<p class="dnote">${esc(tn(p.sent, 'You wrote to them {n} time.', 'You wrote to them {n} times.', {n:num(p.sent)}))} ${esc(t('Telex offers the people you write to; it adds no one by itself.'))}</p>
+<div class="sbtns"><button type="button" class="btn primary" data-ab="take">${esc(t('Add to address book'))}</button><button type="button" class="btn" data-ab="write">${esc(t('Write to them'))}</button></div>`;
+}
+function renderAbEdit(){
+  const el = $('ab-edit'), d = ab.draft, s = ab.sel ?? '';
+  if (s[0] === 's'){ const e = abFind(s); el.innerHTML = e ? offerPane(e.p) : ''; return; }
+  if (!d){ el.innerHTML = `<p class="dnote abempty">${esc(t('Choose someone on the left, or press N for a new contact.'))}</p>`; return; }
+  const group = 'members' in d;
+  const reach = group ? d.members.some(m => m.email) : d.emails.some(e => e.trim());
+  el.innerHTML = (group ? groupForm(d) : contactForm(d)) + `<p class="derr" role="alert">${esc(ab.err)}</p>
+<div class="sbtns abbtns"><button type="button" class="btn primary" data-ab="save">${esc(t('Save'))}</button>`
+    + (reach ? `<button type="button" class="btn" data-ab="write">${esc(group ? t('Write to the group') : t('Write to them'))}</button>` : '')
+    + (d.id ? `<button type="button" class="btn danger" data-ab="delete">${esc(group ? t('Delete group') : t('Delete'))} <kbd>Del</kbd></button>` : '') + '</div>';
+}
+function renderAb(){ renderAbList(); renderAbEdit(); }
+// What the fields say now, into the draft.
+function abRead(){
+  const d = ab.draft, el = $('ab-edit');
+  if (!d || !el.querySelector('.abform')) return;
+  if ('members' in d){ d.name = $('ab-gname').value; return; }
+  d.name = $('ab-name').value; d.phone = $('ab-phone').value; d.organization = $('ab-org').value; d.note = $('ab-note').value;
+  d.emails = [...el.querySelectorAll('[data-mail]')].map(i => i.value);
+  d.groups = [...el.querySelectorAll('[data-group]')].filter(c => c.checked).map(c => Number(c.dataset.group));
+}
+async function abSave(){
+  if (!ab.draft) return true;
+  abRead();
+  const d = ab.draft, group = 'members' in d;
+  let saved;
+  try {
+    saved = group ? await invoke('save_group', {group:{id:d.id, name:d.name, members:d.members.map(m => ({contact:m.contact ?? null, name:m.name ?? '', email:m.email ?? ''}))}})
+      : await invoke('save_contact', {contact:{...d, emails:d.emails.filter(e => e.trim())}});
+  } catch (e){ ab.err = tr(e); renderAbEdit(); return false; }
+  ab.dirty = false; ab.err = '';
+  ab.sel = (group ? 'g' : 'c') + saved.id;
+  await bookChanged();
+  abLoadDraft();
+  renderAb();
+  abSay(t('Saved.'), 3000);
+  return true;
+}
+// Another entry on the right; a changed one is saved first (and stays when it can't be).
+async function abSelect(key){
+  if (key === ab.sel) return true;
+  if (ab.dirty && !await abSave()) return false;
+  ab.sel = key; abLoadDraft(); renderAb();
+  return true;
+}
+async function abNew(kind, person){
+  if (ab.dirty && !await abSave()) return;
+  ab.picked.clear(); ab.sel = kind; abLoadDraft(person); renderAb();
+  $(kind === 'new' ? 'ab-name' : 'ab-gname')?.focus();
+}
+async function abDelete(){
+  const keys = [...new Set([...ab.picked, ab.sel].filter(Boolean))];
+  const ids = keys.filter(k => k[0] === 'c').map(k => Number(k.slice(1)));
+  const group = keys.find(k => k[0] === 'g');
+  const before = abEntries().all.findIndex(e => e.key === ab.sel);
+  if (ids.length){
+    let gone;
+    try { gone = await invoke('delete_contacts', {ids}); } catch (e){ abSay(tr(e), 8000); return; }
+    ab.undo = {contacts:gone};
+    abSay(gone.length === 1 ? t('Deleted {name}. Press Z to undo.', {name:gone[0].name || gone[0].emails[0] || ''}) : tn(gone.length, 'Deleted {n} contact. Press Z to undo.', 'Deleted {n} contacts. Press Z to undo.'), 10000);
+  } else if (group){
+    let gone;
+    try { gone = await invoke('delete_group', {id:Number(group.slice(1))}); } catch (e){ abSay(tr(e), 8000); return; }
+    if (gone){ ab.undo = {group:gone}; abSay(t('Deleted the group {name}. Press Z to undo.', {name:gone.name}), 10000); }
+  } else if (ab.sel === 'new' || ab.sel === 'newgroup'){ ab.dirty = false; }
+  else return;
+  ab.picked.clear(); ab.dirty = false;
+  await bookChanged();
+  const after = abEntries().all;
+  ab.sel = after[Math.max(0, Math.min(before, after.length - 1))]?.key ?? null;
+  abLoadDraft(); renderAb();
+  $('ab-items').focus();
+}
+async function abUndo(){
+  const u = ab.undo; if (!u) return;
+  try { if (u.contacts) await invoke('restore_contacts', {contacts:u.contacts}); else await invoke('restore_group', {group:u.group}); }
+  catch (e){ abSay(tr(e), 8000); return; }
+  ab.undo = null;
+  await bookChanged();
+  const back = u.contacts ? contactOf(u.contacts[0].emails[0]) ?? BOOK?.contacts.find(c => c.id === u.contacts[0].id) : BOOK?.groups.find(g => g.name === u.group.name);
+  if (back) ab.sel = (u.contacts ? 'c' : 'g') + back.id;
+  abLoadDraft(); renderAb();
+  abSay(u.contacts ? tn(u.contacts.length, 'Put back {n} contact.', 'Put back {n} contacts.') : t('Put back the group {name}.', {name:u.group.name}), 4000);
+}
+// The person offered (or the one in a message) as a new contact, ready to save.
+function abTake(key){
+  const e = abFind(key);
+  if (e?.kind === 'offer') abNew('new', {name:e.p.name, email:e.p.email});
+}
+function abWrite(){
+  const d = ab.draft, s = ab.sel ?? '';
+  const to = s[0] === 's' ? [abFind(s)?.p].filter(Boolean)
+    : !d ? [] : 'members' in d ? d.members.filter(m => m.email) : d.emails.filter(e => e.trim()).slice(0, 1).map(email => ({name:d.name, email}));
+  if (!to.length) return;
+  abdlg.close();
+  openCompose('new', {to:to.map(addressOf).join(', ')});
+}
+async function abImport(){
+  let r;
+  try { r = await invoke('import_vcards', {words:{title:t('Import contacts'), filter:t('vCard files')}}); }
+  catch (e){ abSay(tr(e), 8000); return; }
+  if (!r) return; // cancelled
+  await bookChanged();
+  if (!ab.sel || !abFind(ab.sel)){ ab.sel = abEntries().all[0]?.key ?? null; abLoadDraft(); }
+  renderAb();
+  abSay(bookReport(r), 10000);
+}
+const bookReport = r => [r.added ? tn(r.added, '{n} new contact', '{n} new contacts', {n:num(r.added)}) : '',
+  r.updated ? tn(r.updated, '{n} contact filled in', '{n} contacts filled in', {n:num(r.updated)}) : '',
+  r.groups ? tn(r.groups, '{n} new group', '{n} new groups') : '',
+  r.same ? tn(r.same, '{n} was in the address book already', '{n} were in the address book already', {n:num(r.same)}) : ''].filter(Boolean).join(', ') || t('Nothing new.');
+async function abExport(){
+  const ids = [...ab.picked].filter(k => k[0] === 'c').map(k => Number(k.slice(1)));
+  if (!ids.length && !BOOK?.contacts.length){ abSay(t('There are no contacts to export yet.')); return; }
+  let path;
+  try { path = await invoke('export_vcards', {ids, words:{title:t('Export contacts'), filter:t('vCard files'), file_name:t('Contacts {date}', {date:ymd(new Date())}) + '.vcf'}}); }
+  catch (e){ abSay(tr(e), 8000); return; }
+  if (path) abSay(t('Saved to {path}.', {path}), 8000);
+}
+// Adding to a group: contacts and people written to whose name or address starts with what is
+// typed; Enter takes the one chosen, or the address typed.
+function abGroupSuggest(){
+  const input = $('ab-gadd'), box = $('ab-gsugg');
+  if (!input || !box) return;
+  const typed = fold(input.value.trim()), d = ab.draft;
+  const have = new Set(d.members.map(m => m.contact ? 'c' + m.contact : String(m.email).toLowerCase()));
+  const list = [];
+  if (typed){
+    for (const c of BOOK?.contacts ?? []){
+      if (list.length >= 8) break;
+      if (!c.emails.length || have.has('c' + c.id)) continue;
+      const words = fold(c.name + ' ' + c.emails.join(' ').replace(/[@.]/g, ' ')).split(/\s+/);
+      if (words.some(w => w.startsWith(typed))) list.push({contact:c.id, name:c.name, email:c.emails[0]});
+    }
+    for (const p of RECIPS ?? []){
+      if (list.length >= 8) break;
+      if (p.contact || have.has(p.email.toLowerCase()) || !matchesTyped(p, typed)) continue;
+      list.push({contact:null, name:p.name, email:p.email});
+    }
+  }
+  ab.gs = {list, at:Math.min(ab.gs.at, Math.max(0, list.length - 1))};
+  box.hidden = !list.length;
+  input.setAttribute('aria-expanded', String(!!list.length));
+  box.innerHTML = list.map((m, i) => `<li role="option" id="ab-gs-${i}" data-i="${i}" aria-selected="${i === ab.gs.at}"><span class="nm">${m.contact ? `<span class="ct" title="${esc(t('In your address book'))}">${I.person}</span>` : ''}${esc(m.name || m.email)}</span>${m.name ? `<span class="em">${esc(m.email)}</span>` : ''}</li>`).join('');
+  if (list.length) input.setAttribute('aria-activedescendant', 'ab-gs-' + ab.gs.at); else input.removeAttribute('aria-activedescendant');
+}
+function abAddMember(m){
+  abRead();
+  const d = ab.draft;
+  if (!m){
+    const typed = $('ab-gadd').value.trim(), parsed = addresses(typed)[0];
+    if (!parsed || !parsed.email.includes('@')){ ab.err = typed ? t('Choose a contact, or type an address.') : ''; renderAbEdit(); $('ab-gadd')?.focus(); return; }
+    const c = contactOf(parsed.email);
+    m = c ? {contact:c.id, name:c.name, email:c.emails[0]} : {contact:null, name:parsed.name, email:parsed.email};
+  }
+  if (!d.members.some(x => m.contact ? x.contact === m.contact : !x.contact && sameEmail(x.email, m.email))) d.members.push(m);
+  ab.dirty = true; ab.err = ''; ab.gs = {list:[], at:0};
+  renderAbEdit();
+  $('ab-gadd')?.focus();
+}
+async function openAddressBook(person){
+  if (VIEWER) return;
+  closeSuggestions();
+  await loadBook();
+  if (!BOOK){ say(t('The address book didn’t open. Try again.')); return; }
+  ab.q = ''; $('ab-q').value = ''; ab.picked.clear(); ab.err = ''; ab.dirty = false;
+  invoke('suggested_contacts').then(list => { ab.offers = list; if (abdlg.open) renderAbList(); }).catch(() => {});
+  loadRecipients();
+  const known = contactOf(person?.email);
+  ab.sel = known ? 'c' + known.id : person?.email ? 'new' : ab.sel && abFind(ab.sel) ? ab.sel : abEntries().all[0]?.key ?? null;
+  abLoadDraft(person);
+  if (!abdlg.open) abdlg.showModal();
+  renderAb();
+  if (ab.sel === 'new') $('ab-name')?.focus(); else $('ab-items').focus();
+}
+$('ab-close').addEventListener('click', async () => { if (!ab.dirty || await abSave()) abdlg.close(); });
+abdlg.addEventListener('cancel', e => {
+  if (ab.gs.list.length && !$('ab-gsugg')?.hidden){ e.preventDefault(); ab.gs = {list:[], at:0}; $('ab-gsugg').hidden = true; return; }
+  if (!ab.dirty) return;
+  e.preventDefault();
+  abSave().then(ok => ok && abdlg.close());
+});
+abdlg.addEventListener('close', () => { ab.dirty = false; if (!state.compose) listEl.focus({preventScroll:true}); });
+$('ab-new').addEventListener('click', () => abNew('new'));
+$('ab-newgroup').addEventListener('click', () => abNew('newgroup'));
+$('ab-import').addEventListener('click', abImport);
+$('ab-export').addEventListener('click', abExport);
+$('ab-q').addEventListener('input', () => {
+  ab.q = $('ab-q').value;
+  renderAbList();
+});
+$('ab-items').addEventListener('click', e => {
+  const li = e.target.closest('[data-k]');
+  if (!li) return;
+  const key = li.dataset.k;
+  if (e.target.closest('[data-ab="take"]')){ abTake(key); return; }
+  if ((e.ctrlKey || e.metaKey) && key[0] === 'c'){
+    if (!ab.picked.size && ab.sel?.[0] === 'c') ab.picked.add(ab.sel);
+    ab.picked.has(key) ? ab.picked.delete(key) : ab.picked.add(key);
+    renderAbList(); return;
+  }
+  if (e.shiftKey && key[0] === 'c' && ab.sel?.[0] === 'c'){
+    const keys = abEntries().contacts.map(x => x.key), a = keys.indexOf(ab.sel), b = keys.indexOf(key);
+    keys.slice(Math.min(a, b), Math.max(a, b) + 1).forEach(k => ab.picked.add(k));
+    renderAbList(); return;
+  }
+  ab.picked.clear();
+  abSelect(key).then(() => renderAbList());
+});
+$('ab-items').addEventListener('dblclick', e => { if (e.target.closest('[data-k]')) $('ab-edit').querySelector('input')?.focus(); });
+$('ab-edit').addEventListener('input', e => {
+  if (e.target.id === 'ab-gadd'){ ab.gs.at = 0; abGroupSuggest(); return; }
+  ab.dirty = true;
+});
+$('ab-edit').addEventListener('change', e => { if (e.target.dataset.group) ab.dirty = true; });
+$('ab-edit').addEventListener('mousedown', e => {
+  const li = e.target.closest('#ab-gsugg [data-i]');
+  if (li){ e.preventDefault(); abAddMember(ab.gs.list[Number(li.dataset.i)]); }
+});
+$('ab-edit').addEventListener('click', e => {
+  const b = e.target.closest('[data-ab]');
+  if (!b) return;
+  const act = b.dataset.ab, i = Number(b.dataset.i);
+  if (act === 'save') abSave();
+  else if (act === 'delete') abDelete();
+  else if (act === 'write') abWrite();
+  else if (act === 'take') abTake(ab.sel);
+  else if (act === 'add-mail' || act === 'rm-mail' || act === 'primary' || act === 'rm-member'){
+    abRead();
+    const d = ab.draft;
+    if (act === 'add-mail') d.emails.push('');
+    else if (act === 'rm-mail') d.emails.splice(i, 1);
+    else if (act === 'primary') d.emails.unshift(...d.emails.splice(i, 1));
+    else d.members.splice(i, 1);
+    ab.dirty = true; renderAbEdit();
+    const focus = act === 'add-mail' ? `[data-mail="${d.emails.length - 1}"]` : act === 'primary' ? '[data-mail="0"]' : act === 'rm-member' ? '#ab-gadd' : '[data-ab="add-mail"]';
+    $('ab-edit').querySelector(focus)?.focus();
+  }
+});
+// ↑ ↓ Home End in the list, skipping its headings.
+function abStep(k){
+  const all = abEntries().all;
+  if (!all.length) return;
+  const at = all.findIndex(e => e.key === ab.sel);
+  const to = k === 'Home' ? 0 : k === 'End' ? all.length - 1 : Math.max(0, Math.min(all.length - 1, (at < 0 ? -1 : at) + (k === 'ArrowDown' ? 1 : -1)));
+  ab.picked.clear();
+  abSelect(all[to].key).then(() => renderAbList());
+}
+abdlg.addEventListener('keydown', e => {
+  const tg = e.target;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); abSave(); return; }
+  if (tg.id === 'ab-q'){
+    if (e.key === 'Escape' && tg.value){ e.preventDefault(); e.stopPropagation(); tg.value = ''; ab.q = ''; renderAbList(); }
+    else if (e.key === 'ArrowDown' || e.key === 'Enter'){
+      e.preventDefault();
+      const first = abEntries().all[0];
+      if (first) abSelect(first.key).then(() => { renderAbList(); $('ab-items').focus(); });
+    }
+    return;
+  }
+  if (tg.id === 'ab-gadd'){
+    const n = ab.gs.list.length;
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && n){ e.preventDefault(); ab.gs.at = (ab.gs.at + (e.key === 'ArrowDown' ? 1 : -1) + n) % n; abGroupSuggest(); }
+    else if (e.key === 'Enter'){ e.preventDefault(); abAddMember(n ? ab.gs.list[ab.gs.at] : null); }
+    return;
+  }
+  if (tg.closest?.('input, textarea, select')){
+    if (e.key === 'Enter' && tg.tagName === 'INPUT' && tg.type !== 'checkbox'){ e.preventDefault(); abSave(); }
+    return;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if ((k === 'Enter' || k === ' ') && tg.closest?.('button, label')) return;
+  if (k === '/') $('ab-q').focus();
+  else if (k === 'n') abNew('new');
+  else if (k === 'Delete'){ if (!e.repeat) abDelete(); }
+  else if (k === 'z') abUndo();
+  else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(k) && tg.id === 'ab-items') abStep(k);
+  else if (k === 'Enter' && tg.id === 'ab-items'){ if (ab.sel?.[0] === 's') abTake(ab.sel); else $('ab-edit').querySelector('input, button')?.focus(); }
+  else return;
+  e.preventDefault();
+});
+$('b-book').addEventListener('click', () => openAddressBook());
+
 const rdlg = $('rules-dlg');
 let RULES = [], rule = null; // rule: the one being edited
 // Labels are English keys, translated where they are drawn.
@@ -5613,7 +6043,8 @@ function sourceSummary(s){
   const mail = s.folders.reduce((n, f) => n + f.bytes, 0);
   return [s.accounts.length ? tn(s.accounts.length, '{n} account', '{n} accounts') : '',
     s.folders.length ? t('{size} of mail', {size:fmtSize(Math.ceil(mail / 1024))}) : '',
-    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : ''].filter(Boolean).join(' · ');
+    s.filters ? tn(s.filters, '{n} filter', '{n} filters') : '',
+    s.books?.length ? tn(s.books.length, '{n} address book', '{n} address books') : ''].filter(Boolean).join(' · ');
 }
 function openMoveIn(path){
   openSettings('move');
@@ -5624,7 +6055,8 @@ function chooseSource(s){
   moveIn = {...moveIn, source:s, report:null, running:null, error:'', passwords:{}, choice:{
     accounts:new Set(s.accounts.filter(canAdd).map(a => a.key)),
     folders:new Set(s.folders.filter(f => f.tick).map(f => f.key)),
-    filters:s.filters > 0}};
+    filters:s.filters > 0,
+    books:new Set((s.books ?? []).filter(b => b.tick).map(b => b.key))}};
   renderMove();
   sdlg.querySelector('#s-move input:not([disabled])')?.focus();
 }
@@ -5645,7 +6077,7 @@ function renderSource(el){
   const s = moveIn.source, c = moveIn.choice, r = moveIn.report, run = moveIn.running;
   const title = `<h3 class="rh">${esc(programName(s.program))} · ${esc(s.name)}</h3>`;
   if (run){
-    const order = ['accounts', 'mail', 'rules'], at = order.indexOf(run.step);
+    const order = ['accounts', 'mail', 'rules', 'contacts'], at = order.indexOf(run.step);
     const step = (id, label, small) => `<li class="${run.step === id ? 'work' : order.indexOf(id) < at ? 'done' : ''}">${esc(label)}${small ? `<small>${esc(small)}</small>` : ''}</li>`;
     const size = n => fmtSize(Math.ceil(n / 1024));
     const accounts = c.accounts.size ? step('accounts', run.step === 'accounts' ? t('Adding accounts: {done} of {total}', {done:run.done, total:run.total}) : t('Adding accounts'),
@@ -5653,8 +6085,9 @@ function renderSource(el){
     const mail = c.folders.size ? step('mail', run.step === 'mail' ? t('Reading mail: {done} of {total}', {done:size(run.done), total:size(run.total)}) : t('Reading mail'),
       run.step === 'mail' ? run.name : '') : '';
     const rules = c.filters ? step('rules', t('Making rules of the filters'), '') : '';
+    const books = c.books.size ? step('contacts', t('Bringing the address books'), '') : '';
     const bar = run.step === 'mail' && run.total ? `<div class="ubar mvbar"><i style="width:${Math.min(100, run.done / run.total * 100).toFixed(1)}%"></i></div>` : '';
-    el.innerHTML = `${title}<ul class="wsteps" aria-live="polite">${accounts}${mail}${rules}</ul>${bar}
+    el.innerHTML = `${title}<ul class="wsteps" aria-live="polite">${accounts}${mail}${rules}${books}</ul>${bar}
 <p class="dnote">${esc(t('Telex keeps working meanwhile. Mail already here isn’t brought twice.'))}</p>`;
     return;
   }
@@ -5664,7 +6097,10 @@ function renderSource(el){
     const lines = [ok.length ? tn(ok.length, '{n} account added', '{n} accounts added') : '',
       r.mail.added ? tn(r.mail.added, '{n} message in folders on this PC', '{n} messages in folders on this PC', {n:num(r.mail.added)}) : '',
       r.mail.already ? tn(r.mail.already, '{n} was here already', '{n} were here already', {n:num(r.mail.already)}) : '',
-      made ? tn(made, '{n} rule', '{n} rules') : ''].filter(Boolean);
+      made ? tn(made, '{n} rule', '{n} rules') : '',
+      r.contacts?.added ? tn(r.contacts.added, '{n} new contact', '{n} new contacts', {n:num(r.contacts.added)}) : '',
+      r.contacts?.updated ? tn(r.contacts.updated, '{n} contact filled in', '{n} contacts filled in', {n:num(r.contacts.updated)}) : '',
+      r.contacts?.groups ? tn(r.contacts.groups, '{n} new group', '{n} new groups') : ''].filter(Boolean);
     const accounts = r.accounts.length ? `<section class="ipart"><div class="ihead"><b>${esc(t('Accounts'))}</b><span>${esc(bad.length ? tn(bad.length, '{n} needs attention', '{n} need attention') : t('all logged in'))}</span></div>`
       + `<ul class="ilist">${r.accounts.map(a => `<li><span class="ist ${a.error ? 'skip' : 'add'}">${esc(a.error ? t('Check|account') : t('Added|account'))}</span><span class="iname">${esc(a.email)}</span>`
       + `<span class="iwhy" title="${esc(a.error ? tr(a.error) : '')}">${esc(a.error ? tr(a.error) : '')}</span></li>`).join('')}</ul>`
@@ -5691,8 +6127,11 @@ ${r.mail.problems.length ? `<p class="derr">${esc(r.mail.problems.map(tr).join('
     + `<p class="dnote">${esc(t('Each folder comes into a folder on this PC of the same name.'))}</p></section>` : '';
   const filters = s.filters ? `<section class="ipart"><label class="ihead">${ticked(c.filters, 'data-mv="filters"')}<b>${esc(t('Filters'))}</b><span>${esc(tn(s.filters, '{n} filter', '{n} filters'))}</span></label>`
     + `<p class="dnote">${esc(t('They become rules where Telex can do the same; the others are listed afterwards with what Telex can’t do.'))}</p></section>` : '';
-  const nothing = !c.accounts.size && !c.folders.size && !c.filters;
-  el.innerHTML = `${title}${accounts}${folders}${filters}<p class="derr" role="alert">${esc(moveIn.error)}</p>
+  const books = s.books?.length ? `<section class="ipart"><label class="ihead">${ticked(s.books.every(b => c.books.has(b.key)), 'data-mv="all-books"')}<b>${esc(t('Address books'))}</b><span>${esc(tn(c.books.size, '{n} ticked', '{n} ticked'))}</span></label><ul class="ilist">${s.books.map(b =>
+      `<li><label class="mvpick">${ticked(c.books.has(b.key), `data-mv="book" data-key="${esc(b.key)}"`)}<span class="iname">${esc(b.name)}</span></label><span class="iwhy">${esc(tn(b.contacts, '{n} card', '{n} cards', {n:num(b.contacts)}))}</span></li>`).join('')}</ul>`
+    + `<p class="dnote">${esc(t('Contacts and lists come into the address book (B); people already in it are only filled in. Thunderbird’s Collected Addresses are everyone it ever saw, so they start unticked.'))}</p></section>` : '';
+  const nothing = !c.accounts.size && !c.folders.size && !c.filters && !c.books.size;
+  el.innerHTML = `${title}${accounts}${folders}${filters}${books}<p class="derr" role="alert">${esc(moveIn.error)}</p>
 <div class="sbtns"><button class="btn primary" type="button" id="mv-go"${nothing ? ' disabled' : ''}>${esc(t('Bring in'))}</button><button class="btn" type="button" id="mv-back">${esc(t('Back'))}</button></div>`;
 }
 // A tick in the source's lists: the counts and the buttons follow; typed passwords stay.
@@ -5701,6 +6140,8 @@ function moveInTick(el){
   if (el.dataset.mv === 'account'){ on ? c.accounts.add(key) : c.accounts.delete(key); }
   else if (el.dataset.mv === 'folder'){ on ? c.folders.add(key) : c.folders.delete(key); }
   else if (el.dataset.mv === 'filters') c.filters = on;
+  else if (el.dataset.mv === 'book'){ on ? c.books.add(key) : c.books.delete(key); }
+  else if (el.dataset.mv === 'all-books') c.books = new Set(on ? s.books.map(b => b.key) : []);
   else if (el.dataset.mv === 'all-accounts') c.accounts = new Set(on ? s.accounts.filter(canAdd).map(a => a.key) : []);
   else if (el.dataset.mv === 'all-folders') c.folders = new Set(on ? s.folders.map(f => f.key) : []);
   const again = el.dataset.mv + (key ? `"][data-key="${key}` : '');
@@ -5711,9 +6152,9 @@ async function bringIn(){
   const s = moveIn.source, c = moveIn.choice;
   const passwords = {};
   c.accounts.forEach(k => { if (moveIn.passwords[k]) passwords[k] = moveIn.passwords[k]; });
-  const choice = {accounts:[...c.accounts], passwords, folders:[...c.folders], filters:c.filters};
+  const choice = {accounts:[...c.accounts], passwords, folders:[...c.folders], filters:c.filters, books:[...c.books]};
   moveIn.passwords = {}; // typed once, sent once
-  moveIn.running = {step:c.accounts.size ? 'accounts' : c.folders.size ? 'mail' : 'rules', done:0, total:c.accounts.size, name:''};
+  moveIn.running = {step:c.accounts.size ? 'accounts' : c.folders.size ? 'mail' : c.filters ? 'rules' : 'contacts', done:0, total:c.accounts.size, name:''};
   moveIn.error = '';
   renderMove();
   let r;
@@ -5723,6 +6164,7 @@ async function bringIn(){
   moveIn.sources = null; // what is in Telex now has changed
   if (sdlg.open && setTab === 'move') renderMove();
   await refresh();
+  if (r.contacts?.added || r.contacts?.updated || r.contacts?.groups) bookChanged();
   if (r.accounts.some(a => !a.error)) getMail({quiet:true});
   say(t('Moved in from {program}.', {program:programName(s.program)}));
 }
@@ -6317,7 +6759,7 @@ const HELP_KEYS = [
     ['Ctrl+U', N_('the message’s source and all its headers')]]],
   [N_('Find|help'), [['/', N_('search: the list shows what matches as you type')], ['Enter ↓', N_('from the search box to the results')],
     ['Tab', N_('this folder or all mail')], ['Esc', N_('clear the filter')]]],
-  [N_('Window|help'), [['Ctrl+,', N_('settings')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
+  [N_('Window|help'), [['Ctrl+,', N_('settings')], ['B', N_('the address book: contacts and groups')], ['Ctrl+= − 0', N_('larger, smaller or normal text')], ['Shift+F10', N_('the menu of the selected message or folder; or right-click')],
     ['Alt+↑ ↓', N_('in the folder tree: an account up or down')], ['F2', N_('in the folder tree: rename a folder on this PC')], ['? F1', N_('this help')]]],
 ];
 const HELP_TIPS = [
@@ -6340,6 +6782,7 @@ const HELP_TIPS = [
   N_('The storage bar in the status bar shows how full the mailbox on the server is. Click it for more.'),
   N_('In a dark theme, the sun button above HTML mail shows it on white, as it was sent.'),
   N_('Errors and notes from rules show above the message they are about.'),
+  N_('The person button by a sender adds them to the address book. Type a group’s name in To and it goes in as its people.'),
 ];
 const OPERATORS = 'from: to: subject: is:unread is:flagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
 const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/).map(k => `<kbd>${esc(k)}</kbd>`).join('+')).join(' ');
@@ -6398,7 +6841,7 @@ function onKey(e){
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey) && e.shiftKey){ e.preventDefault(); laterMenu(); return; }
   if (state.compose && e.key === 'Enter' && (e.ctrlKey || e.metaKey)){ e.preventDefault(); if (e.target.id === 'c-when') sendAtPicked(); else send(); return; }
   if (e.key === 'F1'){ e.preventDefault(); toggleHelp(); return; }
-  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
+  if (VIEWER && (mod ? e.key === ',' : !e.altKey && ['g', 'G', 't', 'T', 'o', 'O', 'b', 'B', '/', 'Enter'].includes(e.key) && !tg.closest?.('input, textarea, [contenteditable="true"]'))) return;
   if (e.key === 'Escape'){
     if (!helpPop.hidden){ e.preventDefault(); hideHelp(); return; }
     if (!linkTip.hidden){ e.preventDefault(); hideLink(); return; }
@@ -6449,6 +6892,7 @@ function onKey(e){
   else if (k === 'q') toggleQuotes();
   else if (k === 'm') openPicker('move');
   else if (k === 'g') openPicker('go');
+  else if (k === 'b') openAddressBook();
   else if (k === 't') toggleThread();
   else if (k === 'o') toggleUnreadOnly();
   else if (k === 'z') undo();

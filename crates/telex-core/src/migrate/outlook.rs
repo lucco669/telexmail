@@ -17,16 +17,18 @@ use outlook_pst::messaging::attachment::{
 };
 use outlook_pst::messaging::folder::Folder;
 use outlook_pst::messaging::message::{AnsiMessage, Message, UnicodeMessage};
+use outlook_pst::messaging::named_prop::{NamedPropertyGuid, NamedPropertyId};
 use outlook_pst::messaging::store::{AnsiStore, Store, UnicodeStore};
 use outlook_pst::ndb::node_id::NodeId;
 use outlook_pst::{AnsiPstFile, UnicodePstFile};
 
 use super::mapi::{self, MapiAttachment, MapiMessage, Props, Value};
-use super::{found_folder, FoundFolder, Place, Program, Source};
+use super::{found_folder, BookPlace, FoundBook, FoundFolder, Place, Program, Source};
 use crate::mailbox::FileMessage;
 use crate::model::Account;
 use crate::store::StoreError;
 use crate::tr;
+use crate::vcard::Card;
 
 const CONTENT_COUNT: u16 = 0x3602;
 const CONTAINER_CLASS: u16 = 0x3613;
@@ -49,6 +51,7 @@ pub fn find(accounts: &[Account]) -> Vec<Source> {
                 folders: Vec::new(),
                 filters: 0,
                 filter_files: Vec::new(),
+                books: Vec::new(),
             });
         }
     }
@@ -163,6 +166,7 @@ pub fn read_pst(path: &Path) -> Result<Source, StoreError> {
         |s| s.to_string_lossy().into_owned(),
     );
     let mut folders = Vec::new();
+    let mut books = Vec::new();
     walk(
         &pst,
         root.as_ref(),
@@ -170,6 +174,7 @@ pub fn read_pst(path: &Path) -> Result<Source, StoreError> {
         0,
         path,
         &mut folders,
+        &mut books,
     );
     let bytes: u64 = std::fs::metadata(path).map_or(0, |m| m.len());
     let total: u64 = folders
@@ -191,6 +196,7 @@ pub fn read_pst(path: &Path) -> Result<Source, StoreError> {
         folders,
         filters: 0,
         filter_files: Vec::new(),
+        books,
     }
     .numbered())
 }
@@ -211,6 +217,7 @@ fn walk(
     depth: usize,
     file: &Path,
     out: &mut Vec<FoundFolder>,
+    books: &mut Vec<FoundBook>,
 ) {
     if depth > 16 {
         return;
@@ -225,8 +232,13 @@ fn walk(
         };
         let props = child.properties();
         let class = text_of(props.get(CONTAINER_CLASS)).unwrap_or_default();
-        if !(class.is_empty() || class.starts_with("IPF.Note") || class.starts_with("IPF.Imap")) {
-            continue; // calendars, contacts, tasks, notes, journals
+        let contacts = class.starts_with("IPF.Contact");
+        if !(contacts
+            || class.is_empty()
+            || class.starts_with("IPF.Note")
+            || class.starts_with("IPF.Imap"))
+        {
+            continue; // calendars, tasks, notes, journals
         }
         let name = props.display_name().unwrap_or_default();
         let mut path = parents.to_vec();
@@ -235,7 +247,20 @@ fn walk(
             Some(PropertyValue::Integer32(n)) => u64::try_from(*n).unwrap_or(0),
             _ => 0,
         };
-        if count > 0 {
+        if contacts {
+            if count > 0 {
+                books.push(FoundBook {
+                    key: String::new(),
+                    name: path.join(" / "),
+                    contacts: count,
+                    tick: true,
+                    place: BookPlace::Pst {
+                        file: file.to_owned(),
+                        node: u32::from(node),
+                    },
+                });
+            }
+        } else if count > 0 {
             let mut f = found_folder(
                 &path.join(" / "),
                 Place::Pst {
@@ -247,8 +272,98 @@ fn walk(
             f.messages = Some(count);
             out.push(f);
         }
-        walk(pst, child.as_ref(), &path, depth + 1, file, out);
+        walk(pst, child.as_ref(), &path, depth + 1, file, out, books);
     }
+}
+
+/// The property ids this data file gives a contact's three addresses (Email1EmailAddress and
+/// the next two of PSETID_Address): named properties, numbered per file.
+fn address_props(pst: &Pst) -> [Option<u16>; 3] {
+    let mut ids = [None; 3];
+    let Ok(map) = pst.store().named_property_map() else {
+        return ids;
+    };
+    let props = map.properties();
+    let Ok(entries) = props.stream_entry() else {
+        return ids;
+    };
+    for entry in entries {
+        let NamedPropertyId::Number(lid) = entry.id() else {
+            continue;
+        };
+        let Some(i) = EMAIL_LIDS.iter().position(|l| *l == lid) else {
+            continue;
+        };
+        let address_set = matches!(entry.guid(), NamedPropertyGuid::GuidIndex(_))
+            && props.lookup_guid(entry.guid()).is_ok_and(|g| {
+                (g.data1(), g.data2(), g.data3(), *g.data4())
+                    == (0x0006_2004, 0, 0, [0xC0, 0, 0, 0, 0, 0, 0, 0x46])
+            });
+        if address_set {
+            ids[i] = Some(entry.prop_id());
+        }
+    }
+    ids
+}
+
+/// PidLidEmail1EmailAddress, 2 and 3.
+const EMAIL_LIDS: [u32; 3] = [0x8083, 0x8093, 0x80A3];
+const GIVEN_NAME: u16 = 0x3A06;
+const BUSINESS_PHONE: u16 = 0x3A08;
+const HOME_PHONE: u16 = 0x3A09;
+const SURNAME: u16 = 0x3A11;
+const COMPANY: u16 = 0x3A16;
+const MOBILE_PHONE: u16 = 0x3A1C;
+
+/// A contact item as a card; `None` for anything else (distribution lists aren't read: their
+/// members are a binary list of entry ids).
+pub(crate) fn contact_card(props: &Props, address_ids: &[Option<u16>; 3]) -> Option<Card> {
+    let class = props.text(mapi::MESSAGE_CLASS).unwrap_or_default();
+    if !class.to_ascii_lowercase().starts_with("ipm.contact") {
+        return None;
+    }
+    let name = props.text(mapi::DISPLAY_NAME).unwrap_or_else(|| {
+        [GIVEN_NAME, SURNAME]
+            .iter()
+            .filter_map(|id| props.text(*id))
+            .collect::<Vec<_>>()
+            .join(" ")
+    });
+    Some(Card {
+        name,
+        // An Exchange contact's address can be an X.500 name: only SMTP addresses come.
+        emails: address_ids
+            .iter()
+            .flatten()
+            .filter_map(|id| props.text(*id))
+            .filter(|e| e.contains('@'))
+            .collect(),
+        phone: [MOBILE_PHONE, BUSINESS_PHONE, HOME_PHONE]
+            .iter()
+            .filter_map(|id| props.text(*id))
+            .collect::<Vec<_>>()
+            .join(", "),
+        organization: props.text(COMPANY).unwrap_or_default(),
+        note: props.text(mapi::BODY).unwrap_or_default(),
+        ..Card::default()
+    })
+}
+
+/// The contacts of one contacts folder of a data file.
+pub fn read_pst_contacts(path: &Path, node: u32) -> Result<Vec<Card>, StoreError> {
+    let pst = Pst::open(path).map_err(|e| unreadable_pst(path, &e))?;
+    let folder = pst
+        .folder(NodeId::from(node))
+        .map_err(|e| unreadable_pst(path, &e))?;
+    let address_ids = address_props(&pst);
+    let Some(contents) = folder.contents_table() else {
+        return Ok(Vec::new());
+    };
+    Ok(contents
+        .rows_matrix()
+        .filter_map(|row| pst.message(NodeId::from(u32::from(row.id()))).ok())
+        .filter_map(|m| contact_card(&m.props, &address_ids))
+        .collect())
 }
 
 /// Read every mail message of one folder of a data file.
@@ -800,6 +915,10 @@ mod tests {
         let source = read_pst(&path).unwrap();
         let names: Vec<&str> = source.folders.iter().map(|f| f.name.as_str()).collect();
         assert!(names.contains(&"Archiwum / Klienci / 2026"), "{names:?}");
+        assert!(
+            source.books.is_empty(),
+            "an empty Contacts folder isn't offered"
+        );
         let inbox = source
             .folders
             .iter()
@@ -925,6 +1044,36 @@ mod tests {
         assert_eq!(parsed.attachments[0].name, "wycena.pdf");
         assert_eq!(parsed.date.format("%Y-%m-%d").to_string(), "2025-10-06");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn contact_items_become_cards() {
+        let mut props = Props::default();
+        let text = |s: &str| Value::Text(s.to_owned());
+        props.insert(mapi::MESSAGE_CLASS, text("IPM.Contact"));
+        props.insert(GIVEN_NAME, text("Małgorzata"));
+        props.insert(SURNAME, text("Wróblewska"));
+        props.insert(COMPANY, text("Piżama Sp. z o.o."));
+        props.insert(MOBILE_PHONE, text("600 700 800"));
+        props.insert(BUSINESS_PHONE, text("22 111 22 33"));
+        props.insert(mapi::BODY, text("Zamówienia w piątki"));
+        // This file numbers Email1 as 0x8005 and Email2 as 0x8006; Email2 is an Exchange name.
+        props.insert(0x8005, text("malgosia@pizama.pl"));
+        props.insert(
+            0x8006,
+            text("/o=ExchangeLabs/ou=Exchange/cn=Recipients/cn=mw"),
+        );
+        let ids = [Some(0x8005), Some(0x8006), None];
+        let card = contact_card(&props, &ids).unwrap();
+        assert_eq!(card.name, "Małgorzata Wróblewska");
+        assert_eq!(card.emails, ["malgosia@pizama.pl"]);
+        assert_eq!(card.phone, "600 700 800, 22 111 22 33");
+        assert_eq!(card.organization, "Piżama Sp. z o.o.");
+        assert_eq!(card.note, "Zamówienia w piątki");
+        props.insert(mapi::DISPLAY_NAME, text("Gosia W."));
+        assert_eq!(contact_card(&props, &ids).unwrap().name, "Gosia W.");
+        props.insert(mapi::MESSAGE_CLASS, text("IPM.DistList"));
+        assert!(contact_card(&props, &ids).is_none());
     }
 
     #[test]

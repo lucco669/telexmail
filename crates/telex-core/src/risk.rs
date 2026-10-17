@@ -32,6 +32,8 @@ pub struct InspectedMessage {
     /// A calendar invitation in it, for the card above the text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invite: Option<crate::calendar::invites::Invite>,
+    /// The addresses of From, To and Cc that are in the address book, with the saved names.
+    pub contacts: Vec<crate::contacts::ContactName>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

@@ -28,6 +28,7 @@
     <button class="tb" id="b-delete" type="button" title="Move to Trash (Del)" data-i18n></button>
     <span class="sep"></span>
     <button class="tb" id="b-rules" type="button" title="Rules that sort, flag and answer mail" data-i18n></button>
+    <button class="tb" id="b-book" type="button" title="Address book: contacts and groups (B)" data-i18n></button>
     <button class="tb" id="b-density" type="button" title="Switch row density" data-i18n></button>
     </div>
     <button class="tb" id="b-settings" type="button" title="Settings: accounts, theme, language, writing, usage (Ctrl+,)" data-i18n></button>
@@ -67,7 +68,7 @@
        the last check, help and the version. -->
   <footer class="status">
     <span class="st-side st-left"><span id="st-folder"></span><button class="chip" id="st-undo" type="button" hidden></button><span id="st-msg"></span></span>
-    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
+    <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span class="more"><kbd>B</kbd> <span data-i18n>address book</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
     <span class="st-side st-right">
       <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
       <span class="ask" id="st-count" title="Once a day Telex would send its version, the system, the language and the month it was first counted. No ID, and nothing about you or your mail." hidden data-i18n>Count this copy of Telex once a day, anonymously? <button type="button" class="linkbtn" data-count="on" data-i18n>Yes</button> <button type="button" class="linkbtn" data-count="off" data-i18n>No</button></span>
@@ -464,6 +465,27 @@
   <pre class="srctext" id="src-text" tabindex="0"></pre>
   <dl class="srchd" id="src-headers" tabindex="0" hidden></dl>
   <div class="cbar"><button class="btn" type="button" id="src-copy" data-i18n>Copy</button><button class="btn" type="button" id="src-save" data-i18n>Save as…</button><button class="btn" type="button" id="src-close"><span data-i18n>Close</span> <kbd>Esc</kbd></button></div>
+</dialog>
+
+<!-- B: the address book. Contacts and groups on the left (/ searches, N adds, Del removes, Z puts
+     back), the one chosen on the right; people written to are offered below, never added alone. -->
+<dialog class="dlg ab" id="ab-dlg" aria-labelledby="ab-title">
+  <h2 class="dtitle" id="ab-title" data-i18n>Address book</h2>
+  <div class="abbody">
+    <div class="ablist">
+      <div class="abq"><input id="ab-q" type="search" placeholder="Search" aria-label="Search the address book" aria-controls="ab-items" autocomplete="off" spellcheck="false" data-i18n><kbd>/</kbd></div>
+      <ul class="abitems" id="ab-items" role="listbox" aria-label="Contacts and groups" aria-multiselectable="true" tabindex="0" data-i18n></ul>
+    </div>
+    <div class="abedit" id="ab-edit"></div>
+  </div>
+  <div class="cbar">
+    <button class="btn" type="button" id="ab-new"><span data-i18n>New contact</span> <kbd>N</kbd></button>
+    <button class="btn" type="button" id="ab-newgroup" data-i18n>New group</button>
+    <button class="btn" type="button" id="ab-import" data-i18n>Import vCard…</button>
+    <button class="btn" type="button" id="ab-export" aria-haspopup="menu" data-i18n>Export vCard…</button>
+    <span class="cnote snotel abmsg" id="ab-msg" role="status"></span>
+    <button class="btn" type="button" id="ab-close"><span data-i18n>Close</span> <kbd>Esc</kbd></button>
+  </div>
 </dialog>
 
 <!-- M moves the selected messages, G opens a folder: type part of its name. -->

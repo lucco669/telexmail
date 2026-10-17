@@ -10,11 +10,14 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 use super::{
-    found_folder, identity, mark_present, Blocked, FoundAccount, FoundFolder, Place, Program,
-    Source,
+    found_folder, identity, mark_present, Blocked, BookPlace, FoundAccount, FoundBook, FoundFolder,
+    Place, Program, Source,
 };
 use crate::model::{Account, AccountSetup, Identity, SmtpSecurity};
 use crate::settings::{PlanItem, Skip, Status};
+use crate::store::StoreError;
+use crate::tr;
+use crate::vcard::{self, Card};
 
 /// Where each program keeps its profiles.
 pub fn roots() -> Vec<(PathBuf, Program)> {
@@ -253,7 +256,8 @@ pub fn read(profile: &Path, program: Program, accounts: &[Account]) -> Option<So
             _ => {} // news, feeds, chat
         }
     }
-    if found.is_empty() && folders.is_empty() {
+    let books = address_books(profile, &prefs);
+    if found.is_empty() && folders.is_empty() && books.is_empty() {
         return None;
     }
     mark_present(&mut found, accounts);
@@ -271,9 +275,192 @@ pub fn read(profile: &Path, program: Program, accounts: &[Account]) -> Option<So
             folders,
             filters,
             filter_files,
+            books,
         }
         .numbered(),
     )
+}
+
+/// The profile's address books: abook.sqlite (Personal Address Book), abook-1.sqlite and so on,
+/// and history.sqlite (Collected Addresses, unticked). Thunderbird before 78 kept them as .mab
+/// (Mork) files, which aren't read.
+fn address_books(profile: &Path, prefs: &Prefs) -> Vec<FoundBook> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(profile)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                (n.starts_with("abook") || n == "history.sqlite") && n.ends_with(".sqlite")
+            })
+        })
+        .collect();
+    files.sort();
+    let mut books = Vec::new();
+    for path in files {
+        let file = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        // ldap_2.servers.<name>.filename names the file, .description the book.
+        let described = prefs.0.iter().find_map(|(key, value)| {
+            let server = key
+                .strip_prefix("ldap_2.servers.")?
+                .strip_suffix(".filename")?;
+            match value {
+                Pref::Text(f) if *f == file => {
+                    prefs.text(&format!("ldap_2.servers.{server}.description"))
+                }
+                _ => None,
+            }
+        });
+        let collected = file == "history.sqlite";
+        let name = match described.filter(|d| !d.starts_with("chrome://")) {
+            Some(d) => d.to_owned(),
+            None if collected => tr!("Collected Addresses", "Zebrane adresy"),
+            None if file == "abook.sqlite" => {
+                tr!("Personal Address Book", "Osobista książka adresowa")
+            }
+            None => file.trim_end_matches(".sqlite").to_owned(),
+        };
+        let Ok(count) = with_book(&path, |db| {
+            db.query_row(
+                "SELECT (SELECT COUNT(DISTINCT card) FROM properties)
+                      + (SELECT COUNT(*) FROM lists)",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .map_err(StoreError::from)
+        }) else {
+            continue;
+        };
+        if count > 0 {
+            books.push(FoundBook {
+                key: String::new(),
+                name,
+                contacts: u64::try_from(count).unwrap_or(0),
+                tick: !collected,
+                place: BookPlace::Sqlite(path),
+            });
+        }
+    }
+    books
+}
+
+/// Open a copy of an address book (Thunderbird may have it open, with changes in its -wal).
+fn with_book<T>(
+    path: &Path,
+    f: impl FnOnce(&rusqlite::Connection) -> Result<T, StoreError>,
+) -> Result<T, StoreError> {
+    let dir = std::env::temp_dir().join(format!(
+        "telex-abook-{}-{}",
+        std::process::id(),
+        chrono::Local::now()
+            .timestamp_nanos_opt()
+            .unwrap_or_default()
+    ));
+    std::fs::create_dir_all(&dir).map_err(|e| StoreError::Database(e.to_string()))?;
+    let copy = dir.join("abook.sqlite");
+    let result = (|| {
+        std::fs::copy(path, &copy).map_err(|e| StoreError::Database(e.to_string()))?;
+        let mut wal = path.as_os_str().to_owned();
+        wal.push("-wal");
+        if Path::new(&wal).is_file() {
+            let _ = std::fs::copy(&wal, dir.join("abook.sqlite-wal"));
+        }
+        let db = rusqlite::Connection::open(&copy)?;
+        f(&db)
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// An address book's cards and lists. Since Thunderbird 102 each card keeps a vCard
+/// (`_vCard`); older ones only have properties such as DisplayName and PrimaryEmail.
+pub fn read_book(path: &Path) -> Result<Vec<Card>, StoreError> {
+    with_book(path, |db| {
+        let mut cards: Vec<(String, HashMap<String, String>)> = Vec::new();
+        let mut index: HashMap<String, usize> = HashMap::new();
+        {
+            let mut stmt = db.prepare("SELECT card, name, value FROM properties ORDER BY rowid")?;
+            let rows = stmt.query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ))
+            })?;
+            for row in rows {
+                let (card, name, value) = row?;
+                match index.get(&card) {
+                    Some(&at) => {
+                        cards[at].1.insert(name, value);
+                    }
+                    None => {
+                        index.insert(card.clone(), cards.len());
+                        cards.push((card, HashMap::from([(name, value)])));
+                    }
+                }
+            }
+        }
+        let mut out: Vec<Card> = cards
+            .into_iter()
+            .map(|(uid, props)| {
+                let get = |k: &str| props.get(k).map_or("", |v| v.trim()).to_owned();
+                let mut card = props
+                    .get("_vCard")
+                    .and_then(|v| vcard::parse(v.as_bytes()).into_iter().next())
+                    .unwrap_or_else(|| {
+                        let name = match get("DisplayName") {
+                            n if n.is_empty() => {
+                                format!("{} {}", get("FirstName"), get("LastName"))
+                                    .trim()
+                                    .to_owned()
+                            }
+                            n => n,
+                        };
+                        let phones: Vec<String> = ["CellularNumber", "WorkPhone", "HomePhone"]
+                            .iter()
+                            .map(|k| get(k))
+                            .filter(|p| !p.is_empty())
+                            .collect();
+                        Card {
+                            name,
+                            emails: [get("PrimaryEmail"), get("SecondEmail")]
+                                .into_iter()
+                                .filter(|e| !e.is_empty())
+                                .collect(),
+                            phone: phones.join(", "),
+                            organization: get("Company"),
+                            note: get("Notes"),
+                            ..Card::default()
+                        }
+                    });
+                // Lists name their cards by this id.
+                card.uid = uid;
+                card
+            })
+            .collect();
+        let lists: Vec<(String, String)> = {
+            let mut stmt = db.prepare("SELECT uid, name FROM lists")?;
+            let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        for (list, name) in lists {
+            let mut stmt = db.prepare("SELECT card FROM list_cards WHERE list = ?1")?;
+            let members = stmt
+                .query_map([&list], |r| r.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            out.push(Card {
+                name,
+                group: true,
+                members,
+                ..Card::default()
+            });
+        }
+        Ok(out)
+    })
 }
 
 /// A server's folder: "[ProfD]ImapMail/imap.example.com" is in the profile.
@@ -998,6 +1185,96 @@ condition="AND (date,is before,01-Jan-2020)"
         assert!(again
             .iter()
             .all(|i| i.status == Status::Same || i.status == Status::Skip));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// An address book as Thunderbird 102+ keeps it.
+    fn write_book(path: &Path, cards: &[(&str, &[(&str, &str)])], lists: &[(&str, &str, &[&str])]) {
+        let db = rusqlite::Connection::open(path).unwrap();
+        db.execute_batch(
+            "CREATE TABLE properties (card TEXT, name TEXT, value TEXT);
+             CREATE TABLE lists (uid TEXT PRIMARY KEY, name TEXT, nickName TEXT, description TEXT);
+             CREATE TABLE list_cards (list TEXT, card TEXT, PRIMARY KEY(list, card));",
+        )
+        .unwrap();
+        for (card, props) in cards {
+            for (name, value) in *props {
+                db.execute(
+                    "INSERT INTO properties VALUES (?1, ?2, ?3)",
+                    [card, name, value],
+                )
+                .unwrap();
+            }
+        }
+        for (uid, name, members) in lists {
+            db.execute("INSERT INTO lists VALUES (?1, ?2, '', '')", [uid, name])
+                .unwrap();
+            for m in *members {
+                db.execute("INSERT INTO list_cards VALUES (?1, ?2)", [uid, m])
+                    .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn address_books_come_with_their_lists() {
+        let root = profile();
+        let path = profiles(&root).remove(0);
+        let vcard = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Zażółć Gęślą\r\nEMAIL;PREF=1:jazn@przyklad.pl\r\nTEL:600 100 200\r\nUID:c1\r\nEND:VCARD\r\n";
+        write_book(
+            &path.join("abook.sqlite"),
+            &[
+                (
+                    "c1",
+                    &[("_vCard", vcard), ("PrimaryEmail", "jazn@przyklad.pl")],
+                ),
+                // Before Thunderbird 102: properties only.
+                (
+                    "c2",
+                    &[
+                        ("FirstName", "Piotr"),
+                        ("LastName", "Nowak"),
+                        ("PrimaryEmail", "piotr@nowak-meble.pl"),
+                        ("SecondEmail", "pn@gmail.com"),
+                        ("Company", "Nowak Meble"),
+                    ],
+                ),
+            ],
+            &[("l1", "Klub książki", &["c1", "c2"])],
+        );
+        write_book(
+            &path.join("history.sqlite"),
+            &[("h1", &[("PrimaryEmail", "ktos@x.pl")])],
+            &[],
+        );
+        let source = read(&path, Program::Thunderbird, &[]).unwrap();
+        let books: Vec<(&str, &str, u64, bool)> = source
+            .books
+            .iter()
+            .map(|b| (b.key.as_str(), b.name.as_str(), b.contacts, b.tick))
+            .collect();
+        assert_eq!(
+            books,
+            [
+                ("b0", "Personal Address Book", 3, true),
+                ("b1", "Collected Addresses", 1, false),
+            ]
+        );
+        let mut store = crate::store::MailStore::in_memory().unwrap();
+        let report = super::super::import_books(&mut store, &source, &["b0".to_owned()]).unwrap();
+        assert_eq!((report.added, report.groups), (2, 1));
+        let contacts = store.contacts().unwrap();
+        let names: Vec<&str> = contacts.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Piotr Nowak", "Zażółć Gęślą"]);
+        assert_eq!(contacts[0].emails, ["piotr@nowak-meble.pl", "pn@gmail.com"]);
+        assert_eq!(contacts[0].organization, "Nowak Meble");
+        assert_eq!(contacts[1].phone, "600 100 200");
+        let groups = store.contact_groups().unwrap();
+        assert_eq!(groups[0].name, "Klub książki");
+        assert_eq!(groups[0].members.len(), 2);
+        // Again: nothing twice.
+        let again = super::super::import_books(&mut store, &source, &["b0".to_owned()]).unwrap();
+        assert_eq!((again.added, again.same, again.groups), (0, 2, 0));
         let _ = std::fs::remove_dir_all(&root);
     }
 

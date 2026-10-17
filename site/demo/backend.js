@@ -93,6 +93,8 @@ function installTelexDemo(options) {
   const tr = (en, pl, vars) => fill(lang() === 'pl' ? pl : en, vars);
   const fail = (en, pl, vars) => { throw tr(en, pl, vars); };
   const DEMO = {
+    vcard: ['This is a demo: it doesn’t read or write vCard files. Download Telex to bring your contacts in and out.',
+      'To tylko demo: nie czyta ani nie zapisuje plików vCard. Pobierz Telex, aby przenosić swoje kontakty.'],
     servers: ['This is a demo: it can’t log in to real mail servers. Download Telex to use your own mail.',
       'To tylko demo: nie łączy się z prawdziwymi serwerami poczty. Pobierz Telex, aby używać własnej poczty.'],
     open: ['This is a demo: its attachments are only names, with nothing inside to open. Download Telex to open your own.',
@@ -1321,8 +1323,71 @@ function installTelexDemo(options) {
       received.set(k, r);
     }
     for (const r of received.values()) note(r.name, r.email, r.at, r.count, false);
-    return [...people.values()].sort((a, b) => (b.sent * 5 + b.received) - (a.sent * 5 + a.received) || (b.last > a.last ? 1 : b.last < a.last ? -1 : 0)
-      || (a.email < b.email ? -1 : 1)).slice(0, 2000).map(({ name, email, sent, received: got }) => ({ name, email, sent, received: got }));
+    // The address book's contacts first, with their saved names (recipients.rs).
+    const book = contacts.flatMap((c) => c.emails.filter((e) => !own.includes(e.toLowerCase())).map((email) => {
+      const p = people.get(email.toLowerCase()) ?? { name: '', sent: 0, received: 0 };
+      people.delete(email.toLowerCase());
+      return { name: c.name || p.name, email, sent: p.sent, received: p.received, contact: c.id };
+    }));
+    return book.concat([...people.values()].sort((a, b) => (b.sent * 5 + b.received) - (a.sent * 5 + a.received) || (b.last > a.last ? 1 : b.last < a.last ? -1 : 0)
+      || (a.email < b.email ? -1 : 1)).slice(0, 2000).map(({ name, email, sent, received: got }) => ({ name, email, sent, received: got })));
+  }
+
+  /* ---------- the address book (contacts.rs) ---------- */
+  // Two people the demo mailbox writes to, and a group of them; changes last until the page reloads.
+  let contacts = [], groups = [], bookSeeded = false;
+  const owner = (email, except = 0) => contacts.find((c) => c.id !== except && c.emails.some((e) => e.toLowerCase() === String(email).toLowerCase()));
+  function seedBook() {
+    if (bookSeeded) return;
+    bookSeeded = true;
+    const top = recipients().filter((p) => p.sent > 0).slice(0, 2);
+    contacts = top.map((p, i) => ({ id: i + 1, uid: `demo-${i + 1}`, name: p.name, emails: [p.email], phone: '', organization: '', note: '', groups: [] }));
+    if (contacts.length) {
+      groups = [{ id: 1, name: 'Team', members: contacts.map((c) => ({ contact: c.id, name: c.name, email: c.emails[0] })) }];
+      contacts.forEach((c) => { c.groups = [1]; });
+    }
+  }
+  const byName = (a, b) => (a.name || a.emails?.[0] || '').localeCompare(b.name || b.emails?.[0] || '');
+  function readGroups() {
+    return groups.map((g) => ({ ...g, members: g.members.map((m) => {
+      const c = m.contact && contacts.find((x) => x.id === m.contact);
+      return c ? { contact: c.id, name: c.name, email: c.emails[0] ?? '' } : { ...m, contact: null };
+    }).filter((m) => m.contact || m.email) })).sort(byName);
+  }
+  function saveContact({ contact }) {
+    seedBook();
+    const c = clone(contact);
+    c.name = String(c.name || '').trim(); c.emails = (c.emails || []).map((e) => String(e).trim()).filter(Boolean);
+    for (const e of c.emails) {
+      if (!/^[^\s@<>,;"]+@[^\s@<>,;"]+\.[^\s@<>,;"]+$/.test(e)) fail('“{email}” isn’t an email address.', '„{email}” nie jest adresem e-mail.', { email: e });
+      const o = owner(e, c.id);
+      if (o) fail('{email} is in the address book already, as {name}.', '{email} jest już w książce adresowej, jako {name}.', { email: e, name: o.name || e });
+    }
+    if (!c.name && !c.emails.length) fail('Give the contact a name or an address.', 'Podaj imię i nazwisko albo adres kontaktu.');
+    if (!c.id) { c.id = Math.max(0, ...contacts.map((x) => x.id)) + 1; c.uid = `demo-${c.id}`; }
+    c.groups = (c.groups || []).filter((id) => groups.some((g) => g.id === id));
+    for (const g of groups) {
+      const has = g.members.some((m) => m.contact === c.id);
+      if (c.groups.includes(g.id) && !has) g.members.push({ contact: c.id, name: '', email: '' });
+      if (!c.groups.includes(g.id) && has) g.members = g.members.filter((m) => m.contact !== c.id);
+    }
+    contacts = contacts.filter((x) => x.id !== c.id).concat(c);
+    return clone(c);
+  }
+  function saveGroup({ group }, restore) {
+    seedBook();
+    const g = clone(group);
+    g.name = String(g.name || '').trim().replace(/\s+/g, ' ');
+    if (!g.name || g.name.length > 80 || /[,;<>"@]/.test(g.name)) fail('Give the group a name of 1–80 characters, without , ; < > " or @.', 'Nadaj grupie nazwę od 1 do 80 znaków, bez , ; < > " ani @.');
+    if (groups.some((x) => (restore || x.id !== g.id) && x.name.toLowerCase() === g.name.toLowerCase())) fail('A group already has that name.', 'Grupa o takiej nazwie już jest.');
+    g.members = (g.members || []).map((m) => {
+      const c = m.contact ? contacts.find((x) => x.id === m.contact) : owner(m.email);
+      return c ? { contact: c.id, name: '', email: '' } : { contact: null, name: m.name || '', email: String(m.email || '').trim() };
+    }).filter((m, i, all) => (m.contact || m.email) && all.findIndex((o) => (m.contact ? o.contact === m.contact : o.email.toLowerCase() === m.email.toLowerCase())) === i);
+    if (!g.id || (restore && groups.some((x) => x.id === g.id))) g.id = Math.max(0, ...groups.map((x) => x.id)) + 1;
+    groups = groups.filter((x) => x.id !== g.id).concat(g);
+    contacts.forEach((c) => { c.groups = groups.filter((x) => x.members.some((m) => m.contact === c.id)).map((x) => x.id); });
+    return readGroups().find((x) => x.id === g.id);
   }
 
   /* ---------- connections (servers.rs) ---------- */
@@ -1568,7 +1633,9 @@ function installTelexDemo(options) {
       return { id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, cc: m.cc,
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
         remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk,
-        goes: goesOf(m), unsubscribe: unsubscribeOffer(m), ...(m.invite ? { invite: inviteNow(m) } : {}) };
+        goes: goesOf(m), unsubscribe: unsubscribeOffer(m), ...(m.invite ? { invite: inviteNow(m) } : {}),
+        contacts: (seedBook(), [m.from_email, ...splitAddresses(`${m.to}, ${m.cc}`).map((e) => mailboxParts(e)[1])])
+          .map((email) => ({ email, c: owner(email) })).filter((x) => x.c).map((x) => ({ email: x.email, id: x.c.id, name: x.c.name })) };
     },
     answer_invite: answerInvite,
     message_markdown: messageMarkdown,
@@ -1613,7 +1680,23 @@ function installTelexDemo(options) {
     usage,
     connections,
     wake_server: () => {},
-    recipients,
+    recipients: () => (seedBook(), recipients()),
+    contacts: () => (seedBook(), clone(contacts).sort(byName)),
+    contact_groups: () => (seedBook(), readGroups()),
+    save_contact: saveContact,
+    delete_contacts: ({ ids }) => {
+      const gone = clone(contacts.filter((c) => ids.includes(c.id)));
+      contacts = contacts.filter((c) => !ids.includes(c.id));
+      groups.forEach((g) => { g.members = g.members.filter((m) => !ids.includes(m.contact)); });
+      return gone;
+    },
+    restore_contacts: ({ contacts: back }) => { for (const c of back) { contacts.push(clone({ ...c, emails: c.emails.filter((e) => !owner(e)) })); for (const id of c.groups) groups.find((g) => g.id === id)?.members.push({ contact: c.id, name: '', email: '' }); } },
+    save_group: (args) => saveGroup(args, false),
+    restore_group: (args) => saveGroup(args, true),
+    delete_group: ({ id }) => { const g = readGroups().find((x) => x.id === id) ?? null; groups = groups.filter((x) => x.id !== id); contacts.forEach((c) => { c.groups = c.groups.filter((x) => x !== id); }); return g; },
+    suggested_contacts: () => (seedBook(), recipients().filter((p) => !p.contact && p.sent > 0).slice(0, 50)),
+    import_vcards: () => refuse('vcard'),
+    export_vcards: () => refuse('vcard'),
     start_draft: startDraft,
     save_outgoing: saveOutgoing,
     discard_draft: discardDraft,

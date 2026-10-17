@@ -114,11 +114,13 @@ pub struct MoveReport {
     accounts: Vec<Added>,
     mail: ImportReport,
     rules: Vec<PlanItem>,
+    contacts: telex_core::contacts::ImportReport,
 }
 
 /// Bring in what the user ticked from the source at `path`: the accounts (with the passwords
 /// typed for them; each logs in once to read its folders), the mail kept on the PC into
-/// folders on this PC, then the filters as rules, which need both. Progress comes as
+/// folders on this PC, then the filters as rules, which need both, and the address books.
+/// Progress comes as
 /// "move-progress" events.
 #[tauri::command]
 pub async fn move_in(
@@ -293,9 +295,16 @@ pub async fn move_in(
     } else {
         Vec::new()
     };
+    let contacts = if choice.books.is_empty() {
+        telex_core::contacts::ImportReport::default()
+    } else {
+        emit("contacts", 0, 1, "");
+        with_store(&state, |s| migrate::import_books(s, &source, &choice.books))?
+    };
     Ok(MoveReport {
         accounts: added,
         mail,
         rules,
+        contacts,
     })
 }

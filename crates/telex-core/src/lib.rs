@@ -13,6 +13,7 @@ pub mod away;
 pub mod backup;
 pub mod calendar;
 mod colors;
+pub mod contacts;
 pub mod count;
 pub mod drafts;
 pub mod export;
@@ -41,6 +42,7 @@ pub mod spell;
 pub mod store;
 pub mod unsubscribe;
 pub mod usage;
+pub mod vcard;
 
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey, UnreadAt};
 pub use model::*;

@@ -58,7 +58,13 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      disk), send the Outbox. Tests run it against a fake SMTP server.
   src/attachments.rs Attachments of stored mail opened or saved: safe file names, files that
                      can run code, the Mark of the Web on Windows.
-  src/recipients.rs  People to suggest in To, Cc and Bcc, from the mail base itself.
+  src/recipients.rs  People to suggest in To, Cc and Bcc: the address book's contacts first, then
+                     the mail base's own people.
+  src/contacts.rs    The address book (schema 15): contacts (a name, addresses with a primary one,
+                     phone, organization, note), groups of contacts and addresses, undo of deletes,
+                     names for a message's people, people written to offered, cards imported.
+  src/vcard.rs       vCard files: reading 2.1, 3.0 and 4.0 (folded lines, quoted-printable, CHARSET,
+                     UTF-16, group cards, CATEGORIES), writing 3.0 with groups as CATEGORIES.
   src/html.rs        HTML mail: sanitize (ammonia) into an inert document for a sandboxed frame,
                      inline cid: images, fetch remote images on request (ureq, public IPs only);
                      dark paper in a theme's palette; HTML compose: what may be sent, plain text
@@ -72,10 +78,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/migrate/       Moving in from another mail program, found on this PC only: mod.rs (what a
                      program has, mail into folders on this PC, filters into rules, Maildir/MH
                      folders of Evolution, KMail, Claws, mutt), thunderbird.rs (profiles.ini,
-                     prefs.js accounts and identities, Local Folders, msgFilterRules.dat; also
-                     Betterbird, SeaMonkey, Postbox), outlook.rs (registry accounts on Windows,
-                     .pst with outlook-pst, .msg with cfb), mapi.rs (Outlook's properties →
-                     RFC 822). Never passwords: the user types them in the dialog.
+                     prefs.js accounts and identities, Local Folders, msgFilterRules.dat, address
+                     books abook*.sqlite and history.sqlite; also Betterbird, SeaMonkey, Postbox),
+                     outlook.rs (registry accounts on Windows, .pst with outlook-pst and its
+                     Contacts folders, .msg with cfb), mapi.rs (Outlook's properties → RFC 822).
+                     Never passwords: the user types them in the dialog.
   src/backup.rs      Backups of the mail base (VACUUM INTO on a connection of its own), the
                      backup folder's list and pruning, restoring (after_restore), compacting.
   src/usage.rs       What the Usage tab shows: quota, sizes per folder, 30 days of mail in and
@@ -138,6 +145,7 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
                      bringing accounts (passwords saved, a first login each), mail and filters.
   src/away.rs        The away reply's commands: reading, and saving (onto the server or not).
+  src/contacts.rs    The address book's commands; vCard files through Open and Save dialogs.
   src/spell.rs       Spelling commands: the languages (the setting's, or Windows' and the
                      interface's), checking, suggestions, the user's words, fetching dictionaries.
   src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
@@ -201,6 +209,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
 | `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), `goes` (in an Outbox: when it goes, unless held or refused), `unsubscribe` `{method: one_click/mail/link, target, done, spam}` or null (unsubscribe.rs) |
 | `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), and `invite` when it holds a calendar: `{method, event, file, state, mine, answered, blocked, from, spam}` (calendar/invites.rs; `event` in local time with `zone` when written in another clock; `file`: the attachment Add to calendar opens; `state`: current, outdated, cancelled; `blocked`: not_invitation, spam, cancelled, outdated, organizer, no_organizer, no_account) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), `risk` `{score, signals, limited}` (risk.rs), and `contacts` `[{email, id, name}]`: its From, To and Cc addresses in the address book |
 | `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -224,6 +233,18 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `recipients`     | –                            | `[{name, email, sent, received}]`, most likely first, at most 2000 |
 | `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files; one the user saved, not an autosave, also goes to the server's Drafts, replacing the version it was edited from there) |
 | `discard_draft`  | `id`                         | true when that draft (in Drafts; on the server too, it leaves it) was removed for good: compose's Discard drops its autosave |
+| `recipients`     | –                            | `[{name, email, sent, received, contact?}]`: the contacts first (`contact`: its id; the saved name), then the mail base's people, most likely first, at most 2000 of those |
+| `contacts`       | –                            | `[{id, uid, name, emails, phone, organization, note, groups}]` by name (diacritics ignored); `emails[0]` is the primary address |
+| `contact_groups` | –                            | `[{id, name, members: [{contact, name, email}]}]` A to Z; a contact member carries its name and primary address |
+| `save_contact`   | `contact` (id 0 = new)       | the saved contact, or a sentence saying what's wrong (an address another contact has, no name or address); its `groups` set its memberships |
+| `delete_contacts`| `ids`                        | the contacts as they were, for Z (`restore_contacts` `contacts`: back with their ids, addresses and groups where free) |
+| `save_group`     | `group` (id 0 = new)         | the saved group (an address a contact has becomes that contact; nobody twice), or a sentence |
+| `delete_group`   | `id`                         | the group as it was, or null, for Z (`restore_group` `group`); its contacts stay |
+| `suggested_contacts` | –                        | up to 50 people written to who aren't contacts, as `recipients` (never added by themselves) |
+| `import_vcards`  | `words`                      | `{added, updated, same, skipped, groups}` or null (cancelled); opens Open for .vcf files (a known UID or address fills in that contact) |
+| `export_vcards`  | `ids` (empty = all), `words` | the .vcf written, or null; opens Save (vCard 3.0, groups as CATEGORIES) |
+| `save_outgoing`  | `draft`                      | new message id (a draft, kept whole: its HTML and forwarded files) |
+| `discard_draft`  | `id`                         | true when that draft (on this PC, in Drafts) was removed for good: compose's Discard drops its autosave |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor, or null (plain text) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
@@ -280,14 +301,14 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `delete_local_folder` | `folder`              | how many rules lost their move to it; only an empty folder |
 | `export_folder`  | `folder`, `words` `{title, filter, file_name}` | the mbox file written, or null; opens Save |
 | `import_mail`    | `folder`, `paths` (dropped this session; null opens Open), `words` | `{added, already, problems}` or null; "import-progress" events `{done, bytes, file}`; folders on this PC only |
-| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
+| `find_programs`  | –                            | `[{path, program, name, accounts: [{key, setup, identities, present, blocked?}], folders: [{key, name, bytes, messages?, tick}], filters, books: [{key, name, contacts, tick}]}]`: Thunderbird and its kin, Outlook (profiles and .pst files), Maildir/MH folders; nothing over the network |
 | `open_source`    | `folder` (true: a folder, false: a .pst), `words` | the same for what the user picks, or null (`move_in` takes only sources found or picked this session) |
 | `spell_languages`| –                            | `{languages: [{tag, own}], chosen, auto, downloads: [{tag, bytes}], missing}` (`own`: fetched by Telex; `auto`: chosen from Windows' display languages, its language list, its region and the interface's; `missing`: downloads for those) |
 | `spell_check`    | `text`                       | `[[start, length]]` in UTF-16 units: the words no chosen language knows |
 | `spell_suggest`  | `word`                       | up to 7 suggestions |
 | `spell_add`      | `word`                       | – (right from now on, in every language: words.txt next to the settings) |
 | `spell_download`, `spell_remove` | `tag`          | the languages again; fetches LibreOffice's dictionary (GitHub, pinned, SHA-256 checked) or removes one Telex fetched |
-| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items]}`; "move-progress" events `{step, done, total, name}` |
+| `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters, books}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items], contacts: {added, updated, same, skipped, groups}}`; "move-progress" events `{step, done, total, name}` |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
 | `backup_now`     | –                            | the backup written; the folder keeps the newest `backup_keep` |
@@ -443,6 +464,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Ctrl+P       | print the open message as it shows; Save as PDF and All headers are in the … above it |
 | Ctrl+U       | the open message's source, with a Headers tab (Copy, Save as…) |
 | G            | go to a folder: type part of its name |
+| B            | the address book: / searches, N a new contact, Del removes (Z puts back), ↑ ↓ choose, Enter its fields (Enter there saves); also the person button by a sender |
 | T            | the selected message's conversation (T or Esc goes back) |
 | → / ←        | with threads on (Settings › Reading): expand / collapse the selected thread |
 | O            | only the unread mail of the list (also the dot above the list's dots, or "n unread" in the status bar); O again or Esc: all of it. In Unread (top of the tree) O goes back to the folder before |
@@ -590,6 +612,25 @@ renumber at merge):
   (new dependency, MIT/Apache-2.0); other TZIDs from the VTIMEZONE's yearly rules and RDATEs. Wall
   times in a spring-forward gap move past it, ones that come twice are the first (RFC 5545). A
   nameless text/calendar part is listed as "invite.ics".
+- The address book (schema version 15: `contacts`, `contact_emails`, `contact_groups`,
+  `contact_group_members`; a one-way upgrade): `contacts.rs`, `vcard.rs`, the Address book dialog
+  (B, the toolbar's Contacts, the person button by a sender, the message menu's "Add … to the
+  address book"). Contacts have a name, addresses (the first primary; an address belongs to one
+  contact), a phone, an organization and a note; groups hold contacts (by their primary address)
+  and addresses that aren't contacts. Compose suggests contacts first (marked, with the saved
+  name, robots too when saved) and groups by name; a group goes in at once as its people's
+  addresses (picked, or its name typed whole and left), so the reply-to-many check counts them.
+  The header shows saved names for From, To and Cc. People written to are offered at the end of
+  the list (`suggested_contacts`), never added by themselves. vCard in (2.1/3.0/4.0, several cards
+  a file, quoted-printable and CHARSET of old Outlook exports, folded lines, UTF-16, KIND:group and
+  Apple's group cards, CATEGORIES as groups, Google's myContacts left out; a known UID or address
+  only fills in) and out (3.0, all or the Ctrl/Shift-clicked ones). Moving in brings Thunderbird's
+  address books (abook*.sqlite with their lists; history.sqlite, Collected Addresses, unticked)
+  and the Contacts folders of a .pst (named properties for the addresses; distribution lists
+  aren't read). Contacts stay out of the settings file (mail data; backups have them). Before the
+  first account, a change to the address book makes the mail base on disk, as moving in does.
+  Site: "Coming in 0.9.12" points and the B key; screenshots not retaken (the toolbar has one
+  more button; retake with the other 0.9.12 work).
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
@@ -1175,6 +1216,10 @@ then daily like `daily`),
    messages~~: done, see Current state and the numbers in docs/storage.md. ~~Backup and
    restore~~ and ~~local folders with mbox export and .eml/mbox import~~: done in 0.6. Not
    yet: moving the mail base to another folder, and POP3.
+9. **Address book.** Contacts, groups, vCard and moving in: see "Not released yet". Not yet:
+   CardDAV sync (the `uid` column is the card's UID, ready for it), several phones or postal
+   addresses, photos, Outlook distribution lists (a binary list of entry ids) and Thunderbird
+   before 78 (abook.mab, Mork).
 
 ## License
 
