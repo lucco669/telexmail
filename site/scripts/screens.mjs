@@ -262,7 +262,7 @@ p{margin-top:22px;font-size:24px;line-height:1.4;color:#59636e}
 </style></head><body><div class="band"></div>
 <div class="text"><div class="logo">${mark(44)}Telex</div><div class="eyebrow">${eyebrow}</div><h1>${title}</h1>
 <p>A compact, fast email client for Windows and Linux.</p></div>
-<div class="facts">Rust · Saved searches · Local scam checks · No telemetry</div>
+<div class="facts">Rust · Saved searches · Local scam checks · No tracking</div>
 <div class="win"><div class="tb">${mark(15)}${windowTitle}</div><img src="${shot}"></div>
 </body></html>`;
 }

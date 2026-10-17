@@ -303,7 +303,7 @@ const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true, ask_attachment:true, ask_many:true,
-    spell_check:true, updates:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
+    spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -4693,6 +4693,7 @@ function renderSettings(keepFocus){
   $('s-updates').innerHTML = radios('updates', UPDATE_CHOICES.map(v => [v, esc(updatesText(v))]), s.updates === 'ask' ? '' : s.updates);
   $('s-updates').querySelectorAll('input').forEach(i => { i.disabled = !can; });
   $('s-upd-none').hidden = can; $('s-check').hidden = !can;
+  $('s-count-group').hidden = !upd.build?.countable; $('s-count').checked = s.usage_count === 'on';
   paneOpened(setTab);
   if (again) sdlg.querySelector(again)?.focus();
 }
@@ -4804,6 +4805,7 @@ sdlg.addEventListener('change', e => {
   else if (el.id === 's-signrep') changeSettings({sign_replies:el.checked});
   else if (el.name === 'spam_filter') changeSettings({spam_filter:v});
   else if (el.id === 's-risk') changeSettings({risk_checks:el.checked}).then(ok => ok && !state.compose && renderPreview());
+  else if (el.id === 's-count') changeSettings({usage_count:el.checked ? 'on' : 'off'}).then(ok => ok && countCopy());
   else if (el.name === 'updates') changeSettings({updates:v}).then(ok => ok && autoCheck(true));
   else if (el.name === 'backup_every') changeSettings({backup_every:v}).then(ok => { if (ok){ renderTree(); autoBackup(); } });
   else if (el.dataset.mv) moveInTick(el);
@@ -5457,6 +5459,11 @@ function sayRestored(){
 // to that, and whenever they click the version number. The core asks GitHub and installs;
 // the window never goes online.
 const udlg = $('upd-dlg');
+// The license and the third-party notices, on the site: in the update dialog and Settings › Updates.
+for (const d of [udlg, sdlg]) d.addEventListener('click', e => {
+  const l = e.target.closest('[data-weblink]');
+  if (l) call('open_link', {url:l.dataset.weblink}).catch(() => {});
+});
 const upd = {build:null, found:null, checking:false, installing:false, downloading:false, progress:null, text:'', error:''};
 function renderUpdates(){
   const {build, found} = upd, can = !!build?.updatable;
@@ -5465,6 +5472,8 @@ function renderUpdates(){
   $('st-ver').textContent = build.version;
   $('st-ver').title = t('Telex {version}.', {version:build.version}) + ' ' + (can ? t('Click to check for updates.') : t('This build can’t update itself.'));
   $('st-ask').hidden = !can || pref().updates !== 'ask';
+  // One question at a time: counting is asked once updates are answered.
+  $('st-count').hidden = !build.countable || pref().usage_count !== 'ask' || !$('st-ask').hidden;
   $('st-update').hidden = !found;
   if (found) $('st-update').textContent = t('Update to {version}', {version:found.version});
   $('upd-title').textContent = 'Telex ' + build.version;
@@ -5546,9 +5555,15 @@ function autoCheck(starting = false){
   if (how !== 'start' && how !== 'daily') return;
   if (since >= UPDATE_DAY || (starting && how === 'start' && since >= UPDATE_AGAIN)) checkUpdate({quiet:true});
 }
+// Counting this copy (count.rs): only release builds, only after a yes; the core sends at most
+// one count a day and says nothing when it can't.
+function countCopy(){
+  if (upd.build?.countable && pref().usage_count === 'on') invoke('count_copy').catch(() => {});
+}
 async function bootUpdates(){
   try { upd.build = await invoke('update_info'); } catch { return; }
   renderUpdates();
+  if (upd.build?.countable){ setTimeout(countCopy, 15e3); setInterval(countCopy, 60 * 60e3); }
   if (!upd.build?.updatable) return;
   setTimeout(() => autoCheck(true), 8e3); // after the first mail check has started
   setInterval(autoCheck, 60 * 60e3);
@@ -5558,6 +5573,12 @@ $('st-ask').addEventListener('click', async e => {
   if (!await changeSettings({updates:b.dataset.ask})) return;
   if (pref().updates === 'start'){ say(t('Telex will check for updates when it starts and once a day.')); autoCheck(true); }
   else say(t('Telex won’t check for updates. Click the version number to check yourself.'), 7000);
+});
+$('st-count').addEventListener('click', async e => {
+  const b = e.target.closest('[data-count]'); if (!b) return;
+  if (!await changeSettings({usage_count:b.dataset.count})) return;
+  if (pref().usage_count === 'on'){ say(t('Thank you. Telex will be counted once a day. Settings › Updates turns it off.'), 7000); countCopy(); }
+  else say(t('Telex won’t be counted. Settings › Updates can change that.'), 7000);
 });
 $('u-auto').addEventListener('change', e => { changeSettings({updates:e.target.checked ? 'start' : 'off'}); });
 $('st-ver').addEventListener('click', openUpdates);

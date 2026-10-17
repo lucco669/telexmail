@@ -8,7 +8,7 @@ import s from './page.module.css';
 export const metadata = pageMetadata(pages.privacy);
 
 // Change this date whenever the text below changes.
-const UPDATED = '15 October 2026';
+const UPDATED = '17 October 2026';
 
 export default function PrivacyPage() {
   return (
@@ -27,6 +27,7 @@ export default function PrivacyPage() {
             <li>Your mail stays on your PC and your mail server</li>
             <li>Mail, account discovery, images, dictionaries and updates have different network uses</li>
             <li>Update checks contact GitHub only if allowed by your setting or started manually</li>
+            <li>From 0.9.11 the app can be counted once a day, without an ID, only if you say yes</li>
             <li>Saved searches, the spam filter and scam warning checks stay local; configured forwards send mail to their recipients</li>
             <li>This site uses cookieless Vercel Web Analytics for page counts</li>
             <li>The live demo runs in your browser: nothing you do there is sent</li>
@@ -144,9 +145,46 @@ export default function PrivacyPage() {
             signed with Telex’s release key, and only then runs it. A file without that signature is refused. Builds
             you make yourself from the source can’t update at all.
           </p>
+          <h3 id="counting">Being counted, if you say yes</h3>
+          <p>
+            From version 0.9.11, so that we know how many people use Telex, a release build asks once in the status
+            bar whether it may be counted. Until you answer, and after a no, nothing is sent. With a yes, at most once
+            a day (a UTC day) Telex sends one request to <code>https://telexmail.app/api/count</code> with{' '}
+            <code>User-Agent: Telex</code> and this, nothing else:
+          </p>
+          <pre><code>{`{"version": "0.9.11", "os": "windows", "lang": "pl", "since": "2026-10",
+ "new": false, "week": true, "month": false}`}</code></pre>
+          <ul>
+            <li>
+              The Telex version, the system (Windows, the Linux AppImage or other Linux), the interface’s language, and
+              the month this copy was first counted.
+            </li>
+            <li>
+              Whether this is its first count ever, the first this week and the first this month. That is how the
+              site can tell how many copies were used in a week or a month without telling copies apart.
+            </li>
+            <li>
+              No identifier, no account or email address, nothing about your mail, contacts or settings. The app keeps
+              the day of its last count and the month of its first in <code>count.json</code> next to its settings,
+              on your PC.
+            </li>
+          </ul>
+          <p>
+            What we keep is a sum per UTC day for each combination of those values (for example “14 copies of 0.9.11
+            on Windows in Polish, first counted in October”), not a row per request. Like every request, this one
+            shows Vercel, which hosts the site, your IP address. The site does not store it: it uses only a keyed
+            hash of your network to stop one network from adding more than 200 counts a day, and that hash is deleted
+            after two days. The sums are kept in a Supabase database that only the site’s server can read.
+          </p>
+          <p>
+            The legal basis is your consent (GDPR Art. 6(1)(a)). You can withdraw it at any time in Settings › Updates
+            › Counting; from then on nothing is sent. Because a count carries nothing that points to you, the sums
+            can’t be traced back to a person, so there is nothing per person we could show you or delete.
+            Development builds and builds you make yourself never count.
+          </p>
           <h3>What it doesn’t do</h3>
           <ul>
-            <li>The desktop app has no usage-analytics or crash-report upload feature.</li>
+            <li>No crash reports, and no usage statistics beyond the daily count above, which stays off until you say yes.</li>
             <li>No account to create, and no cloud service.</li>
             <li>
               No remote images until you choose to load them, so senders can’t use them to see when you read their
@@ -174,6 +212,12 @@ export default function PrivacyPage() {
             from, and your country, browser and device type. It uses no cookies; the analytics script is served
             through this site. See{' '}
             <a href="https://vercel.com/docs/analytics/privacy-policy">how Vercel Web Analytics handles data</a>.
+          </p>
+          <h3 id="downloads">Download numbers</h3>
+          <p>
+            The installers are downloaded from GitHub, which counts how often each file is downloaded. Once a day the
+            site reads those totals from GitHub’s public API and keeps them per day. They are numbers per file only:
+            GitHub doesn’t tell us who downloaded what, and we don’t know.
           </p>
           <h3>Hosting</h3>
           <p>

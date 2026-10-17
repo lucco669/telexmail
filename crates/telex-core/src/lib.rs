@@ -12,6 +12,7 @@ pub mod autoconfig;
 pub mod away;
 pub mod backup;
 mod colors;
+pub mod count;
 pub mod drafts;
 pub mod filters;
 pub mod html;

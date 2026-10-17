@@ -3,6 +3,7 @@
 
 mod away;
 mod backup;
+mod count;
 mod files;
 mod folders;
 mod migrate;
@@ -1126,6 +1127,7 @@ pub fn run() {
             settings::open_import,
             settings::apply_import,
             updates::update_info,
+            count::count_copy,
             updates::check_update,
             updates::install_update,
         ])

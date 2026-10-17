@@ -22,7 +22,7 @@ const principles = [
   ['Forgiving', 'Z undoes a delete or a move, and takes back a message in the moment after Send. Esc keeps a draft, never loses it.'],
 ];
 
-const never = ['Electron', 'AI features switched on by default', 'A web-app look', 'Anything that phones home'];
+const never = ['Electron', 'AI features switched on by default', 'A web-app look', 'Anything that phones home without asking'];
 
 const stack = [
   ['Mail core', 'Rust: IMAP with IDLE (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls), HTML cleaning (ammonia), rules, a learning spam filter and offline scam warning checks'],

@@ -30,7 +30,9 @@ plain sentences in your summary.
 - **Mail follows the theme.** In a dark theme HTML mail goes on the theme's dark paper with its
   colors turned around (OKLab, hue kept); one click shows it on white, as sent.
 
-Anti-goals: Electron, AI features by default, a web-app look, anything that phones home.
+Anti-goals: Electron, AI features by default, a web-app look, anything that phones home without
+asking. (The one count Telex sends, once a day without an ID, is off until the user says yes;
+docs/counting.md.)
 
 ## Layout of the repo
 
@@ -57,6 +59,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      dark paper in a theme's palette; HTML compose: what may be sent, plain text
                      from HTML and HTML from plain text.
   src/colors.rs      CSS colors read and turned around for dark paper (OKLab), for html.rs.
+  src/count.rs       The daily count, only after a yes: what it sends (no ID; first this week /
+                     month flags), when it is due (UTC days), count.json; docs/counting.md.
   src/mailbox.rs     Mail as files: a folder written as mbox; mbox, .eml, .emlx, .msg files and
                      Maildir and MH folders read into a folder on this PC (mboxrd; Status,
                      X-Status and X-Mozilla-Status flags, Thunderbird's deleted ones left out).
@@ -113,6 +117,7 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
                      interface's), checking, suggestions, the user's words, fetching dictionaries.
   src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
                      restoring (holds the busy flags, swaps the store) and compacting.
+  src/count.rs       `count_copy`: today's count when `usage_count` is on, release builds only.
   src/watch.rs       One IMAP IDLE watcher per account ("inbox-changed" events), and the
                      new-mail notification (tauri-plugin-notification).
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
@@ -137,6 +142,8 @@ site/                The landing page (Next.js 16, deployed on Vercel with Root 
                      (site/demo/backend.js), copied into site/public/demo-app by `npm run demo`.
                      Retake both after visible UI changes. What is built but not released is
                      marked with its fixed `since` version in site/lib/content.ts ("Coming" until it ships).
+                     /api/count takes the app's counts, /stats is the owner's private page of
+                     downloads and copies (STATS_PASSWORD), with Supabase sums; docs/counting.md.
 brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-small.svg (32 px and
                      below). `npm run icons` in site/ makes every app and site icon from them.
 scripts/             set-version.mjs: sets the version in every file that has it, or checks them.
@@ -144,6 +151,7 @@ scripts/             set-version.mjs: sets the version in every file that has it
                      check-contrast.mjs: every theme meets its WCAG level (CI; --json for the site).
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
+docs/counting.md     Downloads and copies counted: what is sent, what is kept, GDPR, setting up /stats.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
 .github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Linux app clippy
                      (ubuntu-22.04), Windows clippy, core tests and installer build (can't update
@@ -215,7 +223,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `check_mail`     | `account` (null = all)       | `{new: [ids], new_in, sent: [lines], sorted, spam, errors: ["Account: reason"], busy}` (`new_in`: folder of the newest; with `account`, only its Inbox; `spam`: new mail the spam filter moved to Spam) |
 | `push_changes`   | –                            | `{errors, busy}` (sends queued changes only) |
 | `download_older` | `folder`, `limit`            | `{new, busy}`: up to `limit` of the newest messages the first download left on the server |
-| `update_info`    | –                            | `{version, updatable}` (false: built without the release key) |
+| `update_info`    | –                            | `{version, updatable, countable}` (false: built without the release key) |
+| `count_copy`     | –                            | true when today's count went (only with `usage_count: on`, release builds; at most one a UTC day) |
 | `check_update`   | –                            | `{version, notes, date}` of a newer release, or null |
 | `install_update` | –                            | `{busy}`; when it works Telex closes, updates and restarts |
 | `get_settings`   | –                            | `{settings, language, offer, fresh}` (`language`: the one on screen; `offer`: a language to offer once) |
@@ -299,7 +308,7 @@ normal, strict, off: how sure the spam filter must be to move new mail to Spam; 
 learns; `spam::set_level`, like the language), `compose_format` (html, plain; html by
 default since 0.9.8, an existing settings.json keeps its value), `reply_format` (html (the
 default), same, plain), `sign_replies` (the identity's signature in replies and forwards too), `undo_send` (0, 5, 10, 20, 30 seconds sent mail waits so Z
-can take it back), `ask_subject`, `ask_attachment` (Send asks when the text mentions an attachment and none is attached), `ask_many` (Send asks before a reply to all goes to 8 people or more), `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `backup_every` (off, daily,
+can take it back), `ask_subject`, `ask_attachment` (Send asks when the text mentions an attachment and none is attached), `ask_many` (Send asks before a reply to all goes to 8 people or more), `spell_check`, `spell_languages` (tags such as "pl-PL"; empty: Windows' languages, its region and the interface's, as far as there are dictionaries), `updates` (ask, start: at each start and once a day, daily, off), `usage_count` (ask, on, off: the daily count; asked in the status bar after `updates`; this PC's own like `backup_dir`), `backup_every` (off, daily,
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
 leave it out and imports keep it) and `backup_keep` (3, 5, 10, 20). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
@@ -409,7 +418,14 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- Counting (since 0.9.11; no schema change; setting `usage_count`): a release build asks once in the
+  status bar, after the update question, whether it may be counted (Settings › Updates › Counting).
+  With a yes it sends telexmail.app/api/count at most once a UTC day: version, system, language,
+  first month, and first-ever / first-this-week / first-this-month flags; no ID (`count.rs`). The
+  site keeps sums per day (Supabase, `site/supabase/migrations/20261017_telex_count.sql`) and a
+  daily snapshot of GitHub's download totals; `/stats` shows both to the owner. The privacy page,
+  the FAQ and "No telemetry" claims say so now ("No tracking"). Before release: apply the
+  migration and set STATS_PASSWORD and CRON_SECRET in Vercel; retake the screens (the OG facts line).
 
 ## Current state (v0.9.10: replies that keep everyone, quoted mail you can read, no forgotten attachments, and all earlier features below)
 

@@ -70,6 +70,7 @@
     <span class="hint"><span><kbd>↑</kbd><kbd>↓</kbd> <span data-i18n>move</span></span><span><kbd>Space</kbd> <span data-i18n>next unread</span></span><span><kbd>R</kbd> <span data-i18n>reply</span></span><span><kbd>F</kbd> <span data-i18n>flag</span></span><span class="more"><kbd>U</kbd> <span data-i18n>unread</span></span><span class="more"><kbd>O</kbd> <span data-i18n>only unread</span></span><span class="more"><kbd>Del</kbd> <span data-i18n>delete</span></span><span class="more"><kbd>M</kbd> <span data-i18n>move to</span></span><span class="more"><kbd>T</kbd> <span data-i18n>conversation</span></span><span><kbd>?</kbd> <span data-i18n>all keys</span></span></span>
     <span class="st-side st-right">
       <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
+      <span class="ask" id="st-count" title="Once a day Telex would send its version, the system, the language and the month it was first counted. No ID, and nothing about you or your mail." hidden data-i18n>Count this copy of Telex once a day, anonymously? <button type="button" class="linkbtn" data-count="on" data-i18n>Yes</button> <button type="button" class="linkbtn" data-count="off" data-i18n>No</button></span>
       <button class="chip" id="st-update" type="button" hidden></button>
       <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
       <button class="chip bad" id="st-sync" type="button" hidden></button>
@@ -369,6 +370,11 @@
         <p class="dnote" data-i18n>A check fetches one small file from GitHub that names the newest version, and sends nothing about you. An update installs only when you choose, and only with Telex’s signature.</p>
         <p class="dnote" id="s-upd-none" hidden data-i18n>This build of Telex can’t update itself. Release builds from telexmail.app can.</p>
         <div class="sbtns"><button class="btn" type="button" id="s-check" data-i18n>Check now</button></div>
+        <fieldset class="sgroup" id="s-count-group" hidden>
+          <legend data-i18n>Counting</legend>
+          <label class="rcheck"><input type="checkbox" id="s-count"> <span data-i18n>Count this copy of Telex once a day</span></label>
+          <p class="dnote"><span data-i18n>Telex sends telexmail.app its version, the system, the interface’s language and the month it was first counted. No ID, no address, nothing about your mail: the site adds copies up and can’t tell them apart.</span> <button type="button" class="linkbtn" data-weblink="https://telexmail.app/privacy#counting" data-i18n>What the site keeps</button></p>
+        </fieldset>
         <p class="dnote ulegal"><span data-i18n>Telex is free to use. © 2026 Łukasz Szramuk.</span> <button type="button" class="linkbtn" data-weblink="https://telexmail.app/license" data-i18n>License</button> · <button type="button" class="linkbtn" data-weblink="https://telexmail.app/third-party-notices.txt" data-i18n>Third-party notices</button></p>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-move" aria-labelledby="s-tab-move" hidden>

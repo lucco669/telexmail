@@ -79,7 +79,7 @@ function installTelexDemo(options) {
     language: ['auto', 'en', 'pl'].includes(askedLang) ? askedLang : 'auto',
     toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, ask_attachment: true, ask_many: true, spell_check: true,
-    updates: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
+    updates: 'off', usage_count: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5, ...startSettings,
   };
   const SLIPS = {
     teh: ['the'], recieve: ['receive'], adress: ['address'], wich: ['which'], seperate: ['separate'], definately: ['definitely'],
@@ -1227,7 +1227,7 @@ function installTelexDemo(options) {
   const CHOICES = {
     theme: THEMES, language: ['auto', 'en', 'pl'], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
-    reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'],
+    reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'], usage_count: ['ask', 'on', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20], spam_filter: ['off', 'careful', 'normal', 'strict'],
   };
   const SWITCHES = ['threaded', 'prefer_text', 'push_mail', 'notify', 'ask_subject', 'ask_attachment', 'ask_many', 'spell_check', 'risk_checks', 'sign_replies'];
@@ -1385,7 +1385,8 @@ function installTelexDemo(options) {
     delete_identity: deleteIdentity,
     get_settings: settingsView,
     update_settings: updateSettings,
-    update_info: () => ({ version, updatable: false }),
+    update_info: () => ({ version, updatable: false, countable: false }),
+    count_copy: () => false,
     check_update: () => null,
     install_update: () => refuse('update'),
     known_provider: knownProvider,

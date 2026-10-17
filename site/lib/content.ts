@@ -33,7 +33,7 @@ export const features = [
   },
   {
     title: 'Private by default',
-    text: 'Remote images stay blocked and passwords use your system’s store. The spam filter learns on your PC, and links and scam warning signs are checked there too. No Telex account or telemetry.',
+    text: 'Remote images stay blocked and passwords use your system’s store. The spam filter learns on your PC, and links and scam warning signs are checked there too. No Telex account, and nothing counted unless you say yes.',
   },
   {
     title: 'Readable your way',
@@ -50,7 +50,7 @@ export const features = [
 ];
 
 /** The strip under the hero's screenshot: what you get, in a few words each. */
-export const facts = ['Spam filter that learns', 'Saved searches', 'Rule previews', 'Optional threads', 'Undo send', 'Windows and Linux', 'No Electron', 'No telemetry'];
+export const facts = ['Spam filter that learns', 'Saved searches', 'Rule previews', 'Optional threads', 'Undo send', 'Windows and Linux', 'No Electron', 'No tracking'];
 
 /**
  * Which mail works, beside the download buttons. Keep it true to crates/telex-core/src/autoconfig.rs:
@@ -87,7 +87,7 @@ export const benefits = [
   { title: 'Preview your rules', text: 'Match headers and attachments, and inspect results before filing or forwarding new mail.' },
   { title: 'Several accounts, one window', text: 'Each in its own color, one search across all of them.' },
   { title: 'Take it back', text: 'Z undoes a delete, a move or a discarded message, and holds sent mail for five seconds.' },
-  { title: 'Nothing to sign up for', text: 'No account, no telemetry, no Telex server in between.' },
+  { title: 'Nothing to sign up for', text: 'No account, no tracking, no Telex server between you and your mail.' },
 ];
 
 /** A line in a list that may belong to a version not released yet. */
@@ -341,7 +341,7 @@ export const featureRows: FeatureRow[] = [
       'Your password stays in your system’s password store',
       'Your mail base is one file on your disk',
       'In a dark theme, HTML mail takes the theme’s colors; one click shows it on white',
-      'No Telex account, mail relay or desktop usage analytics',
+      'No Telex account or mail relay; counted only if you say yes, without an ID',
     ],
   },
   {
@@ -1468,7 +1468,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         id: 'privacy',
         q: 'Does Telex send anything about me anywhere?',
-        a: 'The desktop app has no Telex account, telemetry or mail relay. It connects directly to your mail servers. Account setup uses DNS and provider setup URLs; images load after your permission or sender trust; optional dictionaries and permitted or manual update checks contact GitHub; server-side away replies use your provider’s ManageSieve service. Requests reveal your IP address and time, and one setup URL includes your email address. Local search, link inspection and scam checks do not upload mail. The privacy page explains each connection.',
+        a: 'The desktop app has no Telex account or mail relay. It connects directly to your mail servers. From 0.9.11 it asks once whether it may be counted: if you say yes, it sends this website its version, system, language and the month it was first counted once a day, with no ID. Account setup uses DNS and provider setup URLs; images load after your permission or sender trust; optional dictionaries and permitted or manual update checks contact GitHub; server-side away replies use your provider’s ManageSieve service. Requests reveal your IP address and time, and one setup URL includes your email address. Local search, link inspection and scam checks do not upload mail. The privacy page explains each connection.',
       },
       {
         id: 'spam-filter',
@@ -1549,7 +1549,7 @@ export const faq: Question[] = ['providers', 'gmail', 'spam-filter', 'privacy'].
 /** Lines the telex tape above the footer punches, one after another (letters, figures and . , : ? ' / + = - ( ) only). */
 export const ticker = [
   'ZCZC TELEX FOR WINDOWS AND LINUX',
-  'FAST KEYBOARD MAIL. LOCAL MAIL BASE. NO TELEMETRY.',
+  'FAST KEYBOARD MAIL. LOCAL MAIL BASE. NO TRACKING.',
   'TRY IT IN YOUR BROWSER: SEE THE LIVE DEMO',
   'TYPE YOUR ADDRESS. TELEX FINDS THE SERVERS.',
   'SAVE A SEARCH. PREVIEW A RULE. EXPAND A THREAD.',

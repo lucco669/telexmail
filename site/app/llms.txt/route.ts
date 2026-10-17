@@ -21,7 +21,7 @@ export function GET() {
     '',
     'Telex is a desktop email client for Windows 10 and 11 (64-bit) and Linux (AppImage, .deb), written in Rust with a Tauri window (WebView2, WebKitGTK).',
     'It keeps mail in a local SQLite mail base with full-text search, syncs with IMAP servers both ways and sends over SMTP.',
-    'It has no account, no telemetry and no server of its own. It is an early preview, released often.',
+    'It has no account and no tracking, and no server handles its mail; from 0.9.11 it sends an anonymous daily count only if the user says yes. It is an early preview, released often.',
     `A live demo at ${url('/demo')} runs its real interface in the browser with a made-up mailbox.`,
     '',
     '## Highlights',

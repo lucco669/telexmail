@@ -244,6 +244,16 @@ img { display: block; max-width: 100%; height: auto; }
   font: 0.86em var(--font-mono);
   overflow-wrap: anywhere;
 }
+.prose pre {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line-soft);
+  overflow-x: auto;
+  line-height: 1.5;
+}
+.prose pre code { padding: 0; border: 0; background: none; overflow-wrap: normal; }
 .prose > :first-child { margin-top: 0; }
 
 @media print {

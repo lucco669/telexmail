@@ -147,6 +147,10 @@ pub struct Settings {
     /// Empty: Windows' languages and the interface's, as far as there are dictionaries.
     pub spell_languages: Vec<String>,
     pub updates: Updates,
+    /// Whether this copy may be counted once a day (`count.rs`). It belongs to this PC, like
+    /// `backup_dir`: an exported settings file leaves it out, and importing one keeps this PC's.
+    #[serde(default)]
+    pub usage_count: UsageCount,
     /// Back up the mail base by itself: never, every day or every week.
     pub backup_every: BackupEvery,
     /// The folder backups go to, empty until the user picks one. It belongs to this PC: an
@@ -299,6 +303,17 @@ pub enum Updates {
     Off,
 }
 
+/// Counting this copy of Telex (`count.rs`): only after the user says yes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UsageCount {
+    /// Not answered yet: a release build asks in the status bar.
+    #[default]
+    Ask,
+    On,
+    Off,
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -330,6 +345,7 @@ impl Default for Settings {
             spell_check: true,
             spell_languages: Vec::new(),
             updates: Updates::Ask,
+            usage_count: UsageCount::Ask,
             backup_every: BackupEvery::Off,
             backup_dir: String::new(),
             backup_keep: 5,
@@ -802,9 +818,10 @@ pub fn export(
     } else {
         Vec::new()
     };
-    // Where backups go is this PC's own business.
+    // Where backups go, and whether this copy is counted, are this PC's own business.
     let portable = Settings {
         backup_dir: String::new(),
+        usage_count: UsageCount::Ask,
         ..settings.clone()
     };
     let bundle = Bundle {
@@ -998,8 +1015,9 @@ impl Import {
             Some(s) => current.merged(s),
             None => (current.clone(), Vec::new()),
         };
-        // Where backups go belongs to this PC.
+        // Where backups go, and whether this copy is counted, belong to this PC.
         settings.backup_dir.clone_from(&current.backup_dir);
+        settings.usage_count = current.usage_count;
         let accounts = store.accounts();
         let entries: Vec<AccountEntry> = raw
             .accounts
@@ -1629,6 +1647,31 @@ mod tests {
         let (settings, report) = import.apply(&mut store, EVERYTHING);
         assert_eq!(settings, None);
         assert_eq!(report, ImportReport::default());
+    }
+
+    #[test]
+    fn a_yes_to_counting_stays_on_its_pc() {
+        let (store, _) = store_with("anna@firma.pl", "faktury");
+        let mine = Settings {
+            usage_count: UsageCount::On,
+            backup_dir: "D:\\Kopie".into(),
+            ..Settings::default()
+        };
+        let text = export(&store, &mine, ALL, "0.9.10", now()).unwrap();
+        assert!(text.contains("\"usage_count\": \"ask\""));
+        assert!(!text.contains("Kopie"));
+        // Another PC that said no keeps its no.
+        let theirs = Settings {
+            usage_count: UsageCount::Off,
+            ..Settings::default()
+        };
+        let import = Import::read(&text, &store, &theirs).unwrap();
+        assert!(import.plan.settings.is_empty());
+        // Settings older than the question ask it.
+        let old = Settings::default()
+            .merged(&serde_json::json!({"theme": "dark"}))
+            .0;
+        assert_eq!(old.usage_count, UsageCount::Ask);
     }
 
     #[test]

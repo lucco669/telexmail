@@ -42,6 +42,12 @@ fn pubkey() -> Option<&'static str> {
         .filter(|key| !key.is_empty())
 }
 
+/// A build the release workflow made (signed, from a tag): the Windows installers, the AppImage
+/// and the .deb. Only these are counted (`count.rs`).
+pub fn release_build() -> bool {
+    pubkey().is_some()
+}
+
 /// Whether this copy can replace itself with a release's file: a release build, and on Linux
 /// one running as an AppImage (Tauri reads `APPIMAGE`, which the AppImage sets).
 fn updatable(app: &AppHandle) -> bool {
@@ -93,6 +99,8 @@ pub struct BuildInfo {
     /// Built with the release key (and on Linux running as an AppImage), so it can check for
     /// updates and install them.
     updatable: bool,
+    /// A release build, which may be counted once the user says yes (`count.rs`).
+    countable: bool,
 }
 
 /// This build's version and whether it can update itself.
@@ -101,6 +109,7 @@ pub fn update_info(app: AppHandle) -> BuildInfo {
     BuildInfo {
         version: app.package_info().version.to_string(),
         updatable: updatable(&app),
+        countable: release_build(),
     }
 }
 

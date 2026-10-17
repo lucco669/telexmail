@@ -68,6 +68,10 @@ const PL = {
   'Click an underlined word for suggestions; F7 goes to the next one. A word any ticked language knows is right, so one message can mix them.':'Kliknij podkreślone słowo, aby zobaczyć podpowiedzi; F7 przechodzi do następnego. Słowo znane któremukolwiek zaznaczonemu językowi jest poprawne, więc jedna wiadomość może je mieszać.',
   'Sending':'Wysyłanie',
   'A check fetches one small file from GitHub that names the newest version, and sends nothing about you. An update installs only when you choose, and only with Telex’s signature.':'Sprawdzenie pobiera z GitHuba jeden mały plik z numerem najnowszej wersji i nie wysyła nic o Tobie. Aktualizacja instaluje się tylko, gdy zdecydujesz, i tylko z podpisem Telexa.',
+  // The license
+  'Telex is free to use. © 2026 Łukasz Szramuk.':'Telex jest bezpłatny. © 2026 Łukasz Szramuk.',
+  'License':'Licencja',
+  'Third-party notices':'Licencje komponentów',
   // Replies, quotes and attachments
   'This message quotes nothing.':'Ta wiadomość niczego nie cytuje.',
   'Quotes open. Q folds them again.':'Cytaty rozwinięte. Q zwija je z powrotem.',
@@ -485,6 +489,15 @@ const PL = {
   'When Telex starts, and once a day while it is open': 'Przy starcie Telexa i raz dziennie, gdy jest otwarty',
   'Only when I click Check now or the version number': 'Tylko gdy kliknę Sprawdź teraz albo numer wersji',
   'Check now': 'Sprawdź teraz',
+  // Counting this copy (count.rs), only after a yes
+  'Count this copy of Telex once a day, anonymously?': 'Liczyć tę kopię Telexa raz dziennie, anonimowo?',
+  'Once a day Telex would send its version, the system, the language and the month it was first counted. No ID, and nothing about you or your mail.': 'Raz dziennie Telex wysyłałby swoją wersję, system, język i miesiąc, w którym policzono go pierwszy raz. Bez identyfikatora i bez niczego o Tobie ani o Twojej poczcie.',
+  'Counting': 'Liczenie',
+  'Count this copy of Telex once a day': 'Licz tę kopię Telexa raz dziennie',
+  'Telex sends telexmail.app its version, the system, the interface’s language and the month it was first counted. No ID, no address, nothing about your mail: the site adds copies up and can’t tell them apart.': 'Telex wysyła do telexmail.app swoją wersję, system, język interfejsu i miesiąc, w którym policzono go pierwszy raz. Bez identyfikatora, bez adresu, bez niczego o Twojej poczcie: strona tylko sumuje kopie i nie odróżnia jednej od drugiej.',
+  'What the site keeps': 'Co zapisuje strona',
+  'Thank you. Telex will be counted once a day. Settings › Updates turns it off.': 'Dziękuję. Telex będzie liczony raz dziennie. Wyłączysz to w Ustawienia › Aktualizacje.',
+  'Telex won’t be counted. Settings › Updates can change that.': 'Telex nie będzie liczony. Możesz to zmienić w Ustawienia › Aktualizacje.',
   'Telex {version}.': 'Telex {version}.',
   'Click to check for updates.': 'Kliknij, żeby sprawdzić aktualizacje.',
   'This build can’t update itself.': 'Ta wersja nie aktualizuje się sama.',

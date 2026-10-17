@@ -204,6 +204,28 @@ receive the real `200` HTML, read all 15 public sitemap URLs and load the page a
 rendered title must be the page's title. Verify actual Googlebot access separately with
 Search Console's URL Inspection live test, and repeat PageSpeed against the current deployment.
 
+## Counting downloads and copies, and /stats
+
+What the app sends and why it is built this way is in `../docs/counting.md`. On the site:
+
+- `app/api/count/route.ts` takes the app's daily count (only from copies whose user said yes):
+  JSON only, exactly the app's seven keys (`parsePing` in `lib/count.ts`), at most 200 a day per
+  network (a keyed hash in Night Shift's `night_shift_limits`, gone after two days). It adds one
+  to a sum per UTC day, version, system, language and first month (`telex_count_days`); no
+  request is stored.
+- `app/api/downloads/snapshot/route.ts` is called by Vercel's cron (`vercel.json`, daily at
+  00:05 UTC) and stores GitHub's download totals per file for the day (`telex_download_totals`),
+  so downloads per day can be worked out. Opening /stats takes the same snapshot.
+- `app/stats/route.ts` is the owner's private page: downloads per release and kind, per day,
+  update checks (latest.json fetches), copies active today, this week and this month, new ones,
+  versions, systems, languages and cohorts. It answers 404 until `STATS_PASSWORD` (12+
+  characters) is set; the browser asks for it (any user name), ten wrong tries an hour.
+
+Setting it up: apply `supabase/migrations/20261017_telex_count.sql` (after the Night Shift one,
+whose limiter it uses) and set `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `STATS_PASSWORD` and
+`CRON_SECRET` in the Vercel project (`GITHUB_TOKEN` optional). Tests: `node --test
+scripts/count.test.mjs`.
+
 ## Security, analytics and plain-text files
 
 - `next.config.ts` sends security headers in production: a Content Security Policy (this site
