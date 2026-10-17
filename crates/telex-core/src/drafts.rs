@@ -58,7 +58,7 @@ pub fn start(
 ) -> Result<DraftStart, StoreError> {
     let original = match (kind, of) {
         (DraftKind::New, _) => None,
-        (_, Some(id)) => Some(store.get(id)?),
+        (_, Some(id)) => Some(store.get_readable(id)?),
         (_, None) => {
             return Err(StoreError::Invalid(tr!(
                 "Select a message first.",
@@ -102,7 +102,7 @@ pub fn start(
     match kind {
         DraftKind::Reply | DraftKind::ReplyAll => {
             let outgoing = store.kind_of(&m.folder).is_some_and(|k| k.is_outgoing());
-            let raw = store.raw_of(m.id)?;
+            let raw = store.readable_raw(m.id)?;
             // Replying to your own message goes to its recipients again.
             let primary = if outgoing {
                 m.to.clone()

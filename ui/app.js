@@ -2643,7 +2643,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
 ${headerHtml({...m, tags:s.tags ?? m.tags}, `${unsubButton(m)}${readButton(s)}${flagButton(s)}${tagButton()}${popout}${mdButton()}${outButton()}${paper}${views}`)}
 ${inviteHtml(m, spam)}
 ${riskHtml(m)}
-${goesBar(m)}${unsubBar(m)}
+${goesBar(m)}${unsubBar(m)}${pgpHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -2760,13 +2760,15 @@ async function openCompose(kind, preset = {}, of = null){
     if (kind === 'edit'){
       bodies.delete(s.id); // its note may have changed (taken back, refused)
       const m = await full(s.id), account = acctId(s.f), ids = ACCT[account]?.identities ?? [];
+      // Encrypted and still locked: its text isn't here to edit yet.
+      if (m.pgp?.encrypted && !m.pgp.decrypted){ say(t('It is encrypted: unlock it above the message first.'), 6000); return; }
       const me = ids.find(i => i.email.toLowerCase() === m.from_email.toLowerCase()) ?? ids.find(i => i.is_default) ?? ids[0];
       // Mail sent later is held while it is changed, so it can't go meanwhile; Send keeps its time.
       const later = m.goes && parseDate(m.goes) - Date.now() > 60000 ? m.goes : null;
       if (later){ await invoke('hold_message', {id:s.id}); bodies.delete(s.id); }
       // Attachments come from the old message itself, which Send replaces.
       c = {kind, account, identity:me?.id ?? null, to:m.to, cc:m.cc, bcc:m.bcc ?? '', subject:m.subject, body:m.body,
-        html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id, later};
+        html:await invoke('draft_html', {id:s.id}), attachments:m.attachments.slice(), replyTo:null, forwardOf:m.id, replaces:m.id, later, pgpWas:m.pgp ?? null};
       if (later) refresh();
     } else {
       // A new message takes the open folder's templates (a reply, its original's folder's).
@@ -2908,6 +2910,7 @@ ${html ? `${fbarHtml('c-url')}
 <div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
   : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
 ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>`}
+<div class="bar pgp warn cpgp" id="c-pgp" hidden></div>
 <div class="cask" id="c-ask" role="alert" hidden></div>
 <div class="cask clater" id="c-later" hidden><label for="c-when">${esc(t('Send at'))}</label><input id="c-when" type="datetime-local" step="60">
   <button class="btn primary" type="button" data-act="later-at">${esc(t('Send later|button'))}</button><button class="btn" type="button" data-act="later-cancel">${esc(t('Cancel'))}</button></div>
@@ -2918,6 +2921,7 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   <button class="btn" type="button" data-act="discard">${esc(t('Discard'))}</button>
   <span class="cnote">${esc(note)}</span>
   <span class="csaved" aria-live="polite"></span>
+  ${pgpSetHtml()}
   <button class="btn spellchip" type="button" data-act="spell" aria-haspopup="menu">${I.spell}<span></span></button>
 </div></form>`;
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
@@ -2939,6 +2943,7 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   else focusStart(body, c.caretLine);
   wireSpelling();
   paintSpellChip();
+  wirePgp();
 }
 /* ---------- reply or reply all ---------- */
 // A reply knows both answers the core gave: to the sender (`one`) and to everyone (`all`). The
@@ -3748,7 +3753,7 @@ async function autosave(){
     await inTurn(async () => {
       if (state.compose !== c || c.done) return; // closed meanwhile, and saved or discarded
       const shape = shapeOf(c);
-      c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), autosave:true}});
+      c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), autosave:true}, pgp:pgpChoice(c)});
       c.saved = shape;
       const note = previewEl.querySelector('.csaved');
       if (note && state.compose === c) note.textContent = t('Draft saved {time}', {time:hm(new Date())});
@@ -3762,7 +3767,7 @@ setInterval(autosave, AUTOSAVE_MS);
 function saveCompose(){
   const c = readCompose();
   return inTurn(async () => {
-    await call('save_outgoing', {draft:draftOf(c)});
+    await call('save_outgoing', {draft:draftOf(c), pgp:pgpChoice(c)});
     c.done = true;
     return true;
   }).catch(() => false);
@@ -3873,6 +3878,7 @@ async function send(later){
     return;
   }
   askedSubject = 0;
+  if (!await pgpReady()) return;
   if (!await sendChecks()) return;
   const btn = document.querySelector('#cform .csend');
   if (!btn || btn.disabled) return;
@@ -3881,7 +3887,7 @@ async function send(later){
   say(later ? t('Saving…') : t('Sending…'), 0);
   let r;
   const c = readCompose();
-  try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c), later}); c.done = true; return r; }); }
+  try { r = await inTurn(async () => { const r = await call('send_message', {draft:draftOf(c), later, pgp:pgpChoice(c)}); c.done = true; return r; }); }
   catch { btn.disabled = false; label.textContent = laterLabel(c); return; } // e.g. a bad address: fix it and try again
   state.compose = null;
   leftCompose();
@@ -6139,6 +6145,7 @@ function paneOpened(tab){
   if (tab === 'conn') renderConnections();
   if (tab === 'backup'){ bk.state = null; bk.restore = null; bk.error = ''; renderBackups(); }
   if (tab === 'move') renderMove();
+  if (tab === 'keys'){ keys_.list = null; keys_.paste = false; keys_.armed = ''; keys_.p12 = null; keys_.p12err = ''; renderKeys(); }
 }
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
@@ -6958,6 +6965,8 @@ function renderBackups(){
     : `<p class="dnote">${esc(t('There is no mail base yet: it is made when you add your first account.'))}</p>`;
   html += `<h3 class="rh">${esc(t('Back up'))}</h3>
 <p class="dnote">${esc(t('One file with your mail, the folders on this PC, rules and identities. Passwords stay in the system’s password store.'))}</p>
+<label class="sopt"><input type="checkbox" id="bk-secret"${p.backup_secret_keys !== false ? ' checked' : ''}><span>${esc(t('Include the secret parts of my OpenPGP keys (locked with their passphrases)'))}</span></label>
+<p class="dnote">${esc(t('Without them a backup can still check signatures, but mail encrypted to you can be read only with your keys backed up some other way (Settings › Keys › Back up secret key).'))}</p>
 <div class="sbtns"><button type="button" class="btn primary" id="bk-now"${off || !s.base ? ' disabled' : ''}>${esc(work === 'backup' || s.running ? t('Backing up…') : t('Back up now'))}</button>
 <span class="sdone">${newest ? esc(t('Last backup {when}, {size}.', {when:when(newest), size:fmtBytes(newest.bytes)})) : esc(t('No backups yet.'))}</span></div>
 <div class="sgrid"><span class="lab" id="bk-every">${esc(t('Automatically'))}</span><div class="segs" role="radiogroup" aria-labelledby="bk-every">${segs('backup_every', [['off', esc(t('Never'))], ['daily', esc(t('Every day'))], ['weekly', esc(t('Every week'))]], p.backup_every)}</div>
@@ -7024,7 +7033,10 @@ $('s-backup').addEventListener('click', async e => {
     });
   }
 });
-$('s-backup').addEventListener('change', e => { if (e.target.id === 's-keep') changeSettings({backup_keep:Number(e.target.value)}); });
+$('s-backup').addEventListener('change', e => {
+  if (e.target.id === 's-keep') changeSettings({backup_keep:Number(e.target.value)});
+  if (e.target.id === 'bk-secret') changeSettings({backup_secret_keys:e.target.checked});
+});
 // Backups by themselves: a minute after start, then every hour, when the settings say one is due.
 let backupWarned = false;
 async function autoBackup(){
@@ -7046,6 +7058,446 @@ function sayRestored(){
   const file = String(r.aside).split(/[\\/]/).pop();
   say(t('Restored the backup{when}. The mail base as it was is kept as {file}.', {when:r.made ? ' ' + t('from {when}', {when:fmtWhenFull(parseDate(r.made))}) : '', file}), 15000);
 }
+
+/* ---------- OpenPGP: signed and encrypted mail, keys ---------- */
+// The core reads, decrypts and checks (openpgp.rs); the window shows what it found above the
+// message, asks for passphrases, offers Sign and Encrypt in compose and lists the keys.
+const PGP_I = {
+  seal: sv('<path d="M8 1.6l1.5 1.1 1.9-.1.6 1.8 1.5 1.1-.6 1.8.6 1.8-1.5 1.1-.6 1.8-1.9-.1L8 14.4l-1.5-1.1-1.9.1-.6-1.8-1.5-1.1.6-1.8-.6-1.8 1.5-1.1.6-1.8 1.9.1z"/><path d="M5.9 8l1.4 1.4 2.8-2.8"/>'),
+  lock: sv('<rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 015 0v2"/>'),
+  key: sv('<circle cx="5" cy="10.5" r="2.5"/><path d="M6.8 8.7L13 2.5M11 4.5l1.6 1.6M9.4 6.1L11 7.7"/>'),
+};
+// "ABCD 1234 …": a fingerprint in groups of four, as people read them out to each other.
+const fpText = fp => String(fp || '').replace(/(.{4})(?=.)/g, '$1 ');
+const keyName = k => k?.name || fpText(k?.fingerprint).slice(-19);
+// Whatever was shown may read differently after a key or passphrase changed.
+function pgpChanged(){ bodies.clear(); htmlViews.clear(); }
+function pgpHtml(m){
+  const p = m.pgp;
+  if (!p) return '';
+  // S/MIME says "certificate" and "password" where OpenPGP says "key" and "passphrase".
+  const smime = !!p.smime, scheme = smime ? ' data-scheme="smime"' : '';
+  const lines = [];
+  if (p.encrypted){
+    if (p.decrypted) lines.push(['good', PGP_I.lock, esc(t('Encrypted. Decrypted on this PC only: its text isn’t kept or searched.'))]);
+    else if (p.problem === 'locked'){
+      const k = p.locked[0];
+      const intro = smime ? t('Encrypted to your certificate {name}.', {name:keyName(k)}) : t('Encrypted to your key {name}.', {name:keyName(k)});
+      const word = smime ? t('Password') : t('Passphrase');
+      const label = smime ? t('Password for {name}', {name:keyName(k)}) : t('Passphrase for {name}', {name:keyName(k)});
+      lines.push(['warn', PGP_I.lock, `${esc(intro)}
+<input type="password" class="pgppass" data-fp="${esc(k.fingerprint)}"${scheme} autocomplete="off" spellcheck="false" placeholder="${esc(word)}" aria-label="${esc(label)}">
+<label class="pgprem"><input type="checkbox" class="pgpremember"> ${esc(t('Remember it on this PC'))}</label>
+<button type="button" class="btn" data-pgp="unlock">${esc(t('Unlock'))}</button><span class="pgperr" role="alert"></span>`]);
+    } else {
+      const why = {
+        not_for_you: smime ? t('Encrypted to someone else’s certificate: this PC has no certificate that can read it.') : t('Encrypted to someone else’s key: this PC has no key that can read it.'),
+        failed: t('Encrypted, but it can’t be decrypted: it is damaged or was changed on the way.'),
+        too_large: t('Encrypted, and too large to decrypt here.'),
+        unsupported: t('Encrypted in an old or rare format Telex doesn’t read.'),
+      }[p.problem] ?? t('Encrypted.');
+      lines.push(['bad', PGP_I.lock, esc(why)]);
+    }
+  }
+  const s = p.signature;
+  if (s){
+    const name = keyName(s.key), fp = s.key ? ` title="${esc(fpText(s.key.fingerprint))}"` : '', issuer = s.issuer || '?';
+    const part = p.partial ? ' ' + esc(t('Only part of the message is signed: what is outside it may have been added.')) : '';
+    const confirm = s.key ? `<code class="pgpfp">${esc(fpText(s.key.fingerprint))}</code><button type="button" class="btn" data-pgp="confirm" data-fp="${esc(s.key.fingerprint)}"${scheme}>${esc(smime ? t('Confirm certificate') : t('Confirm key'))}</button>` : '';
+    const line = smime ? {
+      good: ['good', `<span${fp}>${esc(t('Signed by {name}, certified by {issuer}.', {name, issuer}))}</span>${part}`],
+      unconfirmed: ['info', `${esc(t('Signed by {name}, with a certificate this PC can’t confirm (from {issuer}). Compare its fingerprint with them, then confirm it:', {name, issuer}))} ${confirm}${part}`],
+      other_sender: ['bad', `<span${fp}>${esc(t('Signed by {name}, not by the sender: the certificate belongs to another address.', {name}))}</span>`],
+      no_key: ['info', esc(t('Signed with a certificate the message doesn’t carry (serial {id}).', {id:s.key_id}))],
+      bad: ['bad', esc(t('The signature doesn’t match: the message was changed after it was signed, or the signature is broken.'))],
+      revoked: ['bad', `<span${fp}>${esc(t('Signed with a certificate that was revoked ({name}).', {name}))}</span>`],
+      expired: ['warn', `<span${fp}>${esc(t('Signed with a certificate that wasn’t valid at the time ({name}).', {name}))}</span>`],
+      unsupported: ['info', esc(t('Signed in a way Telex can’t check.'))],
+    }[s.status] : {
+      good: ['good', `<span${fp}>${esc(t('Signed by {name}.', {name}))}</span>${part}`],
+      unconfirmed: ['info', `${esc(t('Signed by {name}, with a key that came with their mail. Compare its fingerprint with them, then confirm it:', {name}))} ${confirm}${part}`],
+      other_sender: ['bad', `<span${fp}>${esc(t('Signed by {name}, not by the sender: the key belongs to another address.', {name}))}</span>`],
+      no_key: ['info', `${esc(t('Signed with a key Telex doesn’t have ({id}).', {id:fpText(s.key_id)}))} <button type="button" class="linkbtn" data-pgp="keys">${esc(t('Keys…'))}</button>`],
+      bad: ['bad', esc(t('The signature doesn’t match: the message was changed after it was signed, or the signature is broken.'))],
+      revoked: ['bad', `<span${fp}>${esc(t('Signed with a key its owner has revoked ({name}).', {name}))}</span>`],
+      expired: ['warn', `<span${fp}>${esc(t('Signed with a key that had expired ({name}).', {name}))}</span>`],
+      unsupported: ['info', esc(t('Signed in a way Telex can’t check.'))],
+    }[s.status];
+    if (line) lines.push([line[0], PGP_I.seal, line[1]]);
+  }
+  if (p.offered?.length){
+    const names = p.offered.map(keyName).join(', ');
+    lines.push(['quiet', PGP_I.key, `${esc(tn(p.offered.length, 'This message carries a key: {names}.', 'This message carries {n} keys: {names}.', {names}))} <button type="button" class="linkbtn" data-pgp="import">${esc(t('Import|key'))}</button>`]);
+  }
+  return lines.map(([kind, icon, html]) => `<div class="bar pgp ${kind}">${icon}<span class="pgpline">${html}</span></div>`).join('');
+}
+// A passphrase (OpenPGP) or a certificate's password (S/MIME): true when it opened the key.
+async function pgpUnlock(fp, passphrase, remember, smime = false){
+  try {
+    return smime ? await invoke('smime_unlock', {fingerprint:fp, password:passphrase, remember})
+      : await invoke('pgp_unlock', {fingerprint:fp, passphrase, remember});
+  } catch (e){ say(tr(e), 8000); return false; }
+}
+previewEl.addEventListener('click', async e => {
+  const b = e.target.closest('[data-pgp]');
+  if (!b) return;
+  if (state.compose){ pgpToggle(b.dataset.pgp); return; }
+  const m = current();
+  if (!m) return;
+  const kind = b.dataset.pgp;
+  if (kind === 'unlock'){
+    const field = previewEl.querySelector('.pgppass'), err = previewEl.querySelector('.pgperr');
+    if (!field?.value) { field?.focus(); return; }
+    const smime = field.dataset.scheme === 'smime';
+    b.disabled = true;
+    const ok = await pgpUnlock(field.dataset.fp, field.value, !!previewEl.querySelector('.pgpremember')?.checked, smime);
+    b.disabled = false;
+    if (!ok){ if (err) err.textContent = smime ? t('That password doesn’t open the certificate.') : t('That passphrase doesn’t open the key.'); field.select(); return; }
+    pgpChanged(); renderPreview();
+  } else if (kind === 'confirm'){
+    const smime = b.dataset.scheme === 'smime';
+    try { await invoke(smime ? 'smime_verify' : 'pgp_verify', {fingerprint:b.dataset.fp, verified:true}); } catch (err){ say(tr(err), 8000); return; }
+    pgpChanged(); renderPreview();
+    say(smime ? t('Certificate confirmed. Its signatures count as the sender’s from now on.') : t('Key confirmed. Its signatures count as the sender’s from now on.'), 5000);
+  } else if (kind === 'import'){
+    let r;
+    try { r = await invoke('pgp_import_offered', {id:m.id}); } catch (err){ say(tr(err), 8000); return; }
+    pgpChanged(); renderPreview(); say(importedText(r), 6000);
+  } else if (kind === 'keys') openSettings('keys');
+});
+previewEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.classList?.contains('pgppass')){ e.preventDefault(); previewEl.querySelector('[data-pgp="unlock"]')?.click(); }
+});
+const importedText = r => {
+  const n = r.added.length + r.updated.length;
+  if (!n) return r.unchanged.length ? t('Telex had that key already.') : t('Nothing was imported.');
+  return tn(n, 'Imported {names}.', 'Imported {n} keys: {names}.', {names:[...r.added, ...r.updated].map(keyName).join(', ')});
+};
+
+/* compose: Sign, Encrypt, My key, and OpenPGP or S/MIME */
+// What the core says about the message as typed (pgp_compose), asked again as recipients
+// change. Until the user touches a switch, it starts where the core suggests: a reply to
+// encrypted mail encrypted, otherwise as last chosen for these people; S/MIME when the sender
+// has only a certificate, answers S/MIME mail, or only certificates reach everyone.
+let pgpTimer = 0;
+async function pgpComposeState(c, first = false){
+  let st;
+  try {
+    st = await invoke('pgp_compose', {draft:draftOf($('cform') ? readCompose() : c)});
+  } catch { return; }
+  if (state.compose !== c) return;
+  c.pgp = st;
+  if (!c.pgpTouched){
+    c.smime = !!st.smime && !!st.smime_own;
+    c.sign = st.sign;
+    c.encrypt = st.encrypt || (first && !!c.pgpWas?.encrypted && !!(c.smime ? st.smime_own : st.own));
+  }
+  if (c.smime && !st.smime_own) c.smime = false;
+  if (!c.smime && !st.own && st.smime_own) c.smime = true;
+  paintPgp();
+}
+// The sender's key or certificate for the scheme compose is on, and what it is missing.
+function pgpNow(c){
+  const st = c?.pgp;
+  if (!st) return {own:null, unlocked:false, missing:[]};
+  return c.smime ? {own:st.smime_own, unlocked:st.smime_unlocked, missing:st.smime_missing ?? []}
+    : {own:st.own, unlocked:st.unlocked, missing:st.missing ?? []};
+}
+function wirePgp(){
+  const c = state.compose;
+  if (!c) return;
+  const again = () => { clearTimeout(pgpTimer); pgpTimer = setTimeout(() => pgpComposeState(c), 450); };
+  ['c-to', 'c-cc', 'c-bcc'].forEach(id => $(id)?.addEventListener('input', again));
+  $('c-from')?.addEventListener('change', () => setTimeout(() => pgpComposeState(c), 0));
+  pgpComposeState(c, !c.pgp);
+}
+function paintPgp(){
+  const c = state.compose, set = previewEl.querySelector('.pgpset'), hint = $('c-pgp');
+  if (!c || !set) return;
+  const st = c.pgp, now = pgpNow(c);
+  set.hidden = !now.own;
+  const button = kind => set.querySelector(`[data-pgp="${kind}"]`);
+  const press = (kind, on) => button(kind)?.setAttribute('aria-pressed', String(!!on));
+  press('sign', c.sign); press('encrypt', c.encrypt); press('key', c.attachKey);
+  // Both a key and a certificate: a switch between them.
+  const scheme = button('scheme');
+  if (scheme){
+    scheme.hidden = !(st?.own && st?.smime_own);
+    scheme.querySelector('span').textContent = c.smime ? 'S/MIME' : 'OpenPGP';
+  }
+  const key = button('key');
+  if (key) key.hidden = !!c.smime;
+  set.setAttribute('aria-label', c.smime ? 'S/MIME' : t('OpenPGP'));
+  button('sign')?.setAttribute('title', c.smime ? t('Sign with your certificate: the recipients can check it is from you and unchanged') : t('Sign with your OpenPGP key: the recipients can check it is from you and unchanged'));
+  button('encrypt')?.setAttribute('title', c.smime ? t('Encrypt to the recipients’ certificates and yours: only you and they can read it') : t('Encrypt to the recipients’ keys and yours: only you and they can read it'));
+  if (!hint) return;
+  const missing = c.encrypt && now.missing.length ? now.missing : [];
+  hint.hidden = !missing.length;
+  if (missing.length){
+    const list = missing.join(', ');
+    const text = c.smime
+      ? tn(missing.length, 'No certificate for {list}: they can’t read encrypted mail yet. A signed message from them brings it, or import it in Settings › Keys. Or turn Encrypt off.', 'No certificates for {list}: they can’t read encrypted mail yet. A signed message from each brings it, or import them in Settings › Keys. Or turn Encrypt off.', {list})
+      : tn(missing.length, 'No key for {list}: they can’t read encrypted mail yet. Import their key in Settings › Keys, or turn Encrypt off.', 'No keys for {list}: they can’t read encrypted mail yet. Import their keys in Settings › Keys, or turn Encrypt off.', {list});
+    hint.innerHTML = `${PGP_I.lock}<span>${esc(text)}</span>`;
+  }
+}
+function pgpToggle(kind){
+  const c = state.compose;
+  if (!c || !pgpNow(c).own) return;
+  c.pgpTouched = true;
+  if (kind === 'sign') c.sign = !c.sign;
+  else if (kind === 'encrypt'){ c.encrypt = !c.encrypt; if (c.encrypt) c.sign = true; }
+  else if (kind === 'key') c.attachKey = !c.attachKey;
+  else if (kind === 'scheme' && c.pgp?.own && c.pgp?.smime_own){ c.smime = !c.smime; hideComposeAsk(); }
+  paintPgp();
+}
+const pgpSetHtml = () => `<span class="pgpset" hidden role="group" aria-label="${esc(t('OpenPGP'))}">
+<button class="btn pgptog pgpscheme" type="button" data-pgp="scheme" hidden title="${esc(t('Sign and encrypt with OpenPGP or with your S/MIME certificate'))}">${PGP_I.key}<span>OpenPGP</span></button>
+<button class="btn pgptog" type="button" data-pgp="sign" aria-pressed="false" title="${esc(t('Sign with your OpenPGP key: the recipients can check it is from you and unchanged'))}">${PGP_I.seal}<span>${esc(t('Sign'))}</span></button>
+<button class="btn pgptog" type="button" data-pgp="encrypt" aria-pressed="false" title="${esc(t('Encrypt to the recipients’ keys and yours: only you and they can read it'))}">${PGP_I.lock}<span>${esc(t('Encrypt'))}</span></button>
+<button class="btn pgptog" type="button" data-pgp="key" aria-pressed="false" title="${esc(t('Attach your public key, so they can encrypt their replies'))}">${PGP_I.key}<span>${esc(t('My key'))}</span></button></span>`;
+// What compose asks of OpenPGP or S/MIME for this message; null when the sender has neither.
+const pgpChoice = c => pgpNow(c).own ? {sign:!!c.sign, encrypt:!!c.encrypt, attach_key:!c.smime && !!c.attachKey, smime:!!c.smime} : null;
+// Before Send: a signature needs the key's passphrase (or the certificate's password), and
+// encryption a key or certificate for everyone.
+async function pgpReady(){
+  const c = state.compose, box = $('c-ask'), now = pgpNow(c);
+  if (!now.own) return true;
+  if (c.encrypt && now.missing.length){ paintPgp(); say(c.smime ? t('Encryption needs a certificate for every recipient.') : t('Encryption needs a key for every recipient.'), 6000); return false; }
+  if (!c.sign || now.unlocked) return true;
+  if (box && !box.hidden && box.dataset.kind === 'pass'){
+    const field = $('c-pass');
+    if (!field?.value){ field?.focus(); return false; }
+    const ok = await pgpUnlock(now.own.fingerprint, field.value, !!$('c-pass-rem')?.checked, !!c.smime);
+    if (state.compose !== c) return false;
+    if (!ok){ box.querySelector('.pgperr').textContent = c.smime ? t('That password doesn’t open the certificate.') : t('That passphrase doesn’t open the key.'); field.select(); return false; }
+    if (c.smime) c.pgp.smime_unlocked = true; else c.pgp.unlocked = true;
+    pgpChanged(); hideComposeAsk();
+    return true;
+  }
+  if (!box) return false;
+  box.dataset.kind = 'pass';
+  const word = c.smime ? t('Password') : t('Passphrase');
+  box.innerHTML = `<span>${esc(c.smime ? t('Signing needs the password of the certificate {name}.', {name:keyName(now.own)}) : t('Signing needs the passphrase of {name}.', {name:keyName(now.own)}))}</span>
+<input type="password" id="c-pass" autocomplete="off" spellcheck="false" aria-label="${esc(word)}" placeholder="${esc(word)}">
+<label class="pgprem"><input type="checkbox" id="c-pass-rem"> ${esc(t('Remember it on this PC'))}</label>
+<button type="button" class="btn" data-act="ask-send">${esc(t('Unlock and send'))}</button><span class="pgperr"></span>`;
+  box.hidden = false;
+  $('c-pass').focus();
+  $('c-pass').addEventListener('keydown', e => { if (e.key === 'Enter'){ e.preventDefault(); send(); } });
+  return false;
+}
+
+/* settings: keys */
+// certs: S/MIME certificates; p12: the name of a picked .p12 waiting for its password.
+const keys_ = {list:null, certs:[], error:'', paste:false, making:false, armed:'', loading:false, p12:null, p12err:''};
+async function loadKeys(){
+  try { [keys_.list, keys_.certs] = await Promise.all([invoke('pgp_keys'), invoke('smime_certs')]); keys_.error = ''; }
+  catch (e){ keys_.error = tr(e); }
+  if (sdlg.open && setTab === 'keys') renderKeys();
+}
+const sourceText = k => k.secret ? (k.source === 'own' ? t('made in Telex') : t('imported with its secret part'))
+  : {file:t('from a file'), autocrypt:t('from their mail (Autocrypt)'), message:t('attached to a message')}[k.source] ?? k.source;
+function keyRow(k){
+  const dates = [t('made {date}', {date:dmy(parseDate(k.created))}), k.expires ? t('expires {date}', {date:dmy(parseDate(k.expires))}) : ''].filter(Boolean).join(' · ');
+  const chips = [
+    k.revoked ? `<span class="kchip bad">${esc(t('revoked'))}</span>` : '',
+    !k.secret && k.verified ? `<span class="kchip">${esc(t('confirmed'))}</span>` : '',
+    !k.secret && !k.verified ? `<span class="kchip warn">${esc(t('not confirmed'))}</span>` : '',
+    !k.can_encrypt && !k.revoked ? `<span class="kchip warn">${esc(t('can’t encrypt'))}</span>` : '',
+    k.secret && k.protected ? `<span class="kchip">${esc(k.remembered ? t('passphrase remembered') : k.unlocked ? t('unlocked until Telex closes') : t('locked'))}</span>` : '',
+    k.secret && !k.protected ? `<span class="kchip warn">${esc(t('no passphrase'))}</span>` : '',
+  ].join('');
+  const fp = esc(k.fingerprint), armed = keys_.armed === k.fingerprint;
+  const btns = [
+    `<button type="button" class="linkbtn" data-key="export" data-fp="${fp}">${esc(t('Export public key…'))}</button>`,
+    `<button type="button" class="linkbtn" data-key="copy" data-fp="${fp}">${esc(t('Copy public key'))}</button>`,
+    k.secret ? `<button type="button" class="linkbtn" data-key="secret" data-fp="${fp}">${esc(t('Back up secret key…'))}</button>` : '',
+    k.secret && (k.remembered || (k.protected && k.unlocked)) ? `<button type="button" class="linkbtn" data-key="forget" data-fp="${fp}">${esc(t('Forget passphrase'))}</button>` : '',
+    !k.secret ? `<button type="button" class="linkbtn" data-key="verify" data-fp="${fp}" data-on="${!k.verified}">${esc(k.verified ? t('Take back confirmation') : t('Confirm key'))}</button>` : '',
+    `<button type="button" class="linkbtn${armed ? ' danger' : ''}" data-key="delete" data-fp="${fp}">${esc(armed ? (k.secret ? t('Delete for good? Mail encrypted to it can’t be read then') : t('Delete for good?')) : t('Delete…'))}</button>`,
+  ].join('');
+  return `<li class="krow"><div class="khead"><b>${esc(k.user_ids[0] || k.emails[0] || '')}</b>${chips}</div>
+${k.user_ids.length > 1 ? `<div class="kuids">${k.user_ids.slice(1).map(esc).join('<br>')}</div>` : ''}
+<code class="kfp" title="${esc(t('Fingerprint'))}">${esc(fpText(k.fingerprint))}</code>
+<div class="kmeta">${esc([k.algorithm, dates, sourceText(k)].filter(Boolean).join(' · '))}</div>
+<div class="kbtns">${btns}</div></li>`;
+}
+// An S/MIME certificate on the keys page.
+function certRow(c){
+  const chips = [
+    c.expired ? `<span class="kchip bad">${esc(t('expired'))}</span>` : '',
+    !c.secret && c.trusted ? `<span class="kchip">${esc(t('from a trusted authority'))}</span>` : '',
+    !c.secret && !c.trusted && c.verified ? `<span class="kchip">${esc(t('confirmed'))}</span>` : '',
+    !c.secret && !c.trusted && !c.verified ? `<span class="kchip warn">${esc(t('not confirmed'))}</span>` : '',
+    !c.can_encrypt && !c.expired ? `<span class="kchip warn">${esc(t('can’t encrypt'))}</span>` : '',
+    c.secret && c.protected ? `<span class="kchip">${esc(c.remembered ? t('password remembered') : c.unlocked ? t('unlocked until Telex closes') : t('locked'))}</span>` : '',
+    c.secret && !c.protected ? `<span class="kchip warn">${esc(t('no password'))}</span>` : '',
+  ].join('');
+  const fp = esc(c.fingerprint), armed = keys_.armed === c.fingerprint;
+  const btns = [
+    `<button type="button" class="linkbtn" data-cert="export" data-fp="${fp}">${esc(t('Export certificate…'))}</button>`,
+    c.secret && (c.remembered || (c.protected && c.unlocked)) ? `<button type="button" class="linkbtn" data-cert="forget" data-fp="${fp}">${esc(t('Forget password'))}</button>` : '',
+    !c.secret && !c.trusted ? `<button type="button" class="linkbtn" data-cert="verify" data-fp="${fp}" data-on="${!c.verified}">${esc(c.verified ? t('Take back confirmation') : t('Confirm certificate'))}</button>` : '',
+    `<button type="button" class="linkbtn${armed ? ' danger' : ''}" data-cert="delete" data-fp="${fp}">${esc(armed ? (c.secret ? t('Delete for good? Mail encrypted to it can’t be read then') : t('Delete for good?')) : t('Delete…'))}</button>`,
+  ].join('');
+  const source = c.secret ? t('imported with its private key') : {file:t('from a file'), message:t('from their signed mail')}[c.source] ?? c.source;
+  const meta = [c.algorithm, t('issued by {issuer}', {issuer:c.issuer}), t('valid {from} to {to}', {from:dmy(parseDate(c.not_before)), to:dmy(parseDate(c.not_after))}), source];
+  return `<li class="krow"><div class="khead"><b>${esc(c.name)}</b>${chips}</div>
+<code class="kfp" title="${esc(t('Fingerprint (SHA-256)'))}">${esc(fpText(c.fingerprint))}</code>
+<div class="kmeta">${esc(meta.filter(Boolean).join(' · '))}</div>
+<div class="kbtns">${btns}</div></li>`;
+}
+function certsHtml(){
+  const own = keys_.certs.filter(c => c.secret), others = keys_.certs.filter(c => !c.secret);
+  let html = `<h3 class="rh">${esc(t('Certificates (S/MIME)'))}</h3>`;
+  html += own.length ? `<ul class="klist">${own.map(certRow).join('')}</ul>`
+    : `<p class="dnote">${esc(t('With a certificate of your own (a .p12 or .pfx file from your company or a certificate authority) you sign mail and read mail encrypted to you, as Outlook and Apple Mail do.'))}</p>`;
+  if (others.length) html += `<ul class="klist">${others.map(certRow).join('')}</ul>`;
+  html += `<p class="dnote">${esc(t('Other people’s certificates come with their signed mail. Windows says which authorities it trusts; others you confirm by comparing the fingerprint.'))}</p>`;
+  html += `<div class="sbtns"><button type="button" class="btn" data-cert="pick">${esc(t('Import certificate…'))}</button></div>`;
+  if (keys_.p12) html += `<div class="kpaste"><div class="sgrid"><label class="lab" for="k-p12">${esc(t('Password'))}</label><div><input type="password" id="k-p12" class="sfield" autocomplete="off" spellcheck="false" aria-describedby="k-p12-note"></div></div>
+<p class="dnote" id="k-p12-note">${esc(t('The password of {file}. Telex keeps the key locked with it.', {file:keys_.p12}))}</p>
+<label class="sopt"><input type="checkbox" id="k-p12-rem" checked><span>${esc(t('Remember the password on this PC (the system’s password store)'))}</span></label>
+<div class="sbtns"><button type="button" class="btn primary" data-cert="p12-go">${esc(t('Import'))}</button><button type="button" class="btn" data-cert="p12-cancel">${esc(t('Cancel'))}</button><span class="pgperr" role="alert">${esc(keys_.p12err)}</span></div></div>`;
+  return html;
+}
+function renderKeys(){
+  const el = $('s-keys'), p = pref();
+  if (!keys_.list){
+    el.innerHTML = keys_.error ? `<p class="derr">${esc(keys_.error)}</p>` : `<p class="dnote">${esc(t('Counting…'))}</p>`;
+    if (!keys_.error && !keys_.loading){ keys_.loading = true; loadKeys().finally(() => { keys_.loading = false; }); }
+    return;
+  }
+  const own = keys_.list.filter(k => k.secret), others = keys_.list.filter(k => !k.secret);
+  const ids = allIdentities(), keyed = new Set(own.flatMap(k => k.emails));
+  const free = ids.filter(i => !keyed.has(i.email.toLowerCase()));
+  const pick = free.length ? free : ids;
+  let html = `<h3 class="rh">${esc(t('Your keys'))}</h3>`;
+  html += own.length ? `<ul class="klist">${own.map(keyRow).join('')}</ul>`
+    : `<p class="dnote">${esc(t('With a key of your own you can sign your mail and read mail encrypted to you. Make one, or import the one you have (with its secret part).'))}</p>`;
+  html += `<details class="kmake"${own.length ? '' : ' open'}><summary>${esc(t('Make a key'))}</summary>
+<div class="sgrid">
+<label class="lab" for="k-who">${esc(t('For'))}</label><div><select id="k-who" class="sselect">${pick.map(i => `<option value="${i.id}">${esc(i.name ? `${i.name} <${i.email}>` : i.email)}</option>`).join('')}</select></div>
+<label class="lab" for="k-kind">${esc(t('Kind'))}</label><div><select id="k-kind" class="sselect"><option value="ed25519">${esc(t('Ed25519 (small and fast; recommended)'))}</option><option value="rsa3072">${esc(t('RSA 3072 (for old programs)'))}</option></select></div>
+<label class="lab" for="k-pass">${esc(t('Passphrase'))}</label><div><input type="password" id="k-pass" class="sfield" autocomplete="new-password" spellcheck="false"></div>
+<label class="lab" for="k-pass2">${esc(t('Once more'))}</label><div><input type="password" id="k-pass2" class="sfield" autocomplete="new-password" spellcheck="false"></div>
+</div>
+<label class="sopt"><input type="checkbox" id="k-rem" checked><span>${esc(t('Remember the passphrase on this PC (the system’s password store)'))}</span></label>
+<p class="dnote">${esc(t('The key is kept in the mail base, locked with the passphrase. Without the passphrase, mail encrypted to the key can’t be read, so keep it somewhere safe.'))}</p>
+<div class="sbtns"><button type="button" class="btn primary" data-key="make"${keys_.making || !ids.length ? ' disabled' : ''}>${esc(keys_.making ? t('Making the key…') : t('Make key'))}</button></div></details>`;
+  html += `<h3 class="rh">${esc(t('Other people’s keys'))}</h3>`;
+  html += others.length ? `<ul class="klist">${others.map(keyRow).join('')}</ul>`
+    : `<p class="dnote">${esc(t('Keys come from files you import, and from the mail of people whose programs send theirs (Autocrypt).'))}</p>`;
+  html += `<div class="sbtns"><button type="button" class="btn" data-key="import">${esc(t('Import key file…'))}</button><button type="button" class="btn" data-key="paste">${esc(t('Paste a key…'))}</button></div>`;
+  if (keys_.paste) html += `<div class="kpaste"><textarea id="k-text" class="sfield" rows="6" spellcheck="false" aria-label="${esc(t('Key'))}" placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----"></textarea>
+<div class="sbtns"><button type="button" class="btn primary" data-key="paste-go">${esc(t('Import'))}</button><button type="button" class="btn" data-key="paste-cancel">${esc(t('Cancel'))}</button></div></div>`;
+  html += certsHtml();
+  html += `<h3 class="rh">${esc(t('Sending'))}</h3><div class="sopts">
+<label class="sopt"><input type="checkbox" id="k-sign"${p.pgp_sign ? ' checked' : ''}><span>${esc(t('Sign new messages'))}</span></label>
+<label class="sopt"><input type="checkbox" id="k-autocrypt"${p.pgp_autocrypt !== false ? ' checked' : ''}><span>${esc(t('Send my public key along in each message’s header (Autocrypt)'))}</span></label></div>
+<p class="dnote">${esc(t('Compose has Sign and Encrypt for each message. A reply to encrypted mail starts encrypted, and Telex remembers what you chose for each person. Encrypted mail is decrypted only while it is open; its text is never kept or searched.'))}</p>`;
+  html += `<p class="derr" role="alert">${esc(keys_.error)}</p>`;
+  el.innerHTML = html;
+}
+async function keyWork(run){
+  keys_.error = '';
+  try { await run(); } catch (e){ keys_.error = tr(e); }
+  pgpChanged();
+  await loadKeys();
+}
+$('s-keys').addEventListener('click', async e => {
+  const b = e.target.closest('[data-key]');
+  if (!b || b.disabled) return;
+  const fp = b.dataset.fp, act = b.dataset.key;
+  if (act !== 'delete') keys_.armed = '';
+  if (act === 'export' || act === 'secret'){
+    const secret = act === 'secret';
+    keyWork(async () => {
+      const path = await invoke('pgp_export', {fingerprint:fp, secret, words:{title:secret ? t('Back up secret key') : t('Export public key'), filter:t('OpenPGP keys'), file_name:`${secret ? 'secret' : 'public'}-${fp.slice(-16)}.asc`}});
+      if (path) say(secret ? t('Saved to {path}. It is locked with the key’s passphrase.', {path}) : t('Saved to {path}.', {path}), 8000);
+    });
+  } else if (act === 'copy'){
+    try { if (await copyText(await invoke('pgp_public_text', {fingerprint:fp}))) say(t('Public key copied.'), 2500); } catch (err){ say(tr(err), 8000); }
+  } else if (act === 'forget') keyWork(async () => { await invoke('pgp_forget', {fingerprint:fp}); say(t('Telex will ask for the passphrase again.'), 5000); });
+  else if (act === 'verify') keyWork(() => invoke('pgp_verify', {fingerprint:fp, verified:b.dataset.on === 'true'}));
+  else if (act === 'delete'){
+    if (keys_.armed !== fp){ keys_.armed = fp; renderKeys(); return; }
+    keys_.armed = '';
+    keyWork(async () => { await invoke('pgp_delete', {fingerprint:fp}); say(t('Key deleted.'), 4000); });
+  } else if (act === 'import') keyWork(async () => {
+    const r = await invoke('pgp_import', {words:{title:t('Import key file'), filter:t('OpenPGP keys')}});
+    if (r) say(importedText(r), 6000);
+  });
+  else if (act === 'paste'){ keys_.paste = true; renderKeys(); $('k-text')?.focus(); }
+  else if (act === 'paste-cancel'){ keys_.paste = false; renderKeys(); }
+  else if (act === 'paste-go'){
+    const text = $('k-text')?.value ?? '';
+    keyWork(async () => { const r = await invoke('pgp_import_text', {text}); keys_.paste = false; say(importedText(r), 6000); });
+  } else if (act === 'make'){
+    const pass = $('k-pass').value, again = $('k-pass2').value, who = allIdentities().find(i => i.id === Number($('k-who').value));
+    if (!who) return;
+    if (!pass){ keys_.error = t('Choose a passphrase for the key.'); renderKeys(); return; }
+    if (pass !== again){ keys_.error = t('The two passphrases differ.'); renderKeys(); $('k-pass2')?.focus(); return; }
+    const kind = $('k-kind').value === 'rsa3072' ? 'rsa3072' : 'ed25519', remember = $('k-rem').checked;
+    keys_.making = true; renderKeys();
+    await keyWork(async () => {
+      const made = await invoke('pgp_generate', {name:who.name, email:who.email, passphrase:pass, kind, remember});
+      say(t('Made a key for {email}.', {email:who.email}), 6000);
+      return made;
+    });
+    keys_.making = false; renderKeys();
+  }
+});
+const certImported = r => {
+  const n = r.added.length + r.updated.length;
+  if (!n) return r.unchanged.length ? t('Telex had that certificate already.') : t('Nothing was imported.');
+  return tn(n, 'Imported the certificate of {names}.', 'Imported {n} certificates: {names}.', {names:[...r.added, ...r.updated].map(keyName).join(', ')});
+};
+async function importP12(){
+  const field = $('k-p12');
+  keys_.p12err = '';
+  let r;
+  try { r = await invoke('smime_import_p12', {password:field?.value ?? '', remember:!!$('k-p12-rem')?.checked}); }
+  catch (e){ keys_.p12err = tr(e); renderKeys(); $('k-p12')?.focus(); return; }
+  if (!r){ keys_.p12err = t('That password doesn’t open the file.'); renderKeys(); $('k-p12')?.select(); return; }
+  keys_.p12 = null;
+  say(certImported(r), 6000);
+  pgpChanged();
+  await loadKeys();
+}
+$('s-keys').addEventListener('click', async e => {
+  const b = e.target.closest('[data-cert]');
+  if (!b || b.disabled) return;
+  const fp = b.dataset.fp, act = b.dataset.cert;
+  if (act !== 'delete') keys_.armed = '';
+  if (act === 'pick') keyWork(async () => {
+    const r = await invoke('smime_pick', {words:{title:t('Import certificate'), filter:t('Certificates (.p12, .pfx, .cer, .pem)')}});
+    if (!r) return;
+    if (r.kind === 'password'){ keys_.p12 = r.name; keys_.p12err = ''; setTimeout(() => $('k-p12')?.focus(), 0); }
+    else say(certImported(r.report), 6000);
+  });
+  else if (act === 'p12-go') importP12();
+  else if (act === 'p12-cancel'){ keys_.p12 = null; keys_.p12err = ''; invoke('smime_cancel_p12').catch(() => {}); renderKeys(); }
+  else if (act === 'export') keyWork(async () => {
+    const path = await invoke('smime_export', {fingerprint:fp, words:{title:t('Export certificate'), filter:t('Certificates'), file_name:`certificate-${fp.slice(0, 16)}.cer`}});
+    if (path) say(t('Saved to {path}.', {path}), 8000);
+  });
+  else if (act === 'forget') keyWork(async () => { await invoke('smime_forget', {fingerprint:fp}); say(t('Telex will ask for the password again.'), 5000); });
+  else if (act === 'verify') keyWork(() => invoke('smime_verify', {fingerprint:fp, verified:b.dataset.on === 'true'}));
+  else if (act === 'delete'){
+    if (keys_.armed !== fp){ keys_.armed = fp; renderKeys(); return; }
+    keys_.armed = '';
+    keyWork(async () => { await invoke('smime_delete', {fingerprint:fp}); say(t('Certificate deleted.'), 4000); });
+  }
+});
+$('s-keys').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.id === 'k-p12'){ e.preventDefault(); importP12(); }
+});
+$('s-keys').addEventListener('change', e => {
+  if (e.target.id === 'k-sign') changeSettings({pgp_sign:e.target.checked});
+  else if (e.target.id === 'k-autocrypt') changeSettings({pgp_autocrypt:e.target.checked});
+});
 
 /* ---------- updates ---------- */
 // Only release builds can update themselves. Telex checks once a day if the user said yes

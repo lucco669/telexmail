@@ -95,7 +95,14 @@ fn back_up(app: &AppHandle) -> CmdResult<BackupFile> {
         ));
     };
     let (dir, _) = backup_dir(app);
-    let made = backup::write(&state.db_path, &dir, Local::now().naive_local()).map_err(|e| {
+    let secret_keys = app.state::<SettingsState>().get().backup_secret_keys;
+    let made = backup::write_keys(
+        &state.db_path,
+        &dir,
+        Local::now().naive_local(),
+        secret_keys,
+    )
+    .map_err(|e| {
         let shown = dir.display();
         tr!(
             "Couldn't back up to {shown}: {e}.",

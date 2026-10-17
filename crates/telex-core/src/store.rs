@@ -45,6 +45,8 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/020_tags.sql"),
     include_str!("migrations/021_compose_templates.sql"),
     include_str!("migrations/022_pop3.sql"),
+    include_str!("migrations/023_openpgp.sql"),
+    include_str!("migrations/024_smime.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -311,6 +313,10 @@ pub struct MailStore {
     pub(crate) graph: RefCell<Option<list::Graph>>,
     /// The last conversation worked out: for which message, at which `total_changes`.
     pub(crate) thread: RefCell<Option<(MessageId, u64, Vec<MessageId>)>>,
+    /// OpenPGP passphrases given and messages decrypted this session, in memory only.
+    pub(crate) pgp: RefCell<crate::openpgp::Session>,
+    /// S/MIME private keys opened this session, in memory only.
+    pub(crate) smime: RefCell<crate::smime::Session>,
 }
 
 impl MailStore {
@@ -353,6 +359,8 @@ impl MailStore {
             grouped: RefCell::new(None),
             graph: RefCell::new(None),
             thread: RefCell::new(None),
+            pgp: RefCell::default(),
+            smime: RefCell::default(),
         })
     }
 
@@ -453,17 +461,39 @@ impl MailStore {
         &self,
         id: MessageId,
     ) -> Result<crate::risk::InspectedMessage, StoreError> {
-        let message = self.get(id)?;
+        let mut message = self.get(id)?;
+        // OpenPGP and S/MIME: only messages that may hold them are read whole here.
+        let pgp_raw: Option<Vec<u8>> = self
+            .db
+            .query_row(
+                "SELECT CASE WHEN instr(raw, CAST('application/pgp' AS BLOB)) > 0
+                     OR instr(raw, CAST('-----BEGIN PGP' AS BLOB)) > 0
+                     OR instr(raw, CAST('pkcs7' AS BLOB)) > 0
+                     OR instr(raw, CAST('PKCS7' AS BLOB)) > 0
+                     OR instr(raw, CAST('.p7m' AS BLOB)) > 0 THEN raw END
+                 FROM message_content WHERE id = ?1",
+                [id as i64],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        let opened = pgp_raw.as_deref().and_then(|r| self.pgp_open(&message, r));
+        if let Some(opened) = &opened {
+            crate::openpgp::apply(&mut message, opened);
+        }
         let (risk, unsubscribe) = if self
             .kind_of(&message.folder)
             .is_some_and(FolderKind::is_outgoing)
         {
             (crate::risk::Report::default(), None)
         } else {
-            let raw: Option<Vec<u8>> = self.db.query_row(
-                "SELECT CASE WHEN length(raw) <= ?2 THEN raw END FROM message_content WHERE id = ?1",
-                params![id as i64, crate::risk::MAX_RAW as i64], |r| r.get(0),
-            ).optional()?.flatten();
+            let raw: Option<Vec<u8>> = match opened.as_ref().and_then(|o| o.raw.clone()) {
+                Some(readable) => (readable.len() <= crate::risk::MAX_RAW).then(|| readable.to_vec()),
+                None => self.db.query_row(
+                    "SELECT CASE WHEN length(raw) <= ?2 THEN raw END FROM message_content WHERE id = ?1",
+                    params![id as i64, crate::risk::MAX_RAW as i64], |r| r.get(0),
+                ).optional()?.flatten(),
+            };
             // A message too large for the risk check still has its header read.
             let head = match raw {
                 Some(_) => None,
@@ -483,6 +513,7 @@ impl MailStore {
                 .map(|a| crate::smtp::mailbox_parts(a).1),
         );
         let contacts = self.contact_names(addresses.iter().map(String::as_str))?;
+        let pgp = opened.map(|o| o.view.clone());
         Ok(crate::risk::InspectedMessage {
             message,
             risk,
@@ -490,6 +521,7 @@ impl MailStore {
             unsubscribe,
             invite,
             contacts,
+            pgp,
         })
     }
 
@@ -784,11 +816,18 @@ impl MailStore {
             None => u32::try_from(body.len().div_ceil(1024)).unwrap_or(u32::MAX) + attachments_kb,
         };
         // Files from this PC are inside `raw` now; the paths they came from don't matter.
-        let attachments = draft
+        let mut attachments: Vec<Attachment> = draft
             .attachments
             .into_iter()
             .map(|a| Attachment { path: None, ..a })
             .collect();
+        // A draft kept encrypted (compose's Encrypt): its text and files stay inside it,
+        // not in the mail base's text or search.
+        let sealed = raw.is_some_and(crate::openpgp::is_encrypted);
+        let body = if sealed { String::new() } else { body };
+        if sealed {
+            attachments.clear();
+        }
         let message = Message {
             id: 0,
             folder: folder.clone(),
@@ -1199,14 +1238,14 @@ impl MailStore {
         let mut all = ids
             .iter()
             .map(|&id| {
-                let mut m = self.get(id)?;
+                let mut m = self.get_readable(id)?;
                 // Markdown names the tags; their keywords mean nothing to a reader.
                 m.tags = tags
                     .iter()
                     .filter(|t| m.tags.contains(&t.keyword))
                     .map(|t| t.name.clone())
                     .collect();
-                Ok((m, self.raw_of(id)?))
+                Ok((m, self.readable_raw(id)?))
             })
             .collect::<Result<Vec<_>, StoreError>>()?;
         all.sort_by_key(|(m, _)| (m.date, m.id));
@@ -2406,9 +2445,40 @@ impl MailStore {
         let account = self.check_folder(folder_key)?;
         let folder = &folder_key[account.len() + 1..];
         let tags = self.tag_keywords()?;
+        // Autocrypt keys come from mail others sent: not from Spam, Trash or the user's own.
+        let learns_keys = !matches!(
+            self.kind_of(folder_key),
+            Some(
+                FolderKind::Spam
+                    | FolderKind::Trash
+                    | FolderKind::Sent
+                    | FolderKind::Drafts
+                    | FolderKind::Outbox
+            )
+        );
+        let own: HashSet<String> = self
+            .accounts
+            .iter()
+            .flat_map(|a| {
+                std::iter::once(a.email.to_lowercase())
+                    .chain(a.identities.iter().map(|i| i.email.to_lowercase()))
+            })
+            .collect();
+        let now = chrono::Local::now().naive_local();
         let tx = self.db.transaction()?;
         let mut ids = Vec::new();
         for item in batch {
+            if learns_keys && !own.contains(&item.message.from_email.to_lowercase()) {
+                crate::openpgp::note_autocrypt(
+                    &tx,
+                    &item.raw,
+                    &item.message.from_email,
+                    item.message.date,
+                    now,
+                )?;
+                // S/MIME: the certificate of a valid signature by the sender.
+                crate::smime::note_signed(&tx, &item.raw, &item.message.from_email)?;
+            }
             let stored: bool = tx.query_row(
                 "SELECT EXISTS (SELECT 1 FROM messages WHERE srv_folder = ?1 AND uid = ?2)",
                 params![folder_key, item.uid],

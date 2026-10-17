@@ -80,6 +80,10 @@ const UI = [
     [`tag-${c}-fg`, 'panel', `A ${c} tag's dot in menus and Settings`],
     [`tag-${c}-fg`, 'surface', `A ${c} tag's dot on a message`],
   ]),
+  ['fg', 'panel', 'A good signature or decrypted mail above a message'],
+  ['chip-fg', 'chip-bg', 'An unconfirmed signature, chips on keys'],
+  ['note-fg', 'note-bg', 'A bad signature, mail that cannot be decrypted'],
+  ['fg', 'sel', 'Sign and Encrypt switched on in compose'],
   ...[0, 1, 2, 3, 4, 5].flatMap((i) => [
     [`acct-${i}`, 'panel', `Account ${i + 1}'s dot in the folder tree`],
     [`acct-${i}`, 'surface', `Account ${i + 1}'s dot in All mail`],

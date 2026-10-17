@@ -23,6 +23,7 @@ use crate::mime::{
     FileAttachment,
 };
 use crate::model::{Account, Message, OutgoingDraft, SmtpSecurity, SmtpSettings};
+use crate::openpgp;
 use crate::servers::{self, LOG};
 use crate::store::{MailStore, OutgoingMail, StoreError};
 use crate::tr;
@@ -73,7 +74,15 @@ pub fn compose(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, Purpose::Send, None)
+    build(
+        account,
+        draft,
+        originals,
+        now,
+        Purpose::Send,
+        None,
+        &Extras::default(),
+    )
 }
 
 /// An answer to a calendar invitation (RFC 6047): the text, and the iTIP REPLY as a
@@ -85,7 +94,15 @@ pub fn compose_invite_reply(
     ics: &str,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, Purpose::Send, Some(ics))
+    build(
+        account,
+        draft,
+        originals,
+        now,
+        Purpose::Send,
+        Some(ics),
+        &Extras::default(),
+    )
 }
 
 /// Like [`compose`], marked `Auto-Submitted: auto-replied` (RFC 3834) so other robots
@@ -96,7 +113,15 @@ pub fn compose_auto_reply(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, Purpose::AutoReply, None)
+    build(
+        account,
+        draft,
+        originals,
+        now,
+        Purpose::AutoReply,
+        None,
+        &Extras::default(),
+    )
 }
 
 pub fn recipient_emails(to: &str) -> Result<Vec<String>, String> {
@@ -123,7 +148,15 @@ pub fn compose_auto_forward(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Composed, String> {
-    build(account, draft, originals, now, Purpose::AutoForward, None)
+    build(
+        account,
+        draft,
+        originals,
+        now,
+        Purpose::AutoForward,
+        None,
+        &Extras::default(),
+    )
 }
 
 /// A draft as a whole message, to keep with the draft: its HTML and the forwarded files
@@ -136,7 +169,81 @@ pub fn compose_draft(
     originals: &Originals,
     now: DateTime<Local>,
 ) -> Result<Vec<u8>, String> {
-    build(account, draft, originals, now, Purpose::Draft, None).map(|c| c.raw)
+    build(
+        account,
+        draft,
+        originals,
+        now,
+        Purpose::Draft,
+        None,
+        &Extras::default(),
+    )
+    .map(|c| c.raw)
+}
+
+/// Like [`compose`], signed or encrypted as `protect` says (openpgp.rs): the message is
+/// built as usual, then wrapped (multipart/signed or multipart/encrypted). The copy kept in
+/// the Outbox and Sent is the one sent, which the sender's own key can decrypt. Its list
+/// line keeps the subject the user typed; its text isn't kept or indexed when encrypted.
+pub fn compose_protected(
+    account: &Account,
+    draft: &OutgoingDraft,
+    originals: &Originals,
+    now: DateTime<Local>,
+    protect: &openpgp::Protect,
+) -> Result<Composed, String> {
+    let extras = Extras {
+        quoted_printable: protect.sign.is_some()
+            || protect.smime.as_ref().is_some_and(|s| s.sign.is_some()),
+        key_file: protect.key_file.clone(),
+    };
+    let mut composed = build(account, draft, originals, now, Purpose::Send, None, &extras)?;
+    let subject = composed.message.subject.clone();
+    composed.raw = match &protect.smime {
+        Some(s) => crate::smime::protect(&composed.raw, s),
+        None => openpgp::protect(&composed.raw, protect),
+    }
+    .map_err(|e| e.to_string())?;
+    composed.message = parse_message(&composed.raw, "", Some(now.naive_local()));
+    composed.message.subject = subject;
+    composed.message.unread = false;
+    Ok(composed)
+}
+
+/// Like [`compose_draft`], encrypted to the sender's own key when `protect` says so.
+pub fn compose_draft_protected(
+    account: &Account,
+    draft: &OutgoingDraft,
+    originals: &Originals,
+    now: DateTime<Local>,
+    protect: &openpgp::Protect,
+) -> Result<Vec<u8>, String> {
+    let raw = build(
+        account,
+        draft,
+        originals,
+        now,
+        Purpose::Draft,
+        None,
+        &Extras::default(),
+    )?
+    .raw;
+    match &protect.smime {
+        Some(s) => crate::smime::protect(&raw, s),
+        None => openpgp::protect(&raw, protect),
+    }
+    .map_err(|e| e.to_string())
+}
+
+/// What OpenPGP asks of the message being built.
+#[derive(Debug, Clone, Default)]
+struct Extras {
+    /// Text parts in quoted-printable even when 7-bit would do: a signed part must reach the
+    /// reader byte for byte, and servers may strip spaces at the ends of 7-bit lines (RFC 3156
+    /// §3; the "-- " before a signature has one).
+    quoted_printable: bool,
+    /// The sender's public key as a file (application/pgp-keys).
+    key_file: Option<(String, String)>,
 }
 
 /// Why a message is built: to send, to answer automatically, or to keep as a draft.
@@ -161,6 +268,7 @@ fn build(
     now: DateTime<Local>,
     purpose: Purpose,
     calendar: Option<&str>,
+    extras: &Extras,
 ) -> Result<Composed, String> {
     let identity = account.identity(draft.identity);
     let from_address: lettre::Address = identity.email.parse().map_err(|_| {
@@ -268,9 +376,21 @@ fn build(
 
     // HTML goes out cleaned, with a plain-text version for mail programs that show only text,
     // and its pictures as parts of their own beside it (multipart/related, `cid:`).
+    let text = |content_type: ContentType, text: String| {
+        if extras.quoted_printable {
+            let body = lettre::message::Body::new_with_encoding(
+                text,
+                lettre::message::header::ContentTransferEncoding::QuotedPrintable,
+            )
+            .unwrap_or_else(|_| lettre::message::Body::new(Vec::new()));
+            SinglePart::builder().header(content_type).body(body)
+        } else {
+            SinglePart::builder().header(content_type).body(text)
+        }
+    };
     let body = match draft.html.as_deref().map(html::compose_clean) {
-        Some(clean) => Body::Html(html_body(&clean, &message_id)),
-        None => Body::Plain(SinglePart::plain(draft.body.clone())),
+        Some(clean) => Body::Html(html_body(&clean, &message_id, &text)),
+        None => Body::Plain(text(ContentType::TEXT_PLAIN, draft.body.clone())),
     };
     let body = match (body, calendar) {
         (Body::Plain(text), Some(ics)) => Body::Html(
@@ -299,7 +419,15 @@ fn build(
                 .iter()
                 .any(|a| a.path.is_none() && a.name == f.name)
         });
-    let files: Vec<FileAttachment> = forwarded.chain(files).collect();
+    let key_file = extras
+        .key_file
+        .iter()
+        .map(|(name, armored)| FileAttachment {
+            name: name.clone(),
+            content_type: "application/pgp-keys".to_owned(),
+            data: armored.clone().into_bytes(),
+        });
+    let files: Vec<FileAttachment> = forwarded.chain(files).chain(key_file).collect();
     let email = match body {
         Body::Plain(text) if files.is_empty() => builder.singlepart(text),
         Body::Html(alternative) if files.is_empty() => builder.multipart(alternative),
@@ -347,14 +475,20 @@ fn build(
 
 /// The text of an HTML message: its plain text, then the HTML, with the pictures it shows
 /// related to the HTML. Each picture's Content-ID is its number at the message's own id.
-fn html_body(clean: &str, message_id: &str) -> MultiPart {
+fn html_body(
+    clean: &str,
+    message_id: &str,
+    text: &dyn Fn(ContentType, String) -> SinglePart,
+) -> MultiPart {
     let (html, pictures) = html::inline_images(clean, message_id);
-    let text = html::to_text(&html);
+    let plain = html::to_text(&html);
     let document = html::compose_document(&html);
     if pictures.is_empty() {
-        return MultiPart::alternative_plain_html(text, document);
+        return MultiPart::alternative()
+            .singlepart(text(ContentType::TEXT_PLAIN, plain))
+            .singlepart(text(ContentType::TEXT_HTML, document));
     }
-    let mut related = MultiPart::related().singlepart(SinglePart::html(document));
+    let mut related = MultiPart::related().singlepart(text(ContentType::TEXT_HTML, document));
     for picture in pictures {
         let content_type = ContentType::parse(&picture.mime)
             .unwrap_or(ContentType::parse("application/octet-stream").expect("valid type"));
@@ -362,7 +496,7 @@ fn html_body(clean: &str, message_id: &str) -> MultiPart {
             .singlepart(MimeAttachment::new_inline(picture.cid).body(picture.data, content_type));
     }
     MultiPart::alternative()
-        .singlepart(SinglePart::plain(text))
+        .singlepart(text(ContentType::TEXT_PLAIN, plain))
         .multipart(related)
 }
 
@@ -582,6 +716,15 @@ fn parse_recipients(input: &str, field: &str) -> Result<Vec<Mailbox>, String> {
                 )
             })
         })
+        .collect()
+}
+
+/// The addresses of an address line that parse, as plain addresses (compose's OpenPGP state
+/// while the user is still typing).
+pub fn lenient_emails(input: &str) -> Vec<String> {
+    lenient_recipients(input)
+        .into_iter()
+        .map(|m| m.email.to_string())
         .collect()
 }
 

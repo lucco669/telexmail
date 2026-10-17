@@ -369,6 +369,10 @@ export const featureRows: FeatureRow[] = [
       'Your mail base is one file on your disk',
       'In a dark theme, HTML mail takes the theme’s colors; one click shows it on white',
       'No Telex account or mail relay; counted only if you say yes, without an ID',
+      { text: 'Signed and encrypted mail (OpenPGP, as GnuPG and Thunderbird write it): signatures checked against the sender’s key, encrypted mail decrypted only while it is open and never kept or searched as text', since: V0912 },
+      { text: 'Sign and Encrypt in compose, to everyone’s keys and yours; Telex says whose key is missing instead of sending in the clear', since: V0912 },
+      { text: 'Keys in Settings › Keys: make one in a click, import or export, compare fingerprints; keys come with mail too (Autocrypt)', since: V0912 },
+      { text: 'S/MIME too, as Outlook and Apple Mail write it: your certificate from a .p12 or .pfx file signs and decrypts, Windows says whether a sender’s certificate is from an authority it trusts, and people’s certificates come with their signed mail', since: V0912 },
     ],
   },
   {

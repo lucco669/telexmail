@@ -81,6 +81,9 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
         .collect::<Vec<_>>()
         .join("\n")
         .replace("\r\n", "\n");
+    // Encrypted text isn't kept as the text (search would index its armor); a signed
+    // block's armor goes, its text stays.
+    let body = crate::openpgp::index_text(&body);
 
     let remote_images = p.html_bodies().any(|part| match &part.body {
         PartType::Html(html) => references_remote_content(html),
@@ -254,7 +257,13 @@ pub(crate) fn files<'a>(
             "
 ",
         );
-    p.attachments()
+    // OpenPGP's own parts (a detached signature, multipart/encrypted's version part and
+    // payload) aren't files either.
+    p.attachments
+        .iter()
+        .map(|&i| i as usize)
+        .filter(move |&i| !crate::openpgp::is_machinery(p, i))
+        .filter_map(move |i| p.parts.get(i))
         .filter(move |part| !in_the_text(part, &html))
 }
 

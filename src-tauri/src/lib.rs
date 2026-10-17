@@ -8,6 +8,7 @@ mod count;
 mod export;
 mod files;
 mod folders;
+mod keys;
 mod migrate;
 mod native;
 mod secrets;
@@ -35,6 +36,7 @@ use telex_core::filters::{self, Rule, RunReport, Trigger};
 use telex_core::html::{self, FetchLimits, Palette, Paper};
 use telex_core::imap::{self, Scope, SyncProgress};
 use telex_core::later::{self, Later};
+use telex_core::openpgp::Choice;
 use telex_core::recipients::Recipient;
 use telex_core::servers;
 use telex_core::smtp::{self, Originals, SendError};
@@ -135,9 +137,29 @@ fn list_page(
 #[tauri::command(async)]
 fn get_message(
     state: State<'_, AppState>,
+    keys: State<'_, keys::KeysState>,
     id: MessageId,
 ) -> CmdResult<telex_core::risk::InspectedMessage> {
-    with_store(&state, |s| s.inspect_message(id))
+    let inspected = with_store(&state, |s| s.inspect_message(id))?;
+    // Encrypted to a key whose passphrase the user asked Telex to remember: try it (the
+    // password store is asked outside the store's lock), then open again.
+    let locked: Vec<(String, bool)> = inspected
+        .pgp
+        .iter()
+        .flat_map(|v| v.locked.iter().map(|k| (k.fingerprint.clone(), v.smime)))
+        .collect();
+    let mut opened = false;
+    for (fingerprint, smime) in &locked {
+        opened |= if *smime {
+            keys::unlock_remembered_cert(&state, &keys, fingerprint)
+        } else {
+            keys::unlock_remembered(&state, &keys, fingerprint)
+        };
+    }
+    if opened {
+        return with_store(&state, |s| s.inspect_message(id));
+    }
+    Ok(inspected)
 }
 
 #[tauri::command(async)]
@@ -292,7 +314,7 @@ fn recipients(state: State<'_, AppState>) -> CmdResult<Vec<Recipient>> {
 /// draft it was edited from (whose Message-ID and thread it keeps).
 fn draft_context(s: &MailStore, draft: &OutgoingDraft) -> Result<(Account, Originals), StoreError> {
     let account = s.account(&draft.account)?.clone();
-    let raw = |id: Option<MessageId>| id.map(|id| s.raw_of(id)).transpose();
+    let raw = |id: Option<MessageId>| id.map(|id| s.readable_raw(id)).transpose();
     let originals = Originals {
         replied: raw(draft.reply_to)?.flatten(),
         forwarded: raw(draft.forward_of)?.flatten(),
@@ -308,18 +330,30 @@ fn draft_context(s: &MailStore, draft: &OutgoingDraft) -> Result<(Account, Origi
 async fn save_outgoing(
     state: State<'_, AppState>,
     files: State<'_, FilesState>,
+    keys: State<'_, keys::KeysState>,
     draft: OutgoingDraft,
+    pgp: Option<Choice>,
 ) -> CmdResult<MessageId> {
     files.check(&draft.attachments)?;
     let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
+    // With Encrypt on, the draft is kept encrypted to the sender's own key.
+    let choice = pgp.unwrap_or_default();
+    let protect = if choice.encrypt {
+        Some(keys::protection_for(
+            &state, &keys, &account, &draft, choice, false, true,
+        )?)
+    } else {
+        None
+    };
     // The attached files are read with the store free: the window goes on meanwhile.
     let composing = draft.clone();
-    let raw = tauri::async_runtime::spawn_blocking(move || {
-        smtp::compose_draft(&account, &composing, &originals, Local::now()).ok()
+    let raw = tauri::async_runtime::spawn_blocking(move || match &protect {
+        Some(p) => smtp::compose_draft_protected(&account, &composing, &originals, Local::now(), p)
+            .map(Some),
+        None => Ok(smtp::compose_draft(&account, &composing, &originals, Local::now()).ok()),
     })
     .await
-    .ok()
-    .flatten();
+    .map_err(failed)??;
     with_store(&state, |s| {
         s.save_outgoing(
             draft,
@@ -341,7 +375,8 @@ fn discard_draft(state: State<'_, AppState>, id: MessageId) -> CmdResult<bool> {
 /// was written as plain text.
 #[tauri::command(async)]
 fn draft_html(state: State<'_, AppState>, id: MessageId) -> CmdResult<Option<String>> {
-    let raw = with_store(&state, |s| s.raw_of(id))?;
+    // An encrypted draft reads from what was decrypted when it was opened.
+    let raw = with_store(&state, |s| s.readable_raw(id))?;
     Ok(raw.as_deref().and_then(html::editable))
 }
 
@@ -430,7 +465,7 @@ async fn get_html(
     dark: Option<Palette>,
 ) -> CmdResult<Option<HtmlView>> {
     let paper = dark.map_or(Paper::Light, Paper::Dark);
-    let (raw, trust) = with_store(&state, |s| Ok((s.raw_of(id)?, s.image_trust(id)?)))?;
+    let (raw, trust) = with_store(&state, |s| Ok((s.readable_raw(id)?, s.image_trust(id)?)))?;
     let Some(raw) = raw else { return Ok(None) };
     let load = load_images.unwrap_or(trust.auto);
     // Cleaning a large message, and fetching its images, is work for a thread of its own.
@@ -927,21 +962,38 @@ async fn send_message(
     state: State<'_, AppState>,
     files: State<'_, FilesState>,
     settings: State<'_, SettingsState>,
+    keys: State<'_, keys::KeysState>,
     draft: OutgoingDraft,
     later: Option<Later>,
+    pgp: Option<Choice>,
 ) -> CmdResult<SendOutcome> {
     files.check(&draft.attachments)?;
+    let current = settings.get();
     let goes = later
         .map(|l| later::when(l, Local::now().naive_local()))
         .transpose()?;
     // Mail sent later needs no moment to undo: it waits anyway, and can be held or edited.
-    let wait = if goes.is_some() {
-        0
-    } else {
-        settings.get().undo_send
-    };
+    let wait = if goes.is_some() { 0 } else { current.undo_send };
     let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
-    let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
+    // OpenPGP: signed or encrypted as compose says, and the Autocrypt header.
+    let choice = pgp.unwrap_or_default();
+    let protect = keys::protection_for(
+        &state,
+        &keys,
+        &account,
+        &draft,
+        choice,
+        current.pgp_autocrypt,
+        false,
+    )?;
+    let composed = if protect.is_empty() {
+        smtp::compose(&account, &draft, &originals, Local::now())?
+    } else {
+        smtp::compose_protected(&account, &draft, &originals, Local::now(), &protect)?
+    };
+    if pgp.is_some() {
+        keys::remember(&state, &draft, choice);
+    }
     let send_after = goes.or_else(|| {
         (wait > 0).then(|| Local::now().naive_local() + TimeDelta::seconds(i64::from(wait)))
     });
@@ -1275,6 +1327,7 @@ pub fn run() {
         .manage(FilesState::default())
         .manage(migrate::Sources::default())
         .manage(watch::Watchers::default())
+        .manage(keys::KeysState::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -1390,6 +1443,27 @@ pub fn run() {
             spell::spell_remove,
             away::get_away,
             away::save_away,
+            keys::pgp_keys,
+            keys::pgp_import,
+            keys::pgp_import_text,
+            keys::pgp_import_offered,
+            keys::pgp_generate,
+            keys::pgp_export,
+            keys::pgp_public_text,
+            keys::pgp_delete,
+            keys::pgp_verify,
+            keys::pgp_unlock,
+            keys::pgp_forget,
+            keys::pgp_compose,
+            keys::smime_certs,
+            keys::smime_pick,
+            keys::smime_import_p12,
+            keys::smime_cancel_p12,
+            keys::smime_export,
+            keys::smime_delete,
+            keys::smime_verify,
+            keys::smime_unlock,
+            keys::smime_forget,
             save_outgoing,
             discard_draft,
             draft_html,

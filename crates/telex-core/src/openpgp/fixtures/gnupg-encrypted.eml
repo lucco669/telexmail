@@ -1,0 +1,39 @@
+From: Bob GnuPG <bob@gnupg.test>
+To: Alice Telex <alice@telex.test>
+Subject: ...
+Date: Fri, 16 Oct 2026 11:00:00 +0200
+Message-ID: <encrypted@gnupg.test>
+MIME-Version: 1.0
+Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="b2"
+
+This is an OpenPGP/MIME encrypted message (RFC 4880 and 3156)
+--b2
+Content-Type: application/pgp-encrypted
+Content-Description: PGP/MIME version identification
+
+Version: 1
+
+--b2
+Content-Type: application/octet-stream; name="encrypted.asc"
+Content-Description: OpenPGP encrypted message
+Content-Disposition: inline; filename="encrypted.asc"
+
+-----BEGIN PGP MESSAGE-----
+
+hF4DMKBq8vZApQYSAQdAdFUznpaWPsJdEJaG+cDEKZhvVaGriVuJrYc5BEAYxkow
+2laW9O6qZ+RR3UjzLrzu98SKmkE9ym3B0nu3OVZJ3wnJLj9rsyLYKwW+DrV9jJi7
+0sE0ASk1E5X6l6sXuEvWhlVkQDbm1XdfAdidHiUv867YnwusZEcvCzEuFZm4isUX
+4QGhqPPSZqos7GIQMNfI3SCq/HDbgox/0TN0mhRQrV8YvMDrRlx8r1I009BCNZRN
+Y2q38z39pMqvfP5fwgMvPRB00ySJe8Q4XxxhvQNKU0n0jVcAsn9O9zWL/Yo5/tbk
+kWaP7benwkRP9WTfxHcogGlvzuXn4Td6e/ytOBQG9YzDgqIsTdfoHUenLtrIQorY
+Lqabn4f2Gh+lRHx5A8dGNzK4J4AIngteZBOJ6xtKfkDX6yLN3tU13R3rq13rQOqq
+TsBmyurf8X/+wW16ZM0hU2iBpPCMP8dighMxJu6GAc3IdaC8sGuEMUcZ1+frbY2m
+EhXt7RnwxAC5FUSepwBAsQ0/QW0fKjjSRG9+f/SnDnCERshUaicEYTYxV85sWMkr
+iIJzZuU1CY3JBwNMKE52+rfXrfIvJBtHG5m+9N4mqzrZx9s2cy81xMZzGWqUT1dC
+lOwesITeh0E1G4U+awjCtBdJ00Q9oX34acbK9DbjsnNDlhz2WOWFe1YBDnhvmPNA
+UGpIRlwcoGLkxlEtR2BkhD3FbGkXwDb2HX5F93Z8O0n3uxqV3LGERQmHJMFNT212
+tghiNreLBoNe6sOfXK8UFRCXMMMkPHA=
+=aysk
+-----END PGP MESSAGE-----
+
+--b2--
