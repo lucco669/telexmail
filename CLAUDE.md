@@ -95,6 +95,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      marked part of the running Sieve script, put in and taken out whole.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
                      signature and templates: recipients, subject, quoted text.
+  src/markdown.rs    Messages as Markdown for the clipboard (Copy as Markdown): a heading, who and
+                     when as a list, the text (HTML-only mail through html::received_text).
   src/mime.rs        Raw RFC 822 → Message (mail-parser): charsets, HTML-to-text, attachments.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
                      the domain's autoconfig file, SRV and MX records (Windows' resolver;
@@ -180,13 +182,14 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
 | `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs) |
+| `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
 | `set_unread_many`, `set_flagged_many` | `ids`, `unread` / `flagged` | how many changed (others are left alone) |
 | `move_messages`  | `ids`, `folder`              | `[[id, from]]` for undo; all or none; within an account, or to and from the folders on this PC (server mail moved there leaves the server; moved back, it is uploaded); into or out of Spam, the spam filter learns from it |
 | `mark_spam`      | `ids`, `spam`                | `[[id, from]]` for undo: to each account's Spam folder (true) or back to its Inbox (false), learned from; all or none (mail on this PC can't) |
 | `spam_status`    | –                            | `{spam, ham, needed}`: messages the spam filter learned from, and how many of each it needs before it moves anything |
-| `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` |
+| `delete_messages`| `ids`                        | `{trashed: [[id, from]], removed}` (spam going to Trash is marked read first, as with `move_messages`) |
 | `mark_folder_read` | `folder`                   | how many were unread        |
 | `choose_folder`  | `folder`, `kind` (sent, drafts, archive, spam, trash) | – (that server folder is used for it from now on; the one that was becomes the user's own; kept over the server's flags) |
 | `open_attachment`| `id`, `index`, `sure`        | `opened`, or `risky` / `spam` (not opened: ask, then again with `sure`) |
@@ -388,6 +391,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+↑ / ↓  | select more (or fewer) messages; Shift+Home / End to the top / bottom |
 | Ctrl+click, Shift+click | add one / a range to the selection |
 | Ctrl+A       | in the list: select every message |
+| Ctrl+C       | with no text selected: the selected messages (or the open one) as Markdown, for notes or an AI chat (also the message menu and the copy button above a message) |
 | R            | reply                          |
 | Shift+R      | reply to all                   |
 | Shift+F      | forward                        |
@@ -425,31 +429,44 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-- Gentler on shared servers (no schema change): 31 Purelymail accounts checked at once, each with
-  its IDLE connection and retried after every failure, most likely got this PC's address ignored
-  by Purelymail on 17 Oct 2026 (TLS went through, no greeting, for every account; a phone
-  worked). Now connections to one server's IP wait for one of its places (`servers.rs`: 4 for checks, pushes and logins, 8 for IDLE; the
-  accounts past the eighth get new mail from the regular checks), and a server that doesn't greet,
-  or greets with BYE, rests before anything connects again; the error says until when
-  (`SyncError::Resting`), and IDLE watchers sleep through it. Purelymail is on the provider list
-  (MX `*.purelymail.com` → imap/smtp.purelymail.com); the wizard used to land on its MX host.
-- Settings › Connections (no schema change): every server reached since Telex started (its
-  addresses' names, places in use, a rest with "Try now") and the last 1,000 connections, IMAP and
-  SMTP, each step timed (address, waiting for a place, connecting, STARTTLS, TLS, greeting, login,
-  the work), where one failed and why; filter by account and "Only problems", refreshed every 3 s
-  while open, Copy details as text (`connections`, `wake_server`; `servers::LOG`, memory only).
-  Opened from the status bar's Details beside "Check failed · Retry" and from a failed check's line
-  in Settings › Accounts, filtered to that account.
-- Counting (since 0.9.11; no schema change; setting `usage_count`): a release build asks once in the
-  status bar, after the update question, whether it may be counted (Settings › Updates › Counting).
-  With a yes it sends telexmail.app/api/count at most once a UTC day: version, system, language,
-  first month, and first-ever / first-this-week / first-this-month flags; no ID (`count.rs`). The
-  site keeps sums per day (Supabase, `site/supabase/migrations/20261017_telex_count.sql`) and a
-  daily snapshot of GitHub's download totals; `/stats` shows both to the owner. The privacy page,
-  the FAQ and "No telemetry" claims say so now ("No tracking"). Before release: apply the
-  migration and set STATS_PASSWORD and CRON_SECRET in Vercel; retake the screens (the OG facts line).
+Nothing yet.
 
-## Current state (v0.9.10: replies that keep everyone, quoted mail you can read, no forgotten attachments, and all earlier features below)
+## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
+
+- New in 0.9.11 (no schema change; setting `usage_count`):
+  - Gentler on shared servers (no schema change): 31 Purelymail accounts checked at once, each with
+    its IDLE connection and retried after every failure, most likely got this PC's address ignored
+    by Purelymail on 17 Oct 2026 (TLS went through, no greeting, for every account; a phone
+    worked). Now connections to one server's IP wait for one of its places (`servers.rs`: 4 for checks, pushes and logins, 8 for IDLE; the
+    accounts past the eighth get new mail from the regular checks), and a server that doesn't greet,
+    or greets with BYE, rests before anything connects again; the error says until when
+    (`SyncError::Resting`), and IDLE watchers sleep through it. Purelymail is on the provider list
+    (MX `*.purelymail.com` → imap/smtp.purelymail.com); the wizard used to land on its MX host.
+  - Settings › Connections (no schema change): every server reached since Telex started (its
+    addresses' names, places in use, a rest with "Try now") and the last 1,000 connections, IMAP and
+    SMTP, each step timed (address, waiting for a place, connecting, STARTTLS, TLS, greeting, login,
+    the work), where one failed and why; filter by account and "Only problems", refreshed every 3 s
+    while open, Copy details as text (`connections`, `wake_server`; `servers::LOG`, memory only).
+    Opened from the status bar's Details beside "Check failed · Retry" and from a failed check's line
+    in Settings › Accounts, filtered to that account.
+  - Counting (setting `usage_count`): a release build asks once in the
+    status bar, after the update question, whether it may be counted (Settings › Updates › Counting).
+    With a yes it sends telexmail.app/api/count at most once a UTC day: version, system, language,
+    first month, and first-ever / first-this-week / first-this-month flags; no ID (`count.rs`). The
+    site keeps sums per day (Supabase, `site/supabase/migrations/20261017_telex_count.sql`) and a
+    daily snapshot of GitHub's download totals; `/stats` shows both to the owner. The privacy page,
+    the FAQ and "No telemetry" claims say so now ("No tracking"). The site needs the migration
+    applied and STATS_PASSWORD and CRON_SECRET set in Vercel.
+  - Copy as Markdown (`markdown.rs`, `message_markdown`; no schema change): the message menu, a copy button
+    above a message and Ctrl+C (when no text is selected) put the selected messages, or the open
+    one, on the clipboard as Markdown, oldest first: the subject as a heading, From, To, Cc, Bcc,
+    Date and attachments as a list, then the text; mail written only in HTML gets its text from
+    the HTML (`html::received_text`: links keep their addresses, table rows a line each). Up to
+    200 at once; nothing is marked read. For notes or pasting into an AI chat.
+  - Spam that goes to Trash (Del in Spam, or a move) is marked read on the way, in the same
+    transaction, \Seen queued before the move (`spam_among`, `set_flags_in`).
+  - Fixed: HTML turned into plain text (the text copy of HTML mail Telex sends) lost the spaces
+    inside a run of text after one that ended in a space ("Hello <b>big world</b>").
 
 - New in 0.9.10 (no schema change; settings `ask_attachment`, `ask_many`):
   - Replies: a Reply | Reply all switch as the reply's title (both answers come from `start_draft`;

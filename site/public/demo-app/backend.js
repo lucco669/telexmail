@@ -445,8 +445,28 @@ function installTelexDemo(options) {
       }
       return [id, m.folder];
     });
-    for (const [id] of places) byId(id).folder = folder;
+    // store.rs: spam that goes to Trash is marked read on the way.
+    const toTrash = kindOf(folder) === 'trash';
+    for (const [id, from] of places) {
+      const m = byId(id);
+      if (toTrash && kindOf(from) === 'spam') m.unread = false;
+      m.folder = folder;
+    }
     return places;
+  }
+  // markdown.rs: messages oldest first, each a heading, its header as a list, then its text.
+  function messageMarkdown({ ids }) {
+    const size = (kb) => (kb < 1024 ? `${Math.max(1, kb)} KB` : `${(kb / 1024).toFixed(1).replace('.', lang() === 'pl' ? ',' : '.')} MB`);
+    const line = (s) => String(s ?? '').split(/\s+/).filter(Boolean).join(' ');
+    return ids.map(need).sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id).map((m) => {
+      const from = !m.from_name || m.from_name.toLowerCase() === m.from_email.toLowerCase() ? m.from_email : `${m.from_name} <${m.from_email}>`;
+      const fields = [[tr('From', 'Od'), from], [tr('To', 'Do'), m.to], [tr('Cc', 'DW'), m.cc],
+        [tr('Bcc', 'UDW'), isOutgoing(kindOf(m.folder)) ? m.bcc : ''], [tr('Date', 'Data'), m.date.slice(0, 16).replace('T', ' ')],
+        [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')]];
+      const head = fields.map(([k, v]) => [k, line(v)]).filter(([, v]) => v).map(([k, v]) => `- **${k}:** ${v}\n`).join('');
+      const text = String(m.body || '').replace(/\r\n/g, '\n').replace(/^\n+|\s+$/g, '');
+      return `# ${line(m.subject)}\n\n${head}${text ? `\n${text}\n` : ''}`;
+    }).join('\n---\n\n');
   }
   // The menu's Spam and Not spam (spam.rs's mark_spam): to the account's Spam folder or back to
   // its Inbox. The demo's filter learns nothing; spam_status counts what the folders hold.
@@ -479,7 +499,11 @@ function installTelexDemo(options) {
     });
     const report = { trashed: [], removed: 0 };
     for (const [m, trash] of plan) {
-      if (trash) { report.trashed.push([m.id, m.folder]); m.folder = trash; }
+      if (trash) {
+        report.trashed.push([m.id, m.folder]);
+        if (kindOf(m.folder) === 'spam') m.unread = false;
+        m.folder = trash;
+      }
       else { msgs.splice(msgs.indexOf(m), 1); report.removed++; }
     }
     return report;
@@ -1100,6 +1124,31 @@ function installTelexDemo(options) {
       || (a.email < b.email ? -1 : 1)).slice(0, 2000).map(({ name, email, sent, received: got }) => ({ name, email, sent, received: got }));
   }
 
+  /* ---------- connections (servers.rs) ---------- */
+  // Each server account's last check and its Inbox watched, all fine; addresses from the
+  // documentation range.
+  function connections() {
+    const real = accounts.filter((a) => a.imap), hosts = [...new Set(real.map((a) => a.imap.host.toLowerCase()))];
+    const address = (host) => `198.51.100.${10 + hosts.indexOf(host.toLowerCase())}`;
+    const at = (minutes) => fmt(new RealDate(now().getTime() - minutes * 60_000));
+    const steps = (work) => [['lookup', 4], ['wait', 0], ['connect', 38], ['tls', 112], ['greeting', 41], ['login', 96], ...(work ? [['work', work]] : [])]
+      .map(([step, ms]) => ({ step, ms }));
+    let id = 1;
+    const line = (a, purpose, minutes, work, open) => ({
+      id: id++, started: at(minutes), purpose, protocol: 'imap', user: a.imap.username, host: a.imap.host, port: a.imap.port,
+      address: address(a.imap.host), steps: steps(work), failed: null, error: null, ended: open ? null : at(minutes - 0.05),
+    });
+    const log = [...real.map((a) => line(a, 'check', 3, 640)), ...real.map((a) => line(a, 'watch', 58, 0, true))]
+      .sort((x, y) => (x.started < y.started ? 1 : -1));
+    return {
+      servers: hosts.map((h) => ({
+        address: address(h), names: [h], sessions: [0, 4], watches: [real.filter((a) => a.imap.host.toLowerCase() === h).length, 8],
+        silences: 0, resting_until: null,
+      })),
+      log,
+    };
+  }
+
   /* ---------- usage (usage.rs) ---------- */
   function usage() {
     const t = now(), today = new RealDate(t.getFullYear(), t.getMonth(), t.getDate()), since = addDays(today, -29), sinceDay = fmt(since).slice(0, 10);
@@ -1319,6 +1368,7 @@ function installTelexDemo(options) {
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
         remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk };
     },
+    message_markdown: messageMarkdown,
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
     set_unread_many: ({ ids, unread }) => setMany(ids, 'unread', !!unread),
@@ -1345,6 +1395,8 @@ function installTelexDemo(options) {
       window.open(u, '_blank', 'noopener,noreferrer');
     },
     usage,
+    connections,
+    wake_server: () => {},
     recipients,
     start_draft: startDraft,
     save_outgoing: saveOutgoing,

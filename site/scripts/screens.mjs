@@ -39,6 +39,16 @@ const scenes = {
   },
   // The launch plan's history: who wrote each part, a bar for each level, the long part folded.
   quotes: { run: `ui.pane(30); ui.row('Re: Launch plan'); await ui.wait(250); ui.list.focus();` },
+  // Right-click on the launch plan: Copy as Markdown, ready for notes or an AI chat.
+  markdown: {
+    run: `ui.pane(34); ui.row('Re: Launch plan'); await ui.wait(250); ui.list.focus();
+    const c = document.querySelector('#rows tr.sel .c-subj'), r = c.getBoundingClientRect();
+    c.dispatchEvent(new MouseEvent('contextmenu', {bubbles:true, cancelable:true, clientX:r.left + 120, clientY:r.top + r.height / 2}));
+    await ui.wait(80);
+    [...document.querySelectorAll('.cmenu [data-i]')].find(li => li.textContent.includes('Markdown')).focus(); await ui.wait(50);`,
+  },
+  // Settings › Connections: every server reached and the last connections, each step timed.
+  connections: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-conn'); await ui.wait(250);` },
   // Right-click on the shop reply: the message's menu, every action with its key.
   menu: {
     run: `const c = [...document.querySelectorAll('#rows tr[data-id]')].find(r => r.textContent.includes('Re: Online shop estimate')).querySelector('.c-subj');

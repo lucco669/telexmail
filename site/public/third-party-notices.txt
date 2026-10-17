@@ -11,7 +11,7 @@ aes 0.8.4: MIT OR Apache-2.0 (https://github.com/RustCrypto/block-ciphers) [T4, 
 aho-corasick 1.1.5: Unlicense OR MIT (https://github.com/BurntSushi/aho-corasick) [T6, T7, T8]
 alloc-no-stdlib 3.0.0: BSD-3-Clause (https://github.com/dropbox/rust-alloc-no-stdlib) [T9]
 alloc-stdlib 0.3.0: BSD-3-Clause (https://github.com/dropbox/rust-alloc-no-stdlib)
-ammonia 4.2.3: MIT OR Apache-2.0 (https://github.com/rust-ammonia/ammonia) [T10, T11]
+ammonia 4.2.4: MIT OR Apache-2.0 (https://github.com/rust-ammonia/ammonia) [T10, T11]
 android_system_properties 0.1.6: MIT OR Apache-2.0 (https://github.com/nical/android_system_properties) [T12, T13]
 anyhow 1.0.104: MIT OR Apache-2.0 (https://github.com/dtolnay/anyhow) [T14, T3]
 async-broadcast 0.7.2: MIT OR Apache-2.0 (https://github.com/smol-rs/async-broadcast) [T15, T16]
@@ -1363,7 +1363,7 @@ Apache License
    See the License for the specific language governing permissions and
    limitations under the License.
 
----------- T11: ammonia 4.2.3 ----------
+---------- T11: ammonia 4.2.4 ----------
 
 Copyright (c) 2015-2022 The ammonia Developers
 

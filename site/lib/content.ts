@@ -8,6 +8,7 @@ const V095 = '0.9.5';
 const V098 = '0.9.8';
 const V099 = '0.9.9';
 const V0910 = '0.9.10';
+const V0911 = '0.9.11';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -50,7 +51,7 @@ export const features = [
 ];
 
 /** The strip under the hero's screenshot: what you get, in a few words each. */
-export const facts = ['Spam filter that learns', 'Saved searches', 'Rule previews', 'Optional threads', 'Undo send', 'Windows and Linux', 'No Electron', 'No tracking'];
+export const facts = ['Spam filter that learns', 'Saved searches', 'Rule previews', 'Copy as Markdown', 'Undo send', 'Windows and Linux', 'No Electron', 'No tracking'];
 
 /**
  * Which mail works, beside the download buttons. Keep it true to crates/telex-core/src/autoconfig.rs:
@@ -130,6 +131,7 @@ export const featureRows: FeatureRow[] = [
       'Click the dot at the start of a row for read or unread, the flag next to it to flag; the envelope above a message does the same',
       'Right-click a message (or Shift+F10) for reply, move, flag, read, the conversation and a rule, each with its key',
       'Shift+Space pages back, then goes to the previous unread',
+      { text: 'Copy as Markdown: a message, a selection or a whole conversation, oldest first, ready for notes or an AI chat (Ctrl+C, the menu, or the button above a message)', since: V0911 },
     ],
   },
   {
@@ -297,6 +299,8 @@ export const featureRows: FeatureRow[] = [
       { text: 'Older mail on request, newest first, a thousand at a time', since: '0.5.0' },
       { text: 'Every account checked at the same time, so several take about as long as one', since: '0.7.2' },
       { text: 'An account whose last check failed says so in the folder tree and the status bar; one click tries again', since: '0.7.2' },
+      { text: 'Gentle with shared servers: at most 4 checks and 8 watched Inboxes at once per server, and a pause when one stops answering', since: V0911 },
+      { text: 'Settings › Connections: every connection’s steps, timed, and where and why one failed; copy it all for whoever helps', since: V0911 },
     ],
   },
   {
@@ -357,6 +361,7 @@ export const featureRows: FeatureRow[] = [
       'Mark as spam and Not spam in the message menu teach it; moving mail into or out of Spam does too, and Z undoes both',
       'Careful, normal or strict in Settings › Mail, or off; it waits until it has seen 50 of each kind',
       'It runs before your rules, and mail it files away brings no notification',
+      { text: 'Spam you throw in the Trash is marked read on the way, so it never counts as unread', since: V0911 },
     ],
   },
   {
@@ -475,6 +480,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'select', group: 'Select', keys: [['Shift', '↑'], ['↓']], action: 'Select more (or fewer) messages', match: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }], since: '0.5.0' },
   { id: 'selectends', group: 'Select', keys: [['Shift', 'Home'], ['End']], action: 'Select to the top / bottom', match: [{ key: 'Home', shift: true }, { key: 'End', shift: true }], since: '0.5.0' },
   { id: 'selectall', group: 'Select', keys: [['Ctrl', 'A']], action: 'Select every message in the list', match: [{ key: 'a', ctrl: true }], since: '0.5.0' },
+  { id: 'markdown', group: 'Select', keys: [['Ctrl', 'C']], action: 'Copy the selected messages as Markdown, for notes or an AI chat (with no text selected)', match: [{ key: 'c', ctrl: true }], since: V0911 },
   { id: 'new', group: 'Write', keys: [['N']], action: 'New message', match: [{ key: 'n' }] },
   { id: 'reply', group: 'Write', keys: [['R']], action: 'Reply', match: [{ key: 'r' }], home: true },
   { id: 'replyall', group: 'Write', keys: [['Shift', 'R']], action: 'Reply to all', match: [{ key: 'R', shift: true }] },
@@ -584,6 +590,14 @@ export const hero: Screen = {
 };
 
 export const screens: Screen[] = [
+  {
+    id: 'markdown', label: 'Copy as Markdown', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Copy as Markdown, from the menu, Ctrl+C or the button above a message: the subject as a heading, who, when and which files, then the text. Select a conversation to copy it all, oldest first.', since: V0911,
+  },
+  {
+    id: 'connections', label: 'Connections', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Settings › Connections: every server Telex reached and its last connections, each step timed. When a check fails, it shows where and why, and Copy details puts it all in a message for whoever helps.', since: V0911,
+  },
   {
     id: 'reply-checks', label: 'Reply checks', title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'A reply that would have gone wrong: Telex names who else was on the original, offers its two files, and asks before sending “attached” with nothing attached.', since: V0910,
@@ -901,7 +915,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['reply-checks', 'quotes', 'spelling', 'spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
+export const homeScreens = ['markdown', 'reply-checks', 'quotes', 'spelling', 'spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'connections', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -918,6 +932,28 @@ export type Version = {
 };
 
 export const versions: Version[] = [
+  {
+    version: V0911,
+    title: 'Copy mail as Markdown, gentler on shared servers, a log of every connection',
+    date: '2026-10-17',
+    summary: 'One key puts a message, or a whole conversation, on the clipboard as clean Markdown for your notes or an AI chat. Telex also goes easier on mail servers many accounts share, and shows every step of its connections when one fails.',
+    points: [
+      'Copy as Markdown: Ctrl+C in the list (when no text is selected), the message menu, or the new button above a message. The subject becomes a heading, From, To, Cc, the date and the attachments a short list, then the text, quotes and all. Select several messages, or a conversation with T and Ctrl+A, and they come oldest first, one after another. Mail written only in HTML keeps its links. Nothing is marked read.',
+      'Spam you delete, or move to the Trash, is marked read on the way, so it no longer counts as unread there.',
+      'Gentler on shared servers: Telex opens at most 4 connections for checks and 8 for watching Inboxes to one server at a time. A server that stops greeting gets a rest of 1 to 15 minutes, and the error says until when. Purelymail is on the provider list.',
+      'Settings › Connections: every server reached since Telex started and the last 1,000 connections, each step timed (address, connecting, TLS, greeting, login), with where one failed and why. Filter by account or show only problems, and copy it all as text. It opens from Details next to a failed check.',
+      'Asks once, after the update question, whether this copy may be counted: with a yes, one anonymous count a day, with no ID. Settings › Updates changes your answer.',
+      'Fixed: the plain-text copy of HTML mail could run two words together after formatting (“big world” became “bigworld”).',
+    ],
+    highlights: [
+      { title: 'Copy as Markdown', text: 'A message as clean Markdown, ready for notes or an AI chat.', keys: 'Ctrl+C', href: '/features#read' },
+      { title: 'Whole conversations', text: 'Select a thread and copy it all, oldest first, one message after another.', keys: 'T', href: '/features#read' },
+      { title: 'Spam out of sight', text: 'Spam you throw in the Trash is marked read on the way.', href: '/features#spam-filter' },
+      { title: 'Gentle with servers', text: 'A few connections at a time per server, and a pause when one goes quiet.', href: '/features#sync' },
+      { title: 'Every connection, explained', text: 'Settings › Connections times each step and says where a failed check stopped.', href: '/features#sync' },
+      { title: 'Counted only with a yes', text: 'One anonymous count a day, no ID, and only if you agree.', href: '/privacy' },
+    ],
+  },
   {
     version: V0910,
     title: 'Replies that keep everyone, quoted mail you can read, no forgotten attachments',

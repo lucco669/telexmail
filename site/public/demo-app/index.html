@@ -75,6 +75,7 @@
       <button class="chip" id="st-update" type="button" hidden></button>
       <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
       <button class="chip bad" id="st-sync" type="button" hidden></button>
+      <button class="chip bad" id="st-syncwhy" type="button" hidden data-i18n>Details</button>
       <button class="chip bad" id="st-unsent" type="button" hidden></button>
       <button class="chip" id="st-away" type="button" hidden></button>
       <span id="st-check"></span>
@@ -101,6 +102,7 @@
       <button type="button" role="tab" id="s-tab-read" aria-controls="s-pane-read" data-tab="read" data-i18n>Reading</button>
       <button type="button" role="tab" id="s-tab-write" aria-controls="s-pane-write" data-tab="write" data-i18n>Writing</button>
       <button type="button" role="tab" id="s-tab-use" aria-controls="s-pane-use" data-tab="use" data-i18n>Usage</button>
+      <button type="button" role="tab" id="s-tab-conn" aria-controls="s-pane-conn" data-tab="conn" data-i18n>Connections</button>
       <button type="button" role="tab" id="s-tab-backup" aria-controls="s-pane-backup" data-tab="backup" data-i18n>Backups</button>
       <button type="button" role="tab" id="s-tab-upd" aria-controls="s-pane-upd" data-tab="upd" data-i18n>Updates</button>
       <button type="button" role="tab" id="s-tab-move" aria-controls="s-pane-move" data-tab="move" data-i18n>Import and export</button>
@@ -359,6 +361,9 @@
       </section>
       <section class="spane" role="tabpanel" id="s-pane-use" aria-labelledby="s-tab-use" hidden>
         <div id="u-usage"></div>
+      </section>
+      <section class="spane" role="tabpanel" id="s-pane-conn" aria-labelledby="s-tab-conn" hidden>
+        <div id="s-conn"></div>
       </section>
       <section class="spane" role="tabpanel" id="s-pane-backup" aria-labelledby="s-tab-backup" hidden>
         <div id="s-backup"></div>
