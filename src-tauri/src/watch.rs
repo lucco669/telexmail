@@ -2,7 +2,9 @@
 //! (`telex_core::imap::watch_inbox`) and tells the window when something changes there with
 //! an "inbox-changed" event; the window then checks that Inbox. A broken connection is tried
 //! again after a pause that grows to ten minutes; a server without IDLE is left to the
-//! regular checks. And a notification for new mail while the window isn't the active one.
+//! regular checks. Watchers on one server take turns (`telex_core::servers`): a few watch at
+//! once, the rest wait for a place, and a server that stopped answering rests before anyone
+//! connects again. And a notification for new mail while the window isn't the active one.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -61,6 +63,11 @@ async fn watch(app: AppHandle, account: Account) {
                 // A rejected password stays rejected: logging in again and again can get the
                 // address banned. Saving the account again restarts the watcher.
                 Err(SyncError::Login(_)) => return,
+                // The server is resting: try once its rest is over, not before.
+                Err(SyncError::Resting(until)) => {
+                    let left = (until - chrono::Local::now()).to_std().unwrap_or_default();
+                    pause = pause.max(left + Duration::from_secs(5));
+                }
                 // A connection that held for a while was fine: start over with short pauses.
                 Err(_) if started.elapsed() > Duration::from_secs(300) => pause = first_pause,
                 Err(_) => {}

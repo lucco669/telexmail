@@ -18,7 +18,7 @@ use async_imap::types::{
     Capability, Fetch, Flag, Name, NameAttribute, QuotaResourceName, UnsolicitedResponse,
 };
 use async_imap::{Client, Session};
-use chrono::Local;
+use chrono::{DateTime, Local, TimeDelta};
 use futures_util::TryStreamExt;
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -32,6 +32,7 @@ use tokio_rustls::TlsConnector;
 use crate::filters::{self, Trigger};
 use crate::mime::parse_message;
 use crate::model::{Account, Folder, FolderKind, ImapSettings, MessageId, SmtpSecurity};
+use crate::servers::{self, Turn, Use, SERVERS};
 use crate::store::{
     slug, ChangeKind, MailStore, PendingChange, StoreError, SyncedMessage, OUTBOX_ID,
 };
@@ -72,6 +73,8 @@ pub enum SyncError {
     /// The server said no to the user name or password.
     Login(String),
     Timeout,
+    /// The server stopped answering a moment ago; nothing connects to it until then.
+    Resting(DateTime<Local>),
     /// The server answered with an error or closed the connection.
     Server(String),
     Store(StoreError),
@@ -95,6 +98,13 @@ impl fmt::Display for SyncError {
                 "serwer odrzucił nazwę użytkownika lub hasło ({reason})"
             ),
             Self::Timeout => tr!("the server stopped answering", "serwer przestał odpowiadać"),
+            Self::Resting(until) => {
+                let time = until.format("%H:%M");
+                tr!(
+                    "the server stopped answering; Telex tries again after {time}",
+                    "serwer przestał odpowiadać; Telex spróbuje ponownie po {time}"
+                )
+            }
             Self::Server(reason) => tr!(
                 "the server reported a problem: {reason}",
                 "serwer zgłosił problem: {reason}"
@@ -229,7 +239,7 @@ pub async fn check_account(
     settings: &ImapSettings,
     password: &str,
 ) -> Result<Vec<RemoteFolder>, SyncError> {
-    let mut session = connect_and_login(settings, password).await?;
+    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
     let folders = list_folders(&mut session).await;
     logout(&mut session).await;
     folders
@@ -259,7 +269,7 @@ pub async fn sync_account(
     let Some(settings) = &account.imap else {
         return Ok(SyncReport::default());
     };
-    let mut session = connect_and_login(settings, password).await?;
+    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
     let result = sync_all(&mut session, account, store, progress, scope).await;
     logout(&mut session).await;
     result
@@ -279,7 +289,7 @@ pub async fn download_older(
     let Some(settings) = &account.imap else {
         return Ok(Vec::new());
     };
-    let mut session = connect_and_login(settings, password).await?;
+    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
     let result = download_older_in(&mut session, account, store, folder_key, limit, progress).await;
     logout(&mut session).await;
     result
@@ -352,7 +362,7 @@ pub async fn push_account(
     if !lock(store)?.has_pending_changes(&account.id)? {
         return Ok(Vec::new());
     }
-    let mut session = connect_and_login(settings, password).await?;
+    let (mut session, _turn) = connect_and_login(settings, password, Use::Session).await?;
     let result = async {
         let caps = server_caps(&mut session).await?;
         push_changes(&mut session, account, store, caps).await
@@ -555,7 +565,7 @@ pub async fn watch_inbox(
     password: &str,
     changed: &(dyn Fn() + Send + Sync),
 ) -> Result<Watched, SyncError> {
-    let session = connect_and_login(settings, password).await?;
+    let (session, _turn) = connect_and_login(settings, password, Use::Watch).await?;
     watch_session(session, changed, IDLE_RENEW).await
 }
 
@@ -836,17 +846,33 @@ pub(crate) fn tls_connector() -> TlsConnector {
 /// Connect to the server, encrypted from the first byte (SSL/TLS) or after STARTTLS, read
 /// its greeting and log in. Nothing ever goes over the network unencrypted except the
 /// greeting and the STARTTLS command itself.
+///
+/// First it waits for one of the server's places (`servers`); the turn goes with the session
+/// and gives the place back when the caller drops it, after logging out.
 async fn connect_and_login(
     settings: &ImapSettings,
     password: &str,
-) -> Result<Session<TlsStream<TcpStream>>, SyncError> {
-    let client = connect(settings).await?;
-    login(client, settings, password).await
+    kind: Use,
+) -> Result<(Session<TlsStream<TcpStream>>, Turn), SyncError> {
+    let key = servers::key(&settings.host, settings.port).await;
+    let turn = SERVERS.turn(&key, kind).await.map_err(|left| {
+        SyncError::Resting(Local::now() + TimeDelta::from_std(left).unwrap_or_default())
+    })?;
+    let client = connect(settings, turn.key()).await?;
+    Ok((login(client, settings, password).await?, turn))
 }
 
-/// A connection with the greeting read, ready to log in.
-async fn connect(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>, SyncError> {
+/// A connection with the greeting read, ready to log in. A server that takes the connection
+/// but doesn't greet gets a rest (`Servers::silent`); one that greets, its rests start over.
+async fn connect(
+    settings: &ImapSettings,
+    key: &str,
+) -> Result<Client<TlsStream<TcpStream>>, SyncError> {
     let host = settings.host.as_str();
+    let silent = |e: SyncError| {
+        SERVERS.silent(key);
+        e
+    };
     let unreachable = |reason: String| SyncError::Connect {
         host: host.to_owned(),
         reason,
@@ -854,10 +880,10 @@ async fn connect(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>
     let tcp = timeout(CONNECT_TIMEOUT, TcpStream::connect((host, settings.port)))
         .await
         .map_err(|_| {
-            unreachable(tr!(
+            silent(unreachable(tr!(
                 "no answer within 20 seconds",
                 "brak odpowiedzi w ciągu 20 sekund"
-            ))
+            )))
         })?
         .map_err(|e| unreachable(e.to_string()))?;
     // async-imap writes a command in four small pieces (tag, space, command, line end). With
@@ -875,7 +901,7 @@ async fn connect(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>
     let starttls = settings.security == SmtpSecurity::StartTls;
     let tcp = if starttls {
         let mut plain = Client::new(tcp);
-        greet(&mut plain).await?;
+        greet(&mut plain).await.map_err(silent)?;
         match timeout(
             COMMAND_TIMEOUT,
             plain.run_command_and_check_ok("STARTTLS", None),
@@ -899,7 +925,7 @@ async fn connect(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>
     };
     let tls = timeout(CONNECT_TIMEOUT, tls_connector().connect(name, tcp))
         .await
-        .map_err(|_| SyncError::Timeout)?
+        .map_err(|_| silent(SyncError::Timeout))?
         .map_err(|e| SyncError::Tls {
             host: host.to_owned(),
             reason: tls_reason(&e),
@@ -907,8 +933,9 @@ async fn connect(settings: &ImapSettings) -> Result<Client<TlsStream<TcpStream>>
     let mut client = Client::new(tls);
     // After STARTTLS the server says nothing more; the greeting came before it.
     if !starttls {
-        greet(&mut client).await?;
+        greet(&mut client).await.map_err(silent)?;
     }
+    SERVERS.answered(key);
     Ok(client)
 }
 
@@ -958,7 +985,20 @@ async fn greet<T: ImapStream>(client: &mut Client<T>) -> Result<(), SyncError> {
             "it hung up before saying hello",
             "rozłączył się, zanim się przywitał"
         ))),
-        Ok(Ok(Some(_greeting))) => Ok(()),
+        Ok(Ok(Some(greeting))) => match greeting.parsed() {
+            Response::Data {
+                status: Status::Bye,
+                information,
+                ..
+            } => {
+                let reason = information.as_deref().unwrap_or_default().trim().to_owned();
+                Err(SyncError::Server(tr!(
+                    "it said goodbye before logging in ({reason})",
+                    "pożegnał się przed logowaniem ({reason})"
+                )))
+            }
+            _ => Ok(()),
+        },
     }
 }
 
@@ -3250,6 +3290,41 @@ Subject: {subject}
     }
 
     #[tokio::test]
+    async fn a_goodbye_instead_of_a_greeting_is_an_error() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            socket
+                .write_all(b"* BYE Too many connections from your address\r\n")
+                .await
+                .unwrap();
+        });
+        let err = login(addr, "secret").await.unwrap_err();
+        assert!(matches!(err, SyncError::Server(_)), "{err}");
+        assert!(err.to_string().contains("Too many connections"), "{err}");
+    }
+
+    #[test]
+    fn a_resting_server_says_when_telex_tries_again() {
+        let until = Local::now()
+            .date_naive()
+            .and_hms_opt(17, 42, 0)
+            .unwrap()
+            .and_local_timezone(Local)
+            .unwrap();
+        crate::i18n::with(crate::i18n::Lang::En, || {
+            assert_eq!(
+                SyncError::Resting(until).to_string(),
+                "the server stopped answering; Telex tries again after 17:42"
+            );
+        });
+        crate::i18n::with(crate::i18n::Lang::Pl, || {
+            assert!(SyncError::Resting(until).to_string().ends_with("po 17:42"));
+        });
+    }
+
+    #[tokio::test]
     async fn a_wrong_password_is_a_login_error() {
         let (addr, _server) = start_fake_server("IMAP4rev1").await;
         let err = login(addr, "wrong").await.unwrap_err();
@@ -3271,6 +3346,6 @@ Subject: {subject}
             security: SmtpSecurity::Tls,
         };
         // Connecting reads the greeting: it fails if the server says nothing.
-        connect(&settings).await.unwrap();
+        connect(&settings, "imap.gmail.com").await.unwrap();
     }
 }

@@ -49,6 +49,9 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/imap.rs        Two-way IMAP sync (async-imap + rustls, SSL/TLS or STARTTLS): download,
                      push queued changes a batch per command, folder mapping, older mail on
                      request, IDLE on the Inbox. Tests run it against a fake IMAP server.
+  src/servers.rs     One mail server (by IP address) gets at most 4 checks and 8 IDLE watchers
+                     at once; one that takes connections but doesn't greet rests (1 min,
+                     doubling to 15) before anything connects again.
   src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322 (Bcc, files from
                      disk), send the Outbox. Tests run it against a fake SMTP server.
   src/attachments.rs Attachments of stored mail opened or saved: safe file names, files that
@@ -418,6 +421,14 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
+- Gentler on shared servers (no schema change): 31 Purelymail accounts checked at once, each with
+  its IDLE connection and retried after every failure, most likely got this PC's address ignored
+  by Purelymail on 17 Oct 2026 (TLS went through, no greeting, for every account; a phone worked). Now connections to one server's IP
+  wait for one of its places (`servers.rs`: 4 for checks, pushes and logins, 8 for IDLE; the
+  accounts past the eighth get new mail from the regular checks), and a server that doesn't greet,
+  or greets with BYE, rests before anything connects again; the error says until when
+  (`SyncError::Resting`), and IDLE watchers sleep through it. Purelymail is on the provider list
+  (MX `*.purelymail.com` → imap/smtp.purelymail.com); the wizard used to land on its MX host.
 - Counting (since 0.9.11; no schema change; setting `usage_count`): a release build asks once in the
   status bar, after the update question, whether it may be counted (Settings › Updates › Counting).
   With a yes it sends telexmail.app/api/count at most once a UTC day: version, system, language,

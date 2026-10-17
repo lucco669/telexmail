@@ -441,6 +441,19 @@ const PROVIDERS: &[Provider] = &[
         unsupported: None,
     },
     Provider {
+        name: "Purelymail",
+        help: None,
+        domains: &[],
+        // Its MX, mailserver.purelymail.com, answers IMAP too, but the names it gives
+        // mail programs are these.
+        mx: &["purelymail.com"],
+        imap: "imap.purelymail.com",
+        smtp: ("smtp.purelymail.com", 465, TLS),
+        login: Login::Address,
+        note: None,
+        unsupported: None,
+    },
+    Provider {
         name: "Proton Mail",
         help: None,
         domains: &["proton.me", "protonmail.com", "protonmail.ch", "pm.me"],
@@ -1308,6 +1321,15 @@ mod tests {
                 .host,
             "ssl0.ovh.net"
         );
+        // Purelymail's MX is not the server it tells mail programs to use.
+        let pure = from_mx("a@b.pl", &mx(&["mailserver.purelymail.com."])).unwrap();
+        assert_eq!(pure.provider.as_deref(), Some("Purelymail"));
+        assert_eq!(
+            (pure.setup.host.as_str(), pure.setup.smtp_host.as_str()),
+            ("imap.purelymail.com", "smtp.purelymail.com")
+        );
+        assert_eq!(pure.setup.username, "a@b.pl");
+        assert!(!pure.confirm);
         assert_eq!(
             from_mx("a@b.pl", &mx(&["mx.zoho.eu"]))
                 .unwrap()

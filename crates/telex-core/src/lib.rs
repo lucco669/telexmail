@@ -28,6 +28,7 @@ pub mod risk;
 #[cfg(test)]
 pub(crate) mod sample;
 pub mod saved_searches;
+pub mod servers;
 pub mod settings;
 pub mod sieve;
 pub mod smtp;
