@@ -163,7 +163,7 @@ function installTelexDemo(options) {
     bcc: m.bcc || '', subject: m.subject || '', date: m.date, size_kb: Math.max(1, m.size_kb || 1), unread: !!m.unread,
     flagged: !!m.flagged, remote_images: !!m.remote_images, note: (startLang === 'pl' && m.note_pl) || m.note || null,
     attachments: (m.attachments || []).map((a) => ({ name: a.name, size_kb: a.size_kb })), body: m.body || '', html: m.html || null,
-    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, out: null, ...extra,
+    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, out: null, tags: [...(m.tags || [])].sort(), ...extra,
   });
   const msgs = picked.map((m) => message({ ...m, date: shiftDate(m.date), body: shiftText(m.body || '') }));
   const byId = (id) => msgs.find((m) => m.id === id);
@@ -246,7 +246,62 @@ function installTelexDemo(options) {
   const summary = (m) => ({
     id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, subject: m.subject,
     date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged, has_attachments: m.attachments.length > 0,
+    ...(m.tags.length ? { tags: [...m.tags] } : {}),
   });
+  /* ---------- tags (tags.rs) ---------- */
+  // Thunderbird's five, named in the interface's language until renamed, then the user's own.
+  const TAG_DEFAULTS = { $label1: ['Important', 'Ważne'], $label2: ['Work', 'Praca'], $label3: ['Personal', 'Osobiste'], $label4: ['To do', 'Do zrobienia'], $label5: ['Later', 'Później'] };
+  const TAG_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray'];
+  let tagDefs = [['$label1', 'red'], ['$label2', 'orange'], ['$label3', 'green'], ['$label4', 'blue'], ['$label5', 'purple']].map(([keyword, color]) => ({ keyword, name: null, color }));
+  const tagName = (d) => d.name ?? (TAG_DEFAULTS[d.keyword] ? tr(...TAG_DEFAULTS[d.keyword]) : d.keyword);
+  const tagList = () => tagDefs.map((d) => ({ keyword: d.keyword, name: tagName(d), color: d.color, count: msgs.filter((m) => m.tags.includes(d.keyword)).length }));
+  const tagGone = () => fail('That tag no longer exists.', 'Tej etykiety już nie ma.');
+  function setTag(ids, keyword, on) {
+    if (!tagDefs.some((d) => d.keyword === keyword)) tagGone();
+    return ids.reduce((n, id) => {
+      const m = byId(id);
+      if (!m || m.tags.includes(keyword) === on) return n;
+      m.tags = on ? [...m.tags, keyword].sort() : m.tags.filter((k) => k !== keyword);
+      return n + 1;
+    }, 0);
+  }
+  // tags.rs's keyword_for for plain names: spaces and ()/{%*<>"\ become _, lowercase.
+  function saveTag({ tag }) {
+    const name = String(tag.name ?? '').trim(), keyword = String(tag.keyword ?? '').trim().toLowerCase();
+    const isDefault = !!TAG_DEFAULTS[keyword];
+    if (name.length > 40 || (!name && !isDefault)) fail('Give the tag a name of 1–40 characters.', 'Nadaj etykiecie nazwę od 1 do 40 znaków.');
+    if (!TAG_COLORS.includes(tag.color)) fail('Pick one of the tag colors.', 'Wybierz jeden z kolorów etykiet.');
+    const shown = name || tr(...TAG_DEFAULTS[keyword]);
+    if (tagDefs.some((d) => d.keyword !== keyword && fold(tagName(d)) === fold(shown))) fail('A tag already has that name.', 'Etykieta o tej nazwie już istnieje.');
+    const stored = !name || (isDefault && shown === tr(...TAG_DEFAULTS[keyword])) ? null : name;
+    let d = tagDefs.find((x) => x.keyword === keyword);
+    if (!keyword) {
+      if (tagDefs.length >= 50) fail('Telex keeps up to 50 tags.', 'Telex przechowuje do 50 etykiet.');
+      let k = fold(name).replace(/[\s()/{%*<>"\\\]]/g, '_').replace(/[^\x21-\x7e]/g, '') || 't';
+      while (tagDefs.some((x) => x.keyword === k)) k += 'a';
+      d = { keyword: k, name: stored, color: tag.color };
+      tagDefs.push(d);
+    } else if (!d) tagGone();
+    else Object.assign(d, { name: stored, color: tag.color });
+    return tagList().find((x) => x.keyword === d.keyword);
+  }
+  function deleteTag({ keyword }) {
+    const n = setTag(msgs.filter((m) => m.tags.includes(keyword)).map((m) => m.id), keyword, false);
+    tagDefs = tagDefs.filter((d) => d.keyword !== keyword);
+    return n;
+  }
+  function moveTag({ keyword, delta }) {
+    const from = tagDefs.findIndex((d) => d.keyword === keyword);
+    if (from < 0) return null;
+    const [d] = tagDefs.splice(from, 1);
+    tagDefs.splice(Math.max(0, Math.min(tagDefs.length, from + delta)), 0, d);
+    return null;
+  }
+  // list.rs's tag_keywords: the tag of that name or keyword, else those whose name starts so.
+  function tagKeywords(wanted) {
+    const exact = tagDefs.filter((d) => fold(tagName(d)) === wanted || d.keyword === wanted);
+    return (exact.length ? exact : tagDefs.filter((d) => fold(tagName(d)).startsWith(wanted))).map((d) => d.keyword);
+  }
   // The quick filter's operators: from: to: subject: is: has:file after: before: larger: smaller:.
   function tokens(filter) {
     const out = []; let cur = '', quoted = false;
@@ -280,19 +335,21 @@ function installTelexDemo(options) {
     return number && !Number.isNaN(n) && factor && n >= 0 ? Math.round(n * factor) : null;
   }
   function parseTerms(filter) {
-    const t = { text: '', from: [], to: [], subject: [], unread: null, flagged: null, has_file: false, after: null, before: null, larger: null, smaller: null };
+    const t = { text: '', from: [], to: [], subject: [], unread: null, flagged: null, tags: [], tagged: null, has_file: false, after: null, before: null, larger: null, smaller: null };
     const words = [];
     for (const token of tokens(filter)) {
       const at = token.indexOf(':');
       if (at < 0) { words.push(token); continue; }
       const key = token.slice(0, at).toLowerCase(), value = token.slice(at + 1).replace(/^"+|"+$/g, '').trim();
-      const known = ['from', 'to', 'subject', 'is', 'has', 'after', 'before', 'larger', 'smaller'].includes(key);
+      const known = ['from', 'to', 'subject', 'tag', 'is', 'has', 'after', 'before', 'larger', 'smaller'].includes(key);
       if (known && !value) continue; // still being typed
       let used = true;
       const v = value.toLowerCase();
       if (key === 'from') t.from.push(v);
       else if (key === 'to') t.to.push(v);
       else if (key === 'subject') t.subject.push(v);
+      else if (key === 'tag') t.tags.push(fold(value));
+      else if (key === 'is' && (v === 'tagged' || v === 'untagged')) t.tagged = v === 'tagged';
       else if (key === 'is') {
         if (v === 'unread' || v === 'new') t.unread = true;
         else if (v === 'read' || v === 'seen') t.unread = false;
@@ -342,6 +399,8 @@ function installTelexDemo(options) {
       && t.to.every((v) => has(v, [m.to, m.cc, m.bcc]))
       && t.subject.every((v) => has(v, [m.subject]))
       && (t.unread == null || m.unread === t.unread) && (t.flagged == null || m.flagged === t.flagged)
+      && (t.tagged == null || (m.tags.length > 0) === t.tagged)
+      && t.tags.every((v) => tagKeywords(v).some((k) => m.tags.includes(k)))
       && (!t.has_file || m.attachments.length > 0)
       && (!t.after || m.date >= t.after) && (!t.before || m.date < t.before)
       && (t.larger == null || m.size_kb >= t.larger) && (t.smaller == null || m.size_kb < t.smaller);
@@ -427,7 +486,7 @@ function installTelexDemo(options) {
     // Each account's storage and last check, as usage.rs keeps them (the status-bar meter).
     const quota = Object.fromEntries(Object.entries(data.quota || {}).filter(([, q]) => q));
     const synced = Object.fromEntries(Object.entries(lastSync).filter(([, at]) => at));
-    return { accounts, counts, problems: {}, away: [], quota, synced };
+    return { accounts, counts, problems: {}, away: [], quota, synced, tags: tagList() };
   }
 
   /* ---------- changes to mail (store.rs) ---------- */
@@ -462,7 +521,8 @@ function installTelexDemo(options) {
       const from = !m.from_name || m.from_name.toLowerCase() === m.from_email.toLowerCase() ? m.from_email : `${m.from_name} <${m.from_email}>`;
       const fields = [[tr('From', 'Od'), from], [tr('To', 'Do'), m.to], [tr('Cc', 'DW'), m.cc],
         [tr('Bcc', 'UDW'), isOutgoing(kindOf(m.folder)) ? m.bcc : ''], [tr('Date', 'Data'), m.date.slice(0, 16).replace('T', ' ')],
-        [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')]];
+        [tr('Attachments', 'Załączniki'), (m.attachments || []).map((a) => `${a.name} (${size(a.size_kb)})`).join(', ')],
+        [tr('Tags', 'Etykiety'), tagList().filter((x) => m.tags.includes(x.keyword)).map((x) => x.name).join(', ')]];
       const head = fields.map(([k, v]) => [k, line(v)]).filter(([, v]) => v).map(([k, v]) => `- **${k}:** ${v}\n`).join('');
       const text = String(m.body || '').replace(/\r\n/g, '\n').replace(/^\n+|\s+$/g, '');
       return `# ${line(m.subject)}\n\n${head}${text ? `\n${text}\n` : ''}`;
@@ -956,6 +1016,10 @@ function installTelexDemo(options) {
     if (c.field === 'header') values = Object.entries(m.headers || {}).filter(([name]) => name.toLowerCase() === (c.header || '').toLowerCase()).flatMap(([,value]) => Array.isArray(value) ? value : [String(value)]);
     if (c.field === 'attachment_name') values = m.attachments.map(a=>a.name);
     if (c.field === 'attachment_type') values = m.attachments.map(a=>a.content_type || ({pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg'}[a.name.split('.').pop().toLowerCase()] || 'application/octet-stream'));
+    if (c.field === 'tag') {
+      const hasIt = m.tags.includes(c.value);
+      return c.op === 'exists' ? m.tags.length > 0 : c.op === 'not_exists' ? !m.tags.length : c.op === 'not_contains' ? !hasIt : hasIt;
+    }
     if (c.op === 'exists') return values.length > 0;
     if (c.op === 'not_exists') return values.length === 0;
     const needle = fold(String(c.value).trim()), all = values.map(fold);
@@ -1000,6 +1064,11 @@ function installTelexDemo(options) {
         for (const x of rule.actions) {
           if (x.type === 'mark_read' && was.unread) { m.unread = false; did.push(tr('marked it read', 'oznaczyła ją jako przeczytaną')); }
           else if (x.type === 'flag' && !was.flagged) { m.flagged = true; did.push(tr('flagged it', 'oznaczyła ją flagą')); }
+          else if (x.type === 'add_tag' || x.type === 'remove_tag') {
+            const def = tagList().find((d) => d.keyword === x.tag), on = x.type === 'add_tag';
+            if (!def) report.problems.push(tr('rule "{name}" uses a tag that no longer exists', 'reguła „{name}” używa etykiety, której już nie ma', { name }));
+            else if (setTag([m.id], x.tag, on)) did.push(on ? tr('tagged it {tag}', 'oznaczyła ją etykietą {tag}', { tag: def.name }) : tr('took the tag {tag} off it', 'zdjęła z niej etykietę {tag}', { tag: def.name }));
+          }
           else if (x.type === 'move' && x.folder !== was.folder) {
             const f = folderOf(x.folder);
             if (f && (acctId(x.folder) === acct || acctId(x.folder) === LOCAL)) {
@@ -1366,13 +1435,17 @@ function installTelexDemo(options) {
       const m = need(id);
       return { id: m.id, folder: m.folder, from_name: m.from_name, from_email: m.from_email, to: m.to, cc: m.cc,
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
-        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk };
+        remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk, tags: [...m.tags] };
     },
     message_markdown: messageMarkdown,
     set_unread: ({ id, unread }) => { need(id).unread = !!unread; },
     set_flagged: ({ id, flagged }) => { need(id).flagged = !!flagged; },
     set_unread_many: ({ ids, unread }) => setMany(ids, 'unread', !!unread),
     set_flagged_many: ({ ids, flagged }) => setMany(ids, 'flagged', !!flagged),
+    set_tag_many: ({ ids, keyword, on }) => setTag(ids, keyword, !!on),
+    save_tag: saveTag,
+    delete_tag: deleteTag,
+    move_tag: moveTag,
     // store.rs's choose_folder: a server folder becomes Sent (Drafts, Archive, Spam, Trash).
     choose_folder: ({ folder, kind }) => {
       const f = needFolder(folder), a = account(acctId(folder));

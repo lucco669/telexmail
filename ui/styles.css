@@ -248,6 +248,28 @@ tbody tr.thread-new :is(td.c-from,td.c-subj){font-weight:600}
 .thread-count{flex-shrink:0;border:1px solid var(--line);border-radius:3px;padding:0 4px;font:10px var(--font-data);line-height:14px;color:var(--muted)}
 .thread-new .thread-count{color:inherit;border-color:currentColor}
 .thread-child .thread-subject{padding-left:16px}
+/* Tags: chips in the tag's own pair of tokens (tag-<color>, tag-<color>-fg in themes.css), before
+   the subject in a row (at most three, then +n) and under it above a message; a dot in menus. */
+.t-red{--tb:var(--tag-red);--tf:var(--tag-red-fg)} .t-orange{--tb:var(--tag-orange);--tf:var(--tag-orange-fg)}
+.t-yellow{--tb:var(--tag-yellow);--tf:var(--tag-yellow-fg)} .t-green{--tb:var(--tag-green);--tf:var(--tag-green-fg)}
+.t-teal{--tb:var(--tag-teal);--tf:var(--tag-teal-fg)} .t-blue{--tb:var(--tag-blue);--tf:var(--tag-blue-fg)}
+.t-purple{--tb:var(--tag-purple);--tf:var(--tag-purple-fg)} .t-gray{--tb:var(--tag-gray);--tf:var(--tag-gray-fg)}
+.tgs{display:inline-flex;gap:3px;margin-right:5px;max-width:60%}
+.thread-subject .tgs{flex:0 1 auto;margin-right:1px;min-width:0}
+.tg{display:inline-block;min-width:0;max-width:9em;overflow:hidden;text-overflow:ellipsis;padding:0 5px;border-radius:3px;background:var(--tb,var(--chip-bg));color:var(--tf,var(--chip-fg));font:500 10.5px/15px var(--font-ui)}
+.tg.more{flex:none;background:var(--chip-bg);color:var(--chip-fg)}
+.ph-tags:empty{display:none}
+.ph-tags{margin:-2px 0 6px}
+.ph-tags .tg{max-width:16em;font-size:11.5px;line-height:18px;padding:0 7px}
+.tdot{display:inline-block;width:9px;height:9px;margin-right:7px;border-radius:50%;background:var(--tf);vertical-align:0}
+.stag .tkey{flex:0 0 20px;text-align:center}
+.tswatch{flex:none;width:20px;height:20px;border:1px solid var(--field);border-radius:4px;background:var(--tb);padding:0;cursor:pointer;box-shadow:inset 0 0 0 4px var(--tb),inset 0 0 0 20px var(--tf)}
+.stag .tgname{flex:0 1 220px;min-width:80px;height:24px;padding:0 6px;border:1px solid var(--field);border-radius:3px;background:var(--surface);color:var(--fg);font:inherit;font-size:12.5px}
+.stag .tgname:focus{border-color:var(--accent);outline:0}
+.stag .em{color:var(--muted)}
+.tarmed{margin:2px 0 8px 28px}
+.rvalue select[data-k="value"]{flex:1;min-width:0}
+@media (forced-colors: active){ .tg{border:1px solid CanvasText} .tdot,.tswatch{forced-color-adjust:none} }
 .list:focus tr.sel .thread-count{color:inherit;border-color:currentColor}
 tbody tr.sel td,tbody tr.picked td{background:var(--sel)}
 .list:focus tbody tr.sel td{background:var(--accent);color:var(--accent-fg)}

@@ -16,6 +16,9 @@ import { fileURLToPath } from 'node:url';
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (p) => readFileSync(join(repo, p), 'utf8');
 
+// The tag colors, as `tags::COLORS` in crates/telex-core/src/tags.rs.
+const TAG_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'gray'];
+
 // [foreground, background, what it is]. Text pairs need the theme's text level, UI pairs 3:1.
 const TEXT = [
   ['fg', 'surface', 'Message text, list rows'],
@@ -44,7 +47,8 @@ const TEXT = [
   ['note-fg', 'surface', 'Delete buttons, a failed check in Usage'],
   ['note-fg', 'panel', 'A failed check in Settings › Accounts; warnings in the link strip'],
   ['note-fg', 'panel', 'Elevated and high mail risk scores'],
-  ['chip-fg', 'chip-bg', 'Rule notes, tags, the update chip'],
+  ['chip-fg', 'chip-bg', 'Rule notes, the update chip'],
+  ...TAG_COLORS.map((c) => [`tag-${c}-fg`, `tag-${c}`, `A ${c} tag`]),
   ['chip-fg', 'img-a', 'Loaded image stand-ins'],
   ['chip-fg', 'img-b', 'Loaded image stand-ins'],
 ];
@@ -63,6 +67,10 @@ const UI = [
   ['flag', 'chrome', 'Usage meter, nearly full'],
   ['note-fg', 'chrome', 'Usage meter, full'],
   ['spell', 'surface', 'The wavy line under a spelling mistake'],
+  ...TAG_COLORS.flatMap((c) => [
+    [`tag-${c}-fg`, 'panel', `A ${c} tag's dot in menus and Settings`],
+    [`tag-${c}-fg`, 'surface', `A ${c} tag's dot on a message`],
+  ]),
   ...[0, 1, 2, 3, 4, 5].flatMap((i) => [
     [`acct-${i}`, 'panel', `Account ${i + 1}'s dot in the folder tree`],
     [`acct-${i}`, 'surface', `Account ${i + 1}'s dot in All mail`],
