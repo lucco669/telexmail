@@ -944,3 +944,23 @@ async fn after_a_restore_mail_from_since_the_backup_comes_down_as_old_mail() {
     server.lock().unwrap().mail.push(letter(3));
     assert_eq!(check(addr, &store, &account).await.arrived.len(), 1);
 }
+
+/// TLS on 995 and a real server's greeting and CAPA (rustls with Mozilla's roots). No login.
+#[tokio::test]
+#[ignore = "needs the internet"]
+async fn tls_reaches_a_real_server() {
+    let settings = ImapSettings {
+        host: "pop.gmail.com".into(),
+        port: PORT_TLS,
+        username: String::new(),
+        security: SmtpSecurity::Tls,
+        pop3: Some(Pop3Keep::default()),
+    };
+    let mut trace = Trace::new(Purpose::Test, "pop3", "", "pop.gmail.com", PORT_TLS);
+    let mut session = connect(&settings, "pop.gmail.com", &mut trace)
+        .await
+        .unwrap();
+    session.capa().await.unwrap();
+    assert!(session.caps.uidl, "{:?}", session.caps);
+    let _ = session.quit().await;
+}
