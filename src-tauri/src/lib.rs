@@ -137,14 +137,18 @@ fn get_message(
     let inspected = with_store(&state, |s| s.inspect_message(id))?;
     // Encrypted to a key whose passphrase the user asked Telex to remember: try it (the
     // password store is asked outside the store's lock), then open again.
-    let locked: Vec<String> = inspected
+    let locked: Vec<(String, bool)> = inspected
         .pgp
         .iter()
-        .flat_map(|v| v.locked.iter().map(|k| k.fingerprint.clone()))
+        .flat_map(|v| v.locked.iter().map(|k| (k.fingerprint.clone(), v.smime)))
         .collect();
     let mut opened = false;
-    for fingerprint in &locked {
-        opened |= keys::unlock_remembered(&state, &keys, fingerprint);
+    for (fingerprint, smime) in &locked {
+        opened |= if *smime {
+            keys::unlock_remembered_cert(&state, &keys, fingerprint)
+        } else {
+            keys::unlock_remembered(&state, &keys, fingerprint)
+        };
     }
     if opened {
         return with_store(&state, |s| s.inspect_message(id));
@@ -325,7 +329,8 @@ fn discard_draft(state: State<'_, AppState>, id: MessageId) -> CmdResult<bool> {
 /// was written as plain text.
 #[tauri::command(async)]
 fn draft_html(state: State<'_, AppState>, id: MessageId) -> CmdResult<Option<String>> {
-    let raw = with_store(&state, |s| s.raw_of(id))?;
+    // An encrypted draft reads from what was decrypted when it was opened.
+    let raw = with_store(&state, |s| s.readable_raw(id))?;
     Ok(raw
         .as_deref()
         .and_then(telex_core::mime::html_body)
@@ -1183,6 +1188,15 @@ pub fn run() {
             keys::pgp_unlock,
             keys::pgp_forget,
             keys::pgp_compose,
+            keys::smime_certs,
+            keys::smime_pick,
+            keys::smime_import_p12,
+            keys::smime_cancel_p12,
+            keys::smime_export,
+            keys::smime_delete,
+            keys::smime_verify,
+            keys::smime_unlock,
+            keys::smime_forget,
             save_outgoing,
             discard_draft,
             draft_html,

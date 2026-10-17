@@ -1016,7 +1016,7 @@ textarea.sfield{height:auto;width:100%;padding:6px;font:12px var(--font-data);re
 .pgprem{display:inline-flex;align-items:center;gap:4px}
 .pgperr{font-weight:600}
 .pgpset{display:inline-flex;gap:4px}
-.pgpset[hidden],.cpgp[hidden]{display:none}
+.pgpset[hidden],.cpgp[hidden],.pgptog[hidden]{display:none}
 .pgptog svg{width:13px;height:13px;color:var(--muted)}
 .pgptog[aria-pressed="true"]{background:var(--sel);color:var(--fg);border-color:var(--accent)}
 .pgptog[aria-pressed="true"] svg{color:var(--accent)}

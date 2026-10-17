@@ -120,6 +120,8 @@ function installTelexDemo(options) {
       'To tylko demo: nie szuka innych programów pocztowych ani nie czyta ich plików. Pobierz Telex, aby przenieść pocztę z Thunderbirda albo Outlooka.'],
     pgp: ['This is a demo: it keeps no OpenPGP keys. Download Telex to sign and encrypt your own mail.',
       'To tylko demo: nie przechowuje kluczy OpenPGP. Pobierz Telex, aby podpisywać i szyfrować własną pocztę.'],
+    smime: ['This is a demo: it keeps no certificates. Download Telex to sign and encrypt with yours.',
+      'To tylko demo: nie przechowuje certyfikatów. Pobierz Telex, aby podpisywać i szyfrować swoim.'],
     update: ['This is a demo: it doesn’t update itself. Download the newest Telex instead.',
       'To tylko demo: nie aktualizuje się. Pobierz najnowszego Telexa.'],
   };
@@ -1505,10 +1507,16 @@ function installTelexDemo(options) {
     save_away: () => refuse('away'),
     // OpenPGP (openpgp.rs): the demo has no keys, so mail goes out as it is.
     pgp_keys: () => [],
-    pgp_compose: () => ({ own: null, unlocked: false, missing: [], can_encrypt: false, sign: false, encrypt: false }),
+    pgp_compose: () => ({ own: null, unlocked: false, missing: [], can_encrypt: false, sign: false, encrypt: false,
+      smime_own: null, smime_unlocked: false, smime_missing: [], smime_can_encrypt: false, smime: false }),
     pgp_import: () => refuse('pgp'), pgp_import_text: () => refuse('pgp'), pgp_import_offered: () => refuse('pgp'),
     pgp_generate: () => refuse('pgp'), pgp_export: () => refuse('pgp'), pgp_public_text: () => refuse('pgp'),
     pgp_unlock: () => refuse('pgp'), pgp_delete: () => refuse('pgp'), pgp_verify: () => refuse('pgp'), pgp_forget: () => null,
+    // S/MIME (smime.rs): no certificates either.
+    smime_certs: () => [],
+    smime_pick: () => refuse('smime'), smime_import_p12: () => refuse('smime'), smime_cancel_p12: () => null,
+    smime_export: () => refuse('smime'), smime_delete: () => refuse('smime'), smime_verify: () => refuse('smime'),
+    smime_unlock: () => refuse('smime'), smime_forget: () => null,
   };
   const asText = (e) => (typeof e === 'string' ? e : String(e?.message ?? e));
   // Like Tauri's invoke: arguments and answers cross as JSON; a failure is the core's sentence.

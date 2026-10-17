@@ -36,6 +36,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/013_saved_searches_and_rule_actions.sql"),
     include_str!("migrations/014_spam_filter.sql"),
     include_str!("migrations/015_openpgp.sql"),
+    include_str!("migrations/016_smime.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -275,6 +276,8 @@ pub struct MailStore {
     pub(crate) thread: RefCell<Option<(MessageId, u64, Vec<MessageId>)>>,
     /// OpenPGP passphrases given and messages decrypted this session, in memory only.
     pub(crate) pgp: RefCell<crate::openpgp::Session>,
+    /// S/MIME private keys opened this session, in memory only.
+    pub(crate) smime: RefCell<crate::smime::Session>,
 }
 
 impl MailStore {
@@ -318,6 +321,7 @@ impl MailStore {
             graph: RefCell::new(None),
             thread: RefCell::new(None),
             pgp: RefCell::default(),
+            smime: RefCell::default(),
         })
     }
 
@@ -419,12 +423,15 @@ impl MailStore {
         id: MessageId,
     ) -> Result<crate::risk::InspectedMessage, StoreError> {
         let mut message = self.get(id)?;
-        // OpenPGP: only messages that may hold it are read whole here.
+        // OpenPGP and S/MIME: only messages that may hold them are read whole here.
         let pgp_raw: Option<Vec<u8>> = self
             .db
             .query_row(
                 "SELECT CASE WHEN instr(raw, CAST('application/pgp' AS BLOB)) > 0
-                     OR instr(raw, CAST('-----BEGIN PGP' AS BLOB)) > 0 THEN raw END
+                     OR instr(raw, CAST('-----BEGIN PGP' AS BLOB)) > 0
+                     OR instr(raw, CAST('pkcs7' AS BLOB)) > 0
+                     OR instr(raw, CAST('PKCS7' AS BLOB)) > 0
+                     OR instr(raw, CAST('.p7m' AS BLOB)) > 0 THEN raw END
                  FROM message_content WHERE id = ?1",
                 [id as i64],
                 |r| r.get(0),
@@ -2028,6 +2035,8 @@ impl MailStore {
                     item.message.date,
                     now,
                 )?;
+                // S/MIME: the certificate of a valid signature by the sender.
+                crate::smime::note_signed(&tx, &item.raw, &item.message.from_email)?;
             }
             let stored: bool = tx.query_row(
                 "SELECT EXISTS (SELECT 1 FROM messages WHERE srv_folder = ?1 AND uid = ?2)",

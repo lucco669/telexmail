@@ -2,10 +2,10 @@
 
 Telex reads and writes OpenPGP mail: signed and encrypted messages that Thunderbird, GnuPG
 (with Mutt, Evolution, KMail, Claws), The Bat!, Proton, OpenKeychain, Delta Chat and other
-OpenPGP programs send and read. Everything happens on the user's PC; no key server, no account,
-no network beyond the mail servers.
-
-S/MIME (certificates from a .p12/.pfx file) is not done yet: see "Not yet" at the end.
+OpenPGP programs send and read. And S/MIME mail, signed and encrypted with X.509 certificates,
+as Outlook, Apple Mail, Thunderbird and most company mail write it (see "S/MIME" below).
+Everything happens on the user's PC; no key server, no account, no network beyond the mail
+servers.
 
 ## The library
 
@@ -144,10 +144,132 @@ an inline encrypted text. The other way round, what Telex sends (`write_mail_for
 checked with GnuPG: `gpg --verify` says "Good signature" for Telex's detached signature, and
 `gpg --decrypt` decrypts Telex's encrypted mail and verifies the signature inside.
 
+## S/MIME
+
+### The libraries
+
+RustCrypto's `cms` (CMS, RFC 5652, with its builder for signing and encrypting), `x509-cert`,
+`pkcs12` (PKCS #12's structures and key derivation), `pkcs5` and `pkcs8` (PBES2), and the
+ciphers `aes`, `des` (3DES) and `rc2` (old .p12 files), all MIT or Apache-2.0, of the same
+generation (`der` 0.7) as the `rsa` crate rPGP already brings, so RSA is one implementation for
+both. Chains off Windows: `rustls-webpki` (ISC) and `rustls-native-certs`, both in the build
+for TLS already. Nothing GPL or LGPL. `crates/telex-core/src/smime.rs` decides what the
+structures mean; `smime/ber.rs` makes BER into DER (below), `smime/p12.rs` reads .p12 and .pfx
+files, `smime/trust.rs` asks the system about chains.
+
+### Reading
+
+- `multipart/signed` with `application/pkcs7-signature` (or `x-pkcs7-signature`): the first
+  part is checked against the detached signature (SignedData).
+- `application/pkcs7-mime` (or `x-pkcs7-mime`, or an `application/octet-stream` named
+  `.p7m`): `signed-data` carries the message inside its signature (opaque signing), shown from
+  there; `enveloped-data` is encrypted, decrypted on open. Signed inside encrypted (either way of
+  signing) is checked too. A part that doesn't read as CMS counts as what its `smime-type` says,
+  so the line can say it is damaged.
+
+The line above the message is OpenPGP's (`View`, with `smime: true`), worded for certificates:
+
+| Signature        | When                                                                     |
+|------------------|--------------------------------------------------------------------------|
+| good             | Valid, within the certificate's dates at the signing time (its signed signing-time, else now), the From address in its subjectAltName (or the subject's emailAddress), and either a chain Windows trusts for email protection or a certificate the user confirmed or owns. The line names the issuing authority |
+| unconfirmed      | Valid and the sender's, but no trusted chain (a company's own authority, self-signed): its SHA-256 fingerprint and Confirm certificate |
+| other sender     | Valid, but the certificate names another address                         |
+| no key           | The signing certificate isn't in the message or the mail base (its serial number) |
+| bad              | The signature, or the content's digest in its signed attributes, doesn't match |
+| expired          | Outside the certificate's dates at the signing time                      |
+| revoked          | Windows already knows it was revoked (nothing is fetched to find out)    |
+| unsupported      | RSASSA-PSS, MD5 or an algorithm Telex doesn't check                      |
+
+Signatures: RSA PKCS #1 v1.5 (SHA-1 to SHA-512) and ECDSA P-256 and P-384. RSA keys up to 8,192
+bits.
+
+**Chain trust** is the system's. On Windows, CryptoAPI's chain engine (`CertGetCertificateChain`)
+with the message's certificates as possible issuers, for the email-protection usage, at the
+signing time: the user's and the machine's stores, enterprise policy and the distrusted list
+count. It runs with `CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL` and
+`CERT_CHAIN_DISABLE_AUTH_ROOT_AUTO_UPDATE`: nothing is fetched, not issuer certificates from the
+address a certificate names (its sender would learn when the mail was opened), not revocation
+lists, not root updates. A root Windows hasn't downloaded yet therefore counts as unknown, and the
+signature stays unconfirmed until the user confirms the certificate. Elsewhere rustls-webpki
+builds the chain to the system's authorities (`rustls-native-certs`: /etc/ssl/certs and the
+like); with none, every chain is unconfirmed.
+
+**Decrypting**: key transport recipients (`KeyTransRecipientInfo`) named by issuer and serial or
+subject key identifier, with an own certificate's RSA key: PKCS #1 v1.5 or RSA-OAEP (SHA-1 and
+SHA-256 as hash and MGF1); content in AES-128/192/256-CBC or 3DES-CBC. A locked key asks for its
+password in the line (Remember: the system's password store, "smime:<fingerprint>").
+authEnveloped-data (AES-GCM) says it is in a format Telex doesn't read; key agreement (EC
+certificates) isn't read, so such mail says it isn't for this PC's certificates. The decrypted
+message goes the way OpenPGP's does: under the outer headers, in the same memory (the last 8
+opened), through the same sanitizer; nothing decrypted reaches the mail base or the search index.
+
+**Hostile input**: mail programs write CMS in BER (Thunderbird streams it with indefinite lengths;
+Windows' .pfx files too), which `der` doesn't read, so `ber.rs` rewrites it as DER first: at most
+40 levels deep and 200,000 elements, lengths checked against the data. CMS structures over 48 MB
+aren't read, content that would decrypt to more than 64 MB isn't decrypted, and only the first 8
+signatures, 32 certificates and 256 recipients of a message are looked at.
+
+### Certificates
+
+Settings › Keys › Certificates (S/MIME) lists the user's own certificates and other people's, each
+with its SHA-256 fingerprint in groups of four, algorithm, issuer, dates and where it came from,
+and whether a trusted authority vouches for it. Import certificate… takes a `.p12` or `.pfx`
+(asks its password once, right there) or other people's certificates (`.cer`, `.crt`, `.pem`,
+`.der`, `.p7b`; imported as confirmed, authorities' own certificates skipped). Export
+certificate… saves PEM (never the key). Forget password, Confirm certificate, Delete.
+
+**.p12 and .pfx**: OpenSSL 3's default (PBES2: PBKDF2 and AES-256-CBC, a SHA-256 MAC), recent
+Windows exports (AES-256) and older ones (OpenSSL's `-legacy`, Windows' "TripleDES-SHA1": 3DES for
+the key, 40-bit RC2 for the certificates, a SHA-1 MAC). The MAC says whether the password is
+right before anything is decrypted; key derivations over 2,000,000 iterations are refused. The
+certificate is the one whose public key the private key has; the others are kept as its chain and
+sent along with signatures.
+
+**What is kept**: the private key is sealed again as PKCS #8 (PBES2: PBKDF2-SHA256 with 210,000
+iterations and AES-256-CBC) under the file's password and kept in the mail base (`smime_certs`,
+schema 16), so backups carry it, locked; `backup_secret_keys` off removes sealed keys from
+backups as it does OpenPGP's secret keys. Opened, it stays in memory until Telex closes.
+
+**People's certificates** come with their signed mail: the certificate of a valid signature whose
+addresses include the From address, within its dates, is kept when the message arrives (not in
+Spam, Trash or the user's own folders) or is opened, with the chain the message carried. A
+certificate Telex has stays as it is.
+
+### Writing
+
+Compose's Sign and Encrypt work with the sender's certificate when the sender has one; with both a
+key and a certificate, a switch says which (it starts on S/MIME when the message answers S/MIME
+mail, or when every recipient has a certificate but not a key).
+
+- **Sign**: `multipart/signed; protocol="application/pkcs7-signature"; micalg=sha-256`, the text
+  in quoted-printable (as for OpenPGP), a detached SignedData with SHA-256, the signing time, the
+  S/MIME capabilities (AES-256, AES-192, AES-128, so the answer comes in AES) and the certificate
+  with its chain. RSA keys sign with PKCS #1 v1.5; ECDSA P-256 and P-384 keys sign too.
+- **Encrypt**: `application/pkcs7-mime; smime-type=enveloped-data` (signed first when Sign is on,
+  as Outlook and Thunderbird do), AES-256-CBC, the content key for each recipient's certificate and
+  the sender's own with RSA PKCS #1 v1.5 (what every program reads). A recipient's certificate
+  counts when it can encrypt (RSA, key encipherment), is within its dates, and the user confirmed
+  it (imported, Confirm certificate) or a trusted authority vouches for it. Send refuses with the
+  addresses that have none.
+- **The subject stays outside**: S/MIME programs show the outer one (no protected headers here).
+- **Bcc**: S/MIME names every recipient in the message, so Encrypt with blind copies is refused
+  ("send them separately") rather than telling everyone who else got it.
+- **Drafts** with Encrypt on are sealed to the sender's own certificate.
+
+### Interoperability
+
+`smime/tests.rs` uses certificates made in the tests (an authority and leaf certificates built
+with `x509-cert`: dates, addresses, chains) and vectors made with **OpenSSL 3.5.5**
+(`smime/fixtures/`, see its README): modern and legacy .p12 files, detached and opaque signatures
+(also streamed BER), encryption with AES-256, AES-256 streamed, 3DES and RSA-OAEP, and signed then
+encrypted mail. The other way round, `write_mail_for_openssl` writes Telex's signed and encrypted
+mail, and `openssl smime -verify` and `-decrypt` say "Verification successful" for both.
+
 ## Not yet
 
-- **S/MIME** (certificates from .p12/.pfx, verify, decrypt, sign): the RustCrypto `cms` crate
-  (MIT/Apache) can parse it, but the certificate chain and trust work is a phase of its own.
+- S/MIME: authEnveloped-data (AES-GCM) and key agreement (EC recipients), RSASSA-PSS signatures,
+  revocation checks (CRL and OCSP would mean asking the authority about each signature), header
+  protection, and certificates looked up in a directory (LDAP).
 - Autocrypt Level 1's `prefer-encrypt=mutual` from the user's side (Telex sends no preference),
   Autocrypt Setup Messages and gossip headers.
 - Search inside encrypted mail (would mean storing its text), key servers and WKD lookups (would

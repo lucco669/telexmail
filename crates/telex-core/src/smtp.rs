@@ -162,12 +162,17 @@ pub fn compose_protected(
     protect: &openpgp::Protect,
 ) -> Result<Composed, String> {
     let extras = Extras {
-        quoted_printable: protect.sign.is_some(),
+        quoted_printable: protect.sign.is_some()
+            || protect.smime.as_ref().is_some_and(|s| s.sign.is_some()),
         key_file: protect.key_file.clone(),
     };
     let mut composed = build(account, draft, originals, now, Purpose::Send, &extras)?;
     let subject = composed.message.subject.clone();
-    composed.raw = openpgp::protect(&composed.raw, protect).map_err(|e| e.to_string())?;
+    composed.raw = match &protect.smime {
+        Some(s) => crate::smime::protect(&composed.raw, s),
+        None => openpgp::protect(&composed.raw, protect),
+    }
+    .map_err(|e| e.to_string())?;
     composed.message = parse_message(&composed.raw, "", Some(now.naive_local()));
     composed.message.subject = subject;
     composed.message.unread = false;
@@ -191,7 +196,11 @@ pub fn compose_draft_protected(
         &Extras::default(),
     )?
     .raw;
-    openpgp::protect(&raw, protect).map_err(|e| e.to_string())
+    match &protect.smime {
+        Some(s) => crate::smime::protect(&raw, s),
+        None => openpgp::protect(&raw, protect),
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// What OpenPGP asks of the message being built.

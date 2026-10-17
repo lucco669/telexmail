@@ -115,3 +115,32 @@ pub fn delete_passphrase(fingerprint: &str) {
         let _ = e.delete_credential();
     }
 }
+
+/// The system store's entry for an S/MIME certificate's password (only when the user ticked
+/// Remember): the same service, under "smime:<fingerprint>".
+fn cert_password_entry(fingerprint: &str) -> Result<Entry, String> {
+    entry(&format!("smime:{fingerprint}"))
+}
+
+pub fn save_cert_password(fingerprint: &str, password: &str) -> Result<(), String> {
+    cert_password_entry(fingerprint)?
+        .set_password(password)
+        .map_err(|e| {
+            let (store, why) = (store(), explain(&e));
+            tr!(
+                "Couldn't save the certificate's password in {store}: {why}",
+                "Nie udało się zapisać hasła certyfikatu ({store}): {why}"
+            )
+        })
+}
+
+/// The remembered password, if there is one (any failure is "none": Telex then asks).
+pub fn load_cert_password(fingerprint: &str) -> Option<String> {
+    cert_password_entry(fingerprint).ok()?.get_password().ok()
+}
+
+pub fn delete_cert_password(fingerprint: &str) {
+    if let Ok(e) = cert_password_entry(fingerprint) {
+        let _ = e.delete_credential();
+    }
+}

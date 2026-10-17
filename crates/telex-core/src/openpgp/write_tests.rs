@@ -72,6 +72,7 @@ fn an_encrypted_message_hides_its_text_and_subject_and_reads_back() {
         sign: true,
         encrypt: true,
         attach_key: true,
+        ..Choice::default()
     };
     let raw = composed(&s, &draft_to("Bob <bob@gnupg.test>", ""), both);
     let text = String::from_utf8(raw.clone()).unwrap();
@@ -163,6 +164,7 @@ fn a_draft_is_encrypted_to_its_writer_only() {
         sign: true,
         encrypt: true,
         attach_key: true,
+        ..Choice::default()
     };
     let p = s
         .protection(
@@ -207,6 +209,7 @@ fn compose_starts_encrypted_for_replies_to_encrypted_mail_and_as_last_chosen() {
         sign: true,
         encrypt: true,
         attach_key: false,
+        ..Choice::default()
     };
     s.remember_choice(&bob, both).unwrap();
     let next = s.compose_state("alice@telex.test", &bob, None, false);
@@ -252,6 +255,7 @@ fn write_mail_for_gnupg() {
         sign: true,
         encrypt: true,
         attach_key: false,
+        ..Choice::default()
     };
     let encrypted = composed(&s, &draft_to("bob@gnupg.test", ""), both);
     std::fs::write(format!("{dir}/telex-encrypted.eml"), encrypted).unwrap();

@@ -131,8 +131,18 @@ pub fn write_keys(
                 [],
                 |r| r.get(0),
             )?;
+            let has_certs: bool = copy.query_row(
+                "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'smime_certs')",
+                [],
+                |r| r.get(0),
+            )?;
             if has_keys {
                 copy.execute("UPDATE pgp_keys SET secret = NULL", [])?;
+            }
+            if has_certs {
+                copy.execute("UPDATE smime_certs SET secret = NULL", [])?;
+            }
+            if has_keys || has_certs {
                 copy.execute_batch("VACUUM")?;
             }
         }

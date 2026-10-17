@@ -84,6 +84,8 @@ pub enum SigStatus {
     Revoked,
     /// The key had expired when the message was signed.
     Expired,
+    /// Signed in a way Telex doesn't check (S/MIME: RSASSA-PSS, MD5, an unknown algorithm).
+    Unsupported,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -95,6 +97,9 @@ pub struct SigView {
     pub key_id: String,
     /// When it was signed (local time).
     pub created: Option<NaiveDateTime>,
+    /// S/MIME: who issued the signing certificate ("Actalis Client Authentication CA G3").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issuer: Option<String>,
 }
 
 /// Why an encrypted message isn't shown decrypted.
@@ -117,6 +122,9 @@ pub enum Problem {
 /// OpenPGP of an opened message, for the line above it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct View {
+    /// S/MIME (smime.rs) rather than OpenPGP: certificates instead of keys.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub smime: bool,
     pub encrypted: bool,
     /// Shown decrypted: the text and attachments come from the decrypted message, in memory.
     pub decrypted: bool,
@@ -229,7 +237,7 @@ pub struct Session {
 
 impl Session {
     /// Forget what was decrypted (keys changed: a message may read differently now).
-    fn forget_opened(&mut self) {
+    pub(crate) fn forget_opened(&mut self) {
         self.opened.clear();
     }
 }
@@ -1044,6 +1052,20 @@ pub enum WriteProblem {
     NoKeyFor {
         emails: Vec<String>,
     },
+    /// S/MIME: no own certificate (with its private key) for this address.
+    NoOwnCert {
+        email: String,
+    },
+    /// S/MIME: the own certificate's key needs its password.
+    CertLocked {
+        key: KeyRef,
+    },
+    /// S/MIME: no certificate to encrypt to for these recipients.
+    NoCertFor {
+        emails: Vec<String>,
+    },
+    /// S/MIME names every recipient in the message: encrypted mail can't have blind copies.
+    BlindCopies,
     Failed,
 }
 
@@ -1068,6 +1090,28 @@ impl std::fmt::Display for WriteProblem {
                     "Nie można zaszyfrować: brak klucza dla {list}. Zaimportuj ich klucz albo wyślij bez szyfrowania."
                 )
             }
+            Self::NoOwnCert { email } => tr!(
+                "There is no S/MIME certificate for {email}. Import yours (a .p12 or .pfx file) in Settings › Keys.",
+                "Nie ma certyfikatu S/MIME dla {email}. Zaimportuj swój (plik .p12 lub .pfx) w Ustawieniach › Klucze."
+            ),
+            Self::CertLocked { key } => {
+                let name = &key.name;
+                tr!(
+                    "The certificate {name} needs its password.",
+                    "Certyfikat {name} wymaga hasła."
+                )
+            }
+            Self::NoCertFor { emails } => {
+                let list = emails.join(", ");
+                tr!(
+                    "Can't encrypt: there is no certificate for {list}. Ask them for a signed message, or send without encryption.",
+                    "Nie można zaszyfrować: brak certyfikatu dla {list}. Poproś ich o podpisaną wiadomość albo wyślij bez szyfrowania."
+                )
+            }
+            Self::BlindCopies => tr!(
+                "S/MIME encryption names every recipient, so it can't hide blind copies. Send them separately, or send without encryption.",
+                "Szyfrowanie S/MIME wymienia każdego odbiorcę, więc nie ukryje kopii ukrytych. Wyślij je osobno albo bez szyfrowania."
+            ),
             Self::Failed => tr!(
                 "Signing or encrypting failed.",
                 "Podpisywanie lub szyfrowanie nie powiodło się."
@@ -1284,6 +1328,9 @@ pub struct Choice {
     /// Attach the sender's public key as a file.
     #[serde(default)]
     pub attach_key: bool,
+    /// Sign and encrypt with S/MIME (the sender's certificate) instead of OpenPGP.
+    #[serde(default)]
+    pub smime: bool,
 }
 
 /// Everything a message needs to go out signed or encrypted: gathered by
@@ -1300,12 +1347,15 @@ pub struct Protect {
     pub autocrypt: Option<String>,
     /// The sender's public key as a file: (name, armored).
     pub key_file: Option<(String, String)>,
+    /// S/MIME instead of OpenPGP (smime.rs); then the fields above are empty.
+    pub smime: Option<crate::smime::Protect>,
 }
 
 impl Protect {
     /// Nothing to add: the message goes out as it is built.
     pub fn is_empty(&self) -> bool {
-        self.sign.is_none()
+        self.smime.is_none()
+            && self.sign.is_none()
             && self.encrypt.is_empty()
             && self.hidden.is_empty()
             && self.autocrypt.is_none()
@@ -1327,6 +1377,17 @@ pub struct ComposeState {
     /// Where compose starts: signed, encrypted.
     pub sign: bool,
     pub encrypt: bool,
+    /// S/MIME: the sender's own certificate, if there is one.
+    pub smime_own: Option<KeyRef>,
+    /// Its key is open this session (or has no password): signing can go ahead.
+    pub smime_unlocked: bool,
+    /// Recipients without a certificate mail can be encrypted to.
+    pub smime_missing: Vec<String>,
+    /// Every recipient has a certificate (and the sender one that encrypts, for their copy).
+    pub smime_can_encrypt: bool,
+    /// Compose starts with S/MIME rather than OpenPGP: the sender has only a certificate, the
+    /// message answers S/MIME mail, or every recipient has a certificate but not a key.
+    pub smime: bool,
 }
 
 /// The sender's own certificate, for encrypting their copy and their Autocrypt header.
@@ -1423,6 +1484,9 @@ impl MailStore {
         autocrypt: bool,
         draft: bool,
     ) -> Result<Protect, WriteProblem> {
+        if choice.smime {
+            return self.smime_protection(from, to, bcc, choice, draft);
+        }
         let own = own_public(&self.db, from);
         let mut p = Protect::default();
         if choice.encrypt {
@@ -1505,9 +1569,8 @@ impl MailStore {
             .cloned()
             .collect();
         state.can_encrypt = own.is_some() && !recipients.is_empty() && state.missing.is_empty();
-        let replied = reply_to
-            .and_then(|id| self.raw_of(id).ok().flatten())
-            .map(|raw| find(&raw));
+        let replied_raw = reply_to.and_then(|id| self.raw_of(id).ok().flatten());
+        let replied = replied_raw.as_deref().map(find);
         let replied_encrypted = matches!(
             replied,
             Some(Some(
@@ -1533,7 +1596,78 @@ impl MailStore {
         state.encrypt = state.can_encrypt && (replied_encrypted || all(|p| p.0));
         state.sign = state.own.is_some()
             && (sign_by_default || replied_signed || state.encrypt || all(|p| p.1));
+        // S/MIME, when the sender has a certificate.
+        if let Some((cert, open)) = self.own_cert_state(from) {
+            state.smime_own = Some(cert);
+            state.smime_unlocked = open;
+            state.smime_missing = recipients
+                .iter()
+                .filter(|e| self.cert_for(e).is_none())
+                .cloned()
+                .collect();
+            state.smime_can_encrypt = self.own_cert_public(from).is_some()
+                && !recipients.is_empty()
+                && state.smime_missing.is_empty();
+            let replied_smime = replied_raw.as_deref().and_then(crate::smime::find);
+            state.smime = state.own.is_none()
+                || replied_smime.is_some()
+                || (state.smime_can_encrypt && !state.can_encrypt);
+            if state.smime {
+                let replied_encrypted =
+                    matches!(replied_smime, Some(crate::smime::Found::Enveloped { .. }));
+                state.encrypt = state.smime_can_encrypt && (replied_encrypted || all(|p| p.0));
+                state.sign =
+                    sign_by_default || replied_smime.is_some() || state.encrypt || all(|p| p.1);
+            }
+        }
         state
+    }
+
+    /// [`MailStore::protection`] with S/MIME: the sender's certificate signs, and the
+    /// recipients' certificates and the sender's own are encrypted to.
+    fn smime_protection(
+        &self,
+        from: &str,
+        to: &[String],
+        bcc: &[String],
+        choice: Choice,
+        draft: bool,
+    ) -> Result<Protect, WriteProblem> {
+        let me = from.trim().to_lowercase();
+        let mut s = crate::smime::Protect::default();
+        if choice.encrypt {
+            let (_, own) = self
+                .own_cert_public(from)
+                .ok_or_else(|| WriteProblem::NoOwnCert { email: me.clone() })?;
+            if !draft {
+                let mut everyone: Vec<String> = Vec::new();
+                for e in to {
+                    let e = e.trim().to_lowercase();
+                    if !e.is_empty() && e != me && !everyone.contains(&e) {
+                        everyone.push(e);
+                    }
+                }
+                let hidden = bcc
+                    .iter()
+                    .map(|e| e.trim().to_lowercase())
+                    .any(|e| !e.is_empty() && e != me && !everyone.contains(&e));
+                if hidden {
+                    return Err(WriteProblem::BlindCopies);
+                }
+                s.encrypt = self.certs_for(&everyone)?;
+            }
+            s.encrypt.push(own);
+        }
+        if choice.sign && !draft {
+            s.sign = Some(self.own_cert_for(from)?);
+        }
+        if s.sign.is_none() && s.encrypt.is_empty() {
+            return Ok(Protect::default());
+        }
+        Ok(Protect {
+            smime: Some(s),
+            ..Protect::default()
+        })
     }
 
     /// Remember what was chosen for these recipients, for the next message to them.
@@ -1850,7 +1984,7 @@ fn peer_exists(db: &Connection, email: &str) -> Result<bool, StoreError> {
         .query_row([email], |r| r.get(0))?)
 }
 
-fn memfind(hay: &[u8], needle: &[u8]) -> bool {
+pub(crate) fn memfind(hay: &[u8], needle: &[u8]) -> bool {
     hay.windows(needle.len()).any(|w| w == needle)
 }
 
@@ -1873,23 +2007,23 @@ enum Found {
     InlineSigned { text: String, block: (usize, usize) },
 }
 
-/// The message is OpenPGP-encrypted (PGP/MIME or an inline block).
+/// The message is encrypted: OpenPGP (PGP/MIME or an inline block) or S/MIME.
 pub fn is_encrypted(raw: &[u8]) -> bool {
     matches!(
         find(raw),
         Some(Found::MimeEncrypted { .. } | Found::InlineEncrypted { .. })
-    )
+    ) || crate::smime::is_encrypted(raw)
 }
 
 /// A part's MIME type, lower-case, and an attribute of it.
-fn is_type(part: &MessagePart<'_>, ctype: &str, sub: &str) -> bool {
+pub(crate) fn is_type(part: &MessagePart<'_>, ctype: &str, sub: &str) -> bool {
     part.content_type().is_some_and(|ct| {
         ct.ctype().eq_ignore_ascii_case(ctype)
             && ct.subtype().is_some_and(|s| s.eq_ignore_ascii_case(sub))
     })
 }
 
-fn protocol_is(part: &MessagePart<'_>, protocol: &str) -> bool {
+pub(crate) fn protocol_is(part: &MessagePart<'_>, protocol: &str) -> bool {
     part.content_type()
         .and_then(|ct| ct.attribute("protocol"))
         .is_some_and(|p| p.trim().eq_ignore_ascii_case(protocol))
@@ -1901,6 +2035,7 @@ pub(crate) fn is_machinery(p: &mail_parser::Message<'_>, index: usize) -> bool {
     let part = &p.parts[index];
     if is_type(part, "application", "pgp-signature")
         || is_type(part, "application", "pgp-encrypted")
+        || crate::smime::is_machinery(part)
     {
         return true;
     }
@@ -2017,7 +2152,7 @@ fn block_in(text: &str, begin: &str, end: &str) -> Option<(usize, usize)> {
 
 /// The first body part of a multipart body as signed (RFC 3156 §5): from after the first
 /// delimiter line to before the line break that precedes the next delimiter.
-fn first_part<'a>(body: &'a [u8], boundary: &[u8]) -> Option<&'a [u8]> {
+pub(crate) fn first_part<'a>(body: &'a [u8], boundary: &[u8]) -> Option<&'a [u8]> {
     let mut delimiter = b"--".to_vec();
     delimiter.extend_from_slice(boundary);
     let mut at = 0;
@@ -2052,7 +2187,7 @@ fn first_part<'a>(body: &'a [u8], boundary: &[u8]) -> Option<&'a [u8]> {
 }
 
 /// Lines ending in CRLF, as signed MIME is signed.
-fn canonical(data: &[u8]) -> Vec<u8> {
+pub(crate) fn canonical(data: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(data.len() + data.len() / 32);
     for (i, &b) in data.iter().enumerate() {
         if b == b'\n' && (i == 0 || data[i - 1] != b'\r') {
@@ -2151,6 +2286,7 @@ fn judge(
         }),
         key_id: key_id.clone(),
         created: created.map(local_time),
+        issuer: None,
     };
     let candidates = stored
         .iter()
@@ -2191,7 +2327,7 @@ fn judge(
 }
 
 /// Of several signatures, the one to show: the best verdict.
-fn best(views: Vec<SigView>) -> Option<SigView> {
+pub(crate) fn best(views: Vec<SigView>) -> Option<SigView> {
     let rank = |s: SigStatus| match s {
         SigStatus::Good => 0,
         SigStatus::Unconfirmed => 1,
@@ -2199,7 +2335,8 @@ fn best(views: Vec<SigView>) -> Option<SigView> {
         SigStatus::Expired => 3,
         SigStatus::Revoked => 4,
         SigStatus::NoKey => 5,
-        SigStatus::Bad => 6,
+        SigStatus::Unsupported => 6,
+        SigStatus::Bad => 7,
     };
     views.into_iter().min_by_key(|v| rank(v.status))
 }
@@ -2213,7 +2350,7 @@ struct Plain {
 }
 
 /// Why decrypting stopped.
-enum Stop {
+pub(crate) enum Stop {
     Problem(Problem),
     Locked(Vec<KeyRef>),
     NotForYou(Vec<String>),
@@ -2366,6 +2503,7 @@ impl MailStore {
             key: None,
             key_id: String::new(),
             created: None,
+            issuer: None,
         })
     }
 
@@ -2381,7 +2519,10 @@ impl MailStore {
         if let Some((_, opened)) = self.pgp.borrow().opened.iter().find(|(k, _)| *k == key) {
             return Some(opened.clone());
         }
-        let opened = Arc::new(self.open_now(message, raw)?);
+        let opened = Arc::new(
+            self.open_now(message, raw)
+                .or_else(|| self.smime_open(message, raw))?,
+        );
         let mut session = self.pgp.borrow_mut();
         session.opened.retain(|(k, _)| k.0 != message.id);
         session.opened.insert(0, (key, opened.clone()));
@@ -2430,6 +2571,7 @@ impl MailStore {
                         key: None,
                         key_id: String::new(),
                         created: None,
+                        issuer: None,
                     });
                     return Some(Opened {
                         view,
@@ -2593,7 +2735,7 @@ impl MailStore {
     }
 }
 
-fn stopped(view: &mut View, stop: Stop) {
+pub(crate) fn stopped(view: &mut View, stop: Stop) {
     match stop {
         Stop::Problem(p) => view.problem = Some(p),
         Stop::Locked(keys) => {
@@ -2711,7 +2853,7 @@ impl MailStore {
 }
 
 /// The decrypted data starts with MIME headers (a body part), not with text.
-fn looks_like_entity(data: &[u8]) -> bool {
+pub(crate) fn looks_like_entity(data: &[u8]) -> bool {
     let head = &data[..data.len().min(2048)];
     let text = String::from_utf8_lossy(head);
     let first = text.lines().next().unwrap_or_default();
@@ -2724,7 +2866,7 @@ fn looks_like_entity(data: &[u8]) -> bool {
 /// and a decrypted body part. The part's own Subject (protected headers, the "memory hole"
 /// scheme) replaces the outer one, which is often "..." then; its From, To and Date don't:
 /// the outer ones are those the list and the signature check go by.
-fn with_outer_headers(raw: &[u8], inner: &[u8]) -> Vec<u8> {
+pub(crate) fn with_outer_headers(raw: &[u8], inner: &[u8]) -> Vec<u8> {
     let (outer_head, _) = split_head(raw);
     let (inner_head, inner_body) = split_head(inner);
     let inner_fields = fields(inner_head);
@@ -2757,7 +2899,7 @@ fn with_outer_headers(raw: &[u8], inner: &[u8]) -> Vec<u8> {
 }
 
 /// A message's header block (with its line breaks) and its body.
-fn split_head(raw: &[u8]) -> (&[u8], &[u8]) {
+pub(crate) fn split_head(raw: &[u8]) -> (&[u8], &[u8]) {
     let mut i = 0;
     while i < raw.len() {
         let line_end = raw[i..]
@@ -2774,7 +2916,7 @@ fn split_head(raw: &[u8]) -> (&[u8], &[u8]) {
 }
 
 /// The header fields of a header block: (name, the whole field with its folded lines).
-fn fields(head: &[u8]) -> Vec<(String, &[u8])> {
+pub(crate) fn fields(head: &[u8]) -> Vec<(String, &[u8])> {
     let mut out: Vec<(String, &[u8])> = Vec::new();
     let mut start = None::<(usize, String)>;
     let mut i = 0;

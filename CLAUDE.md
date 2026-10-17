@@ -96,6 +96,14 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      mail base (schema 15), Autocrypt Level 1 from incoming mail, keys made,
                      imported, exported; compose's Sign and Encrypt (`protect`, smtp.rs builds
                      first). Tests with GnuPG vectors in src/openpgp/ (tests.rs, write_tests.rs).
+  src/smime.rs       S/MIME (RustCrypto cms, x509-cert, pkcs12; docs/encryption.md): multipart/signed
+                     and pkcs7-mime (signed-data, enveloped-data) checked and decrypted on open
+                     through openpgp.rs's View and memory; certificates in the mail base (schema
+                     16), own keys from .p12/.pfx sealed with their password; people's certificates
+                     learned from their valid signed mail; Sign and Encrypt (`protect`). smime/:
+                     ber.rs (BER made DER), p12.rs (PKCS #12: PBES2, 3DES, RC2), trust.rs (chains:
+                     CryptoAPI on Windows, rustls-webpki elsewhere, nothing fetched), tests.rs with
+                     OpenSSL vectors (fixtures/README.md).
   src/sieve.rs       ManageSieve (RFC 5804, port 4190, STARTTLS before the login) and Telex's
                      marked part of the running Sieve script, put in and taken out whole.
   src/drafts.rs      Starting a draft (new, reply, reply all, forward) from an identity's
@@ -125,8 +133,9 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   src/migrate.rs     Moving in: finding programs, a .pst or mail folder picked in Open, and
                      bringing accounts (passwords saved, a first login each), mail and filters.
   src/away.rs        The away reply's commands: reading, and saving (onto the server or not).
-  src/keys.rs        OpenPGP: Settings › Keys' commands, passphrases (memory; the system store
-                     only with Remember, "openpgp:<fingerprint>"), what compose's switches need.
+  src/keys.rs        OpenPGP and S/MIME: Settings › Keys' commands, passphrases and certificate
+                     passwords (memory; the system store only with Remember, "openpgp:<fingerprint>",
+                     "smime:<fingerprint>"), the .p12 waiting for its password, what compose needs.
   src/spell.rs       Spelling commands: the languages (the setting's, or Windows' and the
                      interface's), checking, suggestions, the user's words, fetching dictionaries.
   src/backup.rs      Settings › Backups: backing up now or when due, the backup folder,
@@ -167,7 +176,8 @@ scripts/             set-version.mjs: sets the version in every file that has it
 docs/releasing.md    The release process, the signing keys, and what an update check sends.
 docs/counting.md     Downloads and copies counted: what is sent, what is kept, GDPR, setting up /stats.
 docs/storage.md      How mail is stored, and the plan: fast at any size, backups, local folders, POP3.
-docs/encryption.md   Signed and encrypted mail: the library, what is kept where, keys, Autocrypt.
+docs/encryption.md   Signed and encrypted mail, OpenPGP and S/MIME: the libraries, what is kept where,
+                     keys and certificates, Autocrypt, chain trust.
 .github/workflows/   ci.yml: core tests and the contrast and Polish checks on Linux, Linux app clippy
                      (ubuntu-22.04), Windows clippy, core tests and installer build (can't update
                      itself). Actions are pinned to commits, the tag in a comment.
@@ -189,7 +199,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs); signed or encrypted mail also `pgp` `{encrypted, decrypted, problem, locked, recipients, signature: {status, key, key_id, created}, partial, offered}` (decrypted: body, subject and attachments from inside; a remembered passphrase is tried once) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs); signed or encrypted mail also `pgp` `{smime, encrypted, decrypted, problem, locked, recipients, signature: {status, key, key_id, created, issuer}, partial, offered}` (`smime`: S/MIME, `issuer` its certificate's authority; status also `unsupported`; decrypted: body, subject and attachments from inside; a remembered passphrase or certificate password is tried once) |
 | `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -212,8 +222,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends |
 | `mentions_attachment` | `text`, `signature`    | whether the user's own text (no quotes, forwarded part or signature) says a file is attached (`drafts::mentions_attachment`; Send asks when none is) |
-| `send_message`   | `draft`, `pgp` `{sign, encrypt, attach_key}` (null: none) | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}`; signed (multipart/signed) or encrypted to every recipient and the sender (multipart/encrypted), refused with who has no key; an Autocrypt header when the sender has a key |
-| `pgp_compose`    | `draft` (as typed)           | `{own, unlocked, missing, can_encrypt, sign, encrypt}`: where compose's Sign and Encrypt start and who has no key |
+| `send_message`   | `draft`, `pgp` `{sign, encrypt, attach_key, smime}` (null: none) | `{queued, wait, sent: [lines], errors}`; with `wait` > 0 it goes after that many seconds, then an "outbox-sent" event `{queued, sent, errors}`; signed (multipart/signed) or encrypted to every recipient and the sender (multipart/encrypted), refused with who has no key; an Autocrypt header when the sender has a key; with `smime` S/MIME instead (multipart/signed with application/pkcs7-signature, application/pkcs7-mime enveloped-data to every recipient's certificate and the sender's; no Bcc when encrypting) |
+| `pgp_compose`    | `draft` (as typed)           | `{own, unlocked, missing, can_encrypt, sign, encrypt, smime_own, smime_unlocked, smime_missing, smime_can_encrypt, smime}`: where compose's Sign and Encrypt start, OpenPGP or S/MIME (`smime`), and who has no key or certificate |
 | `hold_message`   | `id`                         | – (takes back mail still waiting to go; it stays in the Outbox, held) |
 | `get_html`       | `id`, `loadImages` (true/false/null), `dark` (palette or null) | `{document, blocked, loaded, sender, trusted}` or null for plain-text mail |
 | `trusted_senders`| –                            | senders whose images load without asking, A to Z |
@@ -272,6 +282,13 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `pgp_public_text` | `fingerprint`               | the public key, armored (Copy public key) |
 | `pgp_unlock`     | `fingerprint`, `passphrase`, `remember` | true when it opens the key (kept until Telex closes) |
 | `pgp_verify`, `pgp_delete`, `pgp_forget` | `fingerprint` (`verified`) | – (confirm a key; remove it; forget its passphrase here and in the system store) |
+| `smime_certs`    | –                            | `[{fingerprint, name, emails, issuer, serial, not_before, not_after, algorithm, secret, protected, source, verified, trusted, expired, can_sign, can_encrypt, added, unlocked, remembered}]`, own certificates first (`trusted`: the system's authorities vouch for it now) |
+| `smime_pick`     | `words`                      | `{kind: "password", name}` for a .p12/.pfx (it waits for its password), `{kind: "imported", report}` for certificates (.cer, .crt, .pem, .der, .p7b), or null; opens Open |
+| `smime_import_p12` | `password`, `remember`     | the import report, or null when the password doesn't open the file (it still waits); the key is kept sealed with that password and open until Telex closes |
+| `smime_cancel_p12` | –                          | – (forget the waiting file) |
+| `smime_export`   | `fingerprint`, `words`       | the path written (PEM, never the key), or null; opens Save |
+| `smime_unlock`   | `fingerprint`, `password`, `remember` | true when it opens the certificate's key |
+| `smime_verify`, `smime_delete`, `smime_forget` | `fingerprint` (`verified`) | – (confirm a certificate; remove it and its key; forget its password here and in the system store) |
 | `move_in`        | `path`, `choice` `{accounts, passwords: {key: password}, folders, filters}` | `{accounts: [{email, error}], mail: {added, already, problems}, rules: [plan items]}`; "move-progress" events `{step, done, total, name}` |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
@@ -467,7 +484,37 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   Bcc anonymous); Send refuses with the addresses that have no key and asks for the passphrase to
   sign; a reply to encrypted mail starts encrypted, else as last chosen per person; encrypted
   drafts encrypted to the sender; an Autocrypt header with the sender's key. Checked against
-  GnuPG 2.4.9 both ways. Not yet: S/MIME.
+  GnuPG 2.4.9 both ways.
+- S/MIME (schema version 16: `smime_certs`; one-way; docs/encryption.md). RustCrypto's cms,
+  x509-cert and pkcs12 (MIT or Apache-2.0; der 0.7, as rsa); rustls-webpki (ISC) for chains off
+  Windows. Reading: multipart/signed with application/(x-)pkcs7-signature, application/pkcs7-mime
+  signed-data (opaque) and enveloped-data, also signed inside, in the same line above the message
+  as OpenPGP's (`View.smime`): Signed by, certified by its authority (valid, within the
+  certificate's dates at the signing time, the From address in its subjectAltName or emailAddress,
+  and a chain Windows trusts for email, or a certificate the user confirmed or owns); unconfirmed
+  (fingerprint, Confirm certificate), another address, not carried, bad, expired, revoked (as far
+  as Windows knows), and `unsupported` (RSASSA-PSS, MD5). Chains: CryptoAPI with the message's
+  certificates as helpers, from the cache only and without root updates (nothing fetched, so a
+  sender's AIA address learns nothing); elsewhere rustls-webpki against the system's authorities
+  (rustls-native-certs), else unconfirmed. Decrypting: RSA key transport (PKCS #1 v1.5 and OAEP),
+  AES-128/192/256-CBC and 3DES-CBC, with an own certificate's key; locked keys ask for the .p12
+  password in the line; authEnveloped (AES-GCM) says unsupported, and key agreement (EC
+  certificates) isn't read. BER
+  (Thunderbird's streaming, Windows' .pfx) is made DER first, with depth and size limits; CMS over
+  48 MB, decrypted over 64 MB, and more than 8 signatures, 32 certificates or 256 recipients aren't
+  looked at. Nothing decrypted is stored or indexed (openpgp.rs's memory). Keys: .p12/.pfx imported
+  with its password asked once (OpenSSL 3's PBES2/AES and `-legacy` 3DES/RC2, MAC checked first,
+  iterations capped), the private key kept sealed in the mail base (PKCS #8, PBES2 PBKDF2-SHA256 +
+  AES-256-CBC) under that password, open for the session, the password in the system store only
+  with Remember ("smime:<fingerprint>"); backups drop sealed keys too without
+  `backup_secret_keys`. Certificates of valid signatures by the From address are kept (sync and
+  open) to encrypt to; files (.cer, .pem, .p7b) import as confirmed. Settings › Keys › Certificates
+  (S/MIME). Writing: compose's OpenPGP | S/MIME switch when the sender has both (S/MIME when only a
+  certificate, a reply to S/MIME mail, or only certificates reach everyone); Sign (SHA-256,
+  signing time, S/MIME capabilities, the chain), Encrypt (AES-256-CBC, RSA PKCS #1 v1.5, to every
+  recipient's certificate that the user confirmed or a trusted authority vouches for, and the
+  sender's), signed first; the subject stays outside; Bcc with Encrypt is refused (S/MIME names
+  every recipient); encrypted drafts sealed to the sender. Checked against OpenSSL 3.5.5 both ways.
 
 ## Current state (v0.9.11: copy mail as Markdown, gentler on shared servers, a log of connections, and all earlier features below)
 
