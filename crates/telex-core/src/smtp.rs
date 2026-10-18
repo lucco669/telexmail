@@ -1401,6 +1401,95 @@ JVBERi0xLjQK\r\n\
     }
 
     #[tokio::test]
+    async fn the_original_is_answered_only_once_smtp_took_the_reply() {
+        let (port, _server) = start_fake_smtp("nobody@").await;
+        let (store, account, ids) = store_with_queued(&[
+            "nobody@kowalska-architekci.pl", // refused
+            "anna@kowalska-architekci.pl",
+        ]);
+        let inbox = account.folder_key("inbox");
+        let originals: Vec<crate::model::MessageId> = {
+            let mut s = store.lock().unwrap();
+            let originals: Vec<crate::model::MessageId> = (1..=3)
+                .map(|n| {
+                    let raw = format!(
+                        "From: Anna <anna@kowalska-architekci.pl>\r\nTo: biuro@twojastudio.pl\r\n\
+                         Subject: Nr {n}\r\nMessage-ID: <nr{n}@kowalska.pl>\r\n\
+                         Date: Fri, 16 Oct 2026 09:00:00 +0200\r\n\r\nTekst\r\n"
+                    );
+                    let message = crate::mime::parse_message(raw.as_bytes(), &inbox, None);
+                    s.add_synced(
+                        &inbox,
+                        &[crate::store::SyncedMessage {
+                            uid: n,
+                            message,
+                            raw: raw.into_bytes(),
+                        }],
+                    )
+                    .unwrap()[0]
+                })
+                .collect();
+            s.note_answering(ids[0], Some(originals[0]), None).unwrap();
+            s.note_answering(ids[1], Some(originals[1]), None).unwrap();
+            // Sent later: it waits in the Outbox, and so does the forward's mark.
+            let c = compose(
+                &account,
+                &draft("piotr@nowak.pl"),
+                &Originals::default(),
+                now(),
+            )
+            .unwrap();
+            let later = s
+                .queue_outgoing(
+                    &account.id,
+                    &c.message,
+                    &c.raw,
+                    &c.env_from,
+                    &c.env_to,
+                    None,
+                    Some(due() + chrono::TimeDelta::hours(1)),
+                )
+                .unwrap();
+            s.note_answering(later, None, Some(originals[2])).unwrap();
+            originals
+        };
+        let state = |id| {
+            let m = store.lock().unwrap().summary(id).unwrap();
+            (m.answered, m.forwarded)
+        };
+        assert_eq!(state(originals[1]), (false, false), "queued isn't sent");
+
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        assert_eq!(report.sent.len(), 1, "{report:?}");
+        assert_eq!(
+            state(originals[0]),
+            (false, false),
+            "the server refused that reply"
+        );
+        assert_eq!(state(originals[1]), (true, false));
+        assert_eq!(
+            state(originals[2]),
+            (false, false),
+            "the forward goes in an hour"
+        );
+        let s = store.lock().unwrap();
+        let answered: Vec<_> = s
+            .pending_changes(&account.id)
+            .unwrap()
+            .into_iter()
+            .filter(|c| c.kind == ChangeKind::Answered(true))
+            .map(|c| (c.message, c.uid))
+            .collect();
+        assert_eq!(
+            answered,
+            [(Some(originals[1]), Some(2))],
+            "queued for the server"
+        );
+    }
+
+    #[tokio::test]
     async fn a_refused_recipient_keeps_the_message_and_says_why() {
         let (port, server) = start_fake_smtp("nobody@").await;
         let (store, account, ids) = store_with_queued(&[

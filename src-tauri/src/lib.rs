@@ -1009,6 +1009,8 @@ async fn send_message(
             draft.replaces,
             send_after,
         )?;
+        // The original is marked answered (or forwarded) once SMTP takes this.
+        s.note_answering(queued, draft.reply_to, draft.forward_of)?;
         if let Some(autosave) = draft.autosaved {
             s.discard_draft(autosave)?;
         }

@@ -27,6 +27,9 @@ const I = {
   reply: sv('<path d="M6.5 4L3 7.5 6.5 11"/><path d="M3.5 7.5H9a4 4 0 014 4v1"/>'),
   replyall: sv('<path d="M8.5 4L5 7.5 8.5 11"/><path d="M5 4L1.5 7.5 5 11"/><path d="M5.5 7.5H10a4 4 0 014 4v1"/>'),
   forward: sv('<path d="M9.5 4L13 7.5 9.5 11"/><path d="M12.5 7.5H7a4 4 0 00-4 4v1"/>'),
+  // A row answered or forwarded: the same arrows, small, where the unread dot would be.
+  replied: sv('<path d="M6.5 3.5L2.5 7.5l4 4"/><path d="M3 7.5h6a4.5 4.5 0 014.5 4.5v1"/>', 'class="rp" stroke-width="1.8"'),
+  forwarded: sv('<path d="M9.5 3.5l4 4-4 4"/><path d="M13 7.5H7a4.5 4.5 0 00-4.5 4.5v1"/>', 'class="rp" stroke-width="1.8"'),
   trash: sv('<path d="M2.5 4.5h11M6.5 4.5V2.8h3v1.7M4 4.5l.7 9h6.6l.7-9"/>'),
   flag: sv('<path d="M3.5 14.5V2.5"/><path d="M3.5 3h9l-2 3 2 3h-9"/>'),
   flagOff: sv('<path d="M3.5 14.5V2.5"/><path d="M3.5 3h9l-2 3 2 3h-9"/>', 'class="off"'),
@@ -97,6 +100,7 @@ const fromSummary = s => ({
   id:s.id, f:s.folder, from:s.from_name, email:s.from_email, to:s.to, subj:s.subject,
   date:parseDate(s.date), kb:s.size_kb, unread:s.unread, flagged:s.flagged, hasAtt:s.has_attachments,
   thread:s.thread ?? null, goes:s.goes ? parseDate(s.goes) : null, tags:s.tags ?? [],
+  answered:!!s.answered, forwarded:!!s.forwarded,
 });
 // Accounts, folders and how many messages each folder holds (the core counts them).
 async function loadTree(){
@@ -1209,8 +1213,11 @@ function rowHtml(m, sel, hl, accounts){
   const [where, whose] = whereOf(m, accounts);
   // Mail sent later says in the Outbox when it goes.
   const goes = m.goes ? `<span class="goes">${esc(t('Goes {when}', {when:fmtGoes(m.goes)}))}</span> ` : '';
-  // The dot and the flag are switches: a click marks read or unread, flags or unflags.
-  const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
+  // The dot and the flag are switches: a click marks read or unread, flags or unflags. Read mail
+  // the user answered or forwarded has an arrow there instead (the dot's ring under the pointer).
+  const did = m.unread ? '' : didText(m), read = m.unread ? t('Mark as read (U)') : t('Mark as unread (U)');
+  const arrow = did ? (m.answered ? I.replied : I.forwarded).replace('aria-hidden="true"', `role="img" aria-label="${esc(did)}"`) : '';
+  const dot = `<b class="mk rd${did ? ' did' : ''}" title="${esc(did ? did + ' · ' + read : read)}">${arrow}<i class="dot"></i></b>`;
   const flag = `<b class="mk fl" title="${esc(m.flagged ? t('Remove the flag (F)') : t('Flag (F)'))}">${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : I.flagOff}</b>`;
   return `<tr data-id="${m.id}" class="${cls}" aria-selected="${on}">
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
@@ -1219,6 +1226,11 @@ function rowHtml(m, sel, hl, accounts){
 <td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(whose ? where + ' · ' + whose : where)}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
+}
+
+// What the user did with a message, for its row's arrow.
+function didText(m){
+  return m.answered && m.forwarded ? t('Replied and forwarded') : m.answered ? t('Replied') : m.forwarded ? t('Forwarded') : '';
 }
 
 /* ---------- what the filter found, marked in the rows ---------- */
@@ -2358,6 +2370,22 @@ function paintReadButton(){
   b.innerHTML = m.unread ? I.mailOpen : I.mail;
   b.title = readTip(m); b.setAttribute('aria-label', b.title);
 }
+/* ---------- replied and forwarded, in the open message ---------- */
+// A quiet line when the user answered or forwarded the message: when they replied (their reply in
+// Sent or an Outbox), which opens that reply in its window, else the conversation (T).
+function didBar(m){
+  const r = m.replied;
+  if (!r) return '';
+  const at = r.at ? parseDate(r.at) : null;
+  const parts = [];
+  if (r.answered) parts.push(at ? t('You replied on {date} at {time}.', {date:dmy(at), time:hm(at)}) : t('You replied.'));
+  if (r.forwarded) parts.push(t('You forwarded it.'));
+  const text = esc(parts.join(' ')), icon = r.answered ? I.reply : I.forward;
+  if (VIEWER) return `<div class="bar quiet didbar">${icon}<span>${text}</span></div>`;
+  const tip = r.reply ? t('Open your reply in its own window') : t('Show the conversation (T)');
+  return `<div class="bar quiet didbar">${icon}<button type="button" class="linkbtn" data-act="replied" title="${esc(tip)}">${text}</button></div>`;
+}
+
 /* ---------- send later, in the open message ---------- */
 // Mail sent later says when it goes, with Send now and Hold; E changes it.
 function goesBar(m){
@@ -2641,6 +2669,8 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
   const dark = pref().prefer_text ? null : darkPaper(s.id);
   try {
     m = await full(s.id);
+    // Answered or forwarded since it was read (the reply went): its line above it too.
+    if ((s.answered && !m.replied?.answered) || (s.forwarded && !m.replied?.forwarded)){ bodies.delete(s.id); m = await full(s.id); }
     hv = await htmlView(s.id, pref().prefer_text ? false : state.images.has(s.id) ? true : null, dark);
   } catch (e){ if (seq === pvSeq) previewEl.innerHTML = `<div class="pempty">${esc(tr(e))}</div>`; return; }
   if (seq !== pvSeq || state.compose) return;
@@ -2658,7 +2688,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
 ${headerHtml({...m, tags:s.tags ?? m.tags}, `${unsubButton(m)}${readButton(s)}${flagButton(s)}${tagButton()}${popout}${mdButton()}${outButton()}${paper}${views}`)}
 ${inviteHtml(m, spam)}
 ${riskHtml(m)}
-${goesBar(m)}${unsubBar(m)}${pgpHtml(m)}
+${goesBar(m)}${didBar(m)}${unsubBar(m)}${pgpHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -2713,6 +2743,7 @@ previewEl.addEventListener('click', async e => {
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
+  if (act.dataset.act === 'replied' && m){ const r = (await full(m.id)).replied; if (r?.reply) openWindow(r.reply); else toggleThread(); return; }
   if (act.dataset.act === 'markdown' && m){ copyMarkdown([m.id]); return; }
   if (act.dataset.act === 'out' && m){ const r = act.getBoundingClientRect(); openMenu(r.left, r.bottom + 2, outItems(m.id), act); return; }
   if ((act.dataset.act === 'iv-add' || act.dataset.act === 'iv-save') && m){
@@ -2815,8 +2846,22 @@ async function openCompose(kind, preset = {}, of = null){
   state.compose = c;
   renderCompose();
   c.saved = shapeOf(readCompose()); // as it opened: nothing to autosave yet
+  if (['reply', 'replyall', 'forward'].includes(kind)) readAnswering(s.id);
   if (kept){ draftsChanged(); say(t('The message you were writing is in Drafts.'), 6000); }
   else if (c.later) say(t('Held while you change it. Send keeps its time, {when}; Esc keeps it as a draft.', {when:fmtFull(parseDate(c.later))}), 8000);
+}
+// Answering a message means it was read, whatever Settings › Reading says: it is marked read
+// as the reply opens (only that one, not the rest of a selection). It is marked answered only
+// once the reply went (the core, after SMTP took it).
+function readAnswering(id){
+  const row = list.rows.find(r => r.id === id) ?? (selRow?.id === id ? selRow : null);
+  if (row && !row.unread) return;
+  if (id === current()?.id) clearTimeout(readTimer);
+  call('set_unread_many', {ids:[id], unread:false}).then(n => {
+    if (!n) return;
+    bodies.delete(id);
+    if (row){ changed(row, {unread:false}); reorder(); } else if (!VIEWER) refresh();
+  }).catch(() => {});
 }
 const focusCompose = () => $('c-to')?.focus();
 // After a draft was saved or dropped: the Drafts folder's count and list (the main window's).
@@ -4457,7 +4502,7 @@ qEl.addEventListener('input', () => { setFilter(qEl.value); qs.at = -1; suggest(
 // (from:, or to: in Sent and Drafts). ↓ ↑ choose, Enter or a click takes one. Enter with none
 // chosen (or ↓ with none to choose) goes to the results; Esc clears the search.
 const qPop = $('q-pop');
-const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'tag:', 'is:tagged', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
+const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'tag:', 'is:tagged', 'is:replied', 'is:unreplied', 'is:forwarded', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
 const qs = {items:[], at:-1};
 // The word the caret is in: where it starts and ends, and the word.
 function wordAtCaret(){
@@ -4501,7 +4546,7 @@ function suggest(){
   };
   qPop.innerHTML = (empty && items.length ? `<div class="qhead"><span>${esc(t('Recent searches'))}</span><button type="button" class="linkbtn" data-forget>${esc(t('Clear'))}</button></div>` : '')
     + (items.length ? `<ul id="q-list" role="listbox" aria-label="${esc(t('Suggestions'))}">${items.map(row).join('')}</ul>` : '')
-    + (empty ? `<div class="qops"><span>${esc(t('Narrow it down:'))}</span>${OPERATORS_ALL.filter(o => o !== 'is:read' && o !== 'is:unflagged').map(o => `<button type="button" data-op="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : '')
+    + (empty ? `<div class="qops"><span>${esc(t('Narrow it down:'))}</span>${OPERATORS_ALL.filter(o => o !== 'is:read' && o !== 'is:unflagged' && o !== 'is:unreplied').map(o => `<button type="button" data-op="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : '')
     + `<div class="qfoot"><span><kbd>Enter</kbd> ${esc(t('the results'))}</span><span><kbd>Tab</kbd> ${esc(t('this folder or all mail'))}</span><span><kbd>Esc</kbd> ${esc(t('clear'))}</span></div>`;
   const r = qEl.closest('.search').getBoundingClientRect(), w = Math.min(innerWidth - 8, Math.max(r.width, 340));
   qPop.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
@@ -4514,7 +4559,7 @@ function suggest(){
 // What an operator does, in a few words.
 function opHint(op){
   return {'from:':t('sender'), 'to:':t('recipient'), 'subject:':t('words in the subject'), 'is:unread':t('unread only'), 'is:read':t('read only'),
-    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'tag:':t('a tag, e.g. tag:work'), 'is:tagged':t('with any tag'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
+    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'tag:':t('a tag, e.g. tag:work'), 'is:tagged':t('with any tag'), 'is:replied':t('answered by you'), 'is:unreplied':t('not answered yet'), 'is:forwarded':t('forwarded by you'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
     'before:':t('2026, 2026-09 or 15.09.2026'), 'larger:':t('size, e.g. 5m'), 'smaller:':t('size, e.g. 100k')}[op] ?? '';
 }
 function closeSuggest(){
@@ -7760,7 +7805,7 @@ const HELP_TIPS = [
   N_('The person button by a sender adds them to the address book. Type a group’s name in To and it goes in as its people.'),
   N_('Tags are colored labels, several to a message: Settings › Tags names and colors them. Search with tag:work or is:tagged.'),
 ];
-const OPERATORS = 'from: to: subject: is:unread is:flagged tag:work is:tagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
+const OPERATORS = 'from: to: subject: is:unread is:flagged tag:work is:tagged is:replied is:forwarded has:file after:2026-09 before:2026 larger:5m smaller:100k';
 const MOUSE = {click:N_('click|mouse'), 'double-click':N_('double-click|mouse'), 'right-click':N_('right-click|mouse'), drag:N_('drag|mouse')};
 // "Shift+R" as keycaps; a mouse word as a word.
 const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/)

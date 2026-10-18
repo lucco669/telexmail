@@ -85,6 +85,10 @@ const UI = [
   ['flag', 'chrome', 'Usage meter, nearly full'],
   ['note-fg', 'chrome', 'Usage meter, full'],
   ['spell', 'surface', 'The wavy line under a spelling mistake'],
+  ['replied', 'surface', 'The arrow of mail answered or forwarded'],
+  ['replied', 'hover', 'That arrow under the pointer'],
+  ['replied', 'sel', 'That arrow in the selected row'],
+  ['replied', 'panel', 'The arrow of “You replied” above a message'],
   ...TAG_COLORS.flatMap((c) => [
     [`tag-${c}-fg`, 'panel', `A ${c} tag's dot in menus and Settings`],
     [`tag-${c}-fg`, 'surface', `A ${c} tag's dot on a message`],
@@ -110,6 +114,7 @@ const MIXED = [0, 1, 2, 3, 4, 5].flatMap((i) => {
     ['muted', row, `Dates and folders in a tinted row of account ${i + 1}`],
     ['accent', row, `Unread mail in color, and its dot, in a tinted row of account ${i + 1}`],
     ['flag', row, `The flag in a tinted row of account ${i + 1}`, 'ui'],
+    ['replied', row, `The answered arrow in a tinted row of account ${i + 1}`, 'ui'],
   ];
 });
 const NEED = { AA: 4.5, AAA: 7 };

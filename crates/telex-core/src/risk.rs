@@ -37,6 +37,9 @@ pub struct InspectedMessage {
     /// Signed or encrypted mail: what OpenPGP found (openpgp.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pgp: Option<crate::openpgp::View>,
+    /// The user replied to it or forwarded it, and when they replied (store.rs).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replied: Option<crate::store::Replied>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]

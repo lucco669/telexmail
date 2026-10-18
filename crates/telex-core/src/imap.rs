@@ -350,8 +350,10 @@ pub async fn download_older_in<T: ImapStream>(
             done: ids.len(),
             total,
         });
-        let batch = fetch_batch(session, chunk, folder_key).await?;
-        ids.extend(lock(store)?.add_synced(folder_key, &batch)?);
+        let (batch, answered) = fetch_batch(session, chunk, folder_key).await?;
+        let mut s = lock(store)?;
+        ids.extend(s.add_synced(folder_key, &batch)?);
+        s.refresh_flags(folder_key, &answered)?;
     }
     progress(SyncProgress {
         account: account.name.clone(),
@@ -539,8 +541,13 @@ pub async fn sync_session<T: ImapStream>(
         }
         let mut done = 0;
         for chunk in wanted.chunks(FETCH_BATCH) {
-            let batch = fetch_batch(session, chunk, &key).await?;
-            let ids = lock(store)?.add_synced(&key, &batch)?;
+            let (batch, answered) = fetch_batch(session, chunk, &key).await?;
+            let ids = {
+                let mut s = lock(store)?;
+                let ids = s.add_synced(&key, &batch)?;
+                s.refresh_flags(&key, &answered)?;
+                ids
+            };
             if arriving {
                 downloaded.arrived.extend(&ids);
             }
@@ -674,13 +681,21 @@ async fn push_queued_after<T: ImapStream>(
         {
             continue;
         }
-        // Mail from this PC takes its tags along, where the server keeps them.
-        let keywords = match flags {
+        // Mail from this PC takes its tags along, where the server keeps them, and whether it
+        // was answered ($Forwarded is a keyword, so it goes as they do).
+        let (answered, forwarded) = match flags {
+            Some(_) => lock(store)?.answered_of(id)?,
+            None => (false, false),
+        };
+        let mut keywords = match flags {
             Some(_) if !lock(store)?.tags_kept_here(&account.id)? => {
                 lock(store)?.keywords_of(id)?
             }
             _ => Vec::new(),
         };
+        if forwarded && flags.is_some() && !lock(store)?.tags_kept_here(&account.id)? {
+            keywords.push(FORWARDED.to_owned());
+        }
         let mut list: Vec<&str> = match (flags, draft) {
             (_, true) => vec!["\\Seen", "\\Draft"],
             (None | Some((true, false)), _) => vec!["\\Seen"],
@@ -688,6 +703,9 @@ async fn push_queued_after<T: ImapStream>(
             (Some((false, true)), _) => vec!["\\Flagged"],
             (Some((false, false)), _) => vec![],
         };
+        if answered {
+            list.push("\\Answered");
+        }
         let plain = (!list.is_empty()).then(|| format!("({})", list.join(" ")));
         list.extend(keywords.iter().map(String::as_str));
         let tagged = (!list.is_empty()).then(|| format!("({})", list.join(" ")));
@@ -791,19 +809,26 @@ async fn push_queued_after<T: ImapStream>(
             }
             Err(e) => return Err(e.into()),
         };
-        // Tags the server can't keep stay on this PC; the user hears it once.
+        // Tags the server can't keep stay on this PC; the user hears it once. $Forwarded is a
+        // keyword too: where tags can't go, it stays here with them.
         let mut group = group;
-        if group
-            .iter()
-            .any(|c| matches!(c.kind, ChangeKind::Keyword { .. }))
-        {
+        if group.iter().any(|c| {
+            matches!(
+                c.kind,
+                ChangeKind::Keyword { .. } | ChangeKind::Forwarded(_)
+            )
+        }) {
             let mut s = lock(store)?;
             let mut here = s.tags_kept_here(&account.id)?;
             let mut kept = Vec::with_capacity(group.len());
             for change in group {
-                let ChangeKind::Keyword { keyword, .. } = &change.kind else {
-                    kept.push(change);
-                    continue;
+                let keyword = match &change.kind {
+                    ChangeKind::Keyword { keyword, .. } => keyword.as_str(),
+                    ChangeKind::Forwarded(_) => FORWARDED,
+                    _ => {
+                        kept.push(change);
+                        continue;
+                    }
                 };
                 if !here && !keeps_keyword(&mailbox.permanent_flags, keyword) {
                     here = true;
@@ -1307,11 +1332,13 @@ async fn list_folders<T: ImapStream>(
     Ok(names.iter().map(RemoteFolder::from_name).collect())
 }
 
+/// The messages, and the flags of those already answered or forwarded (on another device):
+/// the store takes those after storing them (`refresh_flags`).
 async fn fetch_batch<T: ImapStream>(
     session: &mut Session<T>,
     uids: &[u32],
     folder_key: &str,
-) -> Result<Vec<SyncedMessage>, SyncError> {
+) -> Result<(Vec<SyncedMessage>, Vec<ServerFlags>), SyncError> {
     let fetches = timeout(FETCH_TIMEOUT, async {
         let stream = session.uid_fetch(uid_set(uids), FETCH_ITEMS).await?;
         stream.try_collect::<Vec<Fetch>>().await
@@ -1319,7 +1346,8 @@ async fn fetch_batch<T: ImapStream>(
     .await
     .map_err(|_| SyncError::Timeout)??;
     let wanted: HashSet<u32> = uids.iter().copied().collect();
-    Ok(fetches
+    let mut answered = Vec::new();
+    let messages = fetches
         .iter()
         .filter_map(|f| {
             // Servers may add FETCH lines for other messages; keep only what was asked for.
@@ -1332,14 +1360,18 @@ async fn fetch_batch<T: ImapStream>(
             let state = flag_state(f, uid);
             message.unread = !state.seen;
             message.flagged = state.flagged;
-            message.tags = state.keywords;
+            message.tags = state.keywords.clone();
+            if state.answered || state.forwarded {
+                answered.push(state);
+            }
             Some(SyncedMessage {
                 uid,
                 message,
                 raw: raw.to_vec(),
             })
         })
-        .collect())
+        .collect();
+    Ok((messages, answered))
 }
 
 /// \Seen, \Flagged and the keywords of messages already stored.
@@ -1368,7 +1400,9 @@ fn flag_state(f: &Fetch, uid: u32) -> ServerFlags {
         match flag {
             Flag::Seen => state.seen = true,
             Flag::Flagged => state.flagged = true,
+            Flag::Answered => state.answered = true,
             Flag::Custom(k) if crate::tags::is_keyword(&k) => {
+                state.forwarded |= k.eq_ignore_ascii_case(FORWARDED);
                 state.keywords.push(k.to_ascii_lowercase());
             }
             _ => {}
@@ -1376,6 +1410,10 @@ fn flag_state(f: &Fetch, uid: u32) -> ServerFlags {
     }
     state
 }
+
+/// The keyword for forwarded mail, as Thunderbird, Apple Mail and Dovecot write it (RFC 5788's
+/// registry). A server keeps it where it keeps keywords: Gmail does (\* in PERMANENTFLAGS).
+const FORWARDED: &str = "$Forwarded";
 
 /// The folder selected keeps this keyword: its PERMANENTFLAGS lists \* or the keyword, or
 /// says nothing (RFC 3501: then every flag is kept).
@@ -1431,6 +1469,12 @@ async fn apply_batch<T: ImapStream>(
             .await
             .map(|()| none),
         ChangeKind::Flagged(on) => store_flag(session, &set, "\\Flagged", *on)
+            .await
+            .map(|()| none),
+        ChangeKind::Answered(on) => store_flag(session, &set, "\\Answered", *on)
+            .await
+            .map(|()| none),
+        ChangeKind::Forwarded(on) => store_flag(session, &set, FORWARDED, *on)
             .await
             .map(|()| none),
         ChangeKind::Keyword { keyword, on } => {
@@ -1589,6 +1633,14 @@ fn note_refusal(
             ChangeKind::Flagged(false) => tr!(
                 "the server wouldn't unflag \"{subject}\" ({reason})",
                 "serwer nie pozwolił zdjąć flagi z wiadomości „{subject}” ({reason})"
+            ),
+            ChangeKind::Answered(_) => tr!(
+                "the server wouldn't mark \"{subject}\" as answered ({reason})",
+                "serwer nie pozwolił oznaczyć wiadomości „{subject}” jako odpowiedzianej ({reason})"
+            ),
+            ChangeKind::Forwarded(_) => tr!(
+                "the server wouldn't mark \"{subject}\" as forwarded ({reason})",
+                "serwer nie pozwolił oznaczyć wiadomości „{subject}” jako przekazanej dalej ({reason})"
             ),
             ChangeKind::Keyword { on: true, .. } => tr!(
                 "the server wouldn't tag \"{subject}\" ({reason})",
@@ -3465,6 +3517,144 @@ Subject: {subject}
         let up = server.lock().unwrap().mail("Kosz", "Poprawki");
         assert!(up.has("$label3") && up.has("\\Flagged"), "{:?}", up.flags);
         assert_eq!(tags_of(&store, poprawki), ["$label3"], "and still here");
+        logout(&mut session).await;
+    }
+
+    /// A reply (or forward) of `original` that the SMTP server took.
+    fn answer(store: &Mutex<MailStore>, account: &Account, original: MessageId, forward: bool) {
+        let mut s = store.lock().unwrap();
+        let raw = b"From: biuro@twojastudio.pl\r\nTo: anna@kowalska-architekci.pl\r\nSubject: Re\r\n\r\nOK\r\n";
+        let message = crate::mime::parse_message(raw, &account.folder_key("outbox"), None);
+        let to = ["anna@kowalska-architekci.pl".to_owned()];
+        let id = s
+            .queue_outgoing(
+                &account.id,
+                &message,
+                raw,
+                "biuro@twojastudio.pl",
+                &to,
+                None,
+                None,
+            )
+            .unwrap();
+        let (reply, forwarded) = if forward {
+            (None, Some(original))
+        } else {
+            (Some(original), None)
+        };
+        s.note_answering(id, reply, forwarded).unwrap();
+        s.outgoing_sent(id, Local::now().naive_local()).unwrap();
+    }
+
+    fn answered(store: &Mutex<MailStore>, id: MessageId) -> (bool, bool) {
+        let m = store.lock().unwrap().summary(id).unwrap();
+        (m.answered, m.forwarded)
+    }
+
+    #[tokio::test]
+    async fn answered_and_forwarded_go_up_come_down_and_travel_with_the_mail() {
+        let (server, store, account, mut session) = synced_once("IMAP4rev1 MOVE UIDPLUS").await;
+        let wycena = id_of(&store, &account, "inbox", "Wycena");
+        let poprawki = id_of(&store, &account, "inbox", "Poprawki");
+        answer(&store, &account, wycena, false);
+        answer(&store, &account, poprawki, true);
+        let from = server.lock().unwrap().commands.len();
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(report.refused.is_empty(), "{report:?}");
+        let commands = commands_since(&server, from);
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.ends_with("+FLAGS.SILENT (\\Answered)")),
+            "{commands:?}"
+        );
+        assert!(
+            commands
+                .iter()
+                .any(|c| c.ends_with("+FLAGS.SILENT ($Forwarded)")),
+            "{commands:?}"
+        );
+        {
+            let srv = server.lock().unwrap();
+            assert!(srv.mail("INBOX", "Wycena").has("\\Answered"));
+            assert!(srv.mail("INBOX", "Poprawki").has("$Forwarded"));
+        }
+        assert_eq!(answered(&store, wycena), (true, false));
+        assert_eq!(answered(&store, poprawki), (false, true));
+
+        // The phone: Wycena's answer taken off, Poprawki answered there.
+        {
+            let mut srv = server.lock().unwrap();
+            let inbox = &mut srv.boxes[0].mail;
+            for m in inbox.iter_mut() {
+                if m.flags.iter().any(|f| f == "\\Answered") {
+                    m.flags.retain(|f| f != "\\Answered");
+                } else {
+                    m.flags.push("\\Answered".into());
+                }
+            }
+        }
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert_eq!(answered(&store, wycena), (false, false));
+        assert_eq!(answered(&store, poprawki), (true, true));
+
+        // To this PC and to another server folder: uploaded with both.
+        store
+            .lock()
+            .unwrap()
+            .move_many(&[poprawki], "local/archive")
+            .unwrap();
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert_eq!(answered(&store, poprawki), (true, true), "kept on this PC");
+        store
+            .lock()
+            .unwrap()
+            .move_to(poprawki, &account.folder_key("kosz"))
+            .unwrap();
+        let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert!(report.refused.is_empty(), "{report:?}");
+        let up = server.lock().unwrap().mail("Kosz", "Poprawki");
+        assert!(
+            up.has("\\Answered") && up.has("$Forwarded"),
+            "{:?}",
+            up.flags
+        );
+        assert_eq!(answered(&store, poprawki), (true, true));
+
+        // A server that keeps no keywords: $Forwarded stays here, \Answered still goes.
+        server.lock().unwrap().permanent = Some("\\Answered \\Flagged \\Deleted \\Seen \\Draft");
+        answer(&store, &account, wycena, true);
+        answer(&store, &account, wycena, false);
+        let from = server.lock().unwrap().commands.len();
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        let commands = commands_since(&server, from);
+        assert!(
+            !commands.iter().any(|c| c.contains("$Forwarded")),
+            "{commands:?}"
+        );
+        assert!(server
+            .lock()
+            .unwrap()
+            .mail("INBOX", "Wycena")
+            .has("\\Answered"));
+        sync_all(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        assert_eq!(
+            answered(&store, wycena),
+            (true, true),
+            "the download keeps it"
+        );
         logout(&mut session).await;
     }
 

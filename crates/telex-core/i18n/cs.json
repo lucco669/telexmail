@@ -293,6 +293,8 @@
   "the server wouldn't tag \"{subject}\" ({reason})": "server nepřidal štítek zprávě „{subject}“ ({reason})",
   "the server wouldn't take \"{subject}\" ({reason})": "server nepřijal zprávu „{subject}“ ({reason})",
   "the server wouldn't take a tag off \"{subject}\" ({reason})": "server neodebral štítek ze zprávy „{subject}“ ({reason})",
+  "the server wouldn't mark \"{subject}\" as answered ({reason})": "server nedovolil označit zprávu „{subject}“ jako zodpovězenou ({reason})",
+  "the server wouldn't mark \"{subject}\" as forwarded ({reason})": "server nedovolil označit zprávu „{subject}“ jako přeposlanou ({reason})",
   "the server wouldn't unflag \"{subject}\" ({reason})": "server nedovolil odebrat příznak zprávě „{subject}“ ({reason})",
   "the server's filter service doesn't encrypt the connection": "služba filtrů serveru nešifruje spojení",
   "the server's filter service refused the login ({why})": "služba filtrů serveru odmítla přihlášení ({why})",

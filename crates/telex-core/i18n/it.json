@@ -293,6 +293,8 @@
   "the server wouldn't tag \"{subject}\" ({reason})": "il server non ha permesso di applicare un’etichetta a «{subject}» ({reason})",
   "the server wouldn't take \"{subject}\" ({reason})": "il server non ha accettato «{subject}» ({reason})",
   "the server wouldn't take a tag off \"{subject}\" ({reason})": "il server non ha permesso di togliere un’etichetta da «{subject}» ({reason})",
+  "the server wouldn't mark \"{subject}\" as answered ({reason})": "il server non ha permesso di segnare «{subject}» come risposto ({reason})",
+  "the server wouldn't mark \"{subject}\" as forwarded ({reason})": "il server non ha permesso di segnare «{subject}» come inoltrato ({reason})",
   "the server wouldn't unflag \"{subject}\" ({reason})": "il server non ha permesso di togliere il contrassegno a «{subject}» ({reason})",
   "the server's filter service doesn't encrypt the connection": "il servizio filtri del server non cifra la connessione",
   "the server's filter service refused the login ({why})": "il servizio filtri del server ha rifiutato l’accesso ({why})",

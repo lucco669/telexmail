@@ -46,6 +46,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/022_pop3.sql"),
     include_str!("migrations/023_openpgp.sql"),
     include_str!("migrations/024_smime.sql"),
+    include_str!("migrations/025_answered.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -210,13 +211,15 @@ pub struct SyncedMessage {
     pub raw: Vec<u8>,
 }
 
-/// What the server says about a message stored here: \Seen, \Flagged and its keywords
-/// (lowercase; all of them, `refresh_flags` keeps the tags).
+/// What the server says about a message stored here: \Seen, \Flagged, \Answered, the
+/// $Forwarded keyword, and its keywords (lowercase; all of them, `refresh_flags` keeps the tags).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ServerFlags {
     pub uid: u32,
     pub seen: bool,
     pub flagged: bool,
+    pub answered: bool,
+    pub forwarded: bool,
     pub keywords: Vec<String>,
 }
 
@@ -225,6 +228,10 @@ pub struct ServerFlags {
 pub enum ChangeKind {
     Seen(bool),
     Flagged(bool),
+    /// \Answered: the user replied (set once the SMTP server took the reply).
+    Answered(bool),
+    /// The $Forwarded keyword: the user forwarded it.
+    Forwarded(bool),
     /// Add (true) or take off (false) a keyword: a tag (`tags.rs`).
     Keyword {
         keyword: String,
@@ -287,6 +294,16 @@ pub struct PendingChange {
 /// A message from a server has a server location (`srv_folder`, `uid`) besides the folder
 /// the UI shows. Changes to server mail are applied here at once and queued in
 /// `pending_ops`; `imap::push_changes` sends them and reports back.
+/// What the user did with a message they received: replied (\Answered, or a reply of theirs
+/// in Sent or an Outbox names it), forwarded ($Forwarded), and that reply with its date.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Replied {
+    pub answered: bool,
+    pub forwarded: bool,
+    pub reply: Option<MessageId>,
+    pub at: Option<NaiveDateTime>,
+}
+
 /// What `MailStore::image_trust` says about a message's remote images.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageTrust {
@@ -513,6 +530,7 @@ impl MailStore {
         );
         let contacts = self.contact_names(addresses.iter().map(String::as_str))?;
         let pgp = opened.map(|o| o.view.clone());
+        let replied = self.replied(id, message.message_id.as_deref())?;
         Ok(crate::risk::InspectedMessage {
             message,
             risk,
@@ -521,7 +539,72 @@ impl MailStore {
             invite,
             contacts,
             pgp,
+            replied,
         })
+    }
+
+    /// Whether the user answered or forwarded a message, and their reply: the newest message in
+    /// a Sent folder or an Outbox whose In-Reply-To names it. `None` when neither, and no reply.
+    pub fn replied(
+        &self,
+        id: MessageId,
+        message_id: Option<&str>,
+    ) -> Result<Option<Replied>, StoreError> {
+        let (folder, answered, forwarded): (String, bool, bool) = self.db.query_row(
+            "SELECT folder, answered, forwarded FROM messages WHERE id = ?1",
+            [id as i64],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?;
+        let sent: Vec<String> = self
+            .accounts
+            .iter()
+            .flat_map(|a| {
+                a.folders
+                    .iter()
+                    .filter(|f| matches!(f.kind, FolderKind::Sent | FolderKind::Outbox))
+                    .map(|f| a.folder_key(&f.id))
+            })
+            .collect();
+        // Mail the user wrote isn't answered by them; its own follow-ups don't count.
+        let reply = match message_id {
+            Some(mid)
+                if !sent.is_empty()
+                    && !self.kind_of(&folder).is_some_and(FolderKind::is_outgoing) =>
+            {
+                let marks = vec!["?"; sent.len()].join(", ");
+                let sql = format!(
+                    "SELECT id, date FROM messages
+                     WHERE folder IN ({marks}) AND (refs = ? OR substr(refs, 1, length(?) + 1) = ? || ' ')
+                     ORDER BY date DESC, id DESC LIMIT 1"
+                );
+                let mut args: Vec<&str> = sent.iter().map(String::as_str).collect();
+                args.extend([mid, mid, mid]);
+                self.db
+                    .query_row(&sql, rusqlite::params_from_iter(args), |r| {
+                        Ok((r.get::<_, i64>(0)? as MessageId, r.get(1)?))
+                    })
+                    .optional()?
+            }
+            _ => None,
+        };
+        if !answered && !forwarded && reply.is_none() {
+            return Ok(None);
+        }
+        Ok(Some(Replied {
+            answered: answered || reply.is_some(),
+            forwarded,
+            reply: reply.map(|(id, _)| id),
+            at: reply.map(|(_, at)| at),
+        }))
+    }
+
+    /// \Answered and $Forwarded of a message, for its upload to a server.
+    pub fn answered_of(&self, id: MessageId) -> Result<(bool, bool), StoreError> {
+        Ok(self.db.query_row(
+            "SELECT answered, forwarded FROM messages WHERE id = ?1",
+            [id as i64],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
     }
 
     /// One row of the message list.
@@ -918,6 +1001,73 @@ impl MailStore {
         Ok(id)
     }
 
+    /// Say which message the user's message in the Outbox answers (`reply_to`) or forwards
+    /// (`forward_of`): once the SMTP server takes it, that one gets \Answered or $Forwarded
+    /// ([`MailStore::outgoing_sent`]). A reply with the original's files attached is a reply. A
+    /// message edited again (E) no longer knows its original: the one its In-Reply-To names is
+    /// it. Mail the user wrote (drafts, the Outbox, Sent) is never marked so.
+    pub fn note_answering(
+        &mut self,
+        queued: MessageId,
+        reply_to: Option<MessageId>,
+        forward_of: Option<MessageId>,
+    ) -> Result<(), StoreError> {
+        let own: Vec<String> = self
+            .accounts
+            .iter()
+            .flat_map(|a| {
+                a.folders
+                    .iter()
+                    .filter(|f| f.kind.is_outgoing())
+                    .map(|f| a.folder_key(&f.id))
+            })
+            .collect();
+        let received = |db: &Connection, id: MessageId| -> Result<Option<i64>, StoreError> {
+            let folder: Option<String> = db
+                .query_row(
+                    "SELECT folder FROM messages WHERE id = ?1",
+                    [id as i64],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(folder.filter(|f| !own.contains(f)).map(|_| id as i64))
+        };
+        let (answers, forwards) = match (reply_to, forward_of) {
+            (Some(original), _) => (received(&self.db, original)?, None),
+            (None, Some(original)) => (None, received(&self.db, original)?),
+            (None, None) => {
+                // In-Reply-To is the first of `refs`.
+                let refs: String = self.db.query_row(
+                    "SELECT refs FROM messages WHERE id = ?1",
+                    [queued as i64],
+                    |r| r.get(0),
+                )?;
+                let mut found = None;
+                if let Some(answered) = refs.split_whitespace().next() {
+                    let mut stmt = self.db.prepare_cached(
+                        "SELECT id, folder FROM messages WHERE message_id = ?1 ORDER BY id DESC",
+                    )?;
+                    let rows = stmt.query_map([answered], |r| {
+                        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+                    })?;
+                    for row in rows {
+                        let (id, folder) = row?;
+                        if !own.contains(&folder) {
+                            found = Some(id);
+                            break;
+                        }
+                    }
+                }
+                (found, None)
+            }
+        };
+        self.db.execute(
+            "UPDATE outbox SET answers = ?2, forwards = ?3 WHERE message = ?1",
+            params![queued as i64, answers, forwards],
+        )?;
+        Ok(())
+    }
+
     /// Take back a message that is still waiting out its moment in the Outbox: it stays
     /// there, held, until the user edits it (E) or drops it. Too late once it is due.
     pub fn hold_outgoing(&mut self, id: MessageId, now: NaiveDateTime) -> Result<(), StoreError> {
@@ -997,6 +1147,21 @@ impl MailStore {
             .folder_of_kind(FolderKind::Sent)
             .map(|f| (f.id.clone(), f.remote.is_some()));
         let tx = self.db.transaction()?;
+        // It went: what it answers is answered now, what it forwards forwarded.
+        let (answers, forwards): (Option<i64>, Option<i64>) = tx
+            .query_row(
+                "SELECT answers, forwards FROM outbox WHERE message = ?1",
+                [id as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?
+            .unwrap_or_default();
+        if let Some(original) = answers {
+            set_flags_in(&tx, &[original as MessageId], Flag::Answered, true, true)?;
+        }
+        if let Some(original) = forwards {
+            set_flags_in(&tx, &[original as MessageId], Flag::Forwarded, true, true)?;
+        }
         tx.execute("DELETE FROM outbox WHERE message = ?1", [id as i64])?;
         match sent {
             Some((sent_id, on_server)) => {
@@ -2368,27 +2533,35 @@ impl MailStore {
         let tags_here = self.tags_kept_here(account_of(folder_key))?;
         // What this PC has for those UIDs, read once; only what differs is written.
         type Local = (i64, bool, bool, bool, bool, String, Option<String>);
-        let here: HashMap<u32, Local> = {
+        // \Answered and $Forwarded: the value here, and whether a change to it is queued.
+        type Answer = (bool, bool, bool, bool);
+        let here: HashMap<u32, (Local, Answer)> = {
             let mut stmt = self.db.prepare_cached(
                 "SELECT uid, id, unread, flagged,
                     EXISTS (SELECT 1 FROM pending_ops WHERE message = m.id AND kind = 'seen'),
                     EXISTS (SELECT 1 FROM pending_ops WHERE message = m.id AND kind = 'flagged'),
                     keywords,
                     (SELECT group_concat(target, ' ') FROM pending_ops
-                     WHERE message = m.id AND kind = 'keyword')
+                     WHERE message = m.id AND kind = 'keyword'),
+                    answered, forwarded,
+                    EXISTS (SELECT 1 FROM pending_ops WHERE message = m.id AND kind = 'answered'),
+                    EXISTS (SELECT 1 FROM pending_ops WHERE message = m.id AND kind = 'forwarded')
                  FROM messages m WHERE srv_folder = ?1 AND uid BETWEEN ?2 AND ?3",
             )?;
             let rows = stmt.query_map(params![folder_key, lo, hi], |r| {
                 Ok((
                     r.get(0)?,
                     (
-                        r.get(1)?,
-                        r.get(2)?,
-                        r.get(3)?,
-                        r.get(4)?,
-                        r.get(5)?,
-                        r.get(6)?,
-                        r.get(7)?,
+                        (
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                            r.get(7)?,
+                        ),
+                        (r.get(8)?, r.get(9)?, r.get(10)?, r.get(11)?),
                     ),
                 ))
             })?;
@@ -2403,9 +2576,15 @@ impl MailStore {
                 tx.prepare_cached("UPDATE messages SET flagged = ?2 WHERE id = ?1")?;
             let mut set_keywords =
                 tx.prepare_cached("UPDATE messages SET keywords = ?2 WHERE id = ?1")?;
+            let mut set_answered =
+                tx.prepare_cached("UPDATE messages SET answered = ?2 WHERE id = ?1")?;
+            let mut set_forwarded =
+                tx.prepare_cached("UPDATE messages SET forwarded = ?2 WHERE id = ?1")?;
             for f in flags {
-                let Some((id, unread, was_flagged, seen_queued, flag_queued, keywords, queued)) =
-                    here.get(&f.uid)
+                let Some((
+                    (id, unread, was_flagged, seen_queued, flag_queued, keywords, queued),
+                    (answered, forwarded, answer_queued, forward_queued),
+                )) = here.get(&f.uid)
                 else {
                     continue;
                 };
@@ -2415,6 +2594,13 @@ impl MailStore {
                 }
                 if *was_flagged != f.flagged && !flag_queued {
                     changed += set_flagged.execute(params![id, f.flagged])?;
+                }
+                if *answered != f.answered && !answer_queued {
+                    changed += set_answered.execute(params![id, f.answered])?;
+                }
+                // A server that can't keep keywords never takes $Forwarded away (as tags).
+                if *forwarded != f.forwarded && !forward_queued && (f.forwarded || !tags_here) {
+                    changed += set_forwarded.execute(params![id, f.forwarded])?;
                 }
                 if !tags_here {
                     let merged = crate::tags::merge(
@@ -2566,6 +2752,8 @@ impl MailStore {
             let kind = match r.get::<_, String>(2)?.as_str() {
                 "seen" => Some(ChangeKind::Seen(value.unwrap_or_default())),
                 "flagged" => Some(ChangeKind::Flagged(value.unwrap_or_default())),
+                "answered" => Some(ChangeKind::Answered(value.unwrap_or_default())),
+                "forwarded" => Some(ChangeKind::Forwarded(value.unwrap_or_default())),
                 "keyword" => r
                     .get::<_, Option<String>>(4)?
                     .map(|keyword| ChangeKind::Keyword {
@@ -2848,12 +3036,15 @@ fn set_server_location(
     Ok(())
 }
 
-/// The two flags the user changes, with their column and their kind in `pending_ops`.
+/// The flags of a message, with their column and their kind in `pending_ops`.
 #[derive(Debug, Clone, Copy)]
 enum Flag {
     /// The column is `unread`; the server's flag is \Seen, the other way round.
     Unread,
     Flagged,
+    /// \Answered and the $Forwarded keyword: set when a reply or a forward went.
+    Answered,
+    Forwarded,
 }
 
 /// Change a flag on messages here and, for server mail, queue the change, all in one
@@ -2885,6 +3076,8 @@ fn set_flags_in(
     let (column, kind, server_value) = match flag {
         Flag::Unread => ("unread", "seen", !value),
         Flag::Flagged => ("flagged", "flagged", value),
+        Flag::Answered => ("answered", "answered", value),
+        Flag::Forwarded => ("forwarded", "forwarded", value),
     };
     let mut done = 0;
     {
@@ -3010,10 +3203,10 @@ fn from_this_pc(
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    let (unread, flagged): (bool, bool) = db.query_row(
-        "SELECT unread, flagged FROM messages WHERE id = ?1",
+    let (unread, flagged, answered, forwarded): (bool, bool, bool, bool) = db.query_row(
+        "SELECT unread, flagged, answered, forwarded FROM messages WHERE id = ?1",
         [id as i64],
-        |r| Ok((r.get(0)?, r.get(1)?)),
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )?;
     db.execute(
         "DELETE FROM pending_ops WHERE message = ?1 AND kind = 'append'",
@@ -3041,6 +3234,15 @@ fn from_this_pc(
             queue,
             params![account, id as i64, "flagged", flagged, None::<String>],
         )?;
+        // Answered or forwarded while it was here (the server copy can't have lost them).
+        for (kind, on) in [("answered", answered), ("forwarded", forwarded)] {
+            if on {
+                db.execute(
+                    queue,
+                    params![account, id as i64, kind, true, None::<String>],
+                )?;
+            }
+        }
         // The server copy has the tags it had when it left: what changed since goes up.
         let keywords: String = db.query_row(
             "SELECT keywords FROM messages WHERE id = ?1",
@@ -3146,7 +3348,8 @@ pub(crate) const SUMMARY_COLUMNS: &str =
     "id, folder, from_name, from_email, to_addr, subject, date, \
      size_kb, unread, flagged, attachments <> '[]', \
      CASE WHEN folder GLOB '*/outbox' THEN \
-     (SELECT o.send_after FROM outbox o WHERE o.message = messages.id AND NOT o.refused) END, keywords";
+     (SELECT o.send_after FROM outbox o WHERE o.message = messages.id AND NOT o.refused) END, keywords, \
+     answered, forwarded";
 
 pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> {
     Ok(MessageSummary {
@@ -3163,6 +3366,8 @@ pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> 
         has_attachments: r.get(10)?,
         goes: r.get(11)?,
         tags: crate::tags::split(&r.get::<_, String>(12)?),
+        answered: r.get(13)?,
+        forwarded: r.get(14)?,
         thread: None,
     })
 }

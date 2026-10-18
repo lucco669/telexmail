@@ -781,6 +781,11 @@ pub struct MessageSummary {
     /// Keywords of its tags; left out when it has none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    /// The user replied to it (\Answered), forwarded it ($Forwarded); left out when not.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub answered: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub forwarded: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread: Option<ThreadRow>,
 }
@@ -811,6 +816,8 @@ impl From<&Message> for MessageSummary {
             has_attachments: !m.attachments.is_empty(),
             goes: None,
             tags: m.tags.clone(),
+            answered: false,
+            forwarded: false,
             thread: None,
         }
     }

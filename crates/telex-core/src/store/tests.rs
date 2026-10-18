@@ -612,6 +612,7 @@ fn server_flags_win_unless_a_local_change_is_queued() {
         seen,
         flagged,
         keywords: Vec::new(),
+        ..ServerFlags::default()
     };
     let changed = store
         .refresh_flags(&key, &[flags(1, true, true), flags(2, true, false)])
@@ -1918,6 +1919,7 @@ fn the_server_s_tags_come_down_unless_a_change_is_queued() {
         seen: false,
         flagged: false,
         keywords: keywords.iter().map(|k| (*k).to_owned()).collect(),
+        ..ServerFlags::default()
     };
     let changed = store
         .refresh_flags(
@@ -2088,4 +2090,189 @@ fn rules_find_tags_and_add_or_take_them_off_saying_so() {
     let d = one_in_inbox(&mut store, &account, 4);
     let report = run(&mut store, &[d], Trigger::OnDemand, chrono::Local::now()).unwrap();
     assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
+}
+
+fn answer_state(store: &MailStore, id: MessageId) -> (bool, bool) {
+    let m = store.summary(id).unwrap();
+    (m.answered, m.forwarded)
+}
+
+#[test]
+fn answered_and_forwarded_come_from_the_server_unless_a_change_is_queued() {
+    let (mut store, account) = store_with_server_account();
+    let key = account.folder_key("inbox");
+    let a = one_in_inbox(&mut store, &account, 1);
+    let b = one_in_inbox(&mut store, &account, 2);
+    set_flags(&mut store.db, &[b], Flag::Answered, true, true).unwrap(); // not pushed yet
+    assert_eq!(kinds(&store, &account), [ChangeKind::Answered(true)]);
+    let flags = |uid, answered, forwarded| ServerFlags {
+        uid,
+        answered,
+        forwarded,
+        ..ServerFlags::default()
+    };
+    store
+        .refresh_flags(&key, &[flags(1, true, true), flags(2, false, false)])
+        .unwrap();
+    assert_eq!(
+        answer_state(&store, a),
+        (true, true),
+        "answered on the phone"
+    );
+    assert_eq!(
+        answer_state(&store, b),
+        (true, false),
+        "the queued answer wins"
+    );
+    store
+        .refresh_flags(&key, &[flags(1, false, false)])
+        .unwrap();
+    assert_eq!(
+        answer_state(&store, a),
+        (false, false),
+        "taken off elsewhere"
+    );
+    // A server that keeps no keywords never takes $Forwarded away; \Answered still comes.
+    set_flags(&mut store.db, &[a], Flag::Forwarded, true, true).unwrap();
+    store.db.execute("DELETE FROM pending_ops", []).unwrap();
+    store.keep_tags_here(&account.id).unwrap();
+    store.refresh_flags(&key, &[flags(1, true, false)]).unwrap();
+    assert_eq!(answer_state(&store, a), (true, true));
+}
+
+/// A message in `folder` written by the user that answers `refs` (In-Reply-To first).
+fn reply_in(
+    store: &mut MailStore,
+    folder: &str,
+    uid: u32,
+    refs: &[&str],
+    at: NaiveDateTime,
+) -> MessageId {
+    let mut m = synced(uid, "Re");
+    m.message.refs = refs.iter().map(|r| (*r).to_owned()).collect();
+    m.message.date = at;
+    m.message.unread = false;
+    store.add_synced(folder, &[m]).unwrap()[0]
+}
+
+#[test]
+fn a_reply_in_sent_says_when_the_user_replied() {
+    let (mut store, account) = store_with_server_account();
+    let sent = account.folder_key("sent");
+    let original = one_in_inbox(&mut store, &account, 1);
+    let mid = "1.Poprawki@kowalska-architekci.pl";
+    assert_eq!(store.replied(original, Some(mid)).unwrap(), None);
+    // A reply to a later message names it in References only: not a reply to this one.
+    reply_in(&mut store, &sent, 10, &["later@x.pl", mid], now());
+    assert_eq!(store.replied(original, Some(mid)).unwrap(), None);
+    let hour = chrono::TimeDelta::hours(1);
+    let first = reply_in(&mut store, &sent, 11, &[mid], now() + hour);
+    let second = reply_in(&mut store, &sent, 12, &[mid, "root@x.pl"], now() + hour * 2);
+    let replied = store.replied(original, Some(mid)).unwrap().unwrap();
+    assert_eq!(
+        replied,
+        Replied {
+            answered: true,
+            forwarded: false,
+            reply: Some(second),
+            at: Some(now() + hour * 2),
+        },
+        "the newest reply"
+    );
+    assert_ne!(first, second);
+    // Answered elsewhere, no reply here: just "You replied".
+    let other = one_in_inbox(&mut store, &account, 2);
+    set_flags(&mut store.db, &[other], Flag::Answered, true, true).unwrap();
+    let replied = store
+        .replied(other, Some("2.Poprawki@kowalska-architekci.pl"))
+        .unwrap()
+        .unwrap();
+    assert!(replied.answered && replied.reply.is_none() && replied.at.is_none());
+    // And it is in the opened message.
+    let json = serde_json::to_value(store.inspect_message(original).unwrap()).unwrap();
+    assert_eq!(json["replied"]["reply"], second);
+}
+
+#[test]
+fn an_edited_reply_finds_its_original_by_in_reply_to() {
+    let (mut store, account) = store_with_server_account();
+    let original = one_in_inbox(&mut store, &account, 1);
+    let mid = "1.Poprawki@kowalska-architekci.pl";
+    // A copy in Sent with the same Message-ID (the user's own) is never the one answered.
+    reply_in(&mut store, &account.folder_key("sent"), 7, &[], now());
+    store
+        .db
+        .execute(
+            "UPDATE messages SET message_id = ?1 WHERE folder = ?2",
+            params![mid, account.folder_key("sent")],
+        )
+        .unwrap();
+    let queue = |store: &mut MailStore, refs: Vec<String>| {
+        let mut message = synced(0, "Re: Poprawki").message;
+        message.refs = refs;
+        let to = ["anna@kowalska-architekci.pl".to_owned()];
+        store
+            .queue_outgoing(
+                &account.id,
+                &message,
+                b"Subject: Re\r\n\r\nOK",
+                "biuro@twojastudio.pl",
+                &to,
+                None,
+                None,
+            )
+            .unwrap()
+    };
+    let reply = queue(&mut store, vec![mid.into()]);
+    store.note_answering(reply, None, None).unwrap();
+    // A forward of a draft (E carries its own files along) marks nothing.
+    let forward = queue(&mut store, Vec::new());
+    store.note_answering(forward, None, Some(reply)).unwrap();
+    store.outgoing_sent(forward, now()).unwrap();
+    assert_eq!(answer_state(&store, reply), (false, false));
+    assert_eq!(
+        answer_state(&store, original),
+        (false, false),
+        "not before it went"
+    );
+    store.outgoing_sent(reply, now()).unwrap();
+    assert_eq!(answer_state(&store, original), (true, false));
+    assert!(kinds(&store, &account).contains(&ChangeKind::Answered(true)));
+}
+
+#[test]
+fn answered_mail_stays_so_on_this_pc_and_tells_the_server_when_it_comes_back() {
+    let (mut store, account) = store_with_server_account();
+    let a = one_in_inbox(&mut store, &account, 1);
+    set_flags(&mut store.db, &[a], Flag::Answered, true, true).unwrap();
+    store.db.execute("DELETE FROM pending_ops", []).unwrap(); // the server has it
+    store.move_many(&[a], "local/archive").unwrap();
+    assert_eq!(answer_state(&store, a), (true, false));
+    set_flags(&mut store.db, &[a], Flag::Forwarded, true, true).unwrap();
+    assert_eq!(
+        answer_state(&store, a),
+        (true, true),
+        "kept here, nothing queued"
+    );
+    // Back before the server heard it left: the expunge is taken back, both are told.
+    store.move_many(&[a], &account.folder_key("inbox")).unwrap();
+    let k = kinds(&store, &account);
+    assert!(
+        k.contains(&ChangeKind::Answered(true)) && k.contains(&ChangeKind::Forwarded(true)),
+        "{k:?}"
+    );
+    // Search.
+    let count = |store: &MailStore, filter: &str| {
+        let view = list::ListView {
+            folder: Some(account.folder_key("inbox")),
+            filter: filter.into(),
+            ..Default::default()
+        };
+        store.page(&view, list::PageAt::First, 50).unwrap().total
+    };
+    one_in_inbox(&mut store, &account, 2);
+    assert_eq!(count(&store, "is:replied"), 1);
+    assert_eq!(count(&store, "is:unreplied"), 1);
+    assert_eq!(count(&store, "is:forwarded"), 1);
+    assert_eq!(count(&store, "is:answered is:forwarded"), 1);
 }

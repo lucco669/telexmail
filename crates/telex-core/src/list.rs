@@ -78,7 +78,8 @@ pub struct ListView {
 /// left out.
 ///
 /// `from:` `to:` (To, Cc and Bcc) `subject:` match any part, case ignored; `is:unread`
-/// `is:read` `is:flagged` `is:unflagged` `is:tagged` `is:untagged`; `tag:` a tag by its name
+/// `is:read` `is:flagged` `is:unflagged` `is:tagged` `is:untagged` `is:replied` `is:unreplied`
+/// `is:forwarded`; `tag:` a tag by its name
 /// (or keyword), diacritics ignored, else the tags whose name starts so; `has:file`; `after:` and `before:` a year, month or
 /// day (2026, 2026-09, 2026-09-15 or 15.09.2026: after is from its start, before is before
 /// its start); `larger:` and `smaller:` a size (500k, 5m, 1g; KB without a unit). Values with
@@ -96,6 +97,9 @@ pub struct Terms {
     pub tags: Vec<String>,
     /// `is:tagged` (any tag), `is:untagged`.
     pub tagged: Option<bool>,
+    /// `is:replied` (or `is:answered`), `is:unreplied`; `is:forwarded`.
+    pub answered: Option<bool>,
+    pub forwarded: Option<bool>,
     pub has_file: bool,
     /// "2026-09-01 00:00:00": on or after, and before.
     pub after: Option<String>,
@@ -150,6 +154,17 @@ impl Terms {
                 }
                 "is" if matches!(value.to_ascii_lowercase().as_str(), "tagged" | "untagged") => {
                     terms.tagged = Some(value.eq_ignore_ascii_case("tagged"));
+                    true
+                }
+                "is" if matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "replied" | "answered" | "unreplied" | "unanswered" | "forwarded"
+                ) =>
+                {
+                    match value.to_ascii_lowercase().as_str() {
+                        "forwarded" => terms.forwarded = Some(true),
+                        v => terms.answered = Some(!v.starts_with("un")),
+                    }
                     true
                 }
                 "is" => {
@@ -587,6 +602,12 @@ impl Query {
         }
         if let Some(flagged) = terms.flagged {
             condition(" AND flagged = ?", Value::Integer(i64::from(flagged)));
+        }
+        if let Some(answered) = terms.answered {
+            condition(" AND answered = ?", Value::Integer(i64::from(answered)));
+        }
+        if let Some(forwarded) = terms.forwarded {
+            condition(" AND forwarded = ?", Value::Integer(i64::from(forwarded)));
         }
         if let Some(day) = terms.after {
             condition(" AND date >= ?", Value::Text(day));

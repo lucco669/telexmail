@@ -293,6 +293,8 @@
   "the server wouldn't tag \"{subject}\" ({reason})": "der Server wollte bei „{subject}“ kein Schlagwort setzen ({reason})",
   "the server wouldn't take \"{subject}\" ({reason})": "der Server wollte „{subject}“ nicht annehmen ({reason})",
   "the server wouldn't take a tag off \"{subject}\" ({reason})": "der Server wollte von „{subject}“ kein Schlagwort entfernen ({reason})",
+  "the server wouldn't mark \"{subject}\" as answered ({reason})": "der Server wollte „{subject}“ nicht als beantwortet markieren ({reason})",
+  "the server wouldn't mark \"{subject}\" as forwarded ({reason})": "der Server wollte „{subject}“ nicht als weitergeleitet markieren ({reason})",
   "the server wouldn't unflag \"{subject}\" ({reason})": "der Server wollte die Markierung von „{subject}“ nicht entfernen ({reason})",
   "the server's filter service doesn't encrypt the connection": "der Filterdienst des Servers verschlüsselt die Verbindung nicht",
   "the server's filter service refused the login ({why})": "der Filterdienst des Servers hat die Anmeldung abgelehnt ({why})",

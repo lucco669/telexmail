@@ -174,7 +174,8 @@ function installTelexDemo(options) {
     bcc: m.bcc || '', subject: m.subject || '', date: m.date, size_kb: Math.max(1, m.size_kb || 1), unread: !!m.unread,
     flagged: !!m.flagged, remote_images: !!m.remote_images, note: (startLang === 'pl' && m.note_pl) || m.note || null,
     attachments: (m.attachments || []).map((a) => ({ name: a.name, size_kb: a.size_kb })), body: m.body || '', html: m.html || null,
-    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, invite: m.invite ? clone(m.invite) : null, out: null, tags: [...(m.tags || [])].sort(), ...extra,
+    thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, invite: m.invite ? clone(m.invite) : null, out: null, tags: [...(m.tags || [])].sort(),
+    answered: !!m.answered, forwarded: !!m.forwarded, ...extra,
   });
   // An invitation's times move with its message; its rule in words follows the language.
   const shiftInvite = (iv) => {
@@ -268,6 +269,7 @@ function installTelexDemo(options) {
     date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged, has_attachments: m.attachments.length > 0,
     ...(goesOf(m) ? { goes: goesOf(m) } : {}),
     ...(m.tags.length ? { tags: [...m.tags] } : {}),
+    ...(m.answered ? { answered: true } : {}), ...(m.forwarded ? { forwarded: true } : {}),
   });
   // Mail sent later (or waiting out its moment): when it goes, as the core says it.
   const goesOf = (m) => m.out && !m.out.held && m.out.send_after ? fmt(new RealDate(m.out.send_after)) : null;
@@ -373,6 +375,8 @@ function installTelexDemo(options) {
       else if (key === 'subject') t.subject.push(v);
       else if (key === 'tag') t.tags.push(fold(value));
       else if (key === 'is' && (v === 'tagged' || v === 'untagged')) t.tagged = v === 'tagged';
+      else if (key === 'is' && ['replied', 'answered', 'unreplied', 'unanswered'].includes(v)) t.answered = !v.startsWith('un');
+      else if (key === 'is' && v === 'forwarded') t.forwarded = true;
       else if (key === 'is') {
         if (v === 'unread' || v === 'new') t.unread = true;
         else if (v === 'read' || v === 'seen') t.unread = false;
@@ -423,6 +427,7 @@ function installTelexDemo(options) {
       && t.subject.every((v) => has(v, [m.subject]))
       && (t.unread == null || m.unread === t.unread) && (t.flagged == null || m.flagged === t.flagged)
       && (t.tagged == null || (m.tags.length > 0) === t.tagged)
+      && (t.answered == null || m.answered === t.answered) && (t.forwarded == null || m.forwarded === t.forwarded)
       && t.tags.every((v) => tagKeywords(v).some((k) => m.tags.includes(k)))
       && (!t.has_file || m.attachments.length > 0)
       && (!t.after || m.date >= t.after) && (!t.before || m.date < t.before)
@@ -1064,6 +1069,11 @@ function installTelexDemo(options) {
     const box = keyOfKind(acct, 'outbox'), sent = keyOfKind(acct, 'sent'), t = nowMs(), lines = [];
     const due = msgs.filter((m) => m.folder === box && m.out && !m.out.held && (!m.out.send_after || m.out.send_after <= t)).sort((a, b) => a.id - b.id);
     for (const m of due) {
+      // It went: what it answers is answered now, what it forwards forwarded (store.rs).
+      const answers = m.out.answers != null && byId(m.out.answers), forwards = m.out.forwards != null && byId(m.out.forwards);
+      if (answers) answers.answered = true;
+      if (forwards) forwards.forwarded = true;
+      if (m.out.replyOf != null) m.replyOf = m.out.replyOf;
       if (!sent) { m.out = null; m.note = 'Sent. This account has no Sent folder, so it stays here.'; }
       else Object.assign(m, { folder: sent, date: stamp(), note: null, out: null });
       lines.push(sentLine(m));
@@ -1103,6 +1113,19 @@ function installTelexDemo(options) {
     m.note = null;
     return { queued: id, wait: 0, goes: null, sent: sendOutbox(acctId(m.folder)), errors: [] };
   }
+  // What a message answers or forwards (note_answering): a reply with the original's files is a reply.
+  const answering = (draft) => draft.reply_to != null ? { answers: draft.reply_to, replyOf: draft.reply_to } : draft.forward_of != null && !draft.replaces ? { forwards: draft.forward_of } : {};
+  // The user's newest reply in Sent or an Outbox, for "You replied on …" (MailStore::replied).
+  function repliedOf(m) {
+    if (isOutgoing(kindOf(m.folder))) return m.answered || m.forwarded ? { answered: m.answered, forwarded: m.forwarded, reply: null, at: null } : null;
+    // The demo's own mail names no originals: a "Re:" of the same conversation in Sent answers it.
+    const answers = (x) => x.replyOf === m.id || x.out?.replyOf === m.id
+      || (x.replyOf == null && m.thread && x.thread === m.thread && x.subject === `Re: ${m.subject}` && x.date > m.date);
+    const reply = msgs.filter((x) => answers(x) && ['sent', 'outbox'].includes(kindOf(x.folder)))
+      .sort((a, b) => b.date.localeCompare(a.date))[0];
+    if (!m.answered && !m.forwarded && !reply) return null;
+    return { answered: m.answered || !!reply, forwarded: m.forwarded, reply: reply?.id ?? null, at: reply?.date ?? null };
+  }
   function sendMessage({ draft, later = null }) {
     checkFiles(draft.attachments);
     checkRecipients(draft);
@@ -1110,14 +1133,14 @@ function installTelexDemo(options) {
     if (later) {
       const goes = laterWhen(later);
       const m = written(draft, 'outbox');
-      m.out = { send_after: goes.getTime(), held: false };
+      m.out = { send_after: goes.getTime(), held: false, ...answering(draft) };
       msgs.push(m);
       sendWhenDue(m);
       return { queued: m.id, wait: 0, goes: fmt(goes), sent: [], errors: [] };
     }
     const wait = settings.undo_send | 0;
     const m = written(draft, 'outbox');
-    m.out = { send_after: wait ? nowMs() + wait * 1000 : null, held: false };
+    m.out = { send_after: wait ? nowMs() + wait * 1000 : null, held: false, ...answering(draft) };
     msgs.push(m);
     if (!wait) return { queued: m.id, wait: 0, sent: sendOutbox(m.folder.split('/')[0]), errors: [] };
     const acct = acctId(m.folder);
@@ -1775,6 +1798,7 @@ function installTelexDemo(options) {
         bcc: isOutgoing(kindOf(m.folder)) ? m.bcc : '', subject: m.subject, date: m.date, size_kb: m.size_kb, unread: m.unread, flagged: m.flagged,
         remote_images: m.remote_images, note: m.note, attachments: m.attachments, body: m.body, risk: m.risk,
         goes: goesOf(m), unsubscribe: unsubscribeOffer(m), ...(m.invite ? { invite: inviteNow(m) } : {}),
+        ...(repliedOf(m) ? { replied: repliedOf(m) } : {}),
         contacts: (seedBook(), [m.from_email, ...splitAddresses(`${m.to}, ${m.cc}`).map((e) => mailboxParts(e)[1])])
           .map((email) => ({ email, c: owner(email) })).filter((x) => x.c).map((x) => ({ email: x.email, id: x.c.id, name: x.c.name })) };
     },
