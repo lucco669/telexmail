@@ -334,7 +334,7 @@ const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
 let SETTINGS = {
   settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true, ask_attachment:true, ask_many:true,
-    image_size:'large', spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
+    image_size:'large', picture_width:'large', spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -2892,7 +2892,7 @@ async function insertPictures(ed, sources, signature = false){
     try { p = await invoke('editor_image', {...source, signature}); } catch (e){ say(tr(e), 9000); continue; }
     if (!ed.isConnected) return;
     ed.focus();
-    document.execCommand('insertHTML', false, `<img src="${p.src}" alt="">`);
+    document.execCommand('insertHTML', false, pictureHtml(p.src, startWidth(ed, p)));
     if (p.smaller) say(t('Picture made smaller: {width} × {height} pixels.', {width:p.width, height:p.height}), 4000);
   }
 }
@@ -2903,6 +2903,189 @@ async function choosePictures(ed, signature){
   await insertPictures(ed, files.map(f => ({path:f.path})), signature);
 }
 const fileData = file => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; r.readAsDataURL(file); });
+/* ---------- a picture's size ---------- */
+// A picture goes in at a size that suits the text: as wide as Settings › Writing says (600 px by
+// default), never wider than the editor's text, nor than its own size on this screen (a 2× screen's
+// screenshot at half its pixels). The size is its width attribute with max-width:100%;height:auto,
+// the one way every mail program keeps (Outlook honours only the width; html::compose_clean allows
+// exactly that). A click on a picture selects it: a bar by it sets Small, Medium, Large, Fit or
+// Original and says the size, its corner drags (proportions kept, as the height follows the width),
+// + and − (or Ctrl+→ ←) make it larger or smaller, Del removes it, Esc lets it go. Each change goes
+// through the editor's own commands, so Ctrl+Z takes each back.
+const PICTURE_WIDTHS = {large:600, medium:400, small:200};
+const PICTURE_STYLE = 'max-width:100%;height:auto';
+const clampWidth = w => Math.max(16, Math.min(2000, Math.round(w)));
+const pictureHtml = (src, width, alt = '') => `<img src="${src}" alt="${esc(alt)}" width="${clampWidth(width)}" style="${PICTURE_STYLE}">`;
+// The width an editor's text has: its content box.
+function columnWidth(ed){
+  const cs = getComputedStyle(ed);
+  return Math.max(40, Math.floor(ed.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
+}
+// A new picture: the setting's width, at most the text's and its own on this screen.
+function startWidth(ed, p){
+  const own = Math.round((p.source_width || p.width || 0) / (devicePixelRatio || 1)) || Infinity;
+  const want = PICTURE_WIDTHS[pref().picture_width ?? 'large'] ?? Infinity; // fit: as wide as the text
+  return clampWidth(Math.min(want, columnWidth(ed), own));
+}
+// Its own size on this screen: as large as it stays sharp.
+const ownWidth = img => clampWidth((img.naturalWidth || Number(img.getAttribute('width')) || 300) / (devicePixelRatio || 1));
+const pic = {img:null, ed:null, el:null, busy:false, drag:null};
+const PIC_SIZES = [['small', N_('Small|picture'), () => PICTURE_WIDTHS.small], ['medium', N_('Medium|picture'), () => PICTURE_WIDTHS.medium],
+  ['large', N_('Large|picture'), () => PICTURE_WIDTHS.large], ['fit', N_('Fit|picture'), () => columnWidth(pic.ed)], ['own', N_('Original|picture'), () => ownWidth(pic.img)]];
+// The frame around a selected picture, its corner and its bar. Outside the editor, so none of it is
+// ever saved; in the dialog when the editor is one of Settings' (a dialog is drawn above the page).
+function pictureFrame(host){
+  if (!pic.el){
+    pic.el = document.createElement('div');
+    pic.el.className = 'picsel';
+    pic.el.hidden = true;
+    pic.el.addEventListener('mousedown', e => { if (!e.target.closest('.pichandle')) e.preventDefault(); }); // the editor keeps the focus
+    pic.el.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b || !pic.img) return;
+      if (b.dataset.pic === 'remove'){ removePicture(); return; }
+      const size = PIC_SIZES.find(([k]) => k === b.dataset.pic);
+      if (size) setPictureWidth(size[2]());
+    });
+    pic.el.addEventListener('pointerdown', e => { if (e.target.closest('.pichandle')) startDrag(e); });
+  }
+  pic.el.innerHTML = `<div class="picframe"><span class="pichandle" title="${esc(t('Drag to make it larger or smaller'))}"></span></div>`
+    + `<div class="picbar" role="toolbar" aria-label="${esc(t('Picture size'))}">${PIC_SIZES.map(([k, label]) =>
+      `<button type="button" data-pic="${k}">${esc(t(label))}</button>`).join('')}<span class="picnow" aria-live="polite"></span>`
+    + `<button type="button" data-pic="remove" title="${esc(t('Remove the picture (Del)'))}" aria-label="${esc(t('Remove the picture (Del)'))}">×</button></div>`;
+  if (pic.el.parentElement !== host) host.append(pic.el);
+}
+function selectPicture(ed, img){
+  pic.ed = ed; pic.img = img;
+  pictureFrame(ed.closest('dialog') ?? document.body);
+  const r = document.createRange(); r.selectNode(img);
+  pic.busy = true;
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  pic.busy = false;
+  pic.el.hidden = false;
+  // All of it in view, so its corner can be reached.
+  const r2 = img.getBoundingClientRect(), box = ed.getBoundingClientRect();
+  if (r2.bottom > box.bottom || r2.top < box.top) img.scrollIntoView({block:r2.height > box.height ? 'start' : 'nearest'});
+  placePicture();
+}
+function deselectPicture(caretAfter = false){
+  if (!pic.img) return;
+  const {img} = pic;
+  pic.img = null;
+  if (pic.el) pic.el.hidden = true;
+  if (caretAfter && img.isConnected){
+    const r = document.createRange(); r.setStartAfter(img); r.collapse(true);
+    pic.busy = true; const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); pic.busy = false;
+  }
+}
+// The frame on the picture, the bar under it (above when there is no room), and what size it is.
+function placePicture(width){
+  const {img, ed, el} = pic;
+  if (!img?.isConnected || !el){ deselectPicture(); return; }
+  const r = img.getBoundingClientRect(), box = ed.getBoundingClientRect();
+  const seen = r.bottom > box.top && r.top < box.bottom;
+  el.style.visibility = seen ? '' : 'hidden';
+  const host = el.getBoundingClientRect(); // the frame's layer covers the window
+  const frame = el.querySelector('.picframe'), bar = el.querySelector('.picbar');
+  // The part of it in view: a picture taller than the editor keeps its corner within reach.
+  const top = Math.max(r.top, box.top), bottom = Math.min(r.bottom, box.bottom);
+  Object.assign(frame.style, {left:r.left - host.left + 'px', top:top - host.top + 'px', width:r.width + 'px', height:Math.max(0, bottom - top) + 'px'});
+  const below = bottom + 6 + bar.offsetHeight < Math.min(box.bottom, innerHeight);
+  const left = Math.max(box.left, Math.min(r.left, box.right - bar.offsetWidth));
+  // Under the picture when there is room in the editor, else inside it at the top, never over the bars above.
+  Object.assign(bar.style, {left:left + (below ? 0 : 6) - host.left + 'px', top:(below ? bottom + 6 : top + 6) - host.top + 'px'});
+  const w = width ?? (Number(img.getAttribute('width')) || Math.round(r.width));
+  const own = ownWidth(img);
+  el.querySelector('.picnow').textContent = `${w} px · ${Math.round(w / own * 100)}%`;
+  const now = PIC_SIZES.find(([, , size]) => clampWidth(size()) === w)?.[0];
+  el.querySelectorAll('[data-pic]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.pic === now)));
+}
+// A new width, through the editor's own command (one Ctrl+Z): the picture is put in again.
+function setPictureWidth(width){
+  const {img, ed} = pic;
+  if (!img?.isConnected){ deselectPicture(); return; }
+  const w = clampWidth(width);
+  if (Number(img.getAttribute('width')) === w && img.getAttribute('style') === PICTURE_STYLE){ placePicture(); return; }
+  const src = img.getAttribute('src'), alt = img.getAttribute('alt') ?? '';
+  ed.focus();
+  selectPicture(ed, img);
+  pic.busy = true;
+  document.execCommand('insertHTML', false, pictureHtml(src, w, alt));
+  const sel = getSelection(), at = sel.anchorNode;
+  let next = at?.nodeType === 1 ? at.childNodes[sel.anchorOffset - 1] : null;
+  if (next?.tagName !== 'IMG') next = [...ed.querySelectorAll('img')].find(i => i.getAttribute('src') === src && Number(i.getAttribute('width')) === w);
+  pic.busy = false;
+  if (next) selectPicture(ed, next); else deselectPicture();
+}
+function removePicture(){
+  const {img, ed} = pic;
+  if (!img?.isConnected){ deselectPicture(); return; }
+  ed.focus();
+  selectPicture(ed, img);
+  deselectPicture();
+  document.execCommand('delete');
+}
+// The corner: dragging shows the new size at once; letting go makes it the picture's (one Ctrl+Z).
+function startDrag(e){
+  const {img} = pic;
+  if (!img) return;
+  e.preventDefault();
+  const handle = e.target.closest('.pichandle'), style = img.getAttribute('style');
+  const start = {x:e.clientX, w:img.getBoundingClientRect().width};
+  let w = Math.round(start.w);
+  handle.setPointerCapture(e.pointerId);
+  const move = ev => {
+    w = clampWidth(start.w + ev.clientX - start.x);
+    img.style.width = w + 'px';
+    placePicture(w);
+  };
+  const up = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', up);
+    handle.removeEventListener('pointercancel', up);
+    // The preview goes before the change is made, so Ctrl+Z brings the picture back as it was.
+    if (style == null) img.removeAttribute('style'); else img.setAttribute('style', style);
+    setPictureWidth(w);
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', up);
+  handle.addEventListener('pointercancel', up);
+}
+// An editor's pictures: a click selects one; keys change it while it is selected.
+function wirePictures(ed){
+  ed.addEventListener('click', e => {
+    const img = e.target.closest?.('img');
+    if (img && ed.contains(img)) selectPicture(ed, img);
+  });
+  ed.addEventListener('keydown', e => {
+    if (!pic.img || pic.ed !== ed) return;
+    const w = Number(pic.img.getAttribute('width')) || Math.round(pic.img.getBoundingClientRect().width);
+    const ctrl = e.ctrlKey || e.metaKey;
+    const larger = (!ctrl && (e.key === '+' || e.key === '=')) || (ctrl && e.key === 'ArrowRight');
+    const smaller = (!ctrl && (e.key === '-' || e.key === '−' || e.key === '_')) || (ctrl && e.key === 'ArrowLeft');
+    if (larger || smaller){
+      e.preventDefault(); e.stopPropagation();
+      setPictureWidth(larger ? Math.max(w + 10, w * 1.1) : Math.min(w - 10, w / 1.1));
+    } else if (e.key === 'Escape'){
+      e.preventDefault(); e.stopPropagation(); // Esc here doesn't close the message or the dialog
+      deselectPicture(true);
+    } else if (e.key === 'Delete' || e.key === 'Backspace'){
+      e.preventDefault(); e.stopPropagation();
+      removePicture();
+    } else if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key) && !(ctrl && e.key.toLowerCase() === 'z')){
+      deselectPicture(!ctrl); // typing goes after the picture, not over it
+    }
+  });
+  ed.addEventListener('scroll', () => { if (pic.img && pic.ed === ed) placePicture(); });
+}
+document.addEventListener('selectionchange', () => {
+  if (!pic.img || pic.busy) return;
+  const sel = getSelection(), r = sel.rangeCount ? sel.getRangeAt(0) : null;
+  const around = r && !r.collapsed && r.startContainer === pic.img.parentNode && r.endOffset - r.startOffset === 1
+    && r.startContainer.childNodes[r.startOffset] === pic.img;
+  if (!around) deselectPicture();
+});
+addEventListener('resize', () => { if (pic.img) placePicture(); });
+document.addEventListener('scroll', () => { if (pic.img) placePicture(); }, true);
 // A plain-text signature in the editor: a line per <div>, as the core writes it.
 const linesHtml = text => (text || '').split('\n').map(l => `<div>${l ? esc(l) : '<br>'}</div>`).join('');
 const signatureHtml = i => i?.signature_html ?? linesHtml(i?.signature ?? '');
@@ -3319,6 +3502,7 @@ function wireEditor(ed, bar = previewEl.querySelector('.fbar'), {signature = fal
   ed.linkBox = openLinkBox; // the bar drawn last
   if (ed.dataset.wired) return;
   ed.dataset.wired = '1';
+  wirePictures(ed);
   ed.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'){ e.preventDefault(); ed.linkBox(); }
   });
@@ -6145,6 +6329,7 @@ function renderSettings(keepFocus){
   $('s-reply').innerHTML = radios('reply_format', [['html', esc(t('Always HTML'))], ['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))]], s.reply_format);
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
   $('s-imgsize').innerHTML = radios('image_size', IMAGE_SIZES.map(([v, label]) => [v, esc(t(label))]), s.image_size ?? 'large');
+  $('s-picwidth').innerHTML = radios('picture_width', PICTURE_SIZES.map(([v, label]) => [v, esc(t(label))]), s.picture_width ?? 'large');
   renderSignatures();
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-askfile').checked = s.ask_attachment !== false; $('s-askmany').checked = s.ask_many !== false;
@@ -6183,7 +6368,7 @@ function paneOpened(tab){
 function syncSettings(){
   const s = pref();
   const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, image_size:s.image_size ?? 'large', backup_every:s.backup_every, updates:s.updates};
+    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, image_size:s.image_size ?? 'large', picture_width:s.picture_width ?? 'large', backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-delay').value = String(s.read_delay);
@@ -6260,6 +6445,7 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
   else if (el.name === 'reply_format') changeSettings({reply_format:v});
   else if (el.name === 'image_size') changeSettings({image_size:v});
+  else if (el.name === 'picture_width') changeSettings({picture_width:v});
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
   else if (el.id === 's-askfile') changeSettings({ask_attachment:el.checked});
   else if (el.id === 's-askmany') changeSettings({ask_many:el.checked});
@@ -6294,9 +6480,11 @@ sdlg.addEventListener('close', () => {
 // passwords. Importing shows what would change first; nothing changes until Import.
 // How large pictures put into a message are made (images::prepare).
 const IMAGE_SIZES = [['large', N_('Large: at most 1600 pixels across')], ['medium', N_('Medium: at most 800 pixels across')], ['original', N_('As they are')]];
+// How wide a picture shows when it goes in (PICTURE_WIDTHS; the picture's bar changes each one).
+const PICTURE_SIZES = [['large', N_('Shown 600 pixels wide')], ['medium', N_('Shown 400 pixels wide')], ['small', N_('Shown 200 pixels wide')], ['fit', N_('Shown as wide as the text')]];
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
   threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
-  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), image_size:N_('Pictures'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
+  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), image_size:N_('Pictures'), picture_width:N_('How wide pictures show at first'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
@@ -6318,6 +6506,7 @@ function settingValue(key, v){
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
     case 'image_size': return IMAGE_SIZES.find(([id]) => id === v) ? t(IMAGE_SIZES.find(([id]) => id === v)[1]) : v;
+    case 'picture_width': return PICTURE_SIZES.find(([id]) => id === v) ? t(PICTURE_SIZES.find(([id]) => id === v)[1]) : v;
     case 'spam_filter': return SPAM_LEVELS.find(([id]) => id === v) ? t(SPAM_LEVELS.find(([id]) => id === v)[1]) : v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
     case 'threaded': case 'risk_checks': case 'sign_replies': case 'ask_subject': case 'ask_attachment': case 'ask_many': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
@@ -7722,6 +7911,7 @@ const KEYS = [
   {g:'write', k:'Ctrl+Shift+Enter', d:N_('send later: in an hour, tomorrow, Monday or when you pick'), doc:'Ctrl+Shift+Enter'},
   {g:'write', k:'Esc', d:N_('save as a draft and close'), doc:'Esc'},
   {g:'write', k:'Ctrl+B I U K', d:N_('bold, italic, underline, link in HTML'), doc:'Ctrl+B / I / U / K'},
+  {g:'write', k:'+ −', d:N_('with a picture clicked in HTML: larger or smaller (also Ctrl+→ ←, its bar or its corner); Del removes it'), doc:'+ / −'},
   {g:'write', k:'F7', d:N_('the next spelling mistake, with suggestions; or click it'), doc:'F7'},
   {g:'write', k:'↓ ↑ Enter Tab', d:N_('in To, Cc and Bcc: choose a suggested address'), doc:'↓ ↑ Enter Tab Esc'},
   {g:'find', k:'/', d:N_('search: the list shows what matches as you type'), doc:'/', run:true},

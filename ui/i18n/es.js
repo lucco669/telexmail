@@ -3,6 +3,21 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["es"] = {
 T: {
+  "Small|picture": "Pequeña",
+  "Medium|picture": "Mediana",
+  "Large|picture": "Grande",
+  "Fit|picture": "Al texto",
+  "Original|picture": "Original",
+  "Drag to make it larger or smaller": "Arrastra para agrandarla o reducirla",
+  "Picture size": "Tamaño de la imagen",
+  "Remove the picture (Del)": "Quitar la imagen (Supr)",
+  "Shown 600 pixels wide": "Se muestran con 600 píxeles de ancho",
+  "Shown 400 pixels wide": "Se muestran con 400 píxeles de ancho",
+  "Shown 200 pixels wide": "Se muestran con 200 píxeles de ancho",
+  "Shown as wide as the text": "Se muestran tan anchas como el texto",
+  "How wide pictures show at first": "Qué ancho tienen las imágenes al principio",
+  "with a picture clicked in HTML: larger or smaller (also Ctrl+→ ←, its bar or its corner); Del removes it": "con una imagen pulsada en HTML: más grande o más pequeña (también Ctrl+→ ←, su barra o su esquina); Supr la quita",
+  "Never wider than the text, nor than the picture itself. Click a picture in a message to change its size: the bar by it, its corner, or + and −.": "Nunca más ancha que el texto ni que la propia imagen. Haz clic en una imagen del mensaje para cambiar su tamaño: la barra junto a ella, su esquina, o + y −.",
   "Keys|keyboard": "Teclas",
   "Saved searches": "Búsquedas guardadas",
   "Open": "Abrir",

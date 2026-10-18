@@ -839,7 +839,11 @@ function installTelexDemo(options) {
           let attrs = '';
           if (tag === 'img') {
             const src = (n.getAttribute('src') || '').trim();
-            if (dataPicture(src)) out += `<img src="${src}"${n.getAttribute('alt') != null ? ` alt="${escHtml(n.getAttribute('alt'))}"` : ''}>`;
+            // html::compose_clean: a width of 1–2000 and the one picture style, nothing else.
+            const w = (n.getAttribute('width') || '').trim(), width = /^\d{1,4}$/.test(w) && +w >= 1 && +w <= 2000 ? ` width="${+w}"` : '';
+            const decl = (n.getAttribute('style') || '').split(';').map((d) => d.replace(/\s+/g, '').toLowerCase()).filter(Boolean);
+            const style = decl.length && decl.every((d) => d === 'max-width:100%' || d === 'height:auto') ? ' style="max-width:100%;height:auto"' : '';
+            if (dataPicture(src)) out += `<img src="${src}"${n.getAttribute('alt') != null ? ` alt="${escHtml(n.getAttribute('alt'))}"` : ''}${width}${style}>`;
             continue;
           }
           if (tag === 'a') {
@@ -1852,7 +1856,12 @@ function installTelexDemo(options) {
       const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no('?'); r.readAsDataURL(file);
     })).then((src) => {
       if (!dataPicture(src)) return Promise.reject(tr('That isn\'t a picture Telex can put in a message: use PNG, JPEG, GIF or WebP.', 'Tego obrazu Telex nie wstawi do wiadomości: użyj PNG, JPEG, GIF lub WebP.'));
-      return { src, width: 0, height: 0, bytes: Math.round(src.length * 0.75), smaller: false };
+      // images::prepare: the demo puts the picture in as it is, with its size in pixels.
+      return new Promise((ok) => {
+        const img = new Image();
+        const done = () => ok({ src, width: img.naturalWidth, height: img.naturalHeight, source_width: img.naturalWidth, source_height: img.naturalHeight, bytes: Math.round(src.length * 0.75), smaller: false });
+        img.onload = done; img.onerror = done; img.src = src;
+      });
     }),
     save_outgoing: saveOutgoing,
     discard_draft: discardDraft,

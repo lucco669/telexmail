@@ -971,7 +971,9 @@ mod tests {
         assert!(shown.document.contains(png) && shown.blocked == 0);
         let editable = html::editable(&composed.raw).unwrap();
         assert!(
-            editable.contains(&format!("<img src=\"{png}\" alt=\"plan\">")),
+            editable.contains(&format!(
+                "<img src=\"{png}\" alt=\"plan\" style=\"max-width:100%;height:auto\">"
+            )),
             "{editable}"
         );
         let draft_raw = compose_draft(&account(), &d, &Originals::default(), now()).unwrap();

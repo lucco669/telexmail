@@ -8,6 +8,21 @@
 'use strict';
 
 const PL = {
+  'Small|picture': 'Mały',
+  'Medium|picture': 'Średni',
+  'Large|picture': 'Duży',
+  'Fit|picture': 'Na szerokość tekstu',
+  'Original|picture': 'Oryginał',
+  'Drag to make it larger or smaller': 'Przeciągnij, żeby powiększyć lub zmniejszyć',
+  'Picture size': 'Rozmiar obrazu',
+  'Remove the picture (Del)': 'Usuń obraz (Del)',
+  'Shown 600 pixels wide': 'Pokazywane na 600 pikseli szerokości',
+  'Shown 400 pixels wide': 'Pokazywane na 400 pikseli szerokości',
+  'Shown 200 pixels wide': 'Pokazywane na 200 pikseli szerokości',
+  'Shown as wide as the text': 'Pokazywane na szerokość tekstu',
+  'How wide pictures show at first': 'Jak szerokie są obrazy na początku',
+  'with a picture clicked in HTML: larger or smaller (also Ctrl+→ ←, its bar or its corner); Del removes it': 'po kliknięciu obrazu w HTML: większy lub mniejszy (też Ctrl+→ ←, jego pasek lub róg); Del go usuwa',
+  'Never wider than the text, nor than the picture itself. Click a picture in a message to change its size: the bar by it, its corner, or + and −.': 'Nigdy szersze niż tekst ani niż sam obraz. Kliknij obraz w wiadomości, żeby zmienić jego rozmiar: pasek przy nim, jego róg albo + i −.',
   'Saved searches':'Zapisane wyszukiwania',
   'Open':'Otwórz',
   'Save this search':'Zapisz to wyszukiwanie',

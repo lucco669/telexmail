@@ -3,6 +3,21 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["uk"] = {
 T: {
+  "Small|picture": "Мале",
+  "Medium|picture": "Середнє",
+  "Large|picture": "Велике",
+  "Fit|picture": "За текстом",
+  "Original|picture": "Оригінал",
+  "Drag to make it larger or smaller": "Перетягніть, щоб збільшити чи зменшити",
+  "Picture size": "Розмір зображення",
+  "Remove the picture (Del)": "Вилучити зображення (Del)",
+  "Shown 600 pixels wide": "Показувати шириною 600 пікселів",
+  "Shown 400 pixels wide": "Показувати шириною 400 пікселів",
+  "Shown 200 pixels wide": "Показувати шириною 200 пікселів",
+  "Shown as wide as the text": "Показувати на ширину тексту",
+  "How wide pictures show at first": "Якої ширини зображення спочатку",
+  "with a picture clicked in HTML: larger or smaller (also Ctrl+→ ←, its bar or its corner); Del removes it": "коли зображення в HTML клацнуто: більше чи менше (також Ctrl+→ ←, його панель або кут); Del вилучає його",
+  "Never wider than the text, nor than the picture itself. Click a picture in a message to change its size: the bar by it, its corner, or + and −.": "Ніколи не ширше за текст і за саме зображення. Клацніть зображення в листі, щоб змінити його розмір: панель біля нього, його кут або + і −.",
   "Keys|keyboard": "Клавіші",
   "Saved searches": "Збережені пошуки",
   "Open": "Відкрити",

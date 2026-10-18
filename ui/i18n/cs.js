@@ -3,6 +3,21 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["cs"] = {
 T: {
+  "Small|picture": "Malý",
+  "Medium|picture": "Střední",
+  "Large|picture": "Velký",
+  "Fit|picture": "Na šířku textu",
+  "Original|picture": "Původní",
+  "Drag to make it larger or smaller": "Přetažením zvětšíte nebo zmenšíte",
+  "Picture size": "Velikost obrázku",
+  "Remove the picture (Del)": "Odstranit obrázek (Del)",
+  "Shown 600 pixels wide": "Zobrazené na šířku 600 pixelů",
+  "Shown 400 pixels wide": "Zobrazené na šířku 400 pixelů",
+  "Shown 200 pixels wide": "Zobrazené na šířku 200 pixelů",
+  "Shown as wide as the text": "Zobrazené na šířku textu",
+  "How wide pictures show at first": "Jak široké jsou obrázky zpočátku",
+  "with a picture clicked in HTML: larger or smaller (also Ctrl+→ ←, its bar or its corner); Del removes it": "s klepnutým obrázkem v HTML: větší nebo menší (také Ctrl+→ ←, jeho lišta nebo roh); Del jej odstraní",
+  "Never wider than the text, nor than the picture itself. Click a picture in a message to change its size: the bar by it, its corner, or + and −.": "Nikdy širší než text ani než samotný obrázek. Klepnutím na obrázek ve zprávě změníte jeho velikost: lišta u něj, jeho roh nebo + a −.",
   "Keys|keyboard": "Klávesy",
   "Saved searches": "Uložená hledání",
   "Open": "Otevřít",
