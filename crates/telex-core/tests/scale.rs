@@ -962,3 +962,81 @@ fn upgrading_a_hundred_thousand_messages() {
     println!("{:<52} {:>8.0} MB", "version 7 file", mb(&copy));
     remove_db(&copy);
 }
+
+/// Schema 18 looked for invitations in every stored message during the upgrade, with the window
+/// waiting (10–15 s on the owner's 2.85 GB). From schema 25 that is upkeep after the window
+/// opens. On a copy of the 100,000-message base, as an upgrade from before 18 leaves it: the
+/// whole job in one go (what the window used to wait for), then the way the app runs it.
+#[test]
+#[ignore = "builds a 100,000-message mail base; run with --release -- --ignored --nocapture"]
+fn invitations_after_an_upgrade() {
+    let (path, keep) = scale_db();
+    let copy = std::env::temp_dir().join(format!("telex-upkeep-{}.db", std::process::id()));
+    std::fs::copy(&path, &copy).unwrap();
+    let as_upgraded = || {
+        let db = rusqlite::Connection::open(&copy).unwrap();
+        db.execute_batch(
+            "DELETE FROM invites; DELETE FROM upkeep;
+             INSERT INTO upkeep (job, next, done, total)
+                 SELECT 'invites', MAX(id) + 1, 0, COUNT(*) FROM message_content
+                 WHERE raw IS NOT NULL;",
+        )
+        .unwrap();
+        let bytes: i64 = db
+            .query_row(
+                "SELECT SUM(length(raw)) FROM message_content WHERE raw IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        bytes as f64 / 1048576.0
+    };
+    let mb = as_upgraded();
+    println!();
+    println!("{:<52} {:>8.0} MB", "raw messages", mb);
+
+    let mut store = MailStore::open(&copy).unwrap();
+    let t = Instant::now();
+    assert_eq!(store.upkeep_step(Duration::MAX).unwrap(), None);
+    let all = t.elapsed();
+    println!(
+        "{:<52} {:>8.1} s  ({:.0} MB/s)",
+        "all of it at once (the old upgrade)",
+        all.as_secs_f64(),
+        mb / all.as_secs_f64()
+    );
+    drop(store);
+
+    as_upgraded();
+    let t = Instant::now();
+    let mut store = MailStore::open(&copy).unwrap();
+    println!(
+        "{:<52} {:>8.1} ms",
+        "opening, the window waits",
+        ms(t.elapsed())
+    );
+    let (step, pause) = (Duration::from_millis(40), Duration::from_millis(20));
+    let t = Instant::now();
+    let (mut steps, mut longest) = (0, Duration::ZERO);
+    loop {
+        let s = Instant::now();
+        let left = store.upkeep_step(step).unwrap();
+        longest = longest.max(s.elapsed());
+        steps += 1;
+        if left.is_none() {
+            break;
+        }
+        std::thread::sleep(pause);
+    }
+    println!(
+        "{:<52} {:>8.1} s  ({steps} steps, the longest {:.0} ms)",
+        "in the background, 40 ms steps, 20 ms pauses",
+        t.elapsed().as_secs_f64(),
+        ms(longest)
+    );
+    drop(store);
+    remove_db(&copy);
+    if !keep {
+        remove_db(&path);
+    }
+}

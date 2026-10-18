@@ -46,7 +46,15 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/022_pop3.sql"),
     include_str!("migrations/023_openpgp.sql"),
     include_str!("migrations/024_smime.sql"),
+    include_str!("migrations/025_upkeep.sql"),
 ];
+
+/// How far the schema upgrade of a mail base being opened is: `done` of `steps` steps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Upgrade {
+    pub done: usize,
+    pub steps: usize,
+}
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
 /// to a server folder.
@@ -321,6 +329,13 @@ pub struct MailStore {
 impl MailStore {
     /// Open the mail database at `path`, creating or upgrading it if needed.
     pub fn open(path: &Path) -> Result<Self, StoreError> {
+        Self::open_with(path, |_| {})
+    }
+
+    /// The same, telling `progress` how far an upgrade is: before its first step and after
+    /// each one (never when there is nothing to upgrade). Work an upgrade can leave for later
+    /// is queued for [`MailStore::upkeep_step`] instead (upkeep.rs).
+    pub fn open_with(path: &Path, mut progress: impl FnMut(Upgrade)) -> Result<Self, StoreError> {
         let db = Connection::open(path)?;
         // WAL lets the UI read while a sync writes, and survives crashes well. With WAL,
         // synchronous=NORMAL is still safe: a power cut can lose the last commits, never
@@ -331,20 +346,23 @@ impl MailStore {
         db.pragma_update(None, "cache_size", -32_768)?; // KiB: 32 MiB
         db.pragma_update_and_check(None, "mmap_size", 256 * 1024 * 1024, |_| Ok(()))?;
         db.pragma_update(None, "temp_store", "MEMORY")?;
-        Self::with_connection(db)
+        Self::with_connection(db, &mut progress)
     }
 
     /// An empty store that lives only in memory.
     pub fn in_memory() -> Result<Self, StoreError> {
-        Self::with_connection(Connection::open_in_memory()?)
+        Self::with_connection(Connection::open_in_memory()?, &mut |_| {})
     }
 
-    fn with_connection(db: Connection) -> Result<Self, StoreError> {
+    fn with_connection(
+        db: Connection,
+        progress: &mut dyn FnMut(Upgrade),
+    ) -> Result<Self, StoreError> {
         db.pragma_update(None, "foreign_keys", true)?;
         // A sync uses about twenty statements over and over; the default keeps 16.
         db.set_prepared_statement_cache_capacity(64);
         list::register_functions(&db)?;
-        migrate(&db)?;
+        migrate(&db, progress)?;
         list::watch_shape(&db)?;
         let accounts = load_accounts(&db)?;
         Ok(Self {
@@ -370,7 +388,7 @@ impl MailStore {
         messages: Vec<Message>,
         incoming: Vec<Message>,
     ) -> Result<Self, StoreError> {
-        let mut store = Self::with_connection(Connection::open_in_memory()?)?;
+        let mut store = Self::in_memory()?;
         store.sample = true;
         let tx = store.db.transaction()?;
         for (pos, a) in accounts.iter().enumerate() {
@@ -2755,8 +2773,13 @@ impl Drop for MailStore {
     }
 }
 
+/// The schema step that looks for invitations in the mail stored before it.
+const INVITES_STEP: usize = 18;
+/// The schema step from which work like that waits for after the window opens (`upkeep`).
+const UPKEEP_STEP: usize = 25;
+
 /// Bring the database up to the newest schema, one step at a time.
-fn migrate(db: &Connection) -> Result<(), StoreError> {
+fn migrate(db: &Connection, progress: &mut dyn FnMut(Upgrade)) -> Result<(), StoreError> {
     let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
     let version = usize::try_from(version).unwrap_or_default();
     if version > MIGRATIONS.len() {
@@ -2765,7 +2788,12 @@ fn migrate(db: &Connection) -> Result<(), StoreError> {
             "utworzyła ją nowsza wersja Telexa (schemat {version})"
         )));
     }
+    let steps = MIGRATIONS.len() - version;
     for (step, sql) in MIGRATIONS.iter().enumerate().skip(version) {
+        progress(Upgrade {
+            done: step - version,
+            steps,
+        });
         let reached = step + 1;
         let tx = db.unchecked_transaction()?;
         tx.execute_batch(sql)?;
@@ -2775,11 +2803,16 @@ fn migrate(db: &Connection) -> Result<(), StoreError> {
         if reached == 9 {
             backfill_refs(&tx)?;
         }
-        if reached == 18 {
-            crate::calendar::invites::backfill(&tx)?;
+        // Schema 18 used to read all mail here, with the window waiting; now that waits for
+        // the upkeep table, made in the same upgrade, and runs once the window is open.
+        if reached == UPKEEP_STEP && version < INVITES_STEP {
+            crate::upkeep::queue(&tx, crate::upkeep::INVITES)?;
         }
         tx.pragma_update(None, "user_version", reached as i64)?;
         tx.commit()?;
+    }
+    if steps > 0 {
+        progress(Upgrade { done: steps, steps });
     }
     Ok(())
 }

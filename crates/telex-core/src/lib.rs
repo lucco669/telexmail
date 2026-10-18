@@ -46,11 +46,13 @@ pub mod spell;
 pub mod store;
 pub mod tags;
 pub mod unsubscribe;
+pub mod upkeep;
 pub mod usage;
 pub mod vcard;
 
 pub use list::{FolderCount, FolderTree, ListView, Page, PageAt, SortKey, UnreadAt};
 pub use model::*;
 pub use store::{
-    DeleteOutcome, DeleteReport, FolderSyncState, MailStore, StoreError, SyncedMessage, LOCAL_ID,
+    DeleteOutcome, DeleteReport, FolderSyncState, MailStore, StoreError, SyncedMessage, Upgrade,
+    LOCAL_ID,
 };

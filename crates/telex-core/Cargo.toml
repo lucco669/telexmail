@@ -14,6 +14,9 @@ telex-i18n = { path = "../telex-i18n" }
 chrono.workspace = true
 rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "functions"] }
 mail-parser = "0.11.9"
+# Fast byte searches (SIMD): looking for a calendar in every stored message after an upgrade.
+# Already here through regex and others.
+memchr = "2.8"
 async-imap = { version = "0.11.3", default-features = false, features = ["runtime-tokio"] }
 tokio = { version = "1.53.2", features = ["net", "time", "rt", "io-util", "sync"] }
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring", "tls12", "logging"] }

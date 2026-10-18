@@ -8031,6 +8031,29 @@ window.__TAURI__?.event?.listen('settings-changed', async ({payload: from}) => {
 // Closing a window with a message being written keeps it as a draft.
 window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async () => { if (state.compose) await closeCompose(); });
 
+// The core opens the mail base on a thread of its own at start (opening.rs). Commands that need
+// the mail wait for it; after an update the upgrade can take a while, so the window says how far.
+async function mailBaseOpen(){
+  for (;;){
+    let s = null;
+    try { s = await invoke('upgrade_state'); } catch { return; }
+    if (!s) return;
+    if (s.steps) previewEl.innerHTML = `<div class="pempty" role="status">${I.mail}<div>${esc(t('Upgrading the mail base for Telex {version}… ({n} of {m})', {version:s.version, n:num(s.done), m:num(s.steps)}))}</div><div>${esc(t('This happens once, after an update.'))}</div></div>`;
+    await new Promise(go => setTimeout(go, 200));
+  }
+}
+// Work an upgrade left for later runs in the background, a moment at a time (upkeep.rs).
+let upkeepSaid = '';
+listenMain('upkeep-progress', ({payload: p}) => {
+  if (p){
+    upkeepSaid = t('Finishing the upgrade: {done} of {total} messages', {done:num(p.done), total:num(p.total)});
+    say(upkeepSaid, 0);
+  } else if (upkeepSaid){
+    if ($('st-msg').textContent === upkeepSaid) say('');
+    upkeepSaid = '';
+  }
+});
+
 async function boot(){
   I18n.translatePage();
   paintToolbar(); paintDensity();
@@ -8041,6 +8064,7 @@ async function boot(){
   }
   await bootSettings(); // first, so the first screen is in the right language and colors
   bootUpdates(); // then, so a version that can't load the mail can still be updated
+  await mailBaseOpen();
   try { await loadTree(); } catch (e){ previewEl.innerHTML = `<div class="pempty">${esc(t('Couldn’t load mail: {error}', {error:tr(e)}))}</div>`; return; }
   paintScope();
   await setFolder(homeOf(ACCOUNTS[0]?.id));

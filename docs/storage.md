@@ -197,6 +197,31 @@ other on the same base (the threaded list is the 40,000-message Inbox by date: 1
 | Threaded: Shift+click across 100 rows                  | 1.0 ms         | 0.01 ms         |
 | Rule preview, body contains, all mail (94,000)         | 67.5 s         | 66–75 ms (first 2,000) |
 
+### Upgrades that read all mail (after 0.9.20)
+
+The first start of 0.9.20 froze the window for 10–15 s on the owner's mail base (16,089
+messages, 2.85 GB of raw mail). Two things together: the store was opened in Tauri's `setup`, on
+the window's thread before its event loop ran, and schema step 18 read every stored message to
+find calendar invitations, with a byte search that went over each message three times. Now the
+store opens on a thread of its own while the window asks how far the upgrade is
+(`upgrade_state`), the invitations are found after the window opens (`upkeep.rs`: 40 ms steps,
+20 ms pauses, newest mail first, resumed at the next start), and the search is one SIMD pass
+(`memchr`) for the "/" and "." that text/calendar, application/ics and .ics have.
+
+Measured on 17 October 2026 on the owner's PC with the 100,000-message benchmark (850 MB of raw
+mail, in the file cache), as an upgrade from before schema 18 leaves it
+(`cargo test -p telex-core --release --test scale invitations_after_an_upgrade -- --ignored
+--nocapture`):
+
+| Upgrade past schema 18                                 | 0.9.20                 | Now               |
+|--------------------------------------------------------|------------------------|-------------------|
+| The window waits for the mail base to open             | 4.9 s (174 MB/s)       | 1.8 ms            |
+| Invitations found in all mail, in one go               | 4.9 s, in the upgrade  | 0.7 s (1,286 MB/s) |
+| The same in the background, as the app runs it         | –                      | 1.0 s, 17 steps, none over 41 ms |
+
+At those speeds the owner's 2.85 GB took about 16 s in 0.9.20 (as reported) and would take about
+2–3 s in the background now, the window's commands waiting at most one 40 ms step for the store.
+
 ## Phase 2: backup, restore, location (built for 0.6, except location)
 
 - **Back up** (`src/backup.rs`, Settings › Backups): `VACUUM INTO` on a read-only connection of

@@ -6,6 +6,7 @@ use crate::store::{MailStore, SyncedMessage};
 use base64::Engine as _;
 use chrono::{Local, NaiveDate};
 use chrono_tz::{America, Europe};
+use std::time::Duration;
 
 fn crlf(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\n', "\r\n")
@@ -377,6 +378,32 @@ fn outlook_invitation_in_local_time_and_elsewhere() {
     assert_eq!(zone.offset, 120);
     assert_eq!(zone.start, at(2026, 10, 20, 10, 0));
     assert_eq!(zone.end, Some(at(2026, 10, 20, 11, 0)));
+}
+
+#[test]
+fn mail_that_names_a_calendar_is_found_by_its_bytes() {
+    use super::invites::mentions_calendar;
+    for raw in [
+        &b"Content-Type: TEXT/Calendar; method=REQUEST"[..],
+        b"Content-Type: application/ICS",
+        b"filename=\"invite.ics\"",
+        b".ics",
+        b"text/calendar",
+    ] {
+        assert!(mentions_calendar(raw), "{}", String::from_utf8_lossy(raw));
+    }
+    for raw in [
+        &b"Content-Type: text/plain"[..],
+        b"see http://example.com/ics and a.ic",
+        b"context/calenda",
+        b"/calendar",
+        b"text/",
+        b".",
+        b"",
+        b"AbC/dEf+ghi/jklm.nop",
+    ] {
+        assert!(!mentions_calendar(raw), "{}", String::from_utf8_lossy(raw));
+    }
 }
 
 #[test]
@@ -874,7 +901,10 @@ fn reply_is_folded_and_keeps_the_event() {
 // ---- In the mail base ----
 
 fn store() -> (MailStore, crate::model::Account) {
-    let mut store = MailStore::in_memory().unwrap();
+    with_account(MailStore::in_memory().unwrap())
+}
+
+fn with_account(mut store: MailStore) -> (MailStore, crate::model::Account) {
     let account = store
         .upsert_account(&AccountSetup {
             name: "Biuro Studio".into(),
@@ -1073,14 +1103,108 @@ fn no_answers_from_spam_or_to_ones_own_meeting() {
     );
 }
 
+/// Mail stored before schema 18, as an upgrade leaves it: no invitations noted, a job queued.
+fn as_before_the_upgrade(store: &MailStore) {
+    store.db.execute("DELETE FROM invites", []).unwrap();
+    crate::upkeep::queue(&store.db, crate::upkeep::INVITES).unwrap();
+}
+
+fn noted(store: &MailStore) -> Vec<MessageId> {
+    let mut stmt = store
+        .db
+        .prepare("SELECT message FROM invites ORDER BY message")
+        .unwrap();
+    stmt.query_map([], |r| r.get::<_, i64>(0))
+        .unwrap()
+        .map(|id| id.unwrap() as MessageId)
+        .collect()
+}
+
 #[test]
-fn the_upgrade_finds_invitations_already_stored() {
+fn the_upkeep_finds_invitations_already_stored() {
     let (mut store, account) = store();
     let id = deliver(&mut store, &account, "inbox", 1, apple_mail());
-    store.db.execute("DELETE FROM invites", []).unwrap();
-    assert!(store.invite(id).unwrap().is_none());
-    super::invites::backfill(&store.db).unwrap();
+    as_before_the_upgrade(&store);
+    assert_eq!(
+        store.upkeep_left().unwrap(),
+        Some(crate::upkeep::Progress { done: 0, total: 1 })
+    );
+    assert_eq!(store.upkeep_step(Duration::MAX).unwrap(), None);
+    assert_eq!(noted(&store), [id]);
     let invite = store.invite(id).unwrap().unwrap();
     assert_eq!(invite.event.summary, "Święta u rodziców");
     assert_eq!(invite.blocked, None);
+    assert_eq!(store.upkeep_left().unwrap(), None, "the job is gone");
+}
+
+#[test]
+fn the_upkeep_goes_on_where_it_stopped() {
+    let path = std::env::temp_dir().join(format!(
+        "telex-upkeep-{}-{}.db",
+        std::process::id(),
+        Local::now().timestamp_nanos_opt().unwrap_or_default()
+    ));
+    let (mut store, account) = with_account(MailStore::open(&path).unwrap());
+    let oldest = deliver(&mut store, &account, "inbox", 1, apple_mail());
+    let plain = deliver(
+        &mut store,
+        &account,
+        "inbox",
+        2,
+        b"From: a@x.pl\r\nSubject: Hi\r\nMessage-ID: <p@x.pl>\r\n\r\nNo calendar here.\r\n"
+            .to_vec(),
+    );
+    let newest = deliver(&mut store, &account, "inbox", 3, google_mail());
+    as_before_the_upgrade(&store);
+
+    // A step that is over at once still does one message: the newest first.
+    let left = store.upkeep_step(Duration::ZERO).unwrap();
+    assert_eq!(left, Some(crate::upkeep::Progress { done: 1, total: 3 }));
+    assert_eq!(noted(&store), [newest]);
+    // Telex closes here; the next start goes on with the message after it.
+    drop(store);
+    let mut store = MailStore::open(&path).unwrap();
+    assert_eq!(
+        store.upkeep_left().unwrap(),
+        Some(crate::upkeep::Progress { done: 1, total: 3 })
+    );
+    let left = store.upkeep_step(Duration::ZERO).unwrap();
+    assert_eq!(left, Some(crate::upkeep::Progress { done: 2, total: 3 }));
+    assert!(!noted(&store).contains(&plain));
+    // Mail that comes meanwhile is noted as it is stored, and the job doesn't count it.
+    let arrived = deliver(
+        &mut store,
+        &account,
+        "inbox",
+        4,
+        outlook_mail(OUTLOOK_ICS, "new"),
+    );
+    assert_eq!(store.upkeep_step(Duration::ZERO).unwrap(), None);
+    assert_eq!(noted(&store), [oldest, newest, arrived]);
+    drop(store);
+    for ext in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{ext}", path.display()));
+    }
+}
+
+#[test]
+fn an_invitation_opened_before_the_upkeep_got_there_shows() {
+    let (mut store, account) = store();
+    let old = deliver(&mut store, &account, "inbox", 1, apple_mail());
+    let plain = deliver(
+        &mut store,
+        &account,
+        "inbox",
+        2,
+        b"From: a@x.pl\r\nSubject: Hi\r\n\r\nNo calendar here.\r\n".to_vec(),
+    );
+    as_before_the_upgrade(&store);
+    assert!(noted(&store).is_empty());
+    let invite = store.invite(old).unwrap().expect("noted when opened");
+    assert_eq!(invite.event.summary, "Święta u rodziców");
+    assert_eq!(noted(&store), [old]);
+    assert!(store.invite(plain).unwrap().is_none());
+    // The job still goes over it, without noting it twice.
+    while store.upkeep_step(Duration::ZERO).unwrap().is_some() {}
+    assert_eq!(noted(&store), [old]);
 }

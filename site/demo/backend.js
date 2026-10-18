@@ -1897,6 +1897,8 @@ function installTelexDemo(options) {
     get_settings: settingsView,
     update_settings: updateSettings,
     update_info: () => ({ version, updatable: false, countable: false }),
+    // The demo's mail base is open from the start, with nothing to upgrade.
+    upgrade_state: () => null,
     count_copy: () => false,
     check_update: () => null,
     install_update: () => refuse('update'),

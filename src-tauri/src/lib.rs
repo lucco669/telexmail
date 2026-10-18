@@ -11,6 +11,7 @@ mod folders;
 mod keys;
 mod migrate;
 mod native;
+mod opening;
 mod secrets;
 mod settings;
 mod spell;
@@ -27,7 +28,6 @@ use chrono::{Local, NaiveDateTime, TimeDelta};
 use futures_util::future::join_all;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::autoconfig::{self, Detected, Step};
 use telex_core::calendar::{invites::Invite, Answer};
@@ -46,6 +46,7 @@ use telex_core::usage::Usage;
 use telex_core::{
     Account, AccountSetup, DeleteReport, FolderKind, FolderTemplate, FolderTree, Identity,
     ListView, MailStore, MessageId, OutgoingDraft, Page, PageAt, SentCopy, StoreError, UnreadAt,
+    Upgrade,
 };
 
 use crate::files::FilesState;
@@ -90,10 +91,11 @@ fn with_store<T>(
 
 /// The user's mail base, or an empty one in memory until the first account creates the file.
 /// A file that is there but doesn't open is left as it is, and the sentence says why.
-fn open_store(db_path: &Path) -> (MailStore, Option<String>) {
+/// `progress` hears how far an upgrade is, when the file needs one.
+fn open_store(db_path: &Path, progress: impl FnMut(Upgrade)) -> (MailStore, Option<String>) {
     let mut problem = None;
     if db_path.exists() {
-        match MailStore::open(db_path) {
+        match MailStore::open_with(db_path, progress) {
             Ok(store) => return (store, None),
             Err(e) => {
                 problem = Some(tr!(
@@ -1330,22 +1332,17 @@ pub fn run() {
         .manage(migrate::Sources::default())
         .manage(watch::Watchers::default())
         .manage(keys::KeysState::default())
+        .manage(opening::Opening::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let db_path = dir.join("telex.db");
             app.manage(settings::SettingsState::load(dir.join("settings.json")));
             app.manage(spell::SpellState::start(&dir));
-            let (store, problem) = open_store(&db_path);
-            if let Some(problem) = problem {
-                app.dialog()
-                    .message(problem)
-                    .kind(MessageDialogKind::Error)
-                    .title("Telex")
-                    .show(|_| {});
-            }
+            // An empty store until the thread that opens the mail base has it (opening.rs):
+            // here, on the window's thread, a long upgrade would freeze the window.
             app.manage(AppState {
-                store: Mutex::new(store),
+                store: Mutex::new(MailStore::in_memory()?),
                 db_path,
                 busy: AtomicBool::new(false),
                 sending: tokio::sync::Mutex::new(()),
@@ -1354,8 +1351,8 @@ pub fn run() {
             });
             // Attachments opened last time; files still open elsewhere stay.
             telex_core::attachments::clear_opened(&std::env::temp_dir());
-            watch::restart(app.handle());
-            send_timer(app.handle().clone());
+            // Then the watchers, the send timer and the upkeep, once the mail base is open.
+            opening::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -1371,6 +1368,7 @@ pub fn run() {
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
+            opening::upgrade_state,
             folder_tree,
             connections,
             wake_server,
@@ -1517,10 +1515,11 @@ pub fn run() {
         .build(context)
         .expect("Telex failed to start")
         .run(|app, event| {
-            // The process may end without dropping the store: tidy the statistics now.
+            // The process may end without dropping the store: tidy the statistics now. Not
+            // while an upgrade holds it: the window has gone, and SQLite undoes the step.
             if let tauri::RunEvent::Exit = event {
                 if let Some(state) = app.try_state::<AppState>() {
-                    if let Ok(store) = state.store.lock() {
+                    if let Ok(store) = state.store.try_lock() {
                         store.optimize();
                     }
                 }

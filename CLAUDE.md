@@ -110,6 +110,9 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      backup folder's list and pruning, restoring (after_restore), compacting.
   src/usage.rs       What the Usage tab shows: quota, sizes per folder, 30 days of mail in and
                      out, top senders, largest messages, the last sync.
+  src/upkeep.rs      Work an upgrade leaves for after the window opens (schema 25, `upkeep`):
+                     a job per row, newest message first, a short step a transaction, resumed at
+                     the next start; schema 18's invitations in older mail.
   src/i18n.rs        The core's language: `tr!("English", "Polski")`, set from the settings.
   src/filters.rs     Rules (the Sorting Office): conditions (patterns with the regex crate, age,
                      size, read and flag), actions, running them with notes, schedules,
@@ -206,6 +209,9 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   src/count.rs       `count_copy`: today's count when `usage_count` is on, release builds only.
   src/watch.rs       One IMAP IDLE watcher per account ("inbox-changed" events), and the
                      new-mail notification (tauri-plugin-notification).
+  src/opening.rs     The mail base opened at start on a thread of its own (it holds the store's
+                     lock meanwhile, so commands wait on the async pool, never the window's thread),
+                     `upgrade_state`, and the upkeep a step at a time ("upkeep-progress" events).
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
   src/settings.rs    Settings commands; Save and Open dialogs (tauri-plugin-dialog, from Rust only).
   src/lib.rs         The commands above and the app: one Telex at a time on a mail base
@@ -268,6 +274,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 
 | Command          | Args                         | Returns                     |
 |------------------|------------------------------|-----------------------------|
+| `upgrade_state`  | –                            | `{version, done, steps}` while the mail base is being opened at start (`steps` 0 until an upgrade is known to run), else null; answers at once (not on the async pool), so the window can say "Upgrading the mail base… (3 of 8)" before `folder_tree` |
 | `folder_tree`    | –                            | `{accounts, counts: {"<folder key>": {total, unread, older?, stuck?}}, problems: {"<account>": reason}, away: [{account, place, starts, ends}], quota: {"<account>": {used_kb, limit_kb}}, synced: {"<account>": time}, tags: [{keyword, name, color, count}], tags_here?: [account]}` (empty folders left out; `tags`: every tag in order, Thunderbird's five named in the interface's language; `tags_here`: accounts whose server can't keep tags; `older`: on the server, not downloaded; `stuck`: Outbox mail that didn't go (refused, a failed try, taken back); `problems`: accounts whose last check failed; `quota` and `synced`: the server's storage and the last good check, for the status bar and Settings › Accounts) |
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
@@ -417,7 +424,8 @@ one. `busy: true` means another check or push was running and nothing started; t
 retries. `check_mail` sends each Outbox first, then syncs, and emits `sync-progress` events
 (`{account, folder, done, total}`) while it downloads. While new mail shows at once
 (`push_mail`), an "inbox-changed" event (the account id) says IDLE saw a change; the UI then
-calls `check_mail` with that account.
+calls `check_mail` with that account. After an upgrade, "upkeep-progress" events `{done, total}`
+(messages) say how far the work it left for later is, and null once it is done.
 
 The window never loads all mail. `list_page` takes a `view` `{folder, sort, ascending, filter,
 bodies, thread, unread, keep}` (`folder: null` = all mail except Spam and Trash; `"*/drafts"`, `"*/outbox"`: that
@@ -602,7 +610,28 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- Long upgrades no longer freeze the window (schema version 25: `upkeep`; a one-way upgrade).
+  The first start of 0.9.20 froze the window for 10–15 s on the owner's mail base (16,089
+  messages, 2.85 GB): `setup` opened the store on the window's thread before its event loop ran,
+  and schema 18 read every stored message to find calendar invitations.
+  - The store opens on a thread of its own (src-tauri `opening.rs`), which holds the store's lock
+    meanwhile, so commands that need the mail wait on the async pool; the watchers, the send
+    timer and the upkeep start once it is open. The window asks `upgrade_state` before the
+    folder tree and, while an upgrade runs, says "Upgrading the mail base for Telex 0.9.21… (3 of
+    8)" and "This happens once, after an update." (`MailStore::open_with` reports each step).
+    Closing Telex meanwhile doesn't wait for it (the exit's `optimize` only takes a free store).
+  - Schema 18's invitations in older mail are found after the window opens (`upkeep.rs`): an
+    upgrade from before 18 queues a job (`upkeep`: the next id, done, total), and the app runs
+    `upkeep_step` in 40 ms steps with 20 ms pauses, newest mail first, each step one transaction
+    that also moves the job's place, so a job cut short goes on at the next start. The status bar
+    says "Finishing the upgrade: 4,200 of 16,089 messages". An invitation opened before the job
+    got to it is noted then (`upkeep::waiting`), so its card shows; until the job is done, an
+    older version of it or the user's answer in Sent may not be counted yet. A restore starts the
+    upkeep again (an older backup may bring its own). Bases already at 24 have nothing to do.
+  - Looking for a calendar in a message's bytes (`invites::mentions_calendar`) is one SIMD pass
+    (`memchr`, already in the dependency tree, now a direct dependency) instead of three: all mail
+    of the 100k benchmark in 0.7 s instead of 4.9 s.
+  - Numbers in docs/storage.md.
 
 ## Current state (v0.9.20: tags, an address book, calendar invitations, send later and unsubscribe, POP3, drafts on the server, OpenPGP and S/MIME, saving and printing mail, a help panel, seven more languages, and all earlier features below)
 

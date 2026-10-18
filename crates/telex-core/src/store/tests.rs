@@ -807,7 +807,7 @@ fn version_10_adds_folders_on_this_pc_to_bases_with_accounts() {
                 )
                 .unwrap();
         }
-        MailStore::with_connection(db).unwrap()
+        MailStore::with_connection(db, &mut |_| {}).unwrap()
     };
     let store = base(true);
     assert_eq!(store.this_pc().unwrap().folders.len(), 2);
@@ -1200,7 +1200,7 @@ fn a_version_1_database_is_upgraded() {
         )
         .unwrap();
 
-    let mut store = MailStore::with_connection(db).unwrap();
+    let mut store = MailStore::with_connection(db, &mut |_| {}).unwrap();
     let version: i64 = store
         .db
         .pragma_query_value(None, "user_version", |r| r.get(0))
@@ -1294,7 +1294,7 @@ fn version_7_moves_the_text_and_finds_the_same_mail() {
             .collect();
     assert!(before.iter().filter(|hits| hits.len() > 5).count() >= 3);
 
-    let mut store = MailStore::with_connection(db).unwrap();
+    let mut store = MailStore::with_connection(db, &mut |_| {}).unwrap();
     for (q, hits) in queries.iter().zip(&before) {
         assert_eq!(
             &store.search(q).unwrap(),
@@ -1453,7 +1453,7 @@ fn version_9_knows_what_old_replies_answer() {
         ],
     )
     .unwrap();
-    let store = MailStore::with_connection(db).unwrap();
+    let store = MailStore::with_connection(db, &mut |_| {}).unwrap();
     let m = store.get(1).unwrap();
     assert_eq!(m.refs, ["a@x.pl"]);
     assert_eq!(m.bcc, "");
@@ -1463,6 +1463,98 @@ fn version_9_knows_what_old_replies_answer() {
         SmtpSecurity::Tls,
         "as before"
     );
+}
+
+/// A database at schema `version` with an account, an Inbox, and messages 1 (an invitation)
+/// and 2 (plain mail).
+fn base_at(version: usize) -> Connection {
+    let db = Connection::open_in_memory().unwrap();
+    for sql in &MIGRATIONS[..version] {
+        db.execute_batch(sql).unwrap();
+    }
+    db.pragma_update(None, "user_version", version as i64)
+        .unwrap();
+    db.execute_batch(
+        "INSERT INTO accounts (id, position, name, email, imap_host, imap_port, imap_user)
+                 VALUES ('studio', 0, 'Studio', 'biuro@x.pl', 'mail.x.pl', 993, 'biuro@x.pl');
+             INSERT INTO folders (account, id, position, name, kind, remote)
+                 VALUES ('studio', 'inbox', 0, 'Inbox', 'inbox', 'INBOX');
+             INSERT INTO messages (id, folder, srv_folder, uid, message_id, from_name, from_email,
+                 to_addr, cc, subject, date, size_kb, unread, flagged, remote_images, attachments)
+                 VALUES (1, 'studio/inbox', 'studio/inbox', 1, 'i@x.pl', 'Anna', 'a@x.pl', '', '',
+                     'Spotkanie', '2026-10-09 14:30:00', 1, 1, 0, 0, '[]'),
+                 (2, 'studio/inbox', 'studio/inbox', 2, 'p@x.pl', 'Anna', 'a@x.pl', '', '',
+                     'Wycena', '2026-10-09 15:30:00', 1, 1, 0, 0, '[]');",
+    )
+    .unwrap();
+    let invitation = "Message-ID: <i@x.pl>\r\nFrom: Anna <a@x.pl>\r\nTo: biuro@x.pl\r\n\
+        Subject: Spotkanie\r\nMIME-Version: 1.0\r\n\
+        Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n--b\r\n\
+        Content-Type: text/plain; charset=utf-8\r\n\r\nSpotkanie\r\n--b\r\n\
+        Content-Type: text/calendar; method=REQUEST; charset=utf-8\r\n\r\n\
+        BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\n\
+        UID:spotkanie-1\r\nDTSTAMP:20261009T120000Z\r\nDTSTART:20261020T080000Z\r\n\
+        DTEND:20261020T090000Z\r\nSUMMARY:Spotkanie\r\nORGANIZER:mailto:a@x.pl\r\n\
+        ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:biuro@x.pl\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n\
+        --b--\r\n";
+    db.execute(
+        "INSERT INTO message_content (id, body, raw) VALUES (1, '', ?1), (2, 'OK', ?2)",
+        params![
+            invitation.as_bytes(),
+            b"Message-ID: <p@x.pl>\r\nSubject: Wycena\r\n\r\nOK\r\n".to_vec()
+        ],
+    )
+    .unwrap();
+    db
+}
+
+#[test]
+fn upgrading_past_version_18_leaves_the_invitations_for_later() {
+    let mut seen = Vec::new();
+    let mut store =
+        MailStore::with_connection(base_at(17), &mut |u: Upgrade| seen.push((u.done, u.steps)))
+            .unwrap();
+    let steps = MIGRATIONS.len() - 17;
+    let expected: Vec<(usize, usize)> = (0..=steps).map(|done| (done, steps)).collect();
+    assert_eq!(seen, expected, "before each step, and once done");
+    let noted = |store: &MailStore| -> i64 {
+        store
+            .db
+            .query_row("SELECT COUNT(*) FROM invites", [], |r| r.get(0))
+            .unwrap()
+    };
+    assert_eq!(noted(&store), 0, "nothing read while the window waits");
+    assert_eq!(
+        store.upkeep_left().unwrap(),
+        Some(crate::upkeep::Progress { done: 0, total: 2 })
+    );
+    while store
+        .upkeep_step(std::time::Duration::ZERO)
+        .unwrap()
+        .is_some()
+    {}
+    assert_eq!(noted(&store), 1);
+    assert_eq!(store.invite(1).unwrap().unwrap().event.summary, "Spotkanie");
+    assert_eq!(store.upkeep_left().unwrap(), None);
+}
+
+#[test]
+fn a_base_past_version_18_has_nothing_left_to_do() {
+    let mut seen = Vec::new();
+    let store =
+        MailStore::with_connection(base_at(24), &mut |u: Upgrade| seen.push((u.done, u.steps)))
+            .unwrap();
+    assert_eq!(seen, [(0, 1), (1, 1)]);
+    assert_eq!(store.upkeep_left().unwrap(), None);
+    // Nothing to upgrade: nothing said.
+    seen.clear();
+    MailStore::with_connection(base_at(MIGRATIONS.len()), &mut |u: Upgrade| {
+        seen.push((u.done, u.steps))
+    })
+    .unwrap();
+    assert!(seen.is_empty());
+    let fresh = MailStore::in_memory().unwrap();
+    assert_eq!(fresh.upkeep_left().unwrap(), None, "no mail, no job");
 }
 
 #[test]

@@ -18,7 +18,7 @@ use telex_core::backup::{self, BackupFile, BackupInfo};
 use telex_core::{tr, MailStore};
 
 use crate::settings::SettingsState;
-use crate::{failed, open_store, watch, with_store, AppState, BusyGuard, CmdResult};
+use crate::{failed, open_store, opening, watch, with_store, AppState, BusyGuard, CmdResult};
 
 /// What Settings › Backups shows.
 #[derive(Debug, Serialize)]
@@ -258,7 +258,7 @@ pub async fn restore_backup(app: AppHandle, path: String) -> CmdResult<String> {
         *store = MailStore::in_memory().map_err(|e| e.to_string())?;
         let result = backup::restore(&state.db_path, &from, Local::now().naive_local());
         // Whatever happened, open what is there now: the restored mail, or the old one.
-        let (opened, problem) = open_store(&state.db_path);
+        let (opened, problem) = open_store(&state.db_path, |_| {});
         *store = opened;
         let aside = result.map_err(|e| e.to_string())?;
         problem.map_or(Ok(aside), Err)
@@ -266,6 +266,7 @@ pub async fn restore_backup(app: AppHandle, path: String) -> CmdResult<String> {
     .await
     .map_err(failed)??;
     watch::restart(&app);
+    opening::upkeep(&app);
     Ok(aside.display().to_string())
 }
 

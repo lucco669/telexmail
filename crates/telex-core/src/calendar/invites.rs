@@ -21,6 +21,7 @@ use crate::model::{account_of, FolderKind, MessageId, OutgoingDraft};
 use crate::smtp::{self, Originals};
 use crate::store::{MailStore, StoreError};
 use crate::tr;
+use crate::upkeep;
 
 /// What the card says about an invitation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -120,20 +121,26 @@ pub struct Replied {
     pub account: String,
 }
 
-/// Does the raw message name a calendar anywhere? A byte search, so most mail is never parsed.
-fn mentions_calendar(raw: &[u8]) -> bool {
-    [&b"text/calendar"[..], b"application/ics", b".ics"]
-        .iter()
-        .any(|needle| contains_ignoring_case(raw, needle))
-}
-
-fn contains_ignoring_case(hay: &[u8], needle: &[u8]) -> bool {
-    let first = needle[0];
-    hay.len() >= needle.len()
-        && (0..=hay.len() - needle.len()).any(|i| {
-            hay[i].eq_ignore_ascii_case(&first)
-                && hay[i..i + needle.len()].eq_ignore_ascii_case(needle)
-        })
+/// Does the raw message name a calendar anywhere (text/calendar, application/ics, .ics, in any
+/// case)? A byte search, so most mail is never parsed: one pass for the "/" and "." these have
+/// (SIMD), each looked at around it; an upgrade runs it over all mail (upkeep.rs).
+pub(super) fn mentions_calendar(raw: &[u8]) -> bool {
+    let starts = |at: usize, word: &[u8]| {
+        raw.get(at..at + word.len())
+            .is_some_and(|s| s.eq_ignore_ascii_case(word))
+    };
+    let ends = |at: usize, word: &[u8]| {
+        at.checked_sub(word.len())
+            .is_some_and(|from| raw[from..at].eq_ignore_ascii_case(word))
+    };
+    memchr::memchr2_iter(b'/', b'.', raw).any(|i| {
+        if raw[i] == b'.' {
+            starts(i + 1, b"ics")
+        } else {
+            (ends(i, b"text") && starts(i + 1, b"calendar"))
+                || (ends(i, b"application") && starts(i + 1, b"ics"))
+        }
+    })
 }
 
 /// A part's bytes after its transfer encoding, before any charset: folded lines can then be
@@ -211,7 +218,7 @@ fn stamp_of(cal: &Calendar, e: &super::Event) -> Option<NaiveDateTime> {
 }
 
 /// Note a stored message's invitation, if it holds one. Called for every message stored, and
-/// once for all mail when the mail base is upgraded to schema 15.
+/// for the mail stored before schema 18 by the upkeep after an upgrade (upkeep.rs).
 pub(crate) fn index(db: &Connection, id: MessageId, raw: Option<&[u8]>) -> Result<(), StoreError> {
     let Some((_, cal)) = raw.and_then(calendar_of) else {
         return Ok(());
@@ -238,23 +245,6 @@ pub(crate) fn index(db: &Connection, id: MessageId, raw: Option<&[u8]>) -> Resul
     Ok(())
 }
 
-/// Schema 15: note the invitations of the mail stored before.
-pub(crate) fn backfill(db: &Connection) -> Result<(), StoreError> {
-    let ids: Vec<i64> = {
-        let mut stmt = db.prepare("SELECT id FROM message_content WHERE raw IS NOT NULL")?;
-        let ids = stmt
-            .query_map([], |r| r.get(0))?
-            .collect::<Result<_, _>>()?;
-        ids
-    };
-    let mut read = db.prepare("SELECT raw FROM message_content WHERE id = ?1")?;
-    for id in ids {
-        let raw: Vec<u8> = read.query_row([id], |r| r.get(0))?;
-        index(db, id as MessageId, Some(&raw))?;
-    }
-    Ok(())
-}
-
 /// Another message about the same event.
 struct Other {
     sequence: i64,
@@ -278,14 +268,21 @@ impl MailStore {
         id: MessageId,
         local: &L,
     ) -> Result<Option<Invite>, StoreError> {
-        let row: Option<(String, String, i64, Option<NaiveDateTime>)> = self
-            .db
-            .query_row(
-                "SELECT uid, recurrence, sequence, stamp FROM invites WHERE message = ?1",
-                [id as i64],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .optional()?;
+        let noted = || {
+            self.db
+                .query_row(
+                    "SELECT uid, recurrence, sequence, stamp FROM invites WHERE message = ?1",
+                    [id as i64],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                )
+                .optional()
+        };
+        let mut row: Option<(String, String, i64, Option<NaiveDateTime>)> = noted()?;
+        // Mail stored before schema 18 that the upkeep hasn't reached yet: noted now.
+        if row.is_none() && upkeep::waiting(&self.db, upkeep::INVITES, id)? {
+            index(&self.db, id, self.raw_of(id)?.as_deref())?;
+            row = noted()?;
+        }
         let Some((uid, recurrence, sequence, stamp)) = row else {
             return Ok(None);
         };

@@ -6228,6 +6228,7 @@ dependencies = [
  "image",
  "lettre",
  "mail-parser",
+ "memchr",
  "outlook-pst",
  "outlook-pst-rw",
  "p256",

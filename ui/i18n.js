@@ -801,6 +801,9 @@ const PL = {
   // Starting
   'This page needs the Rust core. Start Telex with {command}.': 'Ta strona potrzebuje rdzenia w Rust. Uruchom Telexa przez {command}.',
   'Couldn’t load mail: {error}': 'Nie udało się wczytać poczty: {error}',
+  'Upgrading the mail base for Telex {version}… ({n} of {m})': 'Uaktualnianie bazy poczty dla Telexa {version}… ({n} z {m})',
+  'This happens once, after an update.': 'Dzieje się to raz, po aktualizacji.',
+  'Finishing the upgrade: {done} of {total} messages': 'Kończenie uaktualnienia: {done} z {total} wiadomości',
 
   // Folders, writing in HTML, accounts in Settings, reading, usage
   'Inbox': 'Odebrane',
