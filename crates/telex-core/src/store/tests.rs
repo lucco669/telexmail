@@ -1545,7 +1545,9 @@ fn a_base_past_version_18_has_nothing_left_to_do() {
     let store =
         MailStore::with_connection(base_at(24), &mut |u: Upgrade| seen.push((u.done, u.steps)))
             .unwrap();
-    assert_eq!(seen, [(0, 1), (1, 1)]);
+    // Each step from 24 on said, then done.
+    let steps = MIGRATIONS.len() - 24;
+    assert_eq!(seen, (0..=steps).map(|d| (d, steps)).collect::<Vec<_>>());
     assert_eq!(store.upkeep_left().unwrap(), None);
     // Nothing to upgrade: nothing said.
     seen.clear();

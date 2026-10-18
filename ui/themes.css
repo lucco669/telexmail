@@ -76,7 +76,7 @@
   --fg:#3a2c1f; --muted:#5d4a37; --faint:#68553f;
   --line:#d8c8a6; --line-soft:#e9ddc2; --field:#8a7559;
   --accent:#7c4614; --accent-fg:#fbf4e4; --sel:#ecd8ae; --hover:#f1e6cc;
-  --flag:#a8331b; --warn-bg:#f1dfae; --warn-fg:#5a3e00; --note-bg:#f3d6c8; --note-fg:#7d2312; --spell:#b3301b;
+  --flag:#a8331b; --warn-bg:#f1dfae; --warn-fg:#5a3e00; --note-bg:#f3d6c8; --note-fg:#7d2312; --spell:#b3301b; --replied:#3e6a5e;
   --chip-bg:#e9d9b6; --chip-fg:#5a3a14; --img-a:#e3d0a8; --img-b:#f2e8d2;
   --acct-0:#7c4614; --acct-1:#3d6a2c; --acct-2:#9e3f1e; --acct-3:#68488c; --acct-4:#982e52; --acct-5:#665a49;
   --tag-red:#ffd9d4; --tag-red-fg:#9c3b38; --tag-orange:#ffddc4; --tag-orange-fg:#944600;
@@ -113,7 +113,7 @@
   --fg:#073642; --muted:#485c63; --faint:#4f646b;
   --line:#d8d1bb; --line-soft:#e7e1cc; --field:#76888b;
   --accent:#1a5f96; --accent-fg:#fdf6e3; --sel:#dfe3d3; --hover:#f3eddb;
-  --flag:#a83c0f; --warn-bg:#f3e3b5; --warn-fg:#5a4200; --note-bg:#f7dcd1; --note-fg:#8b1e1a; --spell:#c3311f;
+  --flag:#a83c0f; --warn-bg:#f3e3b5; --warn-fg:#5a4200; --note-bg:#f7dcd1; --note-fg:#8b1e1a; --spell:#c3311f; --replied:#2f6b62;
   --chip-bg:#e2e6dc; --chip-fg:#1a4d73; --img-a:#d6e2e4; --img-b:#f3eedd;
   --acct-0:#1a5f96; --acct-1:#12665f; --acct-2:#a3461a; --acct-3:#4c4c98; --acct-4:#a12966; --acct-5:#586400;
   --tag-red:#ffd9d4; --tag-red-fg:#9c3b38; --tag-orange:#ffddc4; --tag-orange-fg:#944600;
@@ -131,7 +131,7 @@
   --fg:#000000; --muted:#3b3b3b; --faint:#4d4d4d;
   --line:#a8a69f; --line-soft:#e2e0da; --field:#787878;
   --accent:#000080; --accent-fg:#ffffff; --sel:#cdcdcd; --hover:#eeede9;
-  --flag:#b00000; --warn-bg:#ffffe1; --warn-fg:#4a3a00; --note-bg:#ffe0e0; --note-fg:#8b0000; --spell:#d00000;
+  --flag:#b00000; --warn-bg:#ffffe1; --warn-fg:#4a3a00; --note-bg:#ffe0e0; --note-fg:#8b0000; --spell:#d00000; --replied:#1f5f57;
   --chip-bg:#e2e2f2; --chip-fg:#000080; --img-a:#c6c6dc; --img-b:#ededf5;
   --acct-0:#000080; --acct-1:#006400; --acct-2:#8b4500; --acct-3:#5c1e9e; --acct-4:#a0005a; --acct-5:#4a4a4a;
   --tag-red:#ffd9d4; --tag-red-fg:#9c3b38; --tag-orange:#ffddc4; --tag-orange-fg:#944600;
@@ -167,7 +167,7 @@
   --fg:#d5dede; --muted:#9fb0b0; --faint:#8a9d9f;
   --line:#164653; --line-soft:#0a3946; --field:#5f7f86;
   --accent:#6cb6ec; --accent-fg:#002029; --sel:#0c4555; --hover:#05333f;
-  --flag:#ec8a4a; --warn-bg:#33310f; --warn-fg:#e8d48c; --note-bg:#3c1e22; --note-fg:#f4b4b0; --spell:#ff6f60;
+  --flag:#ec8a4a; --warn-bg:#33310f; --warn-fg:#e8d48c; --note-bg:#3c1e22; --note-fg:#f4b4b0; --spell:#ff6f60; --replied:#7fc4b4;
   --chip-bg:#0d4150; --chip-fg:#acdaea; --img-a:#11505f; --img-b:#073d4a;
   --acct-0:#6cb6ec; --acct-1:#4cbdb2; --acct-2:#ec8a4a; --acct-3:#a5a7f2; --acct-4:#e87ab3; --acct-5:#b3be5a;
   --tag-red:#572825; --tag-red-fg:#e19790; --tag-orange:#532d0f; --tag-orange-fg:#da9e75;
@@ -185,7 +185,7 @@
   --fg:#e6e6e6; --muted:#ababab; --faint:#969696;
   --line:#3a3a3a; --line-soft:#2c2c2c; --field:#727272;
   --accent:#e0aa5e; --accent-fg:#1d1d1d; --sel:#3d382e; --hover:#2a2a2a;
-  --flag:#f28b7a; --warn-bg:#36301a; --warn-fg:#ecd79a; --note-bg:#3e2222; --note-fg:#f4b7b2; --spell:#ff6b61;
+  --flag:#f28b7a; --warn-bg:#36301a; --warn-fg:#ecd79a; --note-bg:#3e2222; --note-fg:#f4b7b2; --spell:#ff6b61; --replied:#8cc9b9;
   --chip-bg:#3a3428; --chip-fg:#e8cf9e; --img-a:#4a4234; --img-b:#2c2924;
   --acct-0:#e0aa5e; --acct-1:#6cc4a4; --acct-2:#86b2ea; --acct-3:#c2a0ec; --acct-4:#ef8fae; --acct-5:#b0b0b0;
   --tag-red:#572825; --tag-red-fg:#e19790; --tag-orange:#532d0f; --tag-orange-fg:#da9e75;
@@ -221,7 +221,7 @@
   --fg:#dadada; --muted:#9c9c9c; --faint:#8a8a8a;
   --line:#262626; --line-soft:#151515; --field:#5e5e5e;
   --accent:#7eaaf5; --accent-fg:#000000; --sel:#14233a; --hover:#121212;
-  --flag:#ff9a55; --warn-bg:#2a2208; --warn-fg:#f0d690; --note-bg:#331212; --note-fg:#f6b4ae; --spell:#ff6b61;
+  --flag:#ff9a55; --warn-bg:#2a2208; --warn-fg:#f0d690; --note-bg:#331212; --note-fg:#f6b4ae; --spell:#ff6b61; --replied:#8ccfc4;
   --chip-bg:#11233d; --chip-fg:#b9cff2; --img-a:#1a3150; --img-b:#0d1726;
   --acct-0:#7eaaf5; --acct-1:#5cc9a2; --acct-2:#ff9a55; --acct-3:#bb98f0; --acct-4:#f084a8; --acct-5:#a8a8a8;
   --tag-red:#572825; --tag-red-fg:#e19790; --tag-orange:#532d0f; --tag-orange-fg:#da9e75;
