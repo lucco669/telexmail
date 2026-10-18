@@ -15,7 +15,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 telex-core = { path = "../crates/telex-core" }
-tauri = { version = "2", features = [] }
+# tray-icon: the notification area icon and its menu (tray.rs; AppIndicator on Linux).
+tauri = { version = "2", features = ["tray-icon"] }
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true

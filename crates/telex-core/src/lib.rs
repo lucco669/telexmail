@@ -15,6 +15,7 @@ pub mod calendar;
 mod colors;
 pub mod contacts;
 pub mod count;
+pub mod desktop;
 pub mod drafts;
 pub mod export;
 pub mod filters;

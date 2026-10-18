@@ -81,7 +81,10 @@ async fn watch(app: AppHandle, account: Account) {
 /// A notification for new mail in an Inbox, when the window isn't the active one and the
 /// settings want it: the sender and subject of one message, or how many and from whom.
 pub fn announce(app: &AppHandle, arrived: &[MessageId]) {
-    if arrived.is_empty() || !app.state::<SettingsState>().get().notify {
+    if arrived.is_empty()
+        || !app.state::<SettingsState>().get().notify
+        || crate::tray::notifications_paused(app)
+    {
         return;
     }
     let focused = app

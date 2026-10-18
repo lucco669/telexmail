@@ -285,6 +285,7 @@ const state = {
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
   helpTold: !!saved.helpTold, // the status bar said once where the keys and tips are
+  trayTold: !!saved.trayTold, // the status bar offered once Windows' setting that keeps the tray icon visible
 };
 // The list's columns: From and Folder as wide as they were dragged (px; null fits them to the
 // list), the Size column, and dates short (06:12, Wed 06:12, 10.10.2026) or full.
@@ -306,6 +307,7 @@ const persist = () => store.set({
   updateChecked: state.updateChecked || undefined,
   offered: state.offered || undefined,
   helpTold: state.helpTold || undefined,
+  trayTold: state.trayTold || undefined,
   scope: state.scope === 'all' ? 'all' : undefined,
   more: Object.keys(state.more).length ? state.more : undefined,
   recent: state.recent.length ? state.recent : undefined,
@@ -6423,6 +6425,7 @@ function paneOpened(tab){
   }
   if (tab === 'read') renderTrusted();
   if (tab === 'mail') renderSpamStatus();
+  if (tab === 'win') renderWindowPane();
   if (tab === 'tags'){ tagEdit = {adding:false, armed:null, error:''}; renderTags(); }
   if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); forgetTemplates(); renderFolderTemplates(); }
   if (tab === 'use') renderUsage();
@@ -6577,6 +6580,8 @@ const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_styl
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
+Object.assign(SETTING_LABELS, {tray:N_('Where Telex shows'), close_to_tray:N_('The close button keeps Telex running in the system tray'),
+  minimize_to_tray:N_('Minimizing hides Telex in the system tray'), taskbar_badge:N_('Unread count on the taskbar button')});
 function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
@@ -6607,6 +6612,8 @@ function settingValue(key, v){
     case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
     case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
     case 'spell_languages': return v.length ? v.map(langName).join(', ') : t('Automatic|languages');
+    case 'tray': return TRAY_CHOICES.find(([id]) => id === v) ? t(TRAY_CHOICES.find(([id]) => id === v)[1]) : v;
+    case 'close_to_tray': case 'minimize_to_tray': case 'taskbar_badge': return v ? t('On') : t('Off');
     default: return String(v);
   }
 }
@@ -7940,6 +7947,60 @@ $('st-count').addEventListener('click', async e => {
   else say(t('Telex won’t be counted. Settings › Updates can change that.'), 7000);
 });
 $('u-auto').addEventListener('change', e => { changeSettings({updates:e.target.checked ? 'start' : 'off'}); });
+
+/* ---------- the tray and Settings › Window ---------- */
+// Where Telex shows (tray.rs): the taskbar, the system tray, or both. Hidden in the tray the
+// window keeps working: checks, sending and notifications go on.
+const TRAY_CHOICES = [['on', N_('On the taskbar and in the system tray')], ['off', N_('Only on the taskbar')], ['only', N_('Only in the system tray, without a taskbar button')]];
+let desk = null; // {tray, autostart_blocked, windows}: what this system offers (desktop_state)
+async function renderWindowPane(){
+  try { desk = await invoke('desktop_state'); } catch { desk = {tray:true, autostart_blocked:false, windows:true}; }
+  if (setTab !== 'win') return;
+  const s = pref(), tray = s.tray ?? 'on', iconed = tray !== 'off' && desk.tray;
+  $('s-tray').innerHTML = radios('tray', TRAY_CHOICES.map(([v, label]) => [v, esc(t(label))]), tray);
+  $('s-tray').querySelectorAll('input').forEach(i => { i.disabled = i.value !== 'off' && !desk.tray; });
+  $('s-tray-none').hidden = desk.tray;
+  $('s-tray-hint').hidden = !(desk.windows && iconed);
+  $('s-closetray').checked = iconed && !!s.close_to_tray; $('s-closetray').disabled = !iconed;
+  $('s-mintray').checked = iconed && (tray === 'only' || !!s.minimize_to_tray); $('s-mintray').disabled = !iconed || tray === 'only';
+  $('s-badge').checked = s.taskbar_badge !== false && !(iconed && tray === 'only'); $('s-badge').disabled = iconed && tray === 'only';
+  $('s-autostart').innerHTML = radios('start_with_system', [['off', esc(t('Don’t start Telex by itself'))], ['open', esc(t('Start Telex with its window open'))],
+    ['tray', esc(iconed ? t('Start Telex hidden in the system tray') : t('Start Telex minimized'))]], s.start_with_system ?? 'off');
+  $('s-auto-blocked').hidden = !desk.autostart_blocked;
+}
+$('s-pane-win').addEventListener('change', async e => {
+  const el = e.target, changes = el.name === 'tray' ? {tray:el.value} : el.name === 'start_with_system' ? {start_with_system:el.value}
+    : el.id === 's-closetray' ? {close_to_tray:el.checked} : el.id === 's-mintray' ? {minimize_to_tray:el.checked} : el.id === 's-badge' ? {taskbar_badge:el.checked} : null;
+  if (!changes) return;
+  await changeSettings(changes);
+  renderWindowPane();
+});
+$('s-tray-open').addEventListener('click', () => invoke('open_taskbar_settings').catch(e => say(tr(e), 8000)));
+// The tray's menu: Get mail, New message, and its unread line, which opens Unread.
+listenMain('tray', ({payload: what}) => {
+  if (what === 'check') getMail();
+  else if (what === 'compose') openCompose('new');
+  else if (what === 'unread' && ACCOUNTS.length) setFolder(UNREAD);
+});
+// Windows 11 puts a new tray icon behind the ^ arrow, and only the user may bring it out
+// (Settings › Personalization › Taskbar › Other system tray icons): once, the status bar
+// offers to open that page. After the keys' hint, with an account, in a quiet status bar.
+function tellTray(wait = 20e3){
+  if (state.trayTold || VIEWER) return;
+  setTimeout(async () => {
+    if (state.trayTold) return;
+    if (!desk) try { desk = await invoke('desktop_state'); } catch { return; }
+    if (!desk.windows || !desk.tray || (pref().tray ?? 'on') === 'off') return;
+    if (!state.helpTold || !ACCOUNTS.length || !$('st-ask').hidden || !$('st-count').hidden || document.querySelector('dialog[open]')) return tellTray(30e3);
+    $('st-tray').hidden = false;
+    state.trayTold = true; persist();
+  }, wait);
+}
+$('st-tray').addEventListener('click', e => {
+  const b = e.target.closest('[data-tray]'); if (!b) return;
+  $('st-tray').hidden = true;
+  if (b.dataset.tray === 'open') invoke('open_taskbar_settings').catch(err => say(tr(err), 8000));
+});
 $('st-ver').addEventListener('click', openUpdates);
 $('st-update').addEventListener('click', openUpdates);
 $('u-check').addEventListener('click', () => checkUpdate());
@@ -8324,8 +8385,13 @@ window.__TAURI__?.event?.listen('settings-changed', async ({payload: from}) => {
   if (from === ownLabel()) return; // this window's own change
   try { const got = await invoke('get_settings'); if (got?.settings){ SETTINGS = got; applySettings(); } } catch {}
 });
-// Closing a window with a message being written keeps it as a draft.
-window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async () => { if (state.compose) await closeCompose(); });
+// Closing a window with a message being written keeps it as a draft. The main window's close
+// button may hide it in the tray instead (Settings › Window): that isn't closing, and the
+// message stays open as it is.
+window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async e => {
+  if (!VIEWER && invoke){ try { if (await invoke('close_requested')){ e.preventDefault(); return; } } catch {} }
+  if (state.compose) await closeCompose();
+});
 
 // The core opens the mail base on a thread of its own at start (opening.rs). Commands that need
 // the mail wait for it; after an update the upgrade can take a while, so the window says how far.
@@ -8373,6 +8439,7 @@ async function boot(){
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account
   tellHelp();
+  tellTray();
 }
 boot();
 })();

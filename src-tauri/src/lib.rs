@@ -15,6 +15,7 @@ mod opening;
 mod secrets;
 mod settings;
 mod spell;
+mod tray;
 mod updates;
 mod watch;
 
@@ -120,8 +121,11 @@ fn capitalize(s: &str) -> String {
 
 /// Accounts and their folders, with how many messages and unread ones each folder holds.
 #[tauri::command(async)]
-fn folder_tree(state: State<'_, AppState>) -> CmdResult<FolderTree> {
-    with_store(&state, |s| s.folder_tree())
+fn folder_tree(app: AppHandle, state: State<'_, AppState>) -> CmdResult<FolderTree> {
+    let tree = with_store(&state, |s| s.folder_tree())?;
+    // The window reads the tree after every change: the tray's count follows it.
+    tray::refresh(&app, &tree);
+    Ok(tree)
 }
 
 /// One page of a message list (a folder, or all mail) in the chosen order, with the
@@ -1315,12 +1319,9 @@ pub fn run() {
     let mut app = tauri::Builder::default()
         // One Telex at a time, registered first: two on one mail base would send the same
         // Outbox twice and check and sort new mail twice. Starting it again shows the window.
+        // Also when the first one is hidden in the tray.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            if let Some(main) = app.get_webview_window("main") {
-                let _ = main.unminimize();
-                let _ = main.show();
-                let _ = main.set_focus();
-            }
+            tray::show_main(app);
         }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -1335,6 +1336,7 @@ pub fn run() {
         .manage(watch::Watchers::default())
         .manage(keys::KeysState::default())
         .manage(opening::Opening::default())
+        .manage(tray::TrayState::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -1355,18 +1357,23 @@ pub fn run() {
             telex_core::attachments::clear_opened(&std::env::temp_dir());
             // Then the watchers, the send timer and the upkeep, once the mail base is open.
             opening::start(app.handle());
+            // The tray icon, and the window shown (it starts hidden: tauri.conf.json), unless
+            // Telex started hidden in the tray. Its unread count comes once the mail base is open.
+            tray::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| match event {
             WindowEvent::DragDrop(drop) => files::drag_drop(window, drop),
-            // Closing the main window closes the messages open in their own, and Telex.
-            WindowEvent::CloseRequested { .. } if window.label() == "main" => {
+            // The main window gone (not hidden in the tray) closes the messages open in their
+            // own, and Telex.
+            WindowEvent::Destroyed if window.label() == "main" => {
                 for (label, open) in window.app_handle().webview_windows() {
                     if label != "main" {
                         let _ = open.close();
                     }
                 }
             }
+            WindowEvent::Resized(_) => tray::minimized(window),
             _ => {}
         })
         .invoke_handler(tauri::generate_handler![
@@ -1509,6 +1516,9 @@ pub fn run() {
             settings::show_export,
             settings::open_import,
             settings::apply_import,
+            tray::close_requested,
+            tray::desktop_state,
+            tray::open_taskbar_settings,
             updates::update_info,
             count::count_copy,
             updates::check_update,

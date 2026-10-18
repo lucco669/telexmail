@@ -1632,6 +1632,28 @@ const PL = {
   'days': 'dniach',
   'Remove it from there once it is deleted here (from Trash)': 'Usuwaj ją stamtąd, gdy zostanie tu usunięta (z Kosza)',
   'Telex connects only encrypted (SSL/TLS or STLS) and checks both servers before saving. A POP3 server keeps only the Inbox: your folders are here, and reading, flagging and moving change nothing there. The first check downloads the newest 300 messages; older ones come on request. Back up this mail now and then: Settings › Backups.': 'Telex łączy się wyłącznie szyfrowanym połączeniem (SSL/TLS lub STLS) i sprawdza oba serwery przed zapisaniem. Serwer POP3 trzyma tylko Odebrane: Twoje foldery są tutaj, a czytanie, oznaczanie i przenoszenie niczego tam nie zmienia. Pierwsze sprawdzenie pobiera 300 najnowszych wiadomości, a starsze na życzenie. Rób od czasu do czasu kopię tej poczty: Ustawienia › Kopie zapasowe.',
+  // The tray and Settings › Window.
+  "Where Telex shows": "Gdzie widać Telexa",
+  "The close button keeps Telex running in the system tray": "Przycisk zamykania zostawia Telexa w zasobniku systemowym",
+  "Minimizing hides Telex in the system tray": "Minimalizowanie chowa Telexa do zasobnika systemowego",
+  "Unread count on the taskbar button": "Liczba nieprzeczytanych na przycisku paska zadań",
+  "On the taskbar and in the system tray": "Na pasku zadań i w zasobniku systemowym",
+  "Only on the taskbar": "Tylko na pasku zadań",
+  "Only in the system tray, without a taskbar button": "Tylko w zasobniku systemowym, bez przycisku na pasku zadań",
+  "Don’t start Telex by itself": "Nie uruchamiaj Telexa samoczynnie",
+  "Start Telex with its window open": "Uruchamiaj Telexa z otwartym oknem",
+  "Start Telex hidden in the system tray": "Uruchamiaj Telexa ukrytego w zasobniku systemowym",
+  "Start Telex minimized": "Uruchamiaj Telexa zminimalizowanego",
+  "To keep Telex’s icon always visible, turn it on in Windows’ taskbar settings.": "Aby ikona Telexa była zawsze widoczna, włącz ją w ustawieniach paska zadań Windows.",
+  "Open them": "Otwórz je",
+  "Not now": "Nie teraz",
+  "Window": "Okno",
+  "The system tray isn’t available here. On GNOME it needs the AppIndicator extension.": "Zasobnik systemowy nie jest tu dostępny. W GNOME potrzebuje rozszerzenia AppIndicator.",
+  "Windows puts new icons behind the ^ arrow. To keep Telex’s icon always visible, turn it on in Windows’ taskbar settings, under Other system tray icons.": "Windows chowa nowe ikony za strzałką ^. Aby ikona Telexa była zawsze widoczna, włącz ją w ustawieniach paska zadań Windows, w części Inne ikony zasobnika systemowego.",
+  "Open taskbar settings": "Otwórz ustawienia paska zadań",
+  "In the tray Telex keeps checking and sending mail and notifies you of new mail. Quit it from the icon’s menu.": "W zasobniku Telex dalej sprawdza i wysyła pocztę oraz powiadamia o nowych wiadomościach. Zamknij go z menu ikony.",
+  "Start when I sign in": "Uruchamiaj po zalogowaniu",
+  "Telex is turned off in Task Manager’s Startup apps, so Windows doesn’t start it. Turn it on there.": "Telex jest wyłączony w Aplikacjach autostartu Menedżera zadań, więc Windows go nie uruchamia. Włącz go tam.",
 };
 
 // Texts with a number. Polish has three forms: for 1, for 2–4 (22–24, 32–34, …) and for the rest

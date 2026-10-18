@@ -65,6 +65,10 @@ pub fn start(app: &AppHandle) {
                 .title("Telex")
                 .show(|_| {});
         }
+        // The tray's unread mark, now that there is mail to count.
+        if let Ok(tree) = with_store(&state, |s| s.folder_tree()) {
+            crate::tray::refresh(&app, &tree);
+        }
         watch::restart(&app);
         send_timer(app.clone());
         upkeep(&app);

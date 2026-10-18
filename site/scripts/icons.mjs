@@ -55,7 +55,22 @@ async function ico(sizes) {
   return Buffer.concat([header, ...images]);
 }
 
+// The tray icon with unread mail: the small mark with a red dot in its top right corner, cut
+// free of the mark by a clear ring so it still reads at 16 px.
+const smallUnread = Buffer.from(
+  small
+    .toString()
+    .replace(
+      '<rect',
+      '<mask id="cut"><rect width="64" height="64" fill="#fff"/><circle cx="50" cy="14" r="17" fill="#000"/></mask><g mask="url(#cut)"><rect',
+    )
+    .replace('</svg>', '</g><circle cx="50" cy="14" r="12.5" fill="#e5484d"/></svg>'),
+);
+
 const out = [
+  // The tray (notification area) icon, without and with unread mail: src-tauri's tray.rs.
+  ['src-tauri/icons/tray.png', () => png(32)],
+  ['src-tauri/icons/tray-unread.png', () => png(32, smallUnread)],
   // Desktop app: the files tauri.conf.json lists under bundle.icon.
   ['src-tauri/icons/32x32.png', () => png(32)],
   ['src-tauri/icons/128x128.png', () => png(128)],
