@@ -293,6 +293,8 @@
   "the server wouldn't tag \"{subject}\" ({reason})": "сервер не дозволив додати мітку до «{subject}» ({reason})",
   "the server wouldn't take \"{subject}\" ({reason})": "сервер не прийняв «{subject}» ({reason})",
   "the server wouldn't take a tag off \"{subject}\" ({reason})": "сервер не дозволив зняти мітку з «{subject}» ({reason})",
+  "the server wouldn't mark \"{subject}\" as answered ({reason})": "сервер не дозволив позначити «{subject}» як лист із відповіддю ({reason})",
+  "the server wouldn't mark \"{subject}\" as forwarded ({reason})": "сервер не дозволив позначити «{subject}» як переслане ({reason})",
   "the server wouldn't unflag \"{subject}\" ({reason})": "сервер не дозволив зняти прапорець із «{subject}» ({reason})",
   "the server's filter service doesn't encrypt the connection": "служба фільтрів сервера не шифрує з’єднання",
   "the server's filter service refused the login ({why})": "служба фільтрів сервера відхилила вхід ({why})",

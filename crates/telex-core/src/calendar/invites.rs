@@ -510,6 +510,8 @@ impl MailStore {
                 None,
             )
             .map_err(err)?;
+        // An answer is a reply: the invitation is answered once it went.
+        self.note_answering(queued, Some(id), None).map_err(err)?;
         self.add_note(id, &answer.note(now.naive_local()))
             .map_err(err)?;
         Ok(Replied {

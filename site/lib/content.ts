@@ -10,6 +10,7 @@ const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
 const V0920 = '0.9.20';
+const V0921 = '0.9.21';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -119,6 +120,8 @@ export const featureRows: FeatureRow[] = [
       { text: 'With several accounts every list wears its account’s color, and all-mail search names the account next to the folder', since: '0.9.1' },
       { text: 'Dates, the Size column and fitting the columns in Settings › Appearance too', since: '0.9.1' },
       { text: 'Quoted mail reads as blocks: who wrote it on top, a colored bar for each level, in the normal text color; long quotes fold, and Q opens them all', since: V0910 },
+      { text: 'Replied and forwarded mail has a small arrow in the list, and the message says when you replied, one click from your reply; Thunderbird, Apple Mail and your phone see the same', since: V0921 },
+      { text: 'Replying or forwarding marks the message read', since: V0921 },
     ],
   },
   {
@@ -341,6 +344,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: '0.7.1' },
       { text: 'What matched is marked in the list', since: '0.7.1' },
       { text: 'tag:work finds a tag by its name, is:tagged any tagged mail; saved searches keep them', since: V0920 },
+      { text: 'is:replied, is:unreplied and is:forwarded', since: V0921 },
     ],
   },
   {

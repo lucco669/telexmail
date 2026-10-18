@@ -279,7 +279,7 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `list_page`      | `view`, `at`, `limit` (≤ 500) | `{total, start, rows}`: one page of summaries (see below) |
 | `list_ids`       | `view`, `from`, `to`         | ids between two messages of the list, both included (Shift selection), or all of it when either is null (Ctrl+A) |
 | `next_unread`    | `view`, `after`, `back`      | `{id, row}`: the first unread message after `after` in the list's order (before it with `back`; from the start or end when null), or null (Space) |
-| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), `goes` (in an Outbox: when it goes, unless held or refused), `unsubscribe` `{method: one_click/mail/link, target, done, spam}` or null (unsubscribe.rs), `contacts` `[{email, id, name}]` (its From, To and Cc addresses in the address book), `invite` when it holds a calendar: `{method, event, file, state, mine, answered, blocked, from, spam}` (calendar/invites.rs; `event` in local time with `zone` when written in another clock; `file`: the attachment Add to calendar opens; `state`: current, outdated, cancelled; `blocked`: not_invitation, spam, cancelled, outdated, organizer, no_organizer, no_account), and for signed or encrypted mail `pgp` `{smime, encrypted, decrypted, problem, locked, recipients, signature: {status, key, key_id, created, issuer}, partial, offered}` (`smime`: S/MIME, `issuer` its certificate's authority; status also `unsupported`; decrypted: body, subject and attachments from inside; a remembered passphrase or certificate password is tried once) |
+| `get_message`    | `id`                         | full message with body (and `bcc` on mail the user wrote), and `risk` `{score, signals, limited}` (risk.rs), `goes` (in an Outbox: when it goes, unless held or refused), `unsubscribe` `{method: one_click/mail/link, target, done, spam}` or null (unsubscribe.rs), `contacts` `[{email, id, name}]` (its From, To and Cc addresses in the address book), `invite` when it holds a calendar: `{method, event, file, state, mine, answered, blocked, from, spam}` (calendar/invites.rs; `event` in local time with `zone` when written in another clock; `file`: the attachment Add to calendar opens; `state`: current, outdated, cancelled; `blocked`: not_invitation, spam, cancelled, outdated, organizer, no_organizer, no_account), and for signed or encrypted mail `pgp` `{smime, encrypted, decrypted, problem, locked, recipients, signature: {status, key, key_id, created, issuer}, partial, offered}` (`smime`: S/MIME, `issuer` its certificate's authority; status also `unsupported`; decrypted: body, subject and attachments from inside; a remembered passphrase or certificate password is tried once), and `replied` `{answered, forwarded, reply, at}` when the user answered or forwarded it (\Answered, $Forwarded) or a reply of theirs in Sent or an Outbox names it in In-Reply-To (`reply`: the newest, `at`: its date) |
 | `message_markdown` | `ids`                      | the messages as Markdown, oldest first (Copy as Markdown, Ctrl+C); reads nothing |
 | `set_unread`     | `id`, `unread`               | –                           |
 | `set_flagged`    | `id`, `flagged`              | –                           |
@@ -589,7 +589,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | → / ←        | with threads on (Settings › Reading): expand / collapse the selected thread |
 | O            | only the unread mail of the list (also the dot above the list's dots, or "n unread" in the status bar); O again or Esc: all of it. In Unread (top of the tree) O goes back to the folder before |
 | Z            | undo the last delete, move or Discard; within the moment after Send, take the message back (also the Undo button in the status bar) |
-| /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `tag:` `is:tagged` `has:file` `after:` `before:` `larger:` `smaller:`) |
+| /            | search (also `from:` `to:` `subject:` `is:unread` `is:flagged` `tag:` `is:tagged` `is:replied` `is:forwarded` `has:file` `after:` `before:` `larger:` `smaller:`) |
 | ↓ ↑ Enter    | in the search box: choose a suggestion (a recent search, a person, an operator); Enter or ↓ with none chosen goes to the results |
 | Tab          | in the quick filter: this folder / all mail |
 | Enter, double-click | open the message in a window of its own (Esc closes it); in all-mail results and conversations Enter opens the message's folder |
@@ -632,6 +632,34 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
     (`memchr`, already in the dependency tree, now a direct dependency) instead of three: all mail
     of the 100k benchmark in 0.7 s instead of 4.9 s.
   - Numbers in docs/storage.md.
+- Replied and forwarded mail (schema version 26: `messages.answered`, `messages.forwarded`,
+  `outbox.answers`, `outbox.forwards`; a one-way upgrade, which also marks mail kept only here
+  (POP3, folders on this PC) answered when a message in Sent names it in In-Reply-To):
+  - Reply, Reply all and Forward (keys, toolbar, the message menu, the message window) mark the
+    original read as compose opens, whatever `mark_read` says (`readAnswering` in app.js:
+    `set_unread_many`, queued as usual; only that message, not the rest of a selection).
+  - `send_message` tells the store what the message answers or forwards
+    (`MailStore::note_answering`: `reply_to`, else `forward_of`, else, for a reply edited again
+    with E, the message its In-Reply-To names; never mail in Sent, Drafts or an Outbox; an
+    invitation's answer answers it). Only when the SMTP server took it (`outgoing_sent`) does the
+    original get \Answered or $Forwarded: not while queued, held, sent later or refused, and
+    never for a draft. Both are flags like \Seen and \Flagged (`Flag::Answered`,
+    `Flag::Forwarded`, pending_ops kinds 'answered' and 'forwarded', `UID STORE ±FLAGS.SILENT`),
+    come down with every check (set on the phone, they show here; a queued change wins), come along
+    with new mail, stay on mail moved to this PC and go up with it again (APPEND flags; moved back
+    before the server heard, they are queued). $Forwarded is a keyword, the one Thunderbird, Apple
+    Mail and Dovecot use: it goes only where PERMANENTFLAGS lists \* or it (Gmail does); a server
+    that keeps no keywords keeps it on this PC with the tags (`local_tags`), and its empty
+    keywords never take it away.
+  - The list: read mail answered or forwarded has a small arrow where the unread dot would be (the
+    dot's ring under the pointer, the tooltip says which; `--replied` per theme, checked by
+    check-contrast.mjs on rows, hover, selection and tinted rows). Above an opened message a quiet
+    line "You replied on 17.10.2026 at 09:30." (the newest reply in Sent or an Outbox whose
+    In-Reply-To names it; else "You replied."), "You forwarded it."; a click opens that reply in
+    its window, else the conversation (T).
+  - Search: `is:replied` (`is:answered`), `is:unreplied`, `is:forwarded`. Rules have no
+    condition on them yet (`filters::Field::State` reads the summary's unread and flag, and a rule
+    on arrival never sees answered mail).
 
 ## Current state (v0.9.20: tags, an address book, calendar invitations, send later and unsubscribe, POP3, drafts on the server, OpenPGP and S/MIME, saving and printing mail, a help panel, seven more languages, and all earlier features below)
 

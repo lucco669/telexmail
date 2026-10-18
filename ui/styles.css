@@ -302,6 +302,11 @@ tbody tr:hover .ic .off{visibility:visible}
 .ic .fl:hover .off{color:var(--flag)}
 .ic .clip{color:var(--muted)}
 .list:focus tr.sel .ic .clip,.list:focus tr.sel .ic .off{color:inherit}
+/* Read mail the user answered or forwarded: an arrow in the dot's place; the ring under the pointer. */
+.ic .rp{width:10px;height:10px;color:var(--replied)}
+.ic .rd.did .dot,.ic .rd.did:hover .rp{display:none}
+.ic .rd.did:hover .dot{display:block}
+.list:focus tr.sel .ic .rp{color:inherit}
 /* What the quick filter found, marked in From and Subject */
 tbody mark{background:var(--warn-bg);color:var(--warn-fg);border-radius:2px}
 .list:focus tbody tr.sel mark{background:none;color:inherit;text-decoration:underline 1.5px;text-underline-offset:2px}
@@ -500,6 +505,10 @@ button.ph-who:hover .pn{text-decoration:underline}
 .clater input{height:24px;padding:0 6px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:12px var(--font-data)}
 td.c-subj .goes{font-weight:600}
 .goesbar span{margin-right:2px}
+.didbar{flex-wrap:nowrap;gap:6px}
+.didbar svg{width:13px;height:13px;flex:none;color:var(--replied)}
+.didbar .linkbtn{font-weight:400;text-decoration:none;text-align:left}
+.didbar .linkbtn:hover{text-decoration:underline}
 /* Unsubscribe and the like: words in the row of buttons above a message, as quiet as they are. */
 .pbtn.ptext{width:auto;padding:0 7px;font-size:11.5px;white-space:nowrap}
 .pbtn.ptext[aria-disabled="true"]{cursor:default}
