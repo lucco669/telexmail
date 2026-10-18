@@ -164,6 +164,7 @@ function installTelexDemo(options) {
   const incoming = live && !empty ? clone(data.incoming || []) : [];
   const olderMail = data.older_mail || {};
   const files = new Map(); // "demo:<n>" -> File chosen or dropped this session
+  let demoLimit = null; // the limit message_size says, when a scene sets one
   const autoReplies = new Map(); // "rule|sender" -> when the rule last answered
   const lastSync = {}; // account -> local date string
   let nextId = 1, nextFile = 1, checkedOnce = false, busy = false;
@@ -1850,6 +1851,22 @@ function installTelexDemo(options) {
     folder_templates: () => [...folderTemplates.values()],
     save_folder_template: saveFolderTemplate,
     // images::prepare: the demo puts a picture in as it is.
+    // sizes::estimate and sizes::limit: files and pictures in base64, the demo's servers at
+    // 20 MB (the default; demo.limit sets another for the screenshots).
+    message_size: ({ draft: d }) => {
+      const b64 = (n) => { const c = Math.ceil(n / 3) * 4; return c + Math.ceil(c / 76) * 2; };
+      const parts = (d.attachments || []).map((a) => ({ name: a.name, bytes: b64(files.get(a.path)?.size ?? a.size_kb * 1024) + 160 }));
+      const seen = new Set();
+      let pictures = 0;
+      for (const [, payload] of String(d.html ?? '').matchAll(/src="data:[^;"]+;base64,([^"]+)"/g)) {
+        if (seen.has(payload)) continue;
+        seen.add(payload);
+        pictures += b64(Math.floor(payload.length * 3 / 4)) + 160;
+      }
+      const text = 360 + Math.round((d.html ?? d.body ?? '').replace(/src="data:[^"]+"/g, '').length * 2.1) + [d.to, d.cc, d.bcc, d.subject].join('').length * 1.5;
+      const limit = demoLimit ?? { bytes: 20 * 1048576, source: 'default', name: null, documented_mb: null, for_files: false };
+      return { bytes: Math.round(text) + pictures + parts.reduce((n, f) => n + f.bytes, 0), files: parts, pictures, text: Math.round(text), limit };
+    },
     editor_image: ({ path, data }) => (data != null ? Promise.resolve(data) : new Promise((ok, no) => {
       const file = files.get(path);
       if (!file) { no(tr('Drop "{name}" again: Telex reads only files chosen in it.', 'Upuść plik „{name}” jeszcze raz: Telex czyta tylko pliki wybrane w nim.', { name: path })); return; }
@@ -2061,7 +2078,7 @@ function installTelexDemo(options) {
     window: { getCurrentWindow: () => appWindow },
     webview: { getCurrentWebview: () => webview },
   };
-  window.__TELEX_DEMO__ = { emit, addFile, live };
+  window.__TELEX_DEMO__ = { emit, addFile, live, setLimit: (l) => { demoLimit = l; } };
 
   if (live) {
     // The look boot.js puts on the page before the first paint: this visit's theme and language.

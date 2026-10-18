@@ -46,6 +46,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/022_pop3.sql"),
     include_str!("migrations/023_openpgp.sql"),
     include_str!("migrations/024_smime.sql"),
+    include_str!("migrations/025_smtp_size.sql"),
 ];
 
 /// Every server account's local Outbox has this id. `imap::plan_folders` never gives it
@@ -1171,6 +1172,20 @@ impl MailStore {
         self.db.execute(
             "UPDATE accounts SET server_saves_sent = ?2 WHERE id = ?1",
             params![account, server_files],
+        )?;
+        self.reload_accounts()
+    }
+
+    /// What the SMTP server said at a login about the most it takes (EHLO's SIZE, in bytes):
+    /// `None` when it said nothing. Written only when it changed.
+    pub fn set_smtp_max(&mut self, account: &str, max: Option<u64>) -> Result<(), StoreError> {
+        if self.account(account)?.smtp_max == max {
+            return Ok(());
+        }
+        let value = max.and_then(|n| i64::try_from(n).ok());
+        self.db.execute(
+            "UPDATE accounts SET smtp_max = ?2 WHERE id = ?1",
+            params![account, value],
         )?;
         self.reload_accounts()
     }
@@ -3201,7 +3216,7 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
     let mut stmt = db.prepare(
         "SELECT id, name, email, imap_host, imap_port, imap_user, smtp_host, smtp_port, smtp_security,
              imap_security, sent_copy, server_saves_sent, incoming, pop3_leave, pop3_days,
-             pop3_until_deleted
+             pop3_until_deleted, smtp_max
          FROM accounts ORDER BY id = 'local', position, id",
     )?;
     let mut accounts = stmt
@@ -3251,6 +3266,9 @@ fn load_accounts(db: &Connection) -> Result<Vec<Account>, StoreError> {
                 identities: Vec::new(),
                 sent_copy: SentCopy::from_name(&r.get::<_, String>(10)?),
                 server_files_sent: found.or(known.then_some(true)),
+                smtp_max: r
+                    .get::<_, Option<i64>>(16)?
+                    .and_then(|n| u64::try_from(n).ok()),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

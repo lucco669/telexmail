@@ -62,7 +62,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      (in memory, the last 1,000: each step timed, where one failed and why,
                      IMAP, POP3 and SMTP) for Settings › Connections.
   src/smtp.rs        Sending (lettre + rustls): compose a draft into RFC 5322 (Bcc, files from
-                     disk), send the Outbox. Tests run it against a fake SMTP server.
+                     disk), send the Outbox on one login (its EHLO's SIZE kept per account).
+                     Tests run it against a fake SMTP server.
+  src/sizes.rs       What a message weighs as sent (files and pictures in base64, text as lettre
+                     encodes it) and the most its account's server takes: its SIZE, else a list of
+                     providers' documented limits (sources in comments), else 20 MB.
   src/attachments.rs Attachments of stored mail opened or saved: safe file names, files that
                      can run code, the Mark of the Web on Windows.
   src/recipients.rs  People to suggest in To, Cc and Bcc: the address book's contacts first, then
@@ -310,7 +314,8 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `import_vcards`  | `words`                      | `{added, updated, same, skipped, groups}` or null (cancelled); opens Open for .vcf files (a known UID or address fills in that contact) |
 | `export_vcards`  | `ids` (empty = all), `words` | the .vcf written, or null; opens Save (vCard 3.0, groups as CATEGORIES) |
 | `draft_html`     | `id`                         | a draft's or unsent message's HTML, cleaned for the editor with its pictures as data: (`html::editable`), or null (plain text) |
-| `editor_image`   | `path` (picked or dropped this session) or `data` (base64, pasted), `signature` | `{src, width, height, bytes, smaller, source_width, source_height}`: a picture for the HTML editor as a data: URI (`source_*`: the file's own pixels, before it was made smaller), made the size `image_size` says (a signature's: 600 px, 100 KB), or a sentence (not PNG/JPEG/GIF/WebP, too large) |
+| `message_size`   | `draft` (as typed)           | `{bytes, files: [{name, bytes}], pictures, text, limit: {bytes, source, name, documented_mb, for_files}}`: what it weighs as sent (`sizes::estimate`, within a few % of the built message) and its account's limit (`source`: server, provider, default) |
+| `editor_image`   | `path` (picked or dropped this session) or `data` (base64, pasted), `signature`, `size` (null: `image_size`) | `{src, width, height, bytes, smaller, source_width, source_height}`: a picture for the HTML editor as a data: URI (`source_*`: the file's own pixels, before it was made smaller), made the size `image_size` says (a signature's: 600 px, 100 KB), or a sentence (not PNG/JPEG/GIF/WebP, too large) |
 | `html_to_text`   | `html`                       | the plain text it would go out with (compose switches to Text) |
 | `text_to_html`   | `text`                       | HTML for the editor: a `<div>` per line, `>` quotes as blockquotes, links |
 | `clean_html`     | `html`                       | pasted HTML cleaned to what Telex sends (palette styles, data: pictures; remote pictures left out, never fetched) |
@@ -603,6 +608,34 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
+- Size limits for outgoing mail (schema version 25: `accounts.smtp_max`; one-way):
+  - The limit, best source first (`sizes::limit`): what the account's SMTP server said in its EHLO
+    (SIZE, RFC 1870; 0 is none), read at the account check and at every round of sending and kept;
+    else the provider list in `sizes.rs` (by SMTP host, else the address's domain), each entry's
+    first-party page in a comment, checked on 2026-10-18: Gmail, Outlook.com, Microsoft 365, Yahoo,
+    iCloud, Fastmail, Zoho (personal and organisations), GMX (.net and .com), WEB.DE, Proton,
+    mail.com, Yandex, Mail.ru, OVHcloud Email Pro / Exchange, nazwa.pl, WP, o2, Interia; else
+    20 MB. No page of their own states one for Purelymail, OVHcloud MX Plan, Onet, AOL, home.pl
+    (only its webmail's) or Zoho's free plan, so they aren't listed. Every limit is for the
+    message as sent: where a provider names the files' size, the encoded limit is their base64
+    (Gmail's 25 MB of files is 35,872,340 bytes; its server says 35,882,577).
+  - The weight (`sizes::estimate`, `message_size`): files by their size on disk (a forward's or an
+    edited draft's from the original), pictures by their data: URIs (one part however often they
+    show), in base64 with lettre's line breaks; the text through lettre's own encoder; headers
+    and boundaries about. Within a few percent of the built message (tested). Compose shows it
+    under the files once there are files or pictures ("4.2 MB of 25 MB"; `--warn-*` from 80%,
+    "close to the limit of Gmail"; above it `--note-*` with by how much and what to do, and Make
+    the pictures smaller: every picture to Medium in place, one Ctrl+Z each); the tooltip says where
+    the limit comes from and that recipients' servers may take less. One file larger than the whole
+    limit is said as it comes. The old 25 MB hint is gone.
+  - Send and Send later above the limit are refused: in compose by the line (no dialog), and in
+    `send_message` by the built message's exact size (`sizes::check`). In the Outbox a message
+    larger than the server's SIZE isn't tried (refused with a note that says by how much), and a
+    server's own refusal for size (552 except 5.2.2, 5.3.4, 5.2.3) gets a note that says so and what
+    to do (`sizes::is_size_refusal`). Sending an Outbox is one login for every message due
+    (`SmtpServer`/`Session` in smtp.rs, lettre's connection used directly: its transport keeps no
+    EHLO keywords and logged in once per message); a refusal or failure ends that login.
+  - No file sharing or cloud upload (an anti-goal).
 - A picture's size in HTML compose (no schema change; setting `picture_width`): a pasted, dropped
   or inserted picture goes in as wide as `picture_width` says (600 px by default), never wider
   than the editor's text nor than its own pixels over the screen's pixel ratio (a 2× screen's

@@ -14,8 +14,11 @@ use chrono::{DateTime, Local};
 use lettre::address::Envelope;
 use lettre::message::header::{ContentType, HeaderName, HeaderValue};
 use lettre::message::{Attachment as MimeAttachment, Mailbox, MultiPart, SinglePart};
-use lettre::transport::smtp::authentication::Credentials;
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message as Email, Tokio1Executor};
+use lettre::transport::smtp::authentication::{Credentials, DEFAULT_MECHANISMS};
+use lettre::transport::smtp::client::{AsyncSmtpConnection, Tls, TlsParameters};
+use lettre::transport::smtp::commands::Ehlo;
+use lettre::transport::smtp::extension::ClientId;
+use lettre::{AsyncSmtpTransport, Executor, Message as Email, Tokio1Executor};
 
 use crate::html;
 use crate::mime::{
@@ -508,43 +511,106 @@ fn unbuildable(e: &impl std::fmt::Display) -> String {
     )
 }
 
-/// An SMTP connection for an account. It logs in with the IMAP user name and password.
+/// Where an account sends, and its login (the IMAP user name and password). Each round of
+/// sending opens one [`Session`] for every message due, and reads there the most the server
+/// takes in one message (EHLO's SIZE, RFC 1870).
+#[derive(Clone)]
+pub struct SmtpServer {
+    host: String,
+    port: u16,
+    tls: Tls,
+    credentials: Option<Credentials>,
+}
+
+/// A login to an SMTP server, ready to send.
+pub struct Session {
+    connection: AsyncSmtpConnection,
+    /// The most the server takes in one message, in bytes; `None` when its EHLO doesn't say
+    /// (or says 0, "no fixed limit").
+    pub max: Option<u64>,
+}
+
+/// The account's SMTP server: implicit TLS or STARTTLS, never plain.
 pub fn transport(
     settings: &SmtpSettings,
     username: &str,
     password: &str,
-) -> Result<Transport, SendError> {
-    let builder = match settings.security {
-        SmtpSecurity::Tls => Transport::relay(&settings.host),
-        SmtpSecurity::StartTls => Transport::starttls_relay(&settings.host),
-    }
-    .map_err(|e| SendError::Failed(describe(&e)))?;
-    Ok(builder
-        .port(settings.port)
-        .credentials(Credentials::new(username.to_owned(), password.to_owned()))
-        .timeout(Some(SMTP_TIMEOUT))
-        .build())
+) -> Result<SmtpServer, SendError> {
+    let parameters =
+        TlsParameters::new(settings.host.clone()).map_err(|e| SendError::Failed(describe(&e)))?;
+    Ok(SmtpServer {
+        host: settings.host.clone(),
+        port: settings.port,
+        tls: match settings.security {
+            SmtpSecurity::Tls => Tls::Wrapper(parameters),
+            SmtpSecurity::StartTls => Tls::Required(parameters),
+        },
+        credentials: Some(Credentials::new(username.to_owned(), password.to_owned())),
+    })
 }
 
-/// Connect and log in once to check the settings, without sending anything.
-pub async fn check(settings: &SmtpSettings, username: &str, password: &str) -> Result<(), String> {
+impl SmtpServer {
+    /// A server on this computer without TLS or a login: only the tests' fake one.
+    #[cfg(test)]
+    pub(crate) fn plain(port: u16) -> Self {
+        Self {
+            host: "127.0.0.1".into(),
+            port,
+            tls: Tls::None,
+            credentials: None,
+        }
+    }
+
+    /// Connect, say EHLO (STARTTLS first where asked), read its SIZE and log in.
+    pub async fn open(&self) -> Result<Session, lettre::transport::smtp::Error> {
+        let hello = ClientId::default();
+        let mut connection =
+            Tokio1Executor::connect(&self.host, self.port, Some(SMTP_TIMEOUT), &hello, &self.tls)
+                .await?;
+        // lettre keeps only the EHLO keywords it uses itself; once more for SIZE (RFC 5321
+        // allows EHLO again at any time).
+        let ehlo = connection.command(Ehlo::new(hello)).await?;
+        let max = max_size(ehlo.message());
+        if let Some(credentials) = &self.credentials {
+            connection.auth(DEFAULT_MECHANISMS, credentials).await?;
+        }
+        Ok(Session { connection, max })
+    }
+}
+
+/// The SIZE an EHLO answer gives, in bytes (`250-SIZE 35882577`); 0 says there is no fixed
+/// limit, so it is none.
+pub(crate) fn max_size<'a>(mut lines: impl Iterator<Item = &'a str>) -> Option<u64> {
+    lines.find_map(|line| {
+        let mut words = line.split_whitespace();
+        words.next().filter(|k| k.eq_ignore_ascii_case("SIZE"))?;
+        words.next()?.parse::<u64>().ok().filter(|n| *n > 0)
+    })
+}
+
+/// Connect and log in once to check the settings, without sending anything. Answers the most
+/// the server takes in one message, when it says.
+pub async fn check(
+    settings: &SmtpSettings,
+    username: &str,
+    password: &str,
+) -> Result<Option<u64>, String> {
     let started = Instant::now();
-    let transport = transport(settings, username, password).map_err(|e| match e {
+    let server = transport(settings, username, password).map_err(|e| match e {
         SendError::Refused(m) | SendError::Failed(m) => m,
     })?;
-    let result = match transport.test_connection().await {
-        Ok(true) => Ok(()),
-        Ok(false) => Err(tr!(
-            "the SMTP server closed the connection",
-            "serwer SMTP zamknął połączenie"
-        )),
+    let result = match server.open().await {
+        Ok(mut session) => {
+            let _ = session.connection.quit().await;
+            Ok(session.max)
+        }
         Err(e) => Err(describe(&e)),
     };
-    let server = (settings.host.as_str(), settings.port);
+    let at = (settings.host.as_str(), settings.port);
     LOG.once(
         servers::Purpose::Test,
         username,
-        server,
+        at,
         started,
         result.clone().err(),
     );
@@ -553,7 +619,7 @@ pub async fn check(settings: &SmtpSettings, username: &str, password: &str) -> R
 
 /// Hand one message to the SMTP server.
 pub async fn send_raw(
-    transport: &Transport,
+    session: &mut Session,
     env_from: &str,
     env_to: &[String],
     raw: &[u8],
@@ -570,8 +636,9 @@ pub async fn send_raw(
         .map(|a| a.parse().map_err(|_| refused(a)))
         .collect::<Result<Vec<_>, _>>()?;
     let envelope = Envelope::new(Some(from), to).map_err(|e| SendError::Refused(e.to_string()))?;
-    transport
-        .send_raw(&envelope, &without_bcc(raw))
+    session
+        .connection
+        .send(&envelope, &without_bcc(raw))
         .await
         .map(|_| ())
         .map_err(|e| classify(&e))
@@ -614,18 +681,49 @@ pub struct SendReport {
 /// mail still waiting out its moment to undo is left for later.
 pub async fn send_outbox(
     account: &Account,
-    transport: &Transport,
+    server: &SmtpServer,
     store: &Mutex<MailStore>,
 ) -> Result<SendReport, StoreError> {
     let mut report = SendReport::default();
     let mut after = 0;
+    // One login for every message due; a refusal or a failure ends it, and the next message
+    // logs in again.
+    let mut session: Option<Session> = None;
     loop {
         let now = Local::now().naive_local();
         let next = lock(store)?.next_outgoing(&account.id, after, now)?;
         let Some(mail) = next else { break };
         after = mail.message;
         let started = Instant::now();
-        let sent = send_raw(transport, &mail.env_from, &mail.env_to, &mail.raw).await;
+        if session.is_none() {
+            match server.open().await {
+                Ok(opened) => {
+                    lock(store)?.set_smtp_max(&account.id, opened.max)?;
+                    session = Some(opened);
+                }
+                Err(e) => {
+                    let failed = Err(classify(&e));
+                    log_send(account, started, &failed);
+                    let reason = describe(&e);
+                    lock(store)?.outgoing_failed(mail.message, &reason, false)?;
+                    let subject = &mail.subject;
+                    report.problems.push(tr!(
+                        "couldn't send \"{subject}\": {reason}. It stays in the Outbox",
+                        "nie udało się wysłać wiadomości „{subject}”: {reason}. Czeka w Skrzynce \
+                         nadawczej"
+                    ));
+                    break;
+                }
+            }
+        }
+        let Some(open) = session.as_mut() else { break };
+        // Larger than the server takes: it would only be refused, so it isn't tried.
+        let sent = match open.max {
+            Some(max) if mail.raw.len() as u64 > max => Err(SendError::Refused(
+                crate::sizes::too_large_for_server(mail.raw.len() as u64, max),
+            )),
+            _ => send_raw(open, &mail.env_from, &mail.env_to, &mail.raw).await,
+        };
         log_send(account, started, &sent);
         match sent {
             Ok(()) => {
@@ -644,6 +742,9 @@ pub async fn send_outbox(
                 });
             }
             Err(SendError::Refused(reason)) => {
+                if let Some(mut gone) = session.take() {
+                    gone.connection.abort().await;
+                }
                 lock(store)?.outgoing_failed(mail.message, &reason, true)?;
                 let subject = &mail.subject;
                 report.problems.push(tr!(
@@ -662,6 +763,9 @@ pub async fn send_outbox(
                 break;
             }
         }
+    }
+    if let Some(mut open) = session {
+        let _ = open.connection.quit().await;
     }
     Ok(report)
 }
@@ -803,6 +907,11 @@ fn new_message_id(domain: &str) -> String {
 /// user fixes the password. Other permanent (5xx) answers are refusals.
 fn classify(e: &lettre::transport::smtp::Error) -> SendError {
     let text = describe(e);
+    if e.is_permanent()
+        && crate::sizes::is_size_refusal(e.status().map(|c| c.to_string()).as_deref(), &text)
+    {
+        return SendError::Refused(crate::sizes::refused_by_server(&text));
+    }
     if e.is_permanent() && !is_login_problem(e) {
         SendError::Refused(text)
     } else {
@@ -1223,10 +1332,22 @@ JVBERi0xLjQK\r\n\
     struct FakeSmtp {
         /// (envelope sender, recipients, message) per message accepted.
         accepted: Vec<(String, Vec<String>, String)>,
+        /// How many times it was connected to.
+        connections: usize,
     }
 
     /// Recipients containing `reject` get "550 no such user".
     async fn start_fake_smtp(reject: &'static str) -> (u16, Arc<Mutex<FakeSmtp>>) {
+        start_fake_smtp_with(reject, None, false).await
+    }
+
+    /// Also says `SIZE size` in its EHLO, and with `too_big` refuses every message at its
+    /// end as too large (552 5.3.4).
+    async fn start_fake_smtp_with(
+        reject: &'static str,
+        size: Option<u64>,
+        too_big: bool,
+    ) -> (u16, Arc<Mutex<FakeSmtp>>) {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = Arc::new(Mutex::new(FakeSmtp::default()));
@@ -1235,12 +1356,18 @@ JVBERi0xLjQK\r\n\
             while let Ok((socket, _)) = listener.accept().await {
                 let (read, mut write) = socket.into_split();
                 let mut lines = BufReader::new(read).lines();
+                shared.lock().unwrap().connections += 1;
                 let _ = write.write_all(b"220 fake.test ESMTP\r\n").await;
                 let (mut from, mut to, mut data, mut in_data) =
                     (String::new(), Vec::new(), String::new(), false);
                 while let Ok(Some(line)) = lines.next_line().await {
                     let reply = if in_data {
-                        if line == "." {
+                        if line == "." && too_big {
+                            in_data = false;
+                            data.clear();
+                            "552 5.3.4 Message size exceeds fixed maximum message size\r\n"
+                                .to_owned()
+                        } else if line == "." {
                             in_data = false;
                             shared.lock().unwrap().accepted.push((
                                 std::mem::take(&mut from),
@@ -1262,7 +1389,12 @@ JVBERi0xLjQK\r\n\
                                 .unwrap_or_default()
                         };
                         if upper.starts_with("EHLO") || upper.starts_with("HELO") {
-                            "250-fake.test\r\n250 8BITMIME\r\n".to_owned()
+                            match size {
+                                Some(n) => {
+                                    format!("250-fake.test\r\n250-SIZE {n}\r\n250 8BITMIME\r\n")
+                                }
+                                None => "250-fake.test\r\n250 8BITMIME\r\n".to_owned(),
+                            }
                         } else if upper.starts_with("MAIL FROM") {
                             from = address();
                             "250 2.1.0 Ok\r\n".to_owned()
@@ -1295,11 +1427,8 @@ JVBERi0xLjQK\r\n\
         (port, server)
     }
 
-    fn plain_transport(port: u16) -> Transport {
-        Transport::builder_dangerous("127.0.0.1")
-            .port(port)
-            .timeout(Some(Duration::from_secs(5)))
-            .build()
+    fn plain_transport(port: u16) -> SmtpServer {
+        SmtpServer::plain(port)
     }
 
     /// A store with one server account (Inbox, Sent on the server) and `to` queued.
@@ -1400,6 +1529,106 @@ JVBERi0xLjQK\r\n\
             }
         );
         assert!(!s.has_outgoing(&account.id, due()).unwrap());
+    }
+
+    #[tokio::test]
+    async fn one_login_sends_them_all_and_the_servers_size_is_kept() {
+        let (port, server) = start_fake_smtp_with("nobody@", Some(35_882_577), false).await;
+        let (store, account, _) =
+            store_with_queued(&["anna@kowalska-architekci.pl", "piotr@nowak-meble.pl"]);
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        assert_eq!(report.sent.len(), 2, "{report:?}");
+        assert_eq!(server.lock().unwrap().connections, 1, "one login for both");
+        let s = store.lock().unwrap();
+        assert_eq!(s.account(&account.id).unwrap().smtp_max, Some(35_882_577));
+        assert_eq!(
+            crate::sizes::limit(s.account(&account.id).unwrap()).source,
+            "server"
+        );
+    }
+
+    #[tokio::test]
+    async fn too_large_for_the_server_is_never_tried_and_a_refusal_for_size_says_so() {
+        // The server says it takes 200 bytes: the message is larger, so it isn't sent.
+        let (port, server) = start_fake_smtp_with("nobody@", Some(200), false).await;
+        let (store, account, ids) = store_with_queued(&["anna@kowalska-architekci.pl"]);
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        assert!(report.sent.is_empty() && server.lock().unwrap().accepted.is_empty());
+        let note = store.lock().unwrap().get(ids[0]).unwrap().note.unwrap();
+        assert!(note.contains("the server takes"), "{note}");
+        assert!(note.contains("Take files off"), "{note}");
+
+        // A server that says nothing and refuses it at the end (552 5.3.4).
+        let (port, _) = start_fake_smtp_with("nobody@", None, true).await;
+        let (store, account, ids) = store_with_queued(&["anna@kowalska-architekci.pl"]);
+        let report = send_outbox(&account, &plain_transport(port), &store)
+            .await
+            .unwrap();
+        assert_eq!(report.problems.len(), 1, "{report:?}");
+        let s = store.lock().unwrap();
+        let note = s.get(ids[0]).unwrap().note.unwrap();
+        assert!(
+            note.contains("refused it as too large") && note.contains("5.3.4"),
+            "{note}"
+        );
+        assert!(
+            !s.has_outgoing(&account.id, due()).unwrap(),
+            "refused for good until edited"
+        );
+    }
+
+    #[test]
+    fn the_estimate_is_within_a_few_percent_of_the_built_message() {
+        let path = std::env::temp_dir().join(format!("telex-weigh-{}.pdf", std::process::id()));
+        let file: Vec<u8> = (0..700_000u64).map(|i| (i * 7919 % 251) as u8).collect();
+        std::fs::write(&path, &file).unwrap();
+        let png = format!("data:image/png;base64,{}", {
+            use base64::Engine;
+            base64::engine::general_purpose::STANDARD.encode(
+                (0..120_000u32)
+                    .map(|i| (i % 256) as u8)
+                    .collect::<Vec<u8>>(),
+            )
+        });
+        let mut d = draft("Anna Kowalska <anna@kowalska-architekci.pl>, piotr@nowak-meble.pl");
+        d.cc = "Paweł Mazur <pawel@mazur-ksiegowosc.pl>".into();
+        d.html = Some(format!(
+            "<div>Dzień dobry,</div><div>w załączniku plany, a tu zdjęcie:</div><img src=\"{png}\" width=\"400\">{}",
+            "<div>Zażółć gęślą jaźń, łódź i źrebię.</div>".repeat(200)
+        ));
+        d.attachments = vec![Attachment {
+            name: "plany.pdf".into(),
+            size_kb: 684,
+            path: Some(path.display().to_string()),
+        }];
+        let built = compose(&account(), &d, &Originals::default(), now())
+            .unwrap()
+            .raw
+            .len() as u64;
+        let limit = crate::sizes::limit(&account());
+        let estimate = crate::sizes::estimate(&d, &[], limit).bytes;
+        std::fs::remove_file(&path).unwrap();
+        let off = estimate.abs_diff(built) as f64 / built as f64;
+        assert!(
+            off < 0.03,
+            "estimate {estimate}, built {built}: {:.1}% off",
+            off * 100.0
+        );
+        // Plain text too.
+        let plain = draft("anna@x.pl");
+        let built = compose(&account(), &plain, &Originals::default(), now())
+            .unwrap()
+            .raw
+            .len() as u64;
+        let estimate = crate::sizes::estimate(&plain, &[], crate::sizes::limit(&account())).bytes;
+        assert!(
+            estimate.abs_diff(built) < 400,
+            "estimate {estimate}, built {built}"
+        );
     }
 
     #[tokio::test]

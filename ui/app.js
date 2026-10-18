@@ -2260,15 +2260,13 @@ function imagesBar(m, hv, spam){
 }
 // A message's attachments: click opens one in its app, the arrow saves it. In compose
 // (`writing`), × takes one off, and the total says when it gets large.
-const BIG_KB = 20 * 1024; // above this, some servers refuse a message
 function attsHtml(atts, writing = false){
   if (!atts.length) return '';
   const chips = atts.map((a, i) => writing
     ? `<span class="att" title="${esc(a.name)}">${I.clip}<span class="nm">${esc(a.name)}</span><small>${fmtSize(a.size_kb)}</small><button type="button" class="attx" data-unattach="${i}" title="${esc(t('Remove {name}', {name:a.name}))}" aria-label="${esc(t('Remove {name}', {name:a.name}))}">×</button></span>`
     : `<span class="att"><button type="button" class="attopen" data-att="${i}" title="${esc(t('Open {name}', {name:a.name}))}">${I.clip}<span class="nm">${esc(a.name)}</span><small>${fmtSize(a.size_kb)}</small></button><button type="button" class="attx" data-save="${i}" title="${esc(t('Save {name}…', {name:a.name}))}" aria-label="${esc(t('Save {name}…', {name:a.name}))}">${I.get}</button></span>`).join('');
-  const kb = atts.reduce((n, a) => n + a.size_kb, 0);
   const tail = writing
-    ? (kb > BIG_KB ? `<small class="attwarn">${esc(t('{size} in all: some servers refuse mail over 25 MB.', {size:fmtSize(kb)}))}</small>` : '')
+    ? '' // what it weighs as sent: the size line under the files (paintWeight)
     : atts.length > 1 ? `<button type="button" class="linkbtn" data-saveall>${esc(t('Save all…'))}</button>` : '';
   return `<div class="atts">${chips}${tail}</div>`;
 }
@@ -2744,6 +2742,7 @@ previewEl.addEventListener('click', async e => {
     readCompose(); state.compose.showBcc = true; renderCompose(); $('c-bcc')?.focus();
   }
   if (act.dataset.act === 'attach' && state.compose) pickFiles();
+  if (act.dataset.act === 'shrink' && state.compose) shrinkPictures();
   if (act.dataset.act === 'others-add' && state.compose) switchReply(true);
   if (act.dataset.act === 'origfiles' && state.compose) attachOriginal();
   if (act.dataset.act === 'ask-send' && state.compose) send();
@@ -3004,17 +3003,24 @@ function setPictureWidth(width){
   const {img, ed} = pic;
   if (!img?.isConnected){ deselectPicture(); return; }
   const w = clampWidth(width);
-  if (Number(img.getAttribute('width')) === w && img.getAttribute('style') === PICTURE_STYLE){ placePicture(); return; }
-  const src = img.getAttribute('src'), alt = img.getAttribute('alt') ?? '';
-  ed.focus();
-  selectPicture(ed, img);
-  pic.busy = true;
-  document.execCommand('insertHTML', false, pictureHtml(src, w, alt));
-  const sel = getSelection(), at = sel.anchorNode;
-  let next = at?.nodeType === 1 ? at.childNodes[sel.anchorOffset - 1] : null;
-  if (next?.tagName !== 'IMG') next = [...ed.querySelectorAll('img')].find(i => i.getAttribute('src') === src && Number(i.getAttribute('width')) === w);
-  pic.busy = false;
+  if (Number(img.getAttribute('width')) === w){ placePicture(); return; }
+  const next = putPicture(ed, img, img.getAttribute('src'), w);
   if (next) selectPicture(ed, next); else deselectPicture();
+}
+// The picture put in again, with this source and width, through the editor's own command (one
+// Ctrl+Z); the new one, or null.
+function putPicture(ed, img, src, w){
+  const alt = img.getAttribute('alt') ?? '';
+  ed.focus();
+  const r = document.createRange(); r.selectNode(img);
+  pic.busy = true;
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  document.execCommand('insertHTML', false, pictureHtml(src, w, alt));
+  const at = sel.anchorNode;
+  let next = at?.nodeType === 1 ? at.childNodes[sel.anchorOffset - 1] : null;
+  if (next?.tagName !== 'IMG') next = [...ed.querySelectorAll('img')].find(i => i.getAttribute('src') === src && Number(i.getAttribute('width')) === clampWidth(w));
+  pic.busy = false;
+  return next ?? null;
 }
 function removePicture(){
   const {img, ed} = pic;
@@ -3076,6 +3082,11 @@ function wirePictures(ed){
     }
   });
   ed.addEventListener('scroll', () => { if (pic.img && pic.ed === ed) placePicture(); });
+  // Pictures that came or went (pasted, dropped, deleted, made smaller): compose weighs again.
+  ed.addEventListener('input', () => {
+    const now = [...ed.querySelectorAll('img')].reduce((n, i) => n + (i.getAttribute('src')?.length ?? 0) + 1, 0);
+    if (now !== ed.pictureWeight){ ed.pictureWeight = now; if (ed.id === 'c-html') weighCompose(500); }
+  });
 }
 document.addEventListener('selectionchange', () => {
   if (!pic.img || pic.busy) return;
@@ -3105,6 +3116,7 @@ function renderCompose(){
   <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
 </div>
 <div id="c-attbox">${composeAttsHtml(c)}</div>
+<div class="csize" id="c-size" aria-live="polite" hidden></div>
 ${html ? `${fbarHtml('c-url')}
 <div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
   : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
@@ -3143,6 +3155,8 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   wireSpelling();
   paintSpellChip();
   wirePgp();
+  paintWeight();
+  weighCompose(0);
 }
 /* ---------- reply or reply all ---------- */
 // A reply knows both answers the core gave: to the sender (`one`) and to everyone (`all`). The
@@ -3254,6 +3268,7 @@ function hideComposeAsk(){
 }
 // Before Send: true when it may go now; false when it asked something (or the answer was no).
 async function sendChecks(){
+  if (!await sizeAllows()) return false;
   const c = state.compose, asked = $('c-ask')?.hidden === false ? $('c-ask').dataset.kind : null;
   // Send while the question shows: go ahead, as with the subject.
   if (asked === 'many') c.manyOk = true;
@@ -3398,6 +3413,99 @@ function wireSuggestions(input){
 function renderComposeAtts(){
   const box = $('c-attbox');
   if (box && state.compose) box.innerHTML = composeAttsHtml(state.compose);
+  weighCompose(0);
+}
+/* ---------- the message's size ---------- */
+// What the message weighs as sent (sizes::estimate: files and pictures in base64 take about a third
+// more than on disk) against the most its account's server takes (what it said at its last login,
+// else the provider's documented limit, else 20 MB). A quiet line under the files once there are
+// files or pictures; from 80% of the limit a warning; above it, by how much and what to do, and
+// Send doesn't go. Asked again when files or pictures change; Send builds the message, and the core
+// checks its exact size again.
+const mbText = bytes => {
+  const m = bytes / 1048576;
+  return (m >= 100 || Math.abs(m - Math.round(m)) < 0.05 ? String(Math.round(m)) : I18n.decimal(m)) + ' MB';
+};
+// Who sets the limit: a provider or server by name, or none known (most servers). Each case is a
+// sentence of its own, so every language can say it.
+const named = l => l.source !== 'default' && !!l.name;
+function limitTip(l){
+  const max = mbText(l.bytes);
+  const who = l.source === 'server' ? t('{name} says it takes {max} as sent.', {name:l.name ?? '', max})
+    : l.source === 'provider' && l.for_files ? t('{name} takes {mb} MB of files, about {max} as sent.', {name:l.name, mb:l.documented_mb, max})
+    : l.source === 'provider' ? t('{name} takes messages up to {max}.', {name:l.name, max})
+    : t('Telex doesn’t know this server’s limit, so it keeps to {max}.', {max});
+  return who + ' ' + t('As sent, files and pictures take about a third more than on disk. The recipients’ servers may take less: Telex can’t know.');
+}
+let weighTimer = 0;
+function weighCompose(ms = 150){ clearTimeout(weighTimer); weighTimer = setTimeout(weighNow, ms); }
+async function weighNow(){
+  clearTimeout(weighTimer);
+  const c = state.compose;
+  if (!c || !$('cform')) return;
+  readCompose();
+  const before = c.weight;
+  let w;
+  try { w = await invoke('message_size', {draft:draftOf(c)}); } catch { return; }
+  if (state.compose !== c) return;
+  c.weight = w;
+  paintWeight();
+  // One file larger than the whole limit: said the moment it comes.
+  const had = new Set((before?.files ?? []).map(f => f.name));
+  const big = w.files.find(f => f.bytes > w.limit.bytes && !had.has(f.name));
+  if (!big) return;
+  const words = {name:big.name, size:mbText(big.bytes), who:w.limit.name, max:mbText(w.limit.bytes)};
+  say(named(w.limit) ? t('{name} alone is {size} as sent, more than {who} takes ({max}).', words)
+    : t('{name} alone is {size} as sent, more than most servers take ({max}).', words), 10000);
+}
+function paintWeight(){
+  const c = state.compose, el = $('c-size');
+  if (!c || !el) return;
+  const w = c.weight;
+  if (!w || (!w.files.length && !w.pictures)){ el.hidden = true; return; }
+  const share = w.bytes / w.limit.bytes, words = {size:mbText(w.bytes), max:mbText(w.limit.bytes), who:w.limit.name, over:mbText(Math.max(0, w.bytes - w.limit.bytes))};
+  el.hidden = false;
+  el.dataset.level = share > 1 ? 'over' : share >= 0.8 ? 'near' : 'fine';
+  el.title = limitTip(w.limit);
+  if (share <= 1){
+    el.textContent = share < 0.8 ? t('{size} of {max}', words)
+      : named(w.limit) ? t('{size} of {max}: close to the limit of {who}', words) : t('{size} of {max}: close to the limit', words);
+    return;
+  }
+  const over = named(w.limit) ? t('{size}: {over} more than {who} takes ({max}). Take files off, make the pictures smaller or send it in parts.', words)
+    : t('{size}: {over} more than most servers take ({max}). Take files off, make the pictures smaller or send it in parts.', words);
+  el.innerHTML = `<span>${esc(over)}</span>`
+    + (w.pictures ? `<button type="button" class="btn" data-act="shrink">${esc(t('Make the pictures smaller'))}</button>` : '');
+}
+// Too large: Send doesn't go, and the line says why (no dialog).
+async function sizeAllows(){
+  await weighNow();
+  const w = state.compose?.weight;
+  if (!w || w.bytes <= w.limit.bytes) return true;
+  const el = $('c-size');
+  if (el){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); el.scrollIntoView({block:'nearest'}); }
+  say(t('Too large to send: {size} of {max}.', {size:mbText(w.bytes), max:mbText(w.limit.bytes)}), 8000);
+  return false;
+}
+// Every picture of the message made Medium (at most 800 pixels), each in place and at the width it
+// shows, through the editor's own command; the files stay as they are.
+async function shrinkPictures(){
+  const ed = $('c-html');
+  if (!ed) return;
+  const pictures = [...ed.querySelectorAll('img')].filter(i => i.getAttribute('src')?.startsWith('data:'));
+  let saved = 0;
+  say(t('Making the pictures smaller…'), 0);
+  deselectPicture();
+  for (const img of pictures){
+    const src = img.getAttribute('src');
+    let p;
+    try { p = await invoke('editor_image', {data:src, signature:false, size:'medium'}); } catch { continue; }
+    if (!img.isConnected || p.src.length >= src.length) continue;
+    const width = Number(img.getAttribute('width')) || Math.min(p.width, columnWidth(ed));
+    if (putPicture(ed, img, p.src, width)) saved += (src.length - p.src.length) * 3 / 4;
+  }
+  await weighNow();
+  say(saved ? t('Pictures made smaller: {size} less.', {size:mbText(saved)}) : t('The pictures are no larger than Medium already.'), 6000);
 }
 // Files chosen in the Open dialog or dropped on the window. Dropped with no message open, they
 // start a new one.

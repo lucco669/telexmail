@@ -213,6 +213,10 @@ pub struct Account {
     /// user's choice: from the provider list or found out after a send. `None`: not yet known.
     #[serde(default)]
     pub server_files_sent: Option<bool>,
+    /// The most the SMTP server takes in one message, in bytes, as it said at its last login
+    /// (EHLO's SIZE); `None` when it doesn't say. `sizes::limit` falls back from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smtp_max: Option<u64>,
 }
 
 /// Who puts a copy of sent mail into the server's Sent folder (Settings › Accounts › Folders).

@@ -16,6 +16,7 @@ use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_opener::OpenerExt;
 use telex_core::attachments::{self, is_risky};
 use telex_core::images::{self, Picture};
+use telex_core::settings::ImageSize;
 use telex_core::{tr, Attachment, FolderKind, MessageId};
 
 use crate::settings::SettingsState;
@@ -267,7 +268,7 @@ const MAX_PICTURE_FILE: u64 = 64 * 1024 * 1024;
 
 /// A picture for the HTML editor (`images::prepare`): a file chosen in Telex's Open dialog or
 /// dropped this session (`path`), or one the window read itself, pasted (`data`, base64). Made
-/// the size Settings › Writing says, or for a signature (`signature`) smaller still.
+/// the size Settings › Writing says (or `size`), or for a signature (`signature`) smaller still.
 #[tauri::command]
 pub async fn editor_image(
     files: State<'_, FilesState>,
@@ -275,8 +276,10 @@ pub async fn editor_image(
     path: Option<String>,
     data: Option<String>,
     signature: bool,
+    size: Option<ImageSize>,
 ) -> CmdResult<Picture> {
-    let size = settings.get().image_size;
+    // Medium when compose makes a message's pictures smaller; else as Settings › Writing says.
+    let size = size.unwrap_or(settings.get().image_size);
     let bytes = match (path, data) {
         (Some(path), _) => {
             let path = PathBuf::from(path);
