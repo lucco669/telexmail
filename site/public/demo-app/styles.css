@@ -325,6 +325,11 @@ tbody tr:hover .ic .off{visibility:visible}
 .ic .fl:hover .off{color:var(--flag)}
 .ic .clip{color:var(--muted)}
 .list:focus tr.sel .ic .clip,.list:focus tr.sel .ic .off{color:inherit}
+/* Read mail the user answered or forwarded: an arrow in the dot's place; the ring under the pointer. */
+.ic .rp{width:10px;height:10px;color:var(--replied)}
+.ic .rd.did .dot,.ic .rd.did:hover .rp{display:none}
+.ic .rd.did:hover .dot{display:block}
+.list:focus tr.sel .ic .rp{color:inherit}
 /* What the quick filter found, marked in From and Subject */
 tbody mark{background:var(--warn-bg);color:var(--warn-fg);border-radius:2px}
 .list:focus tbody tr.sel mark{background:none;color:inherit;text-decoration:underline 1.5px;text-underline-offset:2px}
@@ -361,7 +366,14 @@ button.ph-who:hover .pn{text-decoration:underline}
 .attx{flex:none;display:inline-grid;place-items:center;width:24px;height:100%;padding:0;border:0;border-left:1px solid var(--line-soft);border-radius:0 3px 3px 0;background:none;color:var(--muted);font-size:13px;cursor:pointer}
 .attx:hover{background:var(--hover);color:var(--fg)}
 .attx svg{width:12px;height:12px;color:inherit}
-.attwarn{font-size:11.5px;color:var(--note-fg)}
+/* What the message weighs as sent, under its files (app.js, "the message's size"). */
+.csize{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;padding:3px 14px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--line-soft)}
+.csize[data-level="near"]{background:var(--warn-bg);color:var(--warn-fg)}
+.csize[data-level="over"]{background:var(--note-bg);color:var(--note-fg)}
+.csize .btn{height:22px;font-size:11.5px}
+.csize.flash{animation:csize-flash .6s ease 2}
+@keyframes csize-flash{50%{outline:2px solid var(--note-fg);outline-offset:-2px}}
+@media (prefers-reduced-motion: reduce){ .csize.flash{animation:none;outline:2px solid var(--note-fg);outline-offset:-2px} }
 .bar{display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;padding:5px 14px;font-size:12px;background:var(--warn-bg);color:var(--warn-fg);border-bottom:1px solid var(--line-soft)}
 .bar.note{background:var(--chip-bg);color:var(--chip-fg)}
 .bar.note.warn{background:var(--note-bg);color:var(--note-fg)}
@@ -525,6 +537,10 @@ button.ph-who:hover .pn{text-decoration:underline}
 .clater input{height:24px;padding:0 6px;border:1px solid var(--field);border-radius:4px;background:var(--surface);color:var(--fg);font:12px var(--font-data)}
 td.c-subj .goes{font-weight:600}
 .goesbar span{margin-right:2px}
+.didbar{flex-wrap:nowrap;gap:6px}
+.didbar svg{width:13px;height:13px;flex:none;color:var(--replied)}
+.didbar .linkbtn{font-weight:400;text-decoration:none;text-align:left}
+.didbar .linkbtn:hover{text-decoration:underline}
 /* Unsubscribe and the like: words in the row of buttons above a message, as quiet as they are. */
 .pbtn.ptext{width:auto;padding:0 7px;font-size:11.5px;white-space:nowrap}
 .pbtn.ptext[aria-disabled="true"]{cursor:default}
@@ -598,6 +614,19 @@ td.c-subj .goes{font-weight:600}
 .hedit [style*="background-color: rgb(1, 2, 4)"]{background-color:transparent!important}
 .hedit img{max-width:100%;height:auto;vertical-align:bottom}
 .hedit img:hover{outline:1px dashed var(--field)}
+/* A selected picture in the HTML editor (app.js, "a picture's size"): a layer over the window with
+   the picture's frame, its corner to drag, and its bar of sizes. */
+.hedit img::selection{background:transparent} /* the frame shows it; the tint would hide the picture */
+.picsel{position:fixed;inset:0;z-index:25;pointer-events:none}
+.picframe{position:absolute;outline:2px solid var(--accent);outline-offset:1px}
+.pichandle{position:absolute;right:-7px;bottom:-7px;width:12px;height:12px;border:2px solid var(--accent);border-radius:2px;background:var(--surface);cursor:nwse-resize;pointer-events:auto;touch-action:none}
+.picbar{position:absolute;display:flex;align-items:center;gap:2px;padding:3px;border:1px solid var(--line);border-radius:4px;background:var(--panel);color:var(--fg);box-shadow:0 4px 12px var(--shadow);pointer-events:auto;white-space:nowrap}
+.picbar button{height:22px;padding:0 7px;border:1px solid transparent;border-radius:3px;background:none;color:var(--fg);font:12px var(--font-ui);cursor:pointer}
+.picbar button:hover{background:var(--hover);border-color:var(--line)}
+.picbar button[aria-pressed="true"]{background:var(--sel);border-color:var(--field)}
+.picbar button[data-pic="remove"]{margin-left:2px;font-size:14px;line-height:1}
+.picnow{padding:0 6px;color:var(--muted);font:11.5px var(--font-data)}
+@media (forced-colors: active){ .picframe{outline-color:Highlight} .pichandle{border-color:Highlight} .picbar{border-color:CanvasText} }
 .hedit table{border-collapse:collapse;max-width:100%}
 .hedit td,.hedit th{padding:2px 6px;vertical-align:top}
 .hedit .telex-signature{color:var(--fg)}

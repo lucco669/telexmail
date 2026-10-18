@@ -96,7 +96,7 @@ export default function AccessibilityPage() {
       <PageHeader
         page={pages.accessibility}
         title="Readable in every theme."
-        lead={`Eight themes, six fonts and five toolbar layouts, in English and Polish. Every theme meets WCAG 2.2 AA contrast, the ${aaa} high-contrast ones meet AAA, and a script measures every color pair whenever a color changes.`}
+        lead={`Fourteen themes, accent colors, six fonts and five toolbar layouts, in nine languages. Every theme meets WCAG 2.2 AA contrast, the ${aaa} high-contrast ones meet AAA, and a script measures every color pair whenever a color changes.`}
       >
         <dl className={s.stats}>
           <div>
@@ -120,7 +120,7 @@ export default function AccessibilityPage() {
 
       <section className={`container ${s.section}`} aria-labelledby="themes">
         <h2 id="themes" className={s.h2}>
-          Eight themes
+          Fourteen themes
         </h2>
         <p className={s.intro}>
           Pick one in Settings › Appearance; each card there is drawn in its own colors. “Match Windows” switches between

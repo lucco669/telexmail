@@ -10,7 +10,7 @@ const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
 const V0920 = '0.9.20';
-const V0921 = '0.9.21';
+const V0922 = '0.9.22';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -120,8 +120,8 @@ export const featureRows: FeatureRow[] = [
       { text: 'With several accounts every list wears its account’s color, and all-mail search names the account next to the folder', since: '0.9.1' },
       { text: 'Dates, the Size column and fitting the columns in Settings › Appearance too', since: '0.9.1' },
       { text: 'Quoted mail reads as blocks: who wrote it on top, a colored bar for each level, in the normal text color; long quotes fold, and Q opens them all', since: V0910 },
-      { text: 'Replied and forwarded mail has a small arrow in the list, and the message says when you replied, one click from your reply; Thunderbird, Apple Mail and your phone see the same', since: V0921 },
-      { text: 'Replying or forwarding marks the message read', since: V0921 },
+      { text: 'Replied and forwarded mail has a small arrow in the list, and the message says when you replied, one click from your reply; Thunderbird, Apple Mail and your phone see the same', since: V0922 },
+      { text: 'Replying or forwarding marks the message read', since: V0922 },
     ],
   },
   {
@@ -228,8 +228,8 @@ export const featureRows: FeatureRow[] = [
       'HTML or plain text, as a default or per message; replies can follow the original',
       'Pasted web pages lose their styles and scripts: only formatting goes in',
       { text: 'Pictures in HTML messages: paste one, drop it where it goes, or Insert picture…; large photos are made smaller and lose their hidden location data', since: V0920 },
-      { text: 'Pictures go in at a size that suits the text, and a click on one resizes it: Small, Medium, Large, Fit or Original, its corner, or + and −; the size holds in every mail program, Outlook too', since: V0921 },
-      { text: 'Knows how large a message may be: what your server says, or your provider’s documented limit; a quiet size line warns before you get there, and a message too large waits instead of bouncing', since: V0921 },
+      { text: 'Pictures go in at a size that suits the text, and a click on one resizes it: Small, Medium, Large, Fit or Original, its corner, or + and −; the size holds in every mail program, Outlook too', since: V0922 },
+      { text: 'Knows how large a message may be: what your server says, or your provider’s documented limit; a quiet size line warns before you get there, and a message too large waits instead of bouncing', since: V0922 },
       { text: 'Text color, highlight and three sizes from a short palette, shown readable in dark themes and sent as chosen', since: V0920 },
       { text: 'Signatures in HTML, with formatting and a logo; plain-text mail gets their text', since: V0920 },
       { text: 'A reply or forward in HTML quotes the original as it looked, with its own pictures and never remote ones', since: V0920 },
@@ -315,9 +315,9 @@ export const featureRows: FeatureRow[] = [
     points: [
       { text: 'New mail shows within seconds: one IMAP IDLE connection per Inbox', since: '0.5.0' },
       { text: 'A notification names the sender while Telex is in the background', since: '0.5.0' },
-      { text: 'Lives in the system tray if you like: the close button or minimizing hides it there, a click brings it back, and it keeps checking, sending and notifying', since: V0921 },
-      { text: 'The tray icon shows when there is unread mail, its tooltip how much per account; its menu gets mail, starts a message or pauses notifications until the morning', since: V0921 },
-      { text: 'The unread count on the taskbar button, and Telex starting with Windows, its window open or hidden in the tray', since: V0921 },
+      { text: 'Lives in the system tray if you like: the close button or minimizing hides it there, a click brings it back, and it keeps checking, sending and notifying', since: V0922 },
+      { text: 'The tray icon shows when there is unread mail, its tooltip how much per account; its menu gets mail, starts a message or pauses notifications until the morning', since: V0922 },
+      { text: 'The unread count on the taskbar button, and Telex starting with Windows, its window open or hidden in the tray', since: V0922 },
       { text: 'New mail brings the list to its top, where it lands; the message you were on stays selected', since: V099 },
       'IMAP over SSL/TLS, folders straight from the server',
       { text: 'IMAP over STARTTLS on port 143 too, never unencrypted', since: '0.5.0' },
@@ -349,7 +349,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'Suggestions as you type: people from your own mail, operators, your recent searches; Enter goes to the results', since: '0.7.1' },
       { text: 'What matched is marked in the list', since: '0.7.1' },
       { text: 'tag:work finds a tag by its name, is:tagged any tagged mail; saved searches keep them', since: V0920 },
-      { text: 'is:replied, is:unreplied and is:forwarded', since: V0921 },
+      { text: 'is:replied, is:unreplied and is:forwarded', since: V0922 },
     ],
   },
   {
@@ -469,7 +469,7 @@ export const featureRows: FeatureRow[] = [
     id: 'settings',
     screen: 'settings',
     title: 'Your colors, your language',
-    text: 'Eight themes, from plain light to a green phosphor screen, each measured against WCAG 2.2. The interface speaks English and Polish. Settings save as you change them, and travel to another PC in one file.',
+    text: 'Fourteen themes, from plain light to true black, in your accent color, each measured against WCAG 2.2. The interface speaks English, Polish and seven more languages. Settings save as you change them, and travel to another PC in one file.',
     points: [
       'Every theme meets AA contrast; the two high-contrast ones meet AAA',
       { text: 'Updates checked when Telex starts, once a day, or only when you ask; never before you say yes', since: '0.7.1' },
@@ -482,12 +482,12 @@ export const featureRows: FeatureRow[] = [
       { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
       { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
-      { text: 'Six more themes: Sepia for long reading, Solar light and dark, Classic grey as in Windows 98 and The Bat!, neutral Graphite, and true Black for OLED screens', since: V0921 },
-      { text: 'An accent color of your own, made lighter or darker in each theme so every text keeps the contrast the theme promises', since: V0921 },
-      { text: 'The message pane below the list, beside it, or off with Enter opening a window, as in The Bat!', since: V0921 },
-      { text: 'Four spacings from 20 px rows to roomy, and line spacing and line length for reading', since: V0921 },
-      { text: 'A message’s text larger or smaller on its own with + and − or Ctrl+wheel, in the message pane and in each message’s window', since: V0921 },
-      { text: 'Appearance in five groups, every choice drawn as it will look, and one button back to how Telex starts', since: V0921 },
+      { text: 'Six more themes: Sepia for long reading, Solar light and dark, Classic grey as in Windows 98 and The Bat!, neutral Graphite, and true Black for OLED screens', since: V0922 },
+      { text: 'An accent color of your own, made lighter or darker in each theme so every text keeps the contrast the theme promises', since: V0922 },
+      { text: 'The message pane below the list, beside it, or off with Enter opening a window, as in The Bat!', since: V0922 },
+      { text: 'Four spacings from 20 px rows to roomy, and line spacing and line length for reading', since: V0922 },
+      { text: 'A message’s text larger or smaller on its own with + and − or Ctrl+wheel, in the message pane and in each message’s window', since: V0922 },
+      { text: 'Appearance in five groups, every choice drawn as it will look, and one button back to how Telex starts', since: V0922 },
       'Export settings, rules, identities and servers to a file, never passwords',
       'Import shows what would change, part by part, before anything does',
     ],
@@ -823,14 +823,14 @@ export const screens: Screen[] = [
     id: 'settings',
     label: 'Themes',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Settings: eight themes, each card drawn in its own colors. Every one meets WCAG 2.2 AA contrast.',
+    caption: 'Settings: fourteen themes, each card drawn in its own colors. Every one meets WCAG 2.2 AA contrast.',
   },
   {
     id: 'appearance',
     label: 'Appearance',
     title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Settings › Appearance: where the message pane goes, four spacings and five toolbars, each card drawn as it will look.',
-    since: V0921,
+    since: V0922,
   },
   {
     id: 'accounts',
@@ -964,7 +964,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
   {
     keys: ['Ctrl+,'],
     title: 'Make it yours',
-    text: 'Eight themes from Paper to Phosphor, six fonts, how unread mail stands out, Polish, bigger text. Rules and identities can be edited too.',
+    text: 'Fourteen themes from Sepia to Phosphor, accent colors, spacing, six fonts, how unread mail stands out, Polish, bigger text. Rules and identities can be edited too.',
   },
 ];
 
@@ -986,6 +986,32 @@ export type Version = {
 };
 
 export const versions: Version[] = [
+  {
+    version: V0922,
+    title: 'Fourteen themes, a tray icon, replied marks, and pictures that fit',
+    date: '2026-10-18',
+    summary: 'Telex looks the way you want it: six more themes, your own accent color, four spacing steps and message zoom. It can live in the tray, shows which mail you answered, sizes pictures sensibly, and checks a message against your server’s size limit before it goes.',
+    points: [
+      'Six more themes, 14 in all: Sepia for long reading, Solar light and dark, Classic grey as in Windows 98 and The Bat!, Graphite, and true Black for OLED screens. Pick an accent color too: Telex adjusts it so every theme stays readable.',
+      'Spacing in four steps, from dense 20-pixel rows to spacious, line spacing for reading, and the longest line a message may have.',
+      'Message zoom apart from the window’s text size: + − 0, Ctrl+wheel or the … above a message; the message pane and a message’s own window remember their own.',
+      'The message pane below the list, beside it, or off, with Enter opening messages in their own window.',
+      'A tray icon with the unread count, a menu to get mail, write or pause notifications; the close button and minimizing can keep Telex in the tray, and it can start with Windows. The taskbar button shows the unread count.',
+      'Replying or forwarding marks the message read, and once your reply is sent the message gets the answered mark, shared with your phone and other mail programs. A small arrow in the list, and “You replied on …” above the message.',
+      'Pictures go into a message at a sensible size, and a click resizes one: Small, Medium, Large, Fit or Original, by its corner, or with + and −. The size holds in every mail program, Outlook too.',
+      'Size limits: compose shows how large the message is as sent against your server’s limit (what it says, else your provider’s documented one), warns from 80%, and keeps a message that is too large instead of letting it bounce.',
+      'The first start after an update no longer freezes: the window shows how far the upgrade is, and slow work finishes in the background.',
+    ],
+    upgrade: 'Version 0.9.22 upgrades the local mail base (replied marks and the server’s size limit). Back up in Settings › Backups before updating; older Telex versions cannot reopen the upgraded mail base.',
+    highlights: [
+      { title: 'Fourteen themes', text: 'Sepia to true Black, in your accent color, all WCAG checked.', href: '/accessibility' },
+      { title: 'Message zoom', text: 'The message larger or smaller, apart from the window.', keys: '+ −', href: '/features#reading' },
+      { title: 'In the tray', text: 'Close to the tray, start with Windows, unread at a glance.', href: '/features#sync' },
+      { title: 'Replied marks', text: 'See what you answered, here and on your phone.', href: '/features#read' },
+      { title: 'Pictures that fit', text: 'A sensible size on paste, resized with a click.', href: '/features#writing' },
+      { title: 'No bounced mail', text: 'Your server’s size limit, checked before Send.', href: '/features#sending' },
+    ],
+  },
   {
     version: V0920,
     title: 'Tags, an address book, invitations, POP3, encrypted mail and seven more languages',

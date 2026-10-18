@@ -27,6 +27,9 @@ const I = {
   reply: sv('<path d="M6.5 4L3 7.5 6.5 11"/><path d="M3.5 7.5H9a4 4 0 014 4v1"/>'),
   replyall: sv('<path d="M8.5 4L5 7.5 8.5 11"/><path d="M5 4L1.5 7.5 5 11"/><path d="M5.5 7.5H10a4 4 0 014 4v1"/>'),
   forward: sv('<path d="M9.5 4L13 7.5 9.5 11"/><path d="M12.5 7.5H7a4 4 0 00-4 4v1"/>'),
+  // A row answered or forwarded: the same arrows, small, where the unread dot would be.
+  replied: sv('<path d="M6.5 3.5L2.5 7.5l4 4"/><path d="M3 7.5h6a4.5 4.5 0 014.5 4.5v1"/>', 'class="rp" stroke-width="1.8"'),
+  forwarded: sv('<path d="M9.5 3.5l4 4-4 4"/><path d="M13 7.5H7a4.5 4.5 0 00-4.5 4.5v1"/>', 'class="rp" stroke-width="1.8"'),
   trash: sv('<path d="M2.5 4.5h11M6.5 4.5V2.8h3v1.7M4 4.5l.7 9h6.6l.7-9"/>'),
   flag: sv('<path d="M3.5 14.5V2.5"/><path d="M3.5 3h9l-2 3 2 3h-9"/>'),
   flagOff: sv('<path d="M3.5 14.5V2.5"/><path d="M3.5 3h9l-2 3 2 3h-9"/>', 'class="off"'),
@@ -97,6 +100,7 @@ const fromSummary = s => ({
   id:s.id, f:s.folder, from:s.from_name, email:s.from_email, to:s.to, subj:s.subject,
   date:parseDate(s.date), kb:s.size_kb, unread:s.unread, flagged:s.flagged, hasAtt:s.has_attachments,
   thread:s.thread ?? null, goes:s.goes ? parseDate(s.goes) : null, tags:s.tags ?? [],
+  answered:!!s.answered, forwarded:!!s.forwarded,
 });
 // Accounts, folders and how many messages each folder holds (the core counts them).
 async function loadTree(){
@@ -281,6 +285,7 @@ const state = {
   updateChecked: Number(saved.updateChecked) || 0, // when a check last got an answer (ms)
   offered: saved.offered || null, // the language offered on the first start, once
   helpTold: !!saved.helpTold, // the status bar said once where the keys and tips are
+  trayTold: !!saved.trayTold, // the status bar offered once Windows' setting that keeps the tray icon visible
 };
 // The list's columns: From and Folder as wide as they were dragged (px; null fits them to the
 // list), the Size column, and dates short (06:12, Wed 06:12, 10.10.2026) or full.
@@ -302,6 +307,7 @@ const persist = () => store.set({
   updateChecked: state.updateChecked || undefined,
   offered: state.offered || undefined,
   helpTold: state.helpTold || undefined,
+  trayTold: state.trayTold || undefined,
   scope: state.scope === 'all' ? 'all' : undefined,
   more: Object.keys(state.more).length ? state.more : undefined,
   recent: state.recent.length ? state.recent : undefined,
@@ -352,7 +358,7 @@ let SETTINGS = {
   settings:{theme:'system', language:'auto', toolbar_style:'classic', density:document.documentElement.dataset.density || 'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100,
     accent:'theme', preview_pane:'below', line_spacing:'normal', reading_width:'normal', message_zoom:100, message_window_zoom:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true, ask_attachment:true, ask_many:true,
-    image_size:'large', spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
+    image_size:'large', picture_width:'large', spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
@@ -1318,8 +1324,11 @@ function rowHtml(m, sel, hl, accounts){
   const [where, whose] = whereOf(m, accounts);
   // Mail sent later says in the Outbox when it goes.
   const goes = m.goes ? `<span class="goes">${esc(t('Goes {when}', {when:fmtGoes(m.goes)}))}</span> ` : '';
-  // The dot and the flag are switches: a click marks read or unread, flags or unflags.
-  const dot = `<b class="mk rd" title="${esc(m.unread ? t('Mark as read (U)') : t('Mark as unread (U)'))}"><i class="dot"></i></b>`;
+  // The dot and the flag are switches: a click marks read or unread, flags or unflags. Read mail
+  // the user answered or forwarded has an arrow there instead (the dot's ring under the pointer).
+  const did = m.unread ? '' : didText(m), read = m.unread ? t('Mark as read (U)') : t('Mark as unread (U)');
+  const arrow = did ? (m.answered ? I.replied : I.forwarded).replace('aria-hidden="true"', `role="img" aria-label="${esc(did)}"`) : '';
+  const dot = `<b class="mk rd${did ? ' did' : ''}" title="${esc(did ? did + ' · ' + read : read)}">${arrow}<i class="dot"></i></b>`;
   const flag = `<b class="mk fl" title="${esc(m.flagged ? t('Remove the flag (F)') : t('Flag (F)'))}">${m.flagged ? I.flagFill.replace('aria-hidden="true"', `role="img" aria-label="${esc(t('Flagged'))}"`) : I.flagOff}</b>`;
   return `<tr data-id="${m.id}" class="${cls}" aria-selected="${on}">
 <td class="c-ic"><span class="ic">${dot}${flag}${m.hasAtt ? I.clip : '<i class="sp"></i>'}</span></td>
@@ -1328,6 +1337,11 @@ function rowHtml(m, sel, hl, accounts){
 <td class="c-where" title="${esc(acctLabel(acct))} › ${esc(folderName(m.f))}">${adot(acct)}${esc(whose ? where + ' · ' + whose : where)}</td>
 <td class="c-date">${fmtList(m.date)}</td>
 <td class="c-size">${fmtSize(m.kb)}</td></tr>`;
+}
+
+// What the user did with a message, for its row's arrow.
+function didText(m){
+  return m.answered && m.forwarded ? t('Replied and forwarded') : m.answered ? t('Replied') : m.forwarded ? t('Forwarded') : '';
 }
 
 /* ---------- what the filter found, marked in the rows ---------- */
@@ -2376,15 +2390,13 @@ function imagesBar(m, hv, spam){
 }
 // A message's attachments: click opens one in its app, the arrow saves it. In compose
 // (`writing`), × takes one off, and the total says when it gets large.
-const BIG_KB = 20 * 1024; // above this, some servers refuse a message
 function attsHtml(atts, writing = false){
   if (!atts.length) return '';
   const chips = atts.map((a, i) => writing
     ? `<span class="att" title="${esc(a.name)}">${I.clip}<span class="nm">${esc(a.name)}</span><small>${fmtSize(a.size_kb)}</small><button type="button" class="attx" data-unattach="${i}" title="${esc(t('Remove {name}', {name:a.name}))}" aria-label="${esc(t('Remove {name}', {name:a.name}))}">×</button></span>`
     : `<span class="att"><button type="button" class="attopen" data-att="${i}" title="${esc(t('Open {name}', {name:a.name}))}">${I.clip}<span class="nm">${esc(a.name)}</span><small>${fmtSize(a.size_kb)}</small></button><button type="button" class="attx" data-save="${i}" title="${esc(t('Save {name}…', {name:a.name}))}" aria-label="${esc(t('Save {name}…', {name:a.name}))}">${I.get}</button></span>`).join('');
-  const kb = atts.reduce((n, a) => n + a.size_kb, 0);
   const tail = writing
-    ? (kb > BIG_KB ? `<small class="attwarn">${esc(t('{size} in all: some servers refuse mail over 25 MB.', {size:fmtSize(kb)}))}</small>` : '')
+    ? '' // what it weighs as sent: the size line under the files (paintWeight)
     : atts.length > 1 ? `<button type="button" class="linkbtn" data-saveall>${esc(t('Save all…'))}</button>` : '';
   return `<div class="atts">${chips}${tail}</div>`;
 }
@@ -2474,6 +2486,22 @@ function paintReadButton(){
   b.innerHTML = m.unread ? I.mailOpen : I.mail;
   b.title = readTip(m); b.setAttribute('aria-label', b.title);
 }
+/* ---------- replied and forwarded, in the open message ---------- */
+// A quiet line when the user answered or forwarded the message: when they replied (their reply in
+// Sent or an Outbox), which opens that reply in its window, else the conversation (T).
+function didBar(m){
+  const r = m.replied;
+  if (!r) return '';
+  const at = r.at ? parseDate(r.at) : null;
+  const parts = [];
+  if (r.answered) parts.push(at ? t('You replied on {date} at {time}.', {date:dmy(at), time:hm(at)}) : t('You replied.'));
+  if (r.forwarded) parts.push(t('You forwarded it.'));
+  const text = esc(parts.join(' ')), icon = r.answered ? I.reply : I.forward;
+  if (VIEWER) return `<div class="bar quiet didbar">${icon}<span>${text}</span></div>`;
+  const tip = r.reply ? t('Open your reply in its own window') : t('Show the conversation (T)');
+  return `<div class="bar quiet didbar">${icon}<button type="button" class="linkbtn" data-act="replied" title="${esc(tip)}">${text}</button></div>`;
+}
+
 /* ---------- send later, in the open message ---------- */
 // Mail sent later says when it goes, with Send now and Hold; E changes it.
 function goesBar(m){
@@ -2758,6 +2786,8 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
   const dark = pref().prefer_text ? null : darkPaper(s.id);
   try {
     m = await full(s.id);
+    // Answered or forwarded since it was read (the reply went): its line above it too.
+    if ((s.answered && !m.replied?.answered) || (s.forwarded && !m.replied?.forwarded)){ bodies.delete(s.id); m = await full(s.id); }
     hv = await htmlView(s.id, pref().prefer_text ? false : state.images.has(s.id) ? true : null, dark);
   } catch (e){ if (seq === pvSeq) previewEl.innerHTML = `<div class="pempty">${esc(tr(e))}</div>`; return; }
   if (seq !== pvSeq || state.compose) return;
@@ -2775,7 +2805,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
 ${headerHtml({...m, tags:s.tags ?? m.tags}, `${unsubButton(m)}${readButton(s)}${flagButton(s)}${tagButton()}${popout}${mdButton()}${outButton()}${paper}${views}`)}
 ${inviteHtml(m, spam)}
 ${riskHtml(m)}
-${goesBar(m)}${unsubBar(m)}${pgpHtml(m)}
+${goesBar(m)}${didBar(m)}${unsubBar(m)}${pgpHtml(m)}
 ${m.note ? `<div class="bar note${spam || kindOf(s.f) === 'outbox' ? ' warn' : ''}">${esc(m.note)}</div>` : ''}
 ${images}
 ${asHtml ? `<div class="pbody html${dark ? ' dark' : ''}"><iframe class="hframe" sandbox="allow-same-origin" referrerpolicy="no-referrer" title="${esc(t('Message'))}"></iframe></div>` : `<div class="pbody" lang="">${bodyHtml(m)}</div>`}
@@ -2830,6 +2860,7 @@ previewEl.addEventListener('click', async e => {
     say(trust ? t('Images from {email} will load automatically, except in Spam.', {email}) : t('Images from {email} are blocked again.', {email}));
   }
   if (act.dataset.act === 'window' && m){ openWindow(m.id); return; }
+  if (act.dataset.act === 'replied' && m){ const r = (await full(m.id)).replied; if (r?.reply) openWindow(r.reply); else toggleThread(); return; }
   if (act.dataset.act === 'markdown' && m){ copyMarkdown([m.id]); return; }
   if (act.dataset.act === 'out' && m){ const r = act.getBoundingClientRect(); openMenu(r.left, r.bottom + 2, outItems(m.id), act); return; }
   if ((act.dataset.act === 'iv-add' || act.dataset.act === 'iv-save') && m){
@@ -2861,6 +2892,7 @@ previewEl.addEventListener('click', async e => {
     readCompose(); state.compose.showBcc = true; renderCompose(); $('c-bcc')?.focus();
   }
   if (act.dataset.act === 'attach' && state.compose) pickFiles();
+  if (act.dataset.act === 'shrink' && state.compose) shrinkPictures();
   if (act.dataset.act === 'others-add' && state.compose) switchReply(true);
   if (act.dataset.act === 'origfiles' && state.compose) attachOriginal();
   if (act.dataset.act === 'ask-send' && state.compose) send();
@@ -2932,8 +2964,22 @@ async function openCompose(kind, preset = {}, of = null){
   state.compose = c;
   renderCompose();
   c.saved = shapeOf(readCompose()); // as it opened: nothing to autosave yet
+  if (['reply', 'replyall', 'forward'].includes(kind)) readAnswering(s.id);
   if (kept){ draftsChanged(); say(t('The message you were writing is in Drafts.'), 6000); }
   else if (c.later) say(t('Held while you change it. Send keeps its time, {when}; Esc keeps it as a draft.', {when:fmtFull(parseDate(c.later))}), 8000);
+}
+// Answering a message means it was read, whatever Settings › Reading says: it is marked read
+// as the reply opens (only that one, not the rest of a selection). It is marked answered only
+// once the reply went (the core, after SMTP took it).
+function readAnswering(id){
+  const row = list.rows.find(r => r.id === id) ?? (selRow?.id === id ? selRow : null);
+  if (row && !row.unread) return;
+  if (id === current()?.id) clearTimeout(readTimer);
+  call('set_unread_many', {ids:[id], unread:false}).then(n => {
+    if (!n) return;
+    bodies.delete(id);
+    if (row){ changed(row, {unread:false}); reorder(); } else if (!VIEWER) refresh();
+  }).catch(() => {});
 }
 const focusCompose = () => $('c-to')?.focus();
 // After a draft was saved or dropped: the Drafts folder's count and list (the main window's).
@@ -3009,7 +3055,7 @@ async function insertPictures(ed, sources, signature = false){
     try { p = await invoke('editor_image', {...source, signature}); } catch (e){ say(tr(e), 9000); continue; }
     if (!ed.isConnected) return;
     ed.focus();
-    document.execCommand('insertHTML', false, `<img src="${p.src}" alt="">`);
+    document.execCommand('insertHTML', false, pictureHtml(p.src, startWidth(ed, p)));
     if (p.smaller) say(t('Picture made smaller: {width} × {height} pixels.', {width:p.width, height:p.height}), 4000);
   }
 }
@@ -3020,6 +3066,201 @@ async function choosePictures(ed, signature){
   await insertPictures(ed, files.map(f => ({path:f.path})), signature);
 }
 const fileData = file => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; r.readAsDataURL(file); });
+/* ---------- a picture's size ---------- */
+// A picture goes in at a size that suits the text: as wide as Settings › Writing says (600 px by
+// default), never wider than the editor's text, nor than its own size on this screen (a 2× screen's
+// screenshot at half its pixels). The size is its width attribute with max-width:100%;height:auto,
+// the one way every mail program keeps (Outlook honours only the width; html::compose_clean allows
+// exactly that). A click on a picture selects it: a bar by it sets Small, Medium, Large, Fit or
+// Original and says the size, its corner drags (proportions kept, as the height follows the width),
+// + and − (or Ctrl+→ ←) make it larger or smaller, Del removes it, Esc lets it go. Each change goes
+// through the editor's own commands, so Ctrl+Z takes each back.
+const PICTURE_WIDTHS = {large:600, medium:400, small:200};
+const PICTURE_STYLE = 'max-width:100%;height:auto';
+const clampWidth = w => Math.max(16, Math.min(2000, Math.round(w)));
+const pictureHtml = (src, width, alt = '') => `<img src="${src}" alt="${esc(alt)}" width="${clampWidth(width)}" style="${PICTURE_STYLE}">`;
+// The width an editor's text has: its content box.
+function columnWidth(ed){
+  const cs = getComputedStyle(ed);
+  return Math.max(40, Math.floor(ed.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)));
+}
+// A new picture: the setting's width, at most the text's and its own on this screen.
+function startWidth(ed, p){
+  const own = Math.round((p.source_width || p.width || 0) / (devicePixelRatio || 1)) || Infinity;
+  const want = PICTURE_WIDTHS[pref().picture_width ?? 'large'] ?? Infinity; // fit: as wide as the text
+  return clampWidth(Math.min(want, columnWidth(ed), own));
+}
+// Its own size on this screen: as large as it stays sharp.
+const ownWidth = img => clampWidth((img.naturalWidth || Number(img.getAttribute('width')) || 300) / (devicePixelRatio || 1));
+const pic = {img:null, ed:null, el:null, busy:false, drag:null};
+const PIC_SIZES = [['small', N_('Small|picture'), () => PICTURE_WIDTHS.small], ['medium', N_('Medium|picture'), () => PICTURE_WIDTHS.medium],
+  ['large', N_('Large|picture'), () => PICTURE_WIDTHS.large], ['fit', N_('Fit|picture'), () => columnWidth(pic.ed)], ['own', N_('Original|picture'), () => ownWidth(pic.img)]];
+// The frame around a selected picture, its corner and its bar. Outside the editor, so none of it is
+// ever saved; in the dialog when the editor is one of Settings' (a dialog is drawn above the page).
+function pictureFrame(host){
+  if (!pic.el){
+    pic.el = document.createElement('div');
+    pic.el.className = 'picsel';
+    pic.el.hidden = true;
+    pic.el.addEventListener('mousedown', e => { if (!e.target.closest('.pichandle')) e.preventDefault(); }); // the editor keeps the focus
+    pic.el.addEventListener('click', e => {
+      const b = e.target.closest('button'); if (!b || !pic.img) return;
+      if (b.dataset.pic === 'remove'){ removePicture(); return; }
+      const size = PIC_SIZES.find(([k]) => k === b.dataset.pic);
+      if (size) setPictureWidth(size[2]());
+    });
+    pic.el.addEventListener('pointerdown', e => { if (e.target.closest('.pichandle')) startDrag(e); });
+  }
+  pic.el.innerHTML = `<div class="picframe"><span class="pichandle" title="${esc(t('Drag to make it larger or smaller'))}"></span></div>`
+    + `<div class="picbar" role="toolbar" aria-label="${esc(t('Picture size'))}">${PIC_SIZES.map(([k, label]) =>
+      `<button type="button" data-pic="${k}">${esc(t(label))}</button>`).join('')}<span class="picnow" aria-live="polite"></span>`
+    + `<button type="button" data-pic="remove" title="${esc(t('Remove the picture (Del)'))}" aria-label="${esc(t('Remove the picture (Del)'))}">×</button></div>`;
+  if (pic.el.parentElement !== host) host.append(pic.el);
+}
+function selectPicture(ed, img){
+  pic.ed = ed; pic.img = img;
+  pictureFrame(ed.closest('dialog') ?? document.body);
+  const r = document.createRange(); r.selectNode(img);
+  pic.busy = true;
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  pic.busy = false;
+  pic.el.hidden = false;
+  // All of it in view, so its corner can be reached.
+  const r2 = img.getBoundingClientRect(), box = ed.getBoundingClientRect();
+  if (r2.bottom > box.bottom || r2.top < box.top) img.scrollIntoView({block:r2.height > box.height ? 'start' : 'nearest'});
+  placePicture();
+}
+function deselectPicture(caretAfter = false){
+  if (!pic.img) return;
+  const {img} = pic;
+  pic.img = null;
+  if (pic.el) pic.el.hidden = true;
+  if (caretAfter && img.isConnected){
+    const r = document.createRange(); r.setStartAfter(img); r.collapse(true);
+    pic.busy = true; const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); pic.busy = false;
+  }
+}
+// The frame on the picture, the bar under it (above when there is no room), and what size it is.
+function placePicture(width){
+  const {img, ed, el} = pic;
+  if (!img?.isConnected || !el){ deselectPicture(); return; }
+  const r = img.getBoundingClientRect(), box = ed.getBoundingClientRect();
+  const seen = r.bottom > box.top && r.top < box.bottom;
+  el.style.visibility = seen ? '' : 'hidden';
+  const host = el.getBoundingClientRect(); // the frame's layer covers the window
+  const frame = el.querySelector('.picframe'), bar = el.querySelector('.picbar');
+  // The part of it in view: a picture taller than the editor keeps its corner within reach.
+  const top = Math.max(r.top, box.top), bottom = Math.min(r.bottom, box.bottom);
+  Object.assign(frame.style, {left:r.left - host.left + 'px', top:top - host.top + 'px', width:r.width + 'px', height:Math.max(0, bottom - top) + 'px'});
+  const below = bottom + 6 + bar.offsetHeight < Math.min(box.bottom, innerHeight);
+  const left = Math.max(box.left, Math.min(r.left, box.right - bar.offsetWidth));
+  // Under the picture when there is room in the editor, else inside it at the top, never over the bars above.
+  Object.assign(bar.style, {left:left + (below ? 0 : 6) - host.left + 'px', top:(below ? bottom + 6 : top + 6) - host.top + 'px'});
+  const w = width ?? (Number(img.getAttribute('width')) || Math.round(r.width));
+  const own = ownWidth(img);
+  el.querySelector('.picnow').textContent = `${w} px · ${Math.round(w / own * 100)}%`;
+  const now = PIC_SIZES.find(([, , size]) => clampWidth(size()) === w)?.[0];
+  el.querySelectorAll('[data-pic]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.pic === now)));
+}
+// A new width, through the editor's own command (one Ctrl+Z): the picture is put in again.
+function setPictureWidth(width){
+  const {img, ed} = pic;
+  if (!img?.isConnected){ deselectPicture(); return; }
+  const w = clampWidth(width);
+  if (Number(img.getAttribute('width')) === w){ placePicture(); return; }
+  const next = putPicture(ed, img, img.getAttribute('src'), w);
+  if (next) selectPicture(ed, next); else deselectPicture();
+}
+// The picture put in again, with this source and width, through the editor's own command (one
+// Ctrl+Z); the new one, or null.
+function putPicture(ed, img, src, w){
+  const alt = img.getAttribute('alt') ?? '';
+  ed.focus();
+  const r = document.createRange(); r.selectNode(img);
+  pic.busy = true;
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  document.execCommand('insertHTML', false, pictureHtml(src, w, alt));
+  const at = sel.anchorNode;
+  let next = at?.nodeType === 1 ? at.childNodes[sel.anchorOffset - 1] : null;
+  if (next?.tagName !== 'IMG') next = [...ed.querySelectorAll('img')].find(i => i.getAttribute('src') === src && Number(i.getAttribute('width')) === clampWidth(w));
+  pic.busy = false;
+  return next ?? null;
+}
+function removePicture(){
+  const {img, ed} = pic;
+  if (!img?.isConnected){ deselectPicture(); return; }
+  ed.focus();
+  selectPicture(ed, img);
+  deselectPicture();
+  document.execCommand('delete');
+}
+// The corner: dragging shows the new size at once; letting go makes it the picture's (one Ctrl+Z).
+function startDrag(e){
+  const {img} = pic;
+  if (!img) return;
+  e.preventDefault();
+  const handle = e.target.closest('.pichandle'), style = img.getAttribute('style');
+  const start = {x:e.clientX, w:img.getBoundingClientRect().width};
+  let w = Math.round(start.w);
+  handle.setPointerCapture(e.pointerId);
+  const move = ev => {
+    w = clampWidth(start.w + ev.clientX - start.x);
+    img.style.width = w + 'px';
+    placePicture(w);
+  };
+  const up = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', up);
+    handle.removeEventListener('pointercancel', up);
+    // The preview goes before the change is made, so Ctrl+Z brings the picture back as it was.
+    if (style == null) img.removeAttribute('style'); else img.setAttribute('style', style);
+    setPictureWidth(w);
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', up);
+  handle.addEventListener('pointercancel', up);
+}
+// An editor's pictures: a click selects one; keys change it while it is selected.
+function wirePictures(ed){
+  ed.addEventListener('click', e => {
+    const img = e.target.closest?.('img');
+    if (img && ed.contains(img)) selectPicture(ed, img);
+  });
+  ed.addEventListener('keydown', e => {
+    if (!pic.img || pic.ed !== ed) return;
+    const w = Number(pic.img.getAttribute('width')) || Math.round(pic.img.getBoundingClientRect().width);
+    const ctrl = e.ctrlKey || e.metaKey;
+    const larger = (!ctrl && (e.key === '+' || e.key === '=')) || (ctrl && e.key === 'ArrowRight');
+    const smaller = (!ctrl && (e.key === '-' || e.key === '−' || e.key === '_')) || (ctrl && e.key === 'ArrowLeft');
+    if (larger || smaller){
+      e.preventDefault(); e.stopPropagation();
+      setPictureWidth(larger ? Math.max(w + 10, w * 1.1) : Math.min(w - 10, w / 1.1));
+    } else if (e.key === 'Escape'){
+      e.preventDefault(); e.stopPropagation(); // Esc here doesn't close the message or the dialog
+      deselectPicture(true);
+    } else if (e.key === 'Delete' || e.key === 'Backspace'){
+      e.preventDefault(); e.stopPropagation();
+      removePicture();
+    } else if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key) && !(ctrl && e.key.toLowerCase() === 'z')){
+      deselectPicture(!ctrl); // typing goes after the picture, not over it
+    }
+  });
+  ed.addEventListener('scroll', () => { if (pic.img && pic.ed === ed) placePicture(); });
+  // Pictures that came or went (pasted, dropped, deleted, made smaller): compose weighs again.
+  ed.addEventListener('input', () => {
+    const now = [...ed.querySelectorAll('img')].reduce((n, i) => n + (i.getAttribute('src')?.length ?? 0) + 1, 0);
+    if (now !== ed.pictureWeight){ ed.pictureWeight = now; if (ed.id === 'c-html') weighCompose(500); }
+  });
+}
+document.addEventListener('selectionchange', () => {
+  if (!pic.img || pic.busy) return;
+  const sel = getSelection(), r = sel.rangeCount ? sel.getRangeAt(0) : null;
+  const around = r && !r.collapsed && r.startContainer === pic.img.parentNode && r.endOffset - r.startOffset === 1
+    && r.startContainer.childNodes[r.startOffset] === pic.img;
+  if (!around) deselectPicture();
+});
+addEventListener('resize', () => { if (pic.img) placePicture(); });
+document.addEventListener('scroll', () => { if (pic.img) placePicture(); }, true);
 // A plain-text signature in the editor: a line per <div>, as the core writes it.
 const linesHtml = text => (text || '').split('\n').map(l => `<div>${l ? esc(l) : '<br>'}</div>`).join('');
 const signatureHtml = i => i?.signature_html ?? linesHtml(i?.signature ?? '');
@@ -3039,6 +3280,7 @@ function renderCompose(){
   <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
 </div>
 <div id="c-attbox">${composeAttsHtml(c)}</div>
+<div class="csize" id="c-size" aria-live="polite" hidden></div>
 ${html ? `${fbarHtml('c-url')}
 <div id="c-html" class="hedit" contenteditable="true" role="textbox" aria-multiline="true" aria-label="${esc(t('Message text'))}" spellcheck="false"></div>`
   : `<div class="spellfield body"><textarea id="c-body" aria-label="${esc(t('Message text'))}" spellcheck="false">
@@ -3077,6 +3319,8 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   wireSpelling();
   paintSpellChip();
   wirePgp();
+  paintWeight();
+  weighCompose(0);
 }
 /* ---------- reply or reply all ---------- */
 // A reply knows both answers the core gave: to the sender (`one`) and to everyone (`all`). The
@@ -3188,6 +3432,7 @@ function hideComposeAsk(){
 }
 // Before Send: true when it may go now; false when it asked something (or the answer was no).
 async function sendChecks(){
+  if (!await sizeAllows()) return false;
   const c = state.compose, asked = $('c-ask')?.hidden === false ? $('c-ask').dataset.kind : null;
   // Send while the question shows: go ahead, as with the subject.
   if (asked === 'many') c.manyOk = true;
@@ -3332,6 +3577,99 @@ function wireSuggestions(input){
 function renderComposeAtts(){
   const box = $('c-attbox');
   if (box && state.compose) box.innerHTML = composeAttsHtml(state.compose);
+  weighCompose(0);
+}
+/* ---------- the message's size ---------- */
+// What the message weighs as sent (sizes::estimate: files and pictures in base64 take about a third
+// more than on disk) against the most its account's server takes (what it said at its last login,
+// else the provider's documented limit, else 20 MB). A quiet line under the files once there are
+// files or pictures; from 80% of the limit a warning; above it, by how much and what to do, and
+// Send doesn't go. Asked again when files or pictures change; Send builds the message, and the core
+// checks its exact size again.
+const mbText = bytes => {
+  const m = bytes / 1048576;
+  return (m >= 100 || Math.abs(m - Math.round(m)) < 0.05 ? String(Math.round(m)) : I18n.decimal(m)) + ' MB';
+};
+// Who sets the limit: a provider or server by name, or none known (most servers). Each case is a
+// sentence of its own, so every language can say it.
+const named = l => l.source !== 'default' && !!l.name;
+function limitTip(l){
+  const max = mbText(l.bytes);
+  const who = l.source === 'server' ? t('{name} says it takes {max} as sent.', {name:l.name ?? '', max})
+    : l.source === 'provider' && l.for_files ? t('{name} takes {mb} MB of files, about {max} as sent.', {name:l.name, mb:l.documented_mb, max})
+    : l.source === 'provider' ? t('{name} takes messages up to {max}.', {name:l.name, max})
+    : t('Telex doesn’t know this server’s limit, so it keeps to {max}.', {max});
+  return who + ' ' + t('As sent, files and pictures take about a third more than on disk. The recipients’ servers may take less: Telex can’t know.');
+}
+let weighTimer = 0;
+function weighCompose(ms = 150){ clearTimeout(weighTimer); weighTimer = setTimeout(weighNow, ms); }
+async function weighNow(){
+  clearTimeout(weighTimer);
+  const c = state.compose;
+  if (!c || !$('cform')) return;
+  readCompose();
+  const before = c.weight;
+  let w;
+  try { w = await invoke('message_size', {draft:draftOf(c)}); } catch { return; }
+  if (state.compose !== c) return;
+  c.weight = w;
+  paintWeight();
+  // One file larger than the whole limit: said the moment it comes.
+  const had = new Set((before?.files ?? []).map(f => f.name));
+  const big = w.files.find(f => f.bytes > w.limit.bytes && !had.has(f.name));
+  if (!big) return;
+  const words = {name:big.name, size:mbText(big.bytes), who:w.limit.name, max:mbText(w.limit.bytes)};
+  say(named(w.limit) ? t('{name} alone is {size} as sent, more than {who} takes ({max}).', words)
+    : t('{name} alone is {size} as sent, more than most servers take ({max}).', words), 10000);
+}
+function paintWeight(){
+  const c = state.compose, el = $('c-size');
+  if (!c || !el) return;
+  const w = c.weight;
+  if (!w || (!w.files.length && !w.pictures)){ el.hidden = true; return; }
+  const share = w.bytes / w.limit.bytes, words = {size:mbText(w.bytes), max:mbText(w.limit.bytes), who:w.limit.name, over:mbText(Math.max(0, w.bytes - w.limit.bytes))};
+  el.hidden = false;
+  el.dataset.level = share > 1 ? 'over' : share >= 0.8 ? 'near' : 'fine';
+  el.title = limitTip(w.limit);
+  if (share <= 1){
+    el.textContent = share < 0.8 ? t('{size} of {max}', words)
+      : named(w.limit) ? t('{size} of {max}: close to the limit of {who}', words) : t('{size} of {max}: close to the limit', words);
+    return;
+  }
+  const over = named(w.limit) ? t('{size}: {over} more than {who} takes ({max}). Take files off, make the pictures smaller or send it in parts.', words)
+    : t('{size}: {over} more than most servers take ({max}). Take files off, make the pictures smaller or send it in parts.', words);
+  el.innerHTML = `<span>${esc(over)}</span>`
+    + (w.pictures ? `<button type="button" class="btn" data-act="shrink">${esc(t('Make the pictures smaller'))}</button>` : '');
+}
+// Too large: Send doesn't go, and the line says why (no dialog).
+async function sizeAllows(){
+  await weighNow();
+  const w = state.compose?.weight;
+  if (!w || w.bytes <= w.limit.bytes) return true;
+  const el = $('c-size');
+  if (el){ el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); el.scrollIntoView({block:'nearest'}); }
+  say(t('Too large to send: {size} of {max}.', {size:mbText(w.bytes), max:mbText(w.limit.bytes)}), 8000);
+  return false;
+}
+// Every picture of the message made Medium (at most 800 pixels), each in place and at the width it
+// shows, through the editor's own command; the files stay as they are.
+async function shrinkPictures(){
+  const ed = $('c-html');
+  if (!ed) return;
+  const pictures = [...ed.querySelectorAll('img')].filter(i => i.getAttribute('src')?.startsWith('data:'));
+  let saved = 0;
+  say(t('Making the pictures smaller…'), 0);
+  deselectPicture();
+  for (const img of pictures){
+    const src = img.getAttribute('src');
+    let p;
+    try { p = await invoke('editor_image', {data:src, signature:false, size:'medium'}); } catch { continue; }
+    if (!img.isConnected || p.src.length >= src.length) continue;
+    const width = Number(img.getAttribute('width')) || Math.min(p.width, columnWidth(ed));
+    if (putPicture(ed, img, p.src, width)) saved += (src.length - p.src.length) * 3 / 4;
+  }
+  await weighNow();
+  say(saved ? t('Pictures made smaller: {size} less.', {size:mbText(saved)}) : t('The pictures are no larger than Medium already.'), 6000);
 }
 // Files chosen in the Open dialog or dropped on the window. Dropped with no message open, they
 // start a new one.
@@ -3436,6 +3774,7 @@ function wireEditor(ed, bar = previewEl.querySelector('.fbar'), {signature = fal
   ed.linkBox = openLinkBox; // the bar drawn last
   if (ed.dataset.wired) return;
   ed.dataset.wired = '1';
+  wirePictures(ed);
   ed.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k'){ e.preventDefault(); ed.linkBox(); }
   });
@@ -4578,7 +4917,7 @@ qEl.addEventListener('input', () => { setFilter(qEl.value); qs.at = -1; suggest(
 // (from:, or to: in Sent and Drafts). ↓ ↑ choose, Enter or a click takes one. Enter with none
 // chosen (or ↓ with none to choose) goes to the results; Esc clears the search.
 const qPop = $('q-pop');
-const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'tag:', 'is:tagged', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
+const OPERATORS_ALL = ['from:', 'to:', 'subject:', 'is:unread', 'is:read', 'is:flagged', 'is:unflagged', 'tag:', 'is:tagged', 'is:replied', 'is:unreplied', 'is:forwarded', 'has:file', 'after:', 'before:', 'larger:', 'smaller:'];
 const qs = {items:[], at:-1};
 // The word the caret is in: where it starts and ends, and the word.
 function wordAtCaret(){
@@ -4622,7 +4961,7 @@ function suggest(){
   };
   qPop.innerHTML = (empty && items.length ? `<div class="qhead"><span>${esc(t('Recent searches'))}</span><button type="button" class="linkbtn" data-forget>${esc(t('Clear'))}</button></div>` : '')
     + (items.length ? `<ul id="q-list" role="listbox" aria-label="${esc(t('Suggestions'))}">${items.map(row).join('')}</ul>` : '')
-    + (empty ? `<div class="qops"><span>${esc(t('Narrow it down:'))}</span>${OPERATORS_ALL.filter(o => o !== 'is:read' && o !== 'is:unflagged').map(o => `<button type="button" data-op="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : '')
+    + (empty ? `<div class="qops"><span>${esc(t('Narrow it down:'))}</span>${OPERATORS_ALL.filter(o => o !== 'is:read' && o !== 'is:unflagged' && o !== 'is:unreplied').map(o => `<button type="button" data-op="${esc(o)}">${esc(o)}</button>`).join('')}</div>` : '')
     + `<div class="qfoot"><span><kbd>Enter</kbd> ${esc(t('the results'))}</span><span><kbd>Tab</kbd> ${esc(t('this folder or all mail'))}</span><span><kbd>Esc</kbd> ${esc(t('clear'))}</span></div>`;
   const r = qEl.closest('.search').getBoundingClientRect(), w = Math.min(innerWidth - 8, Math.max(r.width, 340));
   qPop.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
@@ -4635,7 +4974,7 @@ function suggest(){
 // What an operator does, in a few words.
 function opHint(op){
   return {'from:':t('sender'), 'to:':t('recipient'), 'subject:':t('words in the subject'), 'is:unread':t('unread only'), 'is:read':t('read only'),
-    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'tag:':t('a tag, e.g. tag:work'), 'is:tagged':t('with any tag'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
+    'is:flagged':t('flagged only'), 'is:unflagged':t('without a flag'), 'tag:':t('a tag, e.g. tag:work'), 'is:tagged':t('with any tag'), 'is:replied':t('answered by you'), 'is:unreplied':t('not answered yet'), 'is:forwarded':t('forwarded by you'), 'has:file':t('with attachments'), 'after:':t('2026, 2026-09 or 15.09.2026'),
     'before:':t('2026, 2026-09 or 15.09.2026'), 'larger:':t('size, e.g. 5m'), 'smaller:':t('size, e.g. 100k')}[op] ?? '';
 }
 function closeSuggest(){
@@ -6352,6 +6691,7 @@ function renderSettings(keepFocus){
   $('s-reply').innerHTML = radios('reply_format', [['html', esc(t('Always HTML'))], ['same', esc(t('In the format of the message'))], ['plain', esc(t('Always plain text'))]], s.reply_format);
   $('s-signrep').checked = s.sign_replies !== false; $('s-risk').checked = s.risk_checks !== false;
   $('s-imgsize').innerHTML = radios('image_size', IMAGE_SIZES.map(([v, label]) => [v, esc(t(label))]), s.image_size ?? 'large');
+  $('s-picwidth').innerHTML = radios('picture_width', PICTURE_SIZES.map(([v, label]) => [v, esc(t(label))]), s.picture_width ?? 'large');
   renderSignatures();
   $('s-subject').checked = s.ask_subject; $('s-spell').checked = s.spell_check;
   $('s-askfile').checked = s.ask_attachment !== false; $('s-askmany').checked = s.ask_many !== false;
@@ -6378,6 +6718,7 @@ function paneOpened(tab){
   }
   if (tab === 'read') renderTrusted();
   if (tab === 'mail') renderSpamStatus();
+  if (tab === 'win') renderWindowPane();
   if (tab === 'tags'){ tagEdit = {adding:false, armed:null, error:''}; renderTags(); }
   if (tab === 'write'){ spellInfo = null; renderSpellLanguages(); renderSignatures(); forgetTemplates(); renderFolderTemplates(); }
   if (tab === 'use') renderUsage();
@@ -6404,7 +6745,7 @@ function syncSettings(){
   syncAccents();
   const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, preview_pane:s.preview_pane, line_spacing:s.line_spacing,
     reading_width:s.reading_width, message_zoom:String(s.message_zoom), message_window_zoom:String(s.message_window_zoom), account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
-    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, image_size:s.image_size ?? 'large', backup_every:s.backup_every, updates:s.updates};
+    mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, image_size:s.image_size ?? 'large', picture_width:s.picture_width ?? 'large', backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
   $('s-delay').value = String(s.read_delay);
@@ -6489,6 +6830,7 @@ sdlg.addEventListener('change', e => {
   else if (el.name === 'compose_format') changeSettings({compose_format:v});
   else if (el.name === 'reply_format') changeSettings({reply_format:v});
   else if (el.name === 'image_size') changeSettings({image_size:v});
+  else if (el.name === 'picture_width') changeSettings({picture_width:v});
   else if (el.id === 's-subject') changeSettings({ask_subject:el.checked});
   else if (el.id === 's-askfile') changeSettings({ask_attachment:el.checked});
   else if (el.id === 's-askmany') changeSettings({ask_many:el.checked});
@@ -6525,13 +6867,17 @@ sdlg.addEventListener('close', () => {
 // passwords. Importing shows what would change first; nothing changes until Import.
 // How large pictures put into a message are made (images::prepare).
 const IMAGE_SIZES = [['large', N_('Large: at most 1600 pixels across')], ['medium', N_('Medium: at most 800 pixels across')], ['original', N_('As they are')]];
+// How wide a picture shows when it goes in (PICTURE_WIDTHS; the picture's bar changes each one).
+const PICTURE_SIZES = [['large', N_('Shown 600 pixels wide')], ['medium', N_('Shown 400 pixels wide')], ['small', N_('Shown 200 pixels wide')], ['fit', N_('Shown as wide as the text')]];
 const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), accent:N_('Accent color'), preview_pane:N_('Message pane'), line_spacing:N_('Line spacing'),
   reading_width:N_('Longest lines'), message_zoom:N_('Message text'), message_window_zoom:N_('Message text in its own window'), prefer_text:N_('HTML mail'),
   threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
-  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), image_size:N_('Pictures'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
+  risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), image_size:N_('Pictures'), picture_width:N_('How wide pictures show at first'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
   notify:N_('Notify me of new mail while Telex is in the background'), undo_send:N_('Undo sending'),
   backup_every:N_('Back up by itself'), backup_keep:N_('Backups to keep')};
+Object.assign(SETTING_LABELS, {tray:N_('Where Telex shows'), close_to_tray:N_('The close button keeps Telex running in the system tray'),
+  minimize_to_tray:N_('Minimizing hides Telex in the system tray'), taskbar_badge:N_('Unread count on the taskbar button')});
 function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
@@ -6555,6 +6901,7 @@ function settingValue(key, v){
     case 'mail_paper': return {theme:t('On the theme’s dark paper'), white:t('On white, as sent')}[v] ?? v;
     case 'compose_format': return {plain:t('Plain text'), html:t('HTML')}[v] ?? v;
     case 'image_size': return IMAGE_SIZES.find(([id]) => id === v) ? t(IMAGE_SIZES.find(([id]) => id === v)[1]) : v;
+    case 'picture_width': return PICTURE_SIZES.find(([id]) => id === v) ? t(PICTURE_SIZES.find(([id]) => id === v)[1]) : v;
     case 'spam_filter': return SPAM_LEVELS.find(([id]) => id === v) ? t(SPAM_LEVELS.find(([id]) => id === v)[1]) : v;
     case 'reply_format': return {same:t('In the format of the message'), plain:t('Always plain text'), html:t('Always HTML')}[v] ?? v;
     case 'threaded': case 'risk_checks': case 'sign_replies': case 'ask_subject': case 'ask_attachment': case 'ask_many': case 'spell_check': case 'push_mail': case 'notify': return v ? t('On') : t('Off');
@@ -6562,6 +6909,8 @@ function settingValue(key, v){
     case 'backup_every': return {off:t('Never'), daily:t('Every day'), weekly:t('Every week')}[v] ?? v;
     case 'backup_keep': return tn(v, 'the newest {n} backup', 'the newest {n} backups');
     case 'spell_languages': return v.length ? v.map(langName).join(', ') : t('Automatic|languages');
+    case 'tray': return TRAY_CHOICES.find(([id]) => id === v) ? t(TRAY_CHOICES.find(([id]) => id === v)[1]) : v;
+    case 'close_to_tray': case 'minimize_to_tray': case 'taskbar_badge': return v ? t('On') : t('Off');
     default: return String(v);
   }
 }
@@ -7895,6 +8244,60 @@ $('st-count').addEventListener('click', async e => {
   else say(t('Telex won’t be counted. Settings › Updates can change that.'), 7000);
 });
 $('u-auto').addEventListener('change', e => { changeSettings({updates:e.target.checked ? 'start' : 'off'}); });
+
+/* ---------- the tray and Settings › Window ---------- */
+// Where Telex shows (tray.rs): the taskbar, the system tray, or both. Hidden in the tray the
+// window keeps working: checks, sending and notifications go on.
+const TRAY_CHOICES = [['on', N_('On the taskbar and in the system tray')], ['off', N_('Only on the taskbar')], ['only', N_('Only in the system tray, without a taskbar button')]];
+let desk = null; // {tray, autostart_blocked, windows}: what this system offers (desktop_state)
+async function renderWindowPane(){
+  try { desk = await invoke('desktop_state'); } catch { desk = {tray:true, autostart_blocked:false, windows:true}; }
+  if (setTab !== 'win') return;
+  const s = pref(), tray = s.tray ?? 'on', iconed = tray !== 'off' && desk.tray;
+  $('s-tray').innerHTML = radios('tray', TRAY_CHOICES.map(([v, label]) => [v, esc(t(label))]), tray);
+  $('s-tray').querySelectorAll('input').forEach(i => { i.disabled = i.value !== 'off' && !desk.tray; });
+  $('s-tray-none').hidden = desk.tray;
+  $('s-tray-hint').hidden = !(desk.windows && iconed);
+  $('s-closetray').checked = iconed && !!s.close_to_tray; $('s-closetray').disabled = !iconed;
+  $('s-mintray').checked = iconed && (tray === 'only' || !!s.minimize_to_tray); $('s-mintray').disabled = !iconed || tray === 'only';
+  $('s-badge').checked = s.taskbar_badge !== false && !(iconed && tray === 'only'); $('s-badge').disabled = iconed && tray === 'only';
+  $('s-autostart').innerHTML = radios('start_with_system', [['off', esc(t('Don’t start Telex by itself'))], ['open', esc(t('Start Telex with its window open'))],
+    ['tray', esc(iconed ? t('Start Telex hidden in the system tray') : t('Start Telex minimized'))]], s.start_with_system ?? 'off');
+  $('s-auto-blocked').hidden = !desk.autostart_blocked;
+}
+$('s-pane-win').addEventListener('change', async e => {
+  const el = e.target, changes = el.name === 'tray' ? {tray:el.value} : el.name === 'start_with_system' ? {start_with_system:el.value}
+    : el.id === 's-closetray' ? {close_to_tray:el.checked} : el.id === 's-mintray' ? {minimize_to_tray:el.checked} : el.id === 's-badge' ? {taskbar_badge:el.checked} : null;
+  if (!changes) return;
+  await changeSettings(changes);
+  renderWindowPane();
+});
+$('s-tray-open').addEventListener('click', () => invoke('open_taskbar_settings').catch(e => say(tr(e), 8000)));
+// The tray's menu: Get mail, New message, and its unread line, which opens Unread.
+listenMain('tray', ({payload: what}) => {
+  if (what === 'check') getMail();
+  else if (what === 'compose') openCompose('new');
+  else if (what === 'unread' && ACCOUNTS.length) setFolder(UNREAD);
+});
+// Windows 11 puts a new tray icon behind the ^ arrow, and only the user may bring it out
+// (Settings › Personalization › Taskbar › Other system tray icons): once, the status bar
+// offers to open that page. After the keys' hint, with an account, in a quiet status bar.
+function tellTray(wait = 20e3){
+  if (state.trayTold || VIEWER) return;
+  setTimeout(async () => {
+    if (state.trayTold) return;
+    if (!desk) try { desk = await invoke('desktop_state'); } catch { return; }
+    if (!desk.windows || !desk.tray || (pref().tray ?? 'on') === 'off') return;
+    if (!state.helpTold || !ACCOUNTS.length || !$('st-ask').hidden || !$('st-count').hidden || document.querySelector('dialog[open]')) return tellTray(30e3);
+    $('st-tray').hidden = false;
+    state.trayTold = true; persist();
+  }, wait);
+}
+$('st-tray').addEventListener('click', e => {
+  const b = e.target.closest('[data-tray]'); if (!b) return;
+  $('st-tray').hidden = true;
+  if (b.dataset.tray === 'open') invoke('open_taskbar_settings').catch(err => say(tr(err), 8000));
+});
 $('st-ver').addEventListener('click', openUpdates);
 $('st-update').addEventListener('click', openUpdates);
 $('u-check').addEventListener('click', () => checkUpdate());
@@ -7961,6 +8364,7 @@ const KEYS = [
   {g:'write', k:'Ctrl+Shift+Enter', d:N_('send later: in an hour, tomorrow, Monday or when you pick'), doc:'Ctrl+Shift+Enter'},
   {g:'write', k:'Esc', d:N_('save as a draft and close'), doc:'Esc'},
   {g:'write', k:'Ctrl+B I U K', d:N_('bold, italic, underline, link in HTML'), doc:'Ctrl+B / I / U / K'},
+  {g:'write', k:'+ −', d:N_('with a picture clicked in HTML: larger or smaller (also Ctrl+→ ←, its bar or its corner); Del removes it'), doc:'+ / −'},
   {g:'write', k:'F7', d:N_('the next spelling mistake, with suggestions; or click it'), doc:'F7'},
   {g:'write', k:'↓ ↑ Enter Tab', d:N_('in To, Cc and Bcc: choose a suggested address'), doc:'↓ ↑ Enter Tab Esc'},
   {g:'find', k:'/', d:N_('search: the list shows what matches as you type'), doc:'/', run:true},
@@ -7999,7 +8403,7 @@ const HELP_TIPS = [
   N_('The person button by a sender adds them to the address book. Type a group’s name in To and it goes in as its people.'),
   N_('Tags are colored labels, several to a message: Settings › Tags names and colors them. Search with tag:work or is:tagged.'),
 ];
-const OPERATORS = 'from: to: subject: is:unread is:flagged tag:work is:tagged has:file after:2026-09 before:2026 larger:5m smaller:100k';
+const OPERATORS = 'from: to: subject: is:unread is:flagged tag:work is:tagged is:replied is:forwarded has:file after:2026-09 before:2026 larger:5m smaller:100k';
 const MOUSE = {click:N_('click|mouse'), 'double-click':N_('double-click|mouse'), 'right-click':N_('right-click|mouse'), drag:N_('drag|mouse')};
 // "Shift+R" as keycaps; a mouse word as a word.
 const keysHtml = spec => spec.split(' ').map(c => c.split(/\+(?=.)/)
@@ -8279,8 +8683,36 @@ window.__TAURI__?.event?.listen('settings-changed', async ({payload: from}) => {
   if (from === ownLabel()) return; // this window's own change
   try { const got = await invoke('get_settings'); if (got?.settings){ SETTINGS = got; applySettings(); } } catch {}
 });
-// Closing a window with a message being written keeps it as a draft.
-window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async () => { if (state.compose) await closeCompose(); });
+// Closing a window with a message being written keeps it as a draft. The main window's close
+// button may hide it in the tray instead (Settings › Window): that isn't closing, and the
+// message stays open as it is.
+window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async e => {
+  if (!VIEWER && invoke){ try { if (await invoke('close_requested')){ e.preventDefault(); return; } } catch {} }
+  if (state.compose) await closeCompose();
+});
+
+// The core opens the mail base on a thread of its own at start (opening.rs). Commands that need
+// the mail wait for it; after an update the upgrade can take a while, so the window says how far.
+async function mailBaseOpen(){
+  for (;;){
+    let s = null;
+    try { s = await invoke('upgrade_state'); } catch { return; }
+    if (!s) return;
+    if (s.steps) previewEl.innerHTML = `<div class="pempty" role="status">${I.mail}<div>${esc(t('Upgrading the mail base for Telex {version}… ({n} of {m})', {version:s.version, n:num(s.done), m:num(s.steps)}))}</div><div>${esc(t('This happens once, after an update.'))}</div></div>`;
+    await new Promise(go => setTimeout(go, 200));
+  }
+}
+// Work an upgrade left for later runs in the background, a moment at a time (upkeep.rs).
+let upkeepSaid = '';
+listenMain('upkeep-progress', ({payload: p}) => {
+  if (p){
+    upkeepSaid = t('Finishing the upgrade: {done} of {total} messages', {done:num(p.done), total:num(p.total)});
+    say(upkeepSaid, 0);
+  } else if (upkeepSaid){
+    if ($('st-msg').textContent === upkeepSaid) say('');
+    upkeepSaid = '';
+  }
+});
 
 async function boot(){
   I18n.translatePage();
@@ -8292,6 +8724,7 @@ async function boot(){
   }
   await bootSettings(); // first, so the first screen is in the right language and colors
   bootUpdates(); // then, so a version that can't load the mail can still be updated
+  await mailBaseOpen();
   try { await loadTree(); } catch (e){ previewEl.innerHTML = `<div class="pempty">${esc(t('Couldn’t load mail: {error}', {error:tr(e)}))}</div>`; return; }
   paintScope();
   await setFolder(homeOf(ACCOUNTS[0]?.id));
@@ -8304,6 +8737,7 @@ async function boot(){
   if (ACCOUNTS.length) getMail({quiet:true});
   else openAccountDialog(); // first start: straight to adding an account
   tellHelp();
+  tellTray();
 }
 boot();
 })();

@@ -73,7 +73,7 @@ export const pages = {
   accessibility: {
     path: '/accessibility',
     label: 'Accessibility',
-    title: 'Accessibility: eight themes, all WCAG 2.2',
+    title: 'Accessibility: fourteen themes, all WCAG 2.2',
     description:
       'Eight measured themes, six fonts, five toolbar layouts and text up to 200%. AA contrast, two AAA themes, keyboard access, English and Polish.',
     ogTitle: 'Readable in every theme.',

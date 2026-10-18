@@ -74,6 +74,7 @@
     <span class="st-side st-right">
       <span class="ask" id="st-ask" title="A check downloads one small file from GitHub. It sends nothing about you or your mail." hidden data-i18n>Check for updates when Telex starts? <button type="button" class="linkbtn" data-ask="start" data-i18n>Yes</button> <button type="button" class="linkbtn" data-ask="off" data-i18n>No</button></span>
       <span class="ask" id="st-count" title="Once a day Telex would send its version, the system, the language and the month it was first counted. No ID, and nothing about you or your mail." hidden data-i18n>Count this copy of Telex once a day, anonymously? <button type="button" class="linkbtn" data-count="on" data-i18n>Yes</button> <button type="button" class="linkbtn" data-count="off" data-i18n>No</button></span>
+      <span class="ask" id="st-tray" hidden data-i18n>To keep Telex’s icon always visible, turn it on in Windows’ taskbar settings. <button type="button" class="linkbtn" data-tray="open" data-i18n>Open them</button> <button type="button" class="linkbtn" data-tray="no" data-i18n>Not now</button></span>
       <button class="chip" id="st-update" type="button" hidden></button>
       <button class="meter" id="st-usage" type="button" hidden><span class="mbar"><i></i></span><span class="mtxt"></span></button>
       <button class="chip bad" id="st-sync" type="button" hidden></button>
@@ -110,6 +111,7 @@
       <button type="button" role="tab" id="s-tab-lang" aria-controls="s-pane-lang" data-tab="lang" data-i18n>Language</button>
       <button type="button" role="tab" id="s-tab-accts" aria-controls="s-pane-accts" data-tab="accts" data-i18n>Accounts</button>
       <button type="button" role="tab" id="s-tab-mail" aria-controls="s-pane-mail" data-tab="mail" data-i18n>Mail</button>
+      <button type="button" role="tab" id="s-tab-win" aria-controls="s-pane-win" data-tab="win" data-i18n>Window</button>
       <button type="button" role="tab" id="s-tab-read" aria-controls="s-pane-read" data-tab="read" data-i18n>Reading</button>
       <button type="button" role="tab" id="s-tab-tags" aria-controls="s-pane-tags" data-tab="tags" data-i18n>Tags</button>
       <button type="button" role="tab" id="s-tab-write" aria-controls="s-pane-write" data-tab="write" data-i18n>Writing</button>
@@ -355,6 +357,31 @@
           <p class="dnote snote" data-i18n>It learns on this PC from your mail: what is in Spam is spam, mail you have read is not. Mail from people you have written to is never moved. Mark as spam and Not spam in a message’s menu teach it.</p>
         </fieldset>
       </section>
+      <section class="spane" role="tabpanel" id="s-pane-win" aria-labelledby="s-tab-win" hidden>
+        <fieldset class="sgroup">
+          <legend data-i18n>Where Telex shows</legend>
+          <div class="sopts" id="s-tray"></div>
+          <p class="dnote snote" id="s-tray-none" hidden data-i18n>The system tray isn’t available here. On GNOME it needs the AppIndicator extension.</p>
+          <div id="s-tray-hint" hidden>
+            <p class="dnote snote" data-i18n>Windows puts new icons behind the ^ arrow. To keep Telex’s icon always visible, turn it on in Windows’ taskbar settings, under Other system tray icons.</p>
+            <div class="sbtns"><button type="button" class="btn" id="s-tray-open" data-i18n>Open taskbar settings</button></div>
+          </div>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>The window</legend>
+          <div class="sopts">
+            <label class="sopt"><input type="checkbox" id="s-closetray"><span data-i18n>The close button keeps Telex running in the system tray</span></label>
+            <label class="sopt"><input type="checkbox" id="s-mintray"><span data-i18n>Minimizing hides Telex in the system tray</span></label>
+            <label class="sopt"><input type="checkbox" id="s-badge"><span data-i18n>Unread count on the taskbar button</span></label>
+          </div>
+          <p class="dnote snote" data-i18n>In the tray Telex keeps checking and sending mail and notifies you of new mail. Quit it from the icon’s menu.</p>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Start when I sign in</legend>
+          <div class="sopts" id="s-autostart"></div>
+          <p class="dnote snote" id="s-auto-blocked" hidden data-i18n>Telex is turned off in Task Manager’s Startup apps, so Windows doesn’t start it. Turn it on there.</p>
+        </fieldset>
+      </section>
       <section class="spane" role="tabpanel" id="s-pane-read" aria-labelledby="s-tab-read" hidden>
         <fieldset class="sgroup">
           <legend data-i18n>Mark messages as read</legend>
@@ -424,6 +451,8 @@
           <legend data-i18n>Pictures</legend>
           <div class="sopts" id="s-imgsize"></div>
           <p class="dnote snote" data-i18n>Pictures pasted, dropped or inserted into an HTML message are made this size. A photo made smaller also loses its hidden details, such as where it was taken.</p>
+          <div class="sopts" id="s-picwidth" role="radiogroup" aria-label="How wide pictures show at first" data-i18n></div>
+          <p class="dnote snote" data-i18n>Never wider than the text, nor than the picture itself. Click a picture in a message to change its size: the bar by it, its corner, or + and −.</p>
         </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Spelling</legend>

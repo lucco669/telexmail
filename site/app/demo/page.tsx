@@ -67,7 +67,7 @@ export default function DemoPage() {
             <li>The whole interface, from the folder tree to the settings, exactly as the app has it.</li>
             <li>Every key, the selection, search with its suggestions and operators, compose in text or HTML.</li>
             <li>Saved queries, header and attachment conditions, rule previews and copying inside the demo mailbox.</li>
-            <li>Optional thread rows, all five toolbar layouts, eight themes, six fonts, text size and density.</li>
+            <li>Optional thread rows, all five toolbar layouts, fourteen themes, accent colors, six fonts, text size and spacing.</li>
             <li>Link destinations and copying, including in Spam, and the interface in English and Polish.</li>
           </ul>
         </div>

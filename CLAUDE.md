@@ -507,12 +507,10 @@ also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexma
 all, even before the first account. The window keeps only its own state in localStorage
 (`telex-ui`: pane sizes (`treeW`, `listH`, `listW` with the message pane on the right), the list's columns (`cols`: From and Folder widths, Size, short or full
 dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
-update check, whether the status bar has said where the help is (`helpTold`); `telex-look`: a
-copy of theme, language, zoom, account mark, unread style, font, toolbar, spacing, message pane, reading
-choices and the accent's colors for the theme on screen, for boot.js).
 update check, whether the status bar has said where the help is (`helpTold`) and offered Windows'
 setting that keeps the tray icon visible (`trayTold`); `telex-look`: a
-copy of theme, language, zoom, account mark, unread style and font for boot.js).
+copy of theme, language, zoom, account mark, unread style, font, toolbar, spacing, message pane, reading
+choices and the accent's colors for the theme on screen, for boot.js).
 
 ## Commands
 
@@ -651,169 +649,176 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-- Long upgrades no longer freeze the window (schema version 25: `upkeep`; a one-way upgrade).
-  The first start of 0.9.20 froze the window for 10–15 s on the owner's mail base (16,089
-  messages, 2.85 GB): `setup` opened the store on the window's thread before its event loop ran,
-  and schema 18 read every stored message to find calendar invitations.
-  - The store opens on a thread of its own (src-tauri `opening.rs`), which holds the store's lock
-    meanwhile, so commands that need the mail wait on the async pool; the watchers, the send
-    timer and the upkeep start once it is open. The window asks `upgrade_state` before the
-    folder tree and, while an upgrade runs, says "Upgrading the mail base for Telex 0.9.21… (3 of
-    8)" and "This happens once, after an update." (`MailStore::open_with` reports each step).
-    Closing Telex meanwhile doesn't wait for it (the exit's `optimize` only takes a free store).
-  - Schema 18's invitations in older mail are found after the window opens (`upkeep.rs`): an
-    upgrade from before 18 queues a job (`upkeep`: the next id, done, total), and the app runs
-    `upkeep_step` in 40 ms steps with 20 ms pauses, newest mail first, each step one transaction
-    that also moves the job's place, so a job cut short goes on at the next start. The status bar
-    says "Finishing the upgrade: 4,200 of 16,089 messages". An invitation opened before the job
-    got to it is noted then (`upkeep::waiting`), so its card shows; until the job is done, an
-    older version of it or the user's answer in Sent may not be counted yet. A restore starts the
-    upkeep again (an older backup may bring its own). Bases already at 24 have nothing to do.
-  - Looking for a calendar in a message's bytes (`invites::mentions_calendar`) is one SIMD pass
-    (`memchr`, already in the dependency tree, now a direct dependency) instead of three: all mail
-    of the 100k benchmark in 0.7 s instead of 4.9 s.
-  - Numbers in docs/storage.md.
-- Replied and forwarded mail (schema version 26: `messages.answered`, `messages.forwarded`,
-  `outbox.answers`, `outbox.forwards`; a one-way upgrade, which also marks mail kept only here
-  (POP3, folders on this PC) answered when a message in Sent names it in In-Reply-To):
-  - Reply, Reply all and Forward (keys, toolbar, the message menu, the message window) mark the
-    original read as compose opens, whatever `mark_read` says (`readAnswering` in app.js:
-    `set_unread_many`, queued as usual; only that message, not the rest of a selection).
-  - `send_message` tells the store what the message answers or forwards
-    (`MailStore::note_answering`: `reply_to`, else `forward_of`, else, for a reply edited again
-    with E, the message its In-Reply-To names; never mail in Sent, Drafts or an Outbox; an
-    invitation's answer answers it). Only when the SMTP server took it (`outgoing_sent`) does the
-    original get \Answered or $Forwarded: not while queued, held, sent later or refused, and
-    never for a draft. Both are flags like \Seen and \Flagged (`Flag::Answered`,
-    `Flag::Forwarded`, pending_ops kinds 'answered' and 'forwarded', `UID STORE ±FLAGS.SILENT`),
-    come down with every check (set on the phone, they show here; a queued change wins), come along
-    with new mail, stay on mail moved to this PC and go up with it again (APPEND flags; moved back
-    before the server heard, they are queued). $Forwarded is a keyword, the one Thunderbird, Apple
-    Mail and Dovecot use: it goes only where PERMANENTFLAGS lists \* or it (Gmail does); a server
-    that keeps no keywords keeps it on this PC with the tags (`local_tags`), and its empty
-    keywords never take it away.
-  - The list: read mail answered or forwarded has a small arrow where the unread dot would be (the
-    dot's ring under the pointer, the tooltip says which; `--replied` per theme, checked by
-    check-contrast.mjs on rows, hover, selection and tinted rows). Above an opened message a quiet
-    line "You replied on 17.10.2026 at 09:30." (the newest reply in Sent or an Outbox whose
-    In-Reply-To names it; else "You replied."), "You forwarded it."; a click opens that reply in
-    its window, else the conversation (T).
-  - Search: `is:replied` (`is:answered`), `is:unreplied`, `is:forwarded`. Rules have no
-    condition on them yet (`filters::Field::State` reads the summary's unread and flag, and a rule
-    on arrival never sees answered mail).
-- Settings › Appearance, extended (no schema change; settings `accent`, `preview_pane`, `line_spacing`,
-  `reading_width`, `message_zoom`, `message_window_zoom`, and `density` takes normal and spacious):
-  - Six more themes (14 in all): Sepia (warm brown on toned paper, for long reading), Solar light and
-    Solar dark (after Solarized, darkened where it falls short of AA), Classic grey (Windows 98 and
-    The Bat!: grey frame, white lists, navy for the chosen row), Graphite (neutral greys, amber accent)
-    and Black (true black for OLED). The dark ones take HTML mail onto their paper (`DARK_THEMES`).
-  - Accent color: the theme's own, eight presets or one picked with the system's color dialog. The pick
-    gives hue and colorfulness; `ui/accent.js` finds the lightness in OKLab from the theme accent's,
-    away from what it is drawn on, until every pair it is in meets the theme's level (AA, AAA for high
-    contrast), and gives the selection, chips and image stand-ins its hue at the theme's lightness;
-    what can't fit stays the theme's own. check-contrast.mjs runs it for every theme with every preset
-    and 101 picked colors (24 hues, pale to vivid, and greys). Links on dark paper follow it.
-  - Spacing in four steps (Compact 20 px rows, Normal 23, Comfortable 26, Spacious 30): the list, the
-    tree, the message header and the text's margins (`--ph-pad`, `--pb-pad`, `--tree-pad`); the
-    toolbar's rows button steps through them.
-  - Reading: line spacing (Tight 1.35, Normal 1.55, Relaxed 1.75, Loose 2; HTML mail keeps its own on
-    Normal) and the longest lines (plain text 62/76/100 ch or the pane; HTML mail 760/960/1200 px).
-  - Message zoom apart from the window's text size: + − 0 over the list or a message, Ctrl+wheel over a
-    message (its HTML frame too), and Larger text / Smaller text / Text at 100% in the … above it. The
-    message pane and a message's own window keep their own (`message_zoom`, `message_window_zoom`);
-    shown at once, saved 0.4 s later. HTML mail is zoomed with CSS zoom on its frame's document,
-    plain text by its font size, so lines keep their length in characters.
-  - The message pane below the list, right of it (the splitter turns; `listW` in `telex-ui`), or off:
-    the list takes the room, Enter opens the window, selecting reads nothing, and a message being
-    written shows over the list. The header's buttons go under the subject when the pane is narrow.
-  - The Appearance page: five groups (Colors, Text, Layout, Reading, Message list) with a sticky row of
-    links to them, every choice drawn as it will look (theme cards in the chosen accent, accent cards in
-    the theme on screen, the message pane's three layouts, rows at each spacing, a sample paragraph at
-    the chosen line spacing, width and zoom), and Reset appearance (settings, columns, pane sizes) with
-    Undo while the window is open.
-- Fixed: the date and size of the selected row in the focused list were drawn in the text color on
-  the accent (hard to read in every theme); they take `--accent-fg` like the rest of the row.
-- The tray and how the window lives on the desktop (no schema change; settings `tray`,
-  `close_to_tray`, `minimize_to_tray`, `taskbar_badge`, `start_with_system`; `desktop.rs`,
-  src-tauri `tray.rs`, Settings › Window):
-  - A tray icon (Tauri's `tray-icon` feature: Windows' notification area, an AppIndicator on
-    Linux), the small mark, with a red dot while an Inbox holds unread mail
-    (`src-tauri/icons/tray.png`, `tray-unread.png` from `npm run icons`); its tooltip names the
-    count and each account that has some. A left click hides or shows the window (Linux's
-    AppIndicator has no clicks: the menu). Its menu: Open Telex, Get mail, New message, the
-    unread count (opens Unread), Pause notifications for an hour, until 08:00 or until turned
-    back on (memory only; a restart resumes them), Quit Telex. The count follows `folder_tree`,
-    which the window asks for after every change.
-  - Where Telex shows: the taskbar and the tray (the default), the taskbar only (no icon; close
-    quits), or the tray only (`set_skip_taskbar`: no taskbar button, minimizing hides). The close
-    button can keep Telex running in the tray, and minimizing can hide it there. Hidden, the
-    window and its script keep running, so checks, IMAP IDLE, send later and notifications go on;
-    hiding isn't closing, so an open message stays open. Quit closes the window for real: the
-    window's close request asks `close_requested`, saves an open message as a draft, and the app
-    ends (after 10 s anyway). A second start shows the hidden window. The main window now starts
-    hidden and `tray::start` shows it, unless Telex was started with `--tray`.
-  - The unread Inbox count on the taskbar button (`taskbar_badge`): Windows' overlay icon
-    (`set_overlay_icon`), drawn by the core at the size Windows shows it (16 px at 100 %, white
-    figures on red, "99+" above 99) and set again whenever the window shows (Windows makes the
-    button anew); on Linux the launcher count (KDE, Ubuntu's dock).
-  - Start when I sign in (`start_with_system`: off, open, tray): a value "Telex" in this user's
-    `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`"…\telex.exe" --tray`; other builds
-    use "Telex (<identifier>)"), or `~/.config/autostart/<identifier>.desktop` on Linux (the
-    AppImage's own path when it runs as one); written at each start, so a moved program is
-    found. Turned off in Task Manager's Startup apps (`StartupApproved\Run`, an odd first byte),
-    Settings says so and leaves it to the user. Exported settings leave it out; imports keep
-    this PC's. The NSIS uninstaller takes the Run value away.
-  - Windows 11 shows a new tray icon only behind the ^ arrow, and the choice to show it always is
-    the user's (Settings › Personalization › Taskbar › Other system tray icons, kept by Explorer
-    under `HKCU\Control Panel\NotifyIconSettings`, `IsPromoted`). Telex never writes it: once, the
-    status bar offers to open `ms-settings:taskbar` (`open_taskbar_settings`), and Settings ›
-    Window has the same line and button. Windows 10 keeps its icon choices in an undocumented
-    binary value; the same page ("Select which icons appear on the taskbar") is where they are.
-- Size limits for outgoing mail (schema version 27: `accounts.smtp_max`; one-way):
-  - The limit, best source first (`sizes::limit`): what the account's SMTP server said in its EHLO
-    (SIZE, RFC 1870; 0 is none), read at the account check and at every round of sending and kept;
-    else the provider list in `sizes.rs` (by SMTP host, else the address's domain), each entry's
-    first-party page in a comment, checked on 2026-10-18: Gmail, Outlook.com, Microsoft 365, Yahoo,
-    iCloud, Fastmail, Zoho (personal and organisations), GMX (.net and .com), WEB.DE, Proton,
-    mail.com, Yandex, Mail.ru, OVHcloud Email Pro / Exchange, nazwa.pl, WP, o2, Interia; else
-    20 MB. No page of their own states one for Purelymail, OVHcloud MX Plan, Onet, AOL, home.pl
-    (only its webmail's) or Zoho's free plan, so they aren't listed. Every limit is for the
-    message as sent: where a provider names the files' size, the encoded limit is their base64
-    (Gmail's 25 MB of files is 35,872,340 bytes; its server says 35,882,577).
-  - The weight (`sizes::estimate`, `message_size`): files by their size on disk (a forward's or an
-    edited draft's from the original), pictures by their data: URIs (one part however often they
-    show), in base64 with lettre's line breaks; the text through lettre's own encoder; headers
-    and boundaries about. Within a few percent of the built message (tested). Compose shows it
-    under the files once there are files or pictures ("4.2 MB of 25 MB"; `--warn-*` from 80%,
-    "close to the limit of Gmail"; above it `--note-*` with by how much and what to do, and Make
-    the pictures smaller: every picture to Medium in place, one Ctrl+Z each); the tooltip says where
-    the limit comes from and that recipients' servers may take less. One file larger than the whole
-    limit is said as it comes. The old 25 MB hint is gone.
-  - Send and Send later above the limit are refused: in compose by the line (no dialog), and in
-    `send_message` by the built message's exact size (`sizes::check`). In the Outbox a message
-    larger than the server's SIZE isn't tried (refused with a note that says by how much), and a
-    server's own refusal for size (552 except 5.2.2, 5.3.4, 5.2.3) gets a note that says so and what
-    to do (`sizes::is_size_refusal`). Sending an Outbox is one login for every message due
-    (`SmtpServer`/`Session` in smtp.rs, lettre's connection used directly: its transport keeps no
-    EHLO keywords and logged in once per message); a refusal or failure ends that login.
-  - No file sharing or cloud upload (an anti-goal).
-- A picture's size in HTML compose (no schema change; setting `picture_width`): a pasted, dropped
-  or inserted picture goes in as wide as `picture_width` says (600 px by default), never wider
-  than the editor's text nor than its own pixels over the screen's pixel ratio (a 2× screen's
-  screenshot at half its pixels; `editor_image` says the file's own size as `source_width`). A
-  click selects it: a frame with a corner to drag (proportions kept), a bar of Small, Medium,
-  Large, Fit, Original, the size in px and % and ×; + / − or Ctrl+→ / ← change it, Del removes it,
-  Esc lets it go. Each change puts the picture in again through `insertHTML`, so Ctrl+Z takes it
-  back; the frame and bar are a layer outside the editor (in the dialog for a signature's), never
-  saved. Also in signatures. The size is the img's `width` (Outlook honours only that) with
-  `style="max-width:100%;height:auto"`: `html::compose_clean` allows exactly a width of 1–2000
-  (`MAX_PICTURE_WIDTH`) and that style (`PICTURE_STYLE`) on pictures, no height, and
-  `inline_images` gives every picture that style on the way out (Chromium drops it in the editor,
-  whose stylesheet says the same). Drafts and E keep the sizes.
-- `compose_clean` now also leaves out ammonia's own default attributes (`title`, `lang`,
-  `align`, an img's `height`…), which `Builder::empty()` had kept: only those it names pass.
+Nothing yet.
 
-## Current state (v0.9.20: tags, an address book, calendar invitations, send later and unsubscribe, POP3, drafts on the server, OpenPGP and S/MIME, saving and printing mail, a help panel, seven more languages, and all earlier features below)
+## Current state (v0.9.22: fourteen themes with accent colors, spacing and message zoom, a tray icon, replied and forwarded marks, pictures sized as you like, size limits before Send, no frozen start after an upgrade, and all earlier features below)
+
+- New in 0.9.22 (schema versions 25–27, each a one-way upgrade: `upkeep`, replied and forwarded
+  marks, the server's message size; settings `accent`, `preview_pane`, `line_spacing`,
+  `reading_width`, `message_zoom`, `message_window_zoom`, `picture_width`, `tray`,
+  `close_to_tray`, `minimize_to_tray`, `taskbar_badge`, `start_with_system`, and `density` takes
+  normal and spacious):
+  - Long upgrades no longer freeze the window (schema version 25: `upkeep`; a one-way upgrade).
+    The first start of 0.9.20 froze the window for 10–15 s on the owner's mail base (16,089
+    messages, 2.85 GB): `setup` opened the store on the window's thread before its event loop ran,
+    and schema 18 read every stored message to find calendar invitations.
+    - The store opens on a thread of its own (src-tauri `opening.rs`), which holds the store's lock
+      meanwhile, so commands that need the mail wait on the async pool; the watchers, the send
+      timer and the upkeep start once it is open. The window asks `upgrade_state` before the
+      folder tree and, while an upgrade runs, says "Upgrading the mail base for Telex 0.9.22… (3 of
+      8)" and "This happens once, after an update." (`MailStore::open_with` reports each step).
+      Closing Telex meanwhile doesn't wait for it (the exit's `optimize` only takes a free store).
+    - Schema 18's invitations in older mail are found after the window opens (`upkeep.rs`): an
+      upgrade from before 18 queues a job (`upkeep`: the next id, done, total), and the app runs
+      `upkeep_step` in 40 ms steps with 20 ms pauses, newest mail first, each step one transaction
+      that also moves the job's place, so a job cut short goes on at the next start. The status bar
+      says "Finishing the upgrade: 4,200 of 16,089 messages". An invitation opened before the job
+      got to it is noted then (`upkeep::waiting`), so its card shows; until the job is done, an
+      older version of it or the user's answer in Sent may not be counted yet. A restore starts the
+      upkeep again (an older backup may bring its own). Bases already at 24 have nothing to do.
+    - Looking for a calendar in a message's bytes (`invites::mentions_calendar`) is one SIMD pass
+      (`memchr`, already in the dependency tree, now a direct dependency) instead of three: all mail
+      of the 100k benchmark in 0.7 s instead of 4.9 s.
+    - Numbers in docs/storage.md.
+  - Replied and forwarded mail (schema version 26: `messages.answered`, `messages.forwarded`,
+    `outbox.answers`, `outbox.forwards`; a one-way upgrade, which also marks mail kept only here
+    (POP3, folders on this PC) answered when a message in Sent names it in In-Reply-To):
+    - Reply, Reply all and Forward (keys, toolbar, the message menu, the message window) mark the
+      original read as compose opens, whatever `mark_read` says (`readAnswering` in app.js:
+      `set_unread_many`, queued as usual; only that message, not the rest of a selection).
+    - `send_message` tells the store what the message answers or forwards
+      (`MailStore::note_answering`: `reply_to`, else `forward_of`, else, for a reply edited again
+      with E, the message its In-Reply-To names; never mail in Sent, Drafts or an Outbox; an
+      invitation's answer answers it). Only when the SMTP server took it (`outgoing_sent`) does the
+      original get \Answered or $Forwarded: not while queued, held, sent later or refused, and
+      never for a draft. Both are flags like \Seen and \Flagged (`Flag::Answered`,
+      `Flag::Forwarded`, pending_ops kinds 'answered' and 'forwarded', `UID STORE ±FLAGS.SILENT`),
+      come down with every check (set on the phone, they show here; a queued change wins), come along
+      with new mail, stay on mail moved to this PC and go up with it again (APPEND flags; moved back
+      before the server heard, they are queued). $Forwarded is a keyword, the one Thunderbird, Apple
+      Mail and Dovecot use: it goes only where PERMANENTFLAGS lists \* or it (Gmail does); a server
+      that keeps no keywords keeps it on this PC with the tags (`local_tags`), and its empty
+      keywords never take it away.
+    - The list: read mail answered or forwarded has a small arrow where the unread dot would be (the
+      dot's ring under the pointer, the tooltip says which; `--replied` per theme, checked by
+      check-contrast.mjs on rows, hover, selection and tinted rows). Above an opened message a quiet
+      line "You replied on 17.10.2026 at 09:30." (the newest reply in Sent or an Outbox whose
+      In-Reply-To names it; else "You replied."), "You forwarded it."; a click opens that reply in
+      its window, else the conversation (T).
+    - Search: `is:replied` (`is:answered`), `is:unreplied`, `is:forwarded`. Rules have no
+      condition on them yet (`filters::Field::State` reads the summary's unread and flag, and a rule
+      on arrival never sees answered mail).
+  - Settings › Appearance, extended (no schema change; settings `accent`, `preview_pane`, `line_spacing`,
+    `reading_width`, `message_zoom`, `message_window_zoom`, and `density` takes normal and spacious):
+    - Six more themes (14 in all): Sepia (warm brown on toned paper, for long reading), Solar light and
+      Solar dark (after Solarized, darkened where it falls short of AA), Classic grey (Windows 98 and
+      The Bat!: grey frame, white lists, navy for the chosen row), Graphite (neutral greys, amber accent)
+      and Black (true black for OLED). The dark ones take HTML mail onto their paper (`DARK_THEMES`).
+    - Accent color: the theme's own, eight presets or one picked with the system's color dialog. The pick
+      gives hue and colorfulness; `ui/accent.js` finds the lightness in OKLab from the theme accent's,
+      away from what it is drawn on, until every pair it is in meets the theme's level (AA, AAA for high
+      contrast), and gives the selection, chips and image stand-ins its hue at the theme's lightness;
+      what can't fit stays the theme's own. check-contrast.mjs runs it for every theme with every preset
+      and 101 picked colors (24 hues, pale to vivid, and greys). Links on dark paper follow it.
+    - Spacing in four steps (Compact 20 px rows, Normal 23, Comfortable 26, Spacious 30): the list, the
+      tree, the message header and the text's margins (`--ph-pad`, `--pb-pad`, `--tree-pad`); the
+      toolbar's rows button steps through them.
+    - Reading: line spacing (Tight 1.35, Normal 1.55, Relaxed 1.75, Loose 2; HTML mail keeps its own on
+      Normal) and the longest lines (plain text 62/76/100 ch or the pane; HTML mail 760/960/1200 px).
+    - Message zoom apart from the window's text size: + − 0 over the list or a message, Ctrl+wheel over a
+      message (its HTML frame too), and Larger text / Smaller text / Text at 100% in the … above it. The
+      message pane and a message's own window keep their own (`message_zoom`, `message_window_zoom`);
+      shown at once, saved 0.4 s later. HTML mail is zoomed with CSS zoom on its frame's document,
+      plain text by its font size, so lines keep their length in characters.
+    - The message pane below the list, right of it (the splitter turns; `listW` in `telex-ui`), or off:
+      the list takes the room, Enter opens the window, selecting reads nothing, and a message being
+      written shows over the list. The header's buttons go under the subject when the pane is narrow.
+    - The Appearance page: five groups (Colors, Text, Layout, Reading, Message list) with a sticky row of
+      links to them, every choice drawn as it will look (theme cards in the chosen accent, accent cards in
+      the theme on screen, the message pane's three layouts, rows at each spacing, a sample paragraph at
+      the chosen line spacing, width and zoom), and Reset appearance (settings, columns, pane sizes) with
+      Undo while the window is open.
+  - Fixed: the date and size of the selected row in the focused list were drawn in the text color on
+    the accent (hard to read in every theme); they take `--accent-fg` like the rest of the row.
+  - The tray and how the window lives on the desktop (no schema change; settings `tray`,
+    `close_to_tray`, `minimize_to_tray`, `taskbar_badge`, `start_with_system`; `desktop.rs`,
+    src-tauri `tray.rs`, Settings › Window):
+    - A tray icon (Tauri's `tray-icon` feature: Windows' notification area, an AppIndicator on
+      Linux), the small mark, with a red dot while an Inbox holds unread mail
+      (`src-tauri/icons/tray.png`, `tray-unread.png` from `npm run icons`); its tooltip names the
+      count and each account that has some. A left click hides or shows the window (Linux's
+      AppIndicator has no clicks: the menu). Its menu: Open Telex, Get mail, New message, the
+      unread count (opens Unread), Pause notifications for an hour, until 08:00 or until turned
+      back on (memory only; a restart resumes them), Quit Telex. The count follows `folder_tree`,
+      which the window asks for after every change.
+    - Where Telex shows: the taskbar and the tray (the default), the taskbar only (no icon; close
+      quits), or the tray only (`set_skip_taskbar`: no taskbar button, minimizing hides). The close
+      button can keep Telex running in the tray, and minimizing can hide it there. Hidden, the
+      window and its script keep running, so checks, IMAP IDLE, send later and notifications go on;
+      hiding isn't closing, so an open message stays open. Quit closes the window for real: the
+      window's close request asks `close_requested`, saves an open message as a draft, and the app
+      ends (after 10 s anyway). A second start shows the hidden window. The main window now starts
+      hidden and `tray::start` shows it, unless Telex was started with `--tray`.
+    - The unread Inbox count on the taskbar button (`taskbar_badge`): Windows' overlay icon
+      (`set_overlay_icon`), drawn by the core at the size Windows shows it (16 px at 100 %, white
+      figures on red, "99+" above 99) and set again whenever the window shows (Windows makes the
+      button anew); on Linux the launcher count (KDE, Ubuntu's dock).
+    - Start when I sign in (`start_with_system`: off, open, tray): a value "Telex" in this user's
+      `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`"…\telex.exe" --tray`; other builds
+      use "Telex (<identifier>)"), or `~/.config/autostart/<identifier>.desktop` on Linux (the
+      AppImage's own path when it runs as one); written at each start, so a moved program is
+      found. Turned off in Task Manager's Startup apps (`StartupApproved\Run`, an odd first byte),
+      Settings says so and leaves it to the user. Exported settings leave it out; imports keep
+      this PC's. The NSIS uninstaller takes the Run value away.
+    - Windows 11 shows a new tray icon only behind the ^ arrow, and the choice to show it always is
+      the user's (Settings › Personalization › Taskbar › Other system tray icons, kept by Explorer
+      under `HKCU\Control Panel\NotifyIconSettings`, `IsPromoted`). Telex never writes it: once, the
+      status bar offers to open `ms-settings:taskbar` (`open_taskbar_settings`), and Settings ›
+      Window has the same line and button. Windows 10 keeps its icon choices in an undocumented
+      binary value; the same page ("Select which icons appear on the taskbar") is where they are.
+  - Size limits for outgoing mail (schema version 27: `accounts.smtp_max`; one-way):
+    - The limit, best source first (`sizes::limit`): what the account's SMTP server said in its EHLO
+      (SIZE, RFC 1870; 0 is none), read at the account check and at every round of sending and kept;
+      else the provider list in `sizes.rs` (by SMTP host, else the address's domain), each entry's
+      first-party page in a comment, checked on 2026-10-18: Gmail, Outlook.com, Microsoft 365, Yahoo,
+      iCloud, Fastmail, Zoho (personal and organisations), GMX (.net and .com), WEB.DE, Proton,
+      mail.com, Yandex, Mail.ru, OVHcloud Email Pro / Exchange, nazwa.pl, WP, o2, Interia; else
+      20 MB. No page of their own states one for Purelymail, OVHcloud MX Plan, Onet, AOL, home.pl
+      (only its webmail's) or Zoho's free plan, so they aren't listed. Every limit is for the
+      message as sent: where a provider names the files' size, the encoded limit is their base64
+      (Gmail's 25 MB of files is 35,872,340 bytes; its server says 35,882,577).
+    - The weight (`sizes::estimate`, `message_size`): files by their size on disk (a forward's or an
+      edited draft's from the original), pictures by their data: URIs (one part however often they
+      show), in base64 with lettre's line breaks; the text through lettre's own encoder; headers
+      and boundaries about. Within a few percent of the built message (tested). Compose shows it
+      under the files once there are files or pictures ("4.2 MB of 25 MB"; `--warn-*` from 80%,
+      "close to the limit of Gmail"; above it `--note-*` with by how much and what to do, and Make
+      the pictures smaller: every picture to Medium in place, one Ctrl+Z each); the tooltip says where
+      the limit comes from and that recipients' servers may take less. One file larger than the whole
+      limit is said as it comes. The old 25 MB hint is gone.
+    - Send and Send later above the limit are refused: in compose by the line (no dialog), and in
+      `send_message` by the built message's exact size (`sizes::check`). In the Outbox a message
+      larger than the server's SIZE isn't tried (refused with a note that says by how much), and a
+      server's own refusal for size (552 except 5.2.2, 5.3.4, 5.2.3) gets a note that says so and what
+      to do (`sizes::is_size_refusal`). Sending an Outbox is one login for every message due
+      (`SmtpServer`/`Session` in smtp.rs, lettre's connection used directly: its transport keeps no
+      EHLO keywords and logged in once per message); a refusal or failure ends that login.
+    - No file sharing or cloud upload (an anti-goal).
+  - A picture's size in HTML compose (no schema change; setting `picture_width`): a pasted, dropped
+    or inserted picture goes in as wide as `picture_width` says (600 px by default), never wider
+    than the editor's text nor than its own pixels over the screen's pixel ratio (a 2× screen's
+    screenshot at half its pixels; `editor_image` says the file's own size as `source_width`). A
+    click selects it: a frame with a corner to drag (proportions kept), a bar of Small, Medium,
+    Large, Fit, Original, the size in px and % and ×; + / − or Ctrl+→ / ← change it, Del removes it,
+    Esc lets it go. Each change puts the picture in again through `insertHTML`, so Ctrl+Z takes it
+    back; the frame and bar are a layer outside the editor (in the dialog for a signature's), never
+    saved. Also in signatures. The size is the img's `width` (Outlook honours only that) with
+    `style="max-width:100%;height:auto"`: `html::compose_clean` allows exactly a width of 1–2000
+    (`MAX_PICTURE_WIDTH`) and that style (`PICTURE_STYLE`) on pictures, no height, and
+    `inline_images` gives every picture that style on the way out (Chromium drops it in the editor,
+    whose stylesheet says the same). Drafts and E keep the sizes.
+  - `compose_clean` now also leaves out ammonia's own default attributes (`title`, `lang`,
+    `align`, an img's `height`…), which `Builder::empty()` had kept: only those it names pass.
 
 - New in 0.9.20 (schema versions 15–24, each a one-way upgrade: rule schedules, `unsubscribed`,
   server drafts and sent copies, `invites`, the address book, tags, compose templates, POP3,
@@ -1581,7 +1586,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   In-Reply-To/References for replies, forwarded attachments from the original's raw), puts it in the account's local Outbox and sends the Outbox at once; `check_mail`
   sends it too. Accepted mail moves to Sent and its exact bytes go to the server's Sent
   folder through the change queue (APPEND, kind `append`), unless the server keeps its own
-  (see Not released yet); the next download adopts the copy by Message-ID. A server refusal (5xx, except login errors) stays in the Outbox with the
+  (0.9.20); the next download adopts the copy by Message-ID. A server refusal (5xx, except login errors) stays in the Outbox with the
   reason and isn't retried; anything else is retried at every check. E reopens a draft or an
   unsent message; saving or sending replaces the old one. Drafts are saved as whole messages
   (`smtp::compose_draft`, half-typed recipients allowed), so their HTML and forwarded files
@@ -1707,12 +1712,12 @@ then daily like `daily`),
    found by asking for the flags of every stored message, fine for thousands, not millions).
 2. ~~**Sending.**~~ Done; see Current state, with attaching files, Bcc and undo send in
    0.5.0. Drafts on the server's Drafts folder and no Sent copy for servers that keep their own
-   (Gmail, Outlook.com; matters with step 5): see Not released yet.
+   (Gmail, Outlook.com; matters with step 5): see 0.9.20.
 3. ~~**HTML mail.**~~ Done; see Current state, with opening and saving attachments in
    0.5.0. Not yet: `<style>` blocks (dropped, since CSS can load from the network; keeping
    them needs a CSS sanitizer).
    HTML compose is done (see Current state), with pictures, colors, HTML signatures and the
-   original's HTML in quotes (Not released yet).
+   original's HTML in quotes (0.9.20).
 4. ~~**Filters ("Sorting Office").**~~ Done; see Current state, with a rule started from a
    message in 0.5.0. Headers and attachment conditions, copy/forward actions, rule previews and
    saved searches in 0.9.5. Patterns, age and state conditions and scheduled rules: see Not
@@ -1722,7 +1727,7 @@ then daily like `daily`),
    restricted, so unverified apps stay in testing mode) and Microsoft (Entra app that allows
    personal accounts).
 6. ~~**Templates and identities.**~~ Done; see Current state, with templates for new messages
-   and replies, HTML signatures and per-folder templates (Not released yet).
+   and replies, HTML signatures and per-folder templates (0.9.20).
 7. **Shipping.** ~~Auto-update~~ (see Current state) and the website (`site/`) are done. Not
    yet: code signing (SmartScreen warns about the installer), macOS. Linux ships as an
    AppImage (self-updating) and a .deb. The repository is public and v0.9.0 is released;
@@ -1731,12 +1736,12 @@ then daily like `daily`),
    messages~~: done, see Current state and the numbers in docs/storage.md. ~~Backup and
    restore~~ and ~~local folders with mbox export and .eml/mbox import~~: done in 0.6. Not
    yet: moving the mail base to another folder, and POP3.
-9. **Address book.** Contacts, groups, vCard and moving in: see "Not released yet". Not yet:
+9. **Address book.** Contacts, groups, vCard and moving in: done in 0.9.20. Not yet:
    CardDAV sync (the `uid` column is the card's UID, ready for it), several phones or postal
    addresses, photos, Outlook distribution lists (a binary list of entry ids) and Thunderbird
    before 78 (abook.mab, Mork).
    restore~~ and ~~local folders with mbox export and .eml/mbox import~~: done in 0.6.
-   ~~POP3~~: built, see Not released yet. Not yet: moving the mail base to another folder; POP3
+   ~~POP3~~: done in 0.9.20. Not yet: moving the mail base to another folder; POP3
    on Outlook's accounts (its UIDLs are in the .pst); the server's storage (STAT) in Usage.
 
 ## License

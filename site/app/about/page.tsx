@@ -16,7 +16,7 @@ const principles = [
   ['Private by default', 'Remote images need permission or sender trust. The spam filter learns on your PC; links and scam warning signs are checked there too, without uploading mail.'],
   ['Fluent in Polish', 'Old charsets like Windows-1250 and ISO-8859-2 decode correctly; replies quote the Polish way.'],
   ['HTML when it helps', 'New messages and replies start in HTML and always go out with a plain-text copy. Plain text in a mono face is a setting, or a switch on any one message.'],
-  ['Readable', 'Eight themes with measured AA contrast, two at AAA, six fonts and five toolbar layouts. Optional threads keep conversations compact without hiding unread replies from Space.'],
+  ['Readable', 'Fourteen themes with measured AA contrast, two at AAA, any accent color, six fonts and five toolbar layouts. Optional threads keep conversations compact without hiding unread replies from Space.'],
   ['Mail follows the theme', 'In a dark theme HTML mail goes on the theme’s dark paper with its colors turned around; one click shows it on white, as sent.'],
   ['Honest about mail', '“Sent” only once your server has accepted the message. Until then it waits in the Outbox, with the reason.'],
   ['Forgiving', 'Z undoes a delete or a move, and takes back a message in the moment after Send. Esc keeps a draft, never loses it.'],
@@ -28,7 +28,7 @@ const stack = [
   ['Mail core', 'Rust: IMAP with IDLE (async-imap), SMTP (lettre), MIME (mail-parser), TLS (rustls), HTML cleaning (ammonia), rules, a learning spam filter and offline scam warning checks'],
   ['Mail base', 'SQLite with FTS5 full-text search, one file on your disk'],
   ['Window', 'Tauri 2: WebView2 on Windows, WebKitGTK on Linux, so no browser is bundled'],
-  ['Interface', 'Plain HTML, CSS and JavaScript, with six fonts, eight themes and five toolbar layouts'],
+  ['Interface', 'Plain HTML, CSS and JavaScript, with six fonts, fourteen themes and five toolbar layouts'],
   ['This site', 'Next.js on Vercel, with no cookies and cookieless page counts. The live demo is the app’s own interface'],
 ];
 
