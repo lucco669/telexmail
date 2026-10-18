@@ -10,6 +10,7 @@ const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
 const V0920 = '0.9.20';
+const V0921 = '0.9.21';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -310,6 +311,9 @@ export const featureRows: FeatureRow[] = [
     points: [
       { text: 'New mail shows within seconds: one IMAP IDLE connection per Inbox', since: '0.5.0' },
       { text: 'A notification names the sender while Telex is in the background', since: '0.5.0' },
+      { text: 'Lives in the system tray if you like: the close button or minimizing hides it there, a click brings it back, and it keeps checking, sending and notifying', since: V0921 },
+      { text: 'The tray icon shows when there is unread mail, its tooltip how much per account; its menu gets mail, starts a message or pauses notifications until the morning', since: V0921 },
+      { text: 'The unread count on the taskbar button, and Telex starting with Windows, its window open or hidden in the tray', since: V0921 },
       { text: 'New mail brings the list to its top, where it lands; the message you were on stays selected', since: V099 },
       'IMAP over SSL/TLS, folders straight from the server',
       { text: 'IMAP over STARTTLS on port 143 too, never unencrypted', since: '0.5.0' },

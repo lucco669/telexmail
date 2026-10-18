@@ -83,6 +83,11 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/colors.rs      CSS colors read and turned around for dark paper (OKLab), for html.rs.
   src/count.rs       The daily count, only after a yes: what it sends (no ID; first this week /
                      month flags), when it is due (UTC days), count.json; docs/counting.md.
+  src/desktop.rs     How Telex lives on the desktop: unread Inbox mail per account for the tray,
+                     its tooltip (127 characters, as Windows cuts it), the taskbar badge drawn as
+                     a picture (a 3 × 5 font in whole pixels on a smoothed red shape), how long a
+                     pause of notifications lasts, starting with the system (this user's Run key
+                     on Windows, an XDG autostart file on Linux; Task Manager's off noticed).
   src/mailbox.rs     Mail as files: a folder written as mbox; mbox, .eml, .emlx, .msg files and
                      Maildir and MH folders read into a folder on this PC (mboxrd; Status,
                      X-Status and X-Mozilla-Status flags, Thunderbird's deleted ones left out;
@@ -206,6 +211,13 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   src/count.rs       `count_copy`: today's count when `usage_count` is on, release builds only.
   src/watch.rs       One IMAP IDLE watcher per account ("inbox-changed" events), and the
                      new-mail notification (tauri-plugin-notification).
+  src/tray.rs        The tray icon (Tauri's tray-icon; AppIndicator on Linux, none when it can't
+                     load) and its menu, the main window hidden in the tray by its close button
+                     or minimizing (Settings › Window), shown by a click, the menu or a second
+                     start; the taskbar's unread overlay; notifications paused (memory only);
+                     Quit (the window closes for real, so compose saves its draft); starting with
+                     the system written before the setting is saved. The main window starts
+                     hidden (tauri.conf.json) and is shown here unless started with `--tray`.
   src/updates.rs     Updates from GitHub Releases (tauri-plugin-updater), release builds only.
   src/settings.rs    Settings commands; Save and Open dialogs (tauri-plugin-dialog, from Rust only).
   src/lib.rs         The commands above and the app: one Telex at a time on a mail base
@@ -391,6 +403,9 @@ Commands the UI calls (`src-tauri/src/lib.rs`), all backed by `telex_core::MailS
 | `smime_unlock`   | `fingerprint`, `password`, `remember` | true when it opens the certificate's key |
 | `smime_verify`, `smime_delete`, `smime_forget` | `fingerprint` (`verified`) | – (confirm a certificate; remove it and its key; forget its password here and in the system store) |
 | `open_window`    | `id`                         | – (the message in a window of its own: index.html?message=<id>) |
+| `close_requested` | –                           | true when the main window went into the tray instead of closing (the close button with `close_to_tray`); false: it closes (compose saves its draft first). Quit from the tray always closes |
+| `desktop_state`  | –                            | `{tray, autostart_blocked, windows}`: whether a tray icon can be shown here (Linux needs AppIndicator), whether Task Manager turned Telex's start with Windows off, and Windows |
+| `open_taskbar_settings` | –                     | – (Windows' ms-settings:taskbar, where the user keeps Telex's icon always visible; Telex never writes that itself) |
 | `backup_state`   | –                            | `{base, base_bytes, free_bytes, dir, suggested, backups: [{path, made, bytes}], running}` |
 | `backup_now`     | –                            | the backup written; the folder keeps the newest `backup_keep` |
 | `auto_backup`    | –                            | a backup when `backup_every` says one is due, else null |
@@ -459,12 +474,17 @@ can take it back), `ask_subject`, `ask_attachment` (Send asks when the text ment
 weekly), `backup_dir` (empty: Documents\Telex backups; this PC's own, so exported settings
 leave it out and imports keep it), `backup_keep` (3, 5, 10, 20), `backup_secret_keys` (backups carry
 the secret parts of OpenPGP keys, locked with their passphrases; off: public parts only), `pgp_sign`
-(compose starts signed) and `pgp_autocrypt` (an Autocrypt header with the sender's key). Reading or changing them
+(compose starts signed), `pgp_autocrypt` (an Autocrypt header with the sender's key), `tray` (on: a tray icon and a
+taskbar button, the default; off: the taskbar only; only: the tray only, no taskbar button), `close_to_tray`
+(the close button hides the window in the tray), `minimize_to_tray` (always with `only`), `taskbar_badge` (the
+unread Inbox count on the taskbar button: Windows' overlay, the launcher's count on Linux) and `start_with_system`
+(off, open, tray: hidden in the tray, minimized without one; this PC's own like `backup_dir`). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
 all, even before the first account. The window keeps only its own state in localStorage
 (`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
 dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
-update check, whether the status bar has said where the help is (`helpTold`); `telex-look`: a
+update check, whether the status bar has said where the help is (`helpTold`) and offered Windows'
+setting that keeps the tray icon visible (`trayTold`); `telex-look`: a
 copy of theme, language, zoom, account mark, unread style and font for boot.js).
 
 ## Commands
@@ -602,7 +622,42 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 ## Not released yet
 
-Nothing yet.
+- The tray and how the window lives on the desktop (no schema change; settings `tray`,
+  `close_to_tray`, `minimize_to_tray`, `taskbar_badge`, `start_with_system`; `desktop.rs`,
+  src-tauri `tray.rs`, Settings › Window):
+  - A tray icon (Tauri's `tray-icon` feature: Windows' notification area, an AppIndicator on
+    Linux), the small mark, with a red dot while an Inbox holds unread mail
+    (`src-tauri/icons/tray.png`, `tray-unread.png` from `npm run icons`); its tooltip names the
+    count and each account that has some. A left click hides or shows the window (Linux's
+    AppIndicator has no clicks: the menu). Its menu: Open Telex, Get mail, New message, the
+    unread count (opens Unread), Pause notifications for an hour, until 08:00 or until turned
+    back on (memory only; a restart resumes them), Quit Telex. The count follows `folder_tree`,
+    which the window asks for after every change.
+  - Where Telex shows: the taskbar and the tray (the default), the taskbar only (no icon; close
+    quits), or the tray only (`set_skip_taskbar`: no taskbar button, minimizing hides). The close
+    button can keep Telex running in the tray, and minimizing can hide it there. Hidden, the
+    window and its script keep running, so checks, IMAP IDLE, send later and notifications go on;
+    hiding isn't closing, so an open message stays open. Quit closes the window for real: the
+    window's close request asks `close_requested`, saves an open message as a draft, and the app
+    ends (after 10 s anyway). A second start shows the hidden window. The main window now starts
+    hidden and `tray::start` shows it, unless Telex was started with `--tray`.
+  - The unread Inbox count on the taskbar button (`taskbar_badge`): Windows' overlay icon
+    (`set_overlay_icon`), drawn by the core at the size Windows shows it (16 px at 100 %, white
+    figures on red, "99+" above 99) and set again whenever the window shows (Windows makes the
+    button anew); on Linux the launcher count (KDE, Ubuntu's dock).
+  - Start when I sign in (`start_with_system`: off, open, tray): a value "Telex" in this user's
+    `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (`"…\telex.exe" --tray`; other builds
+    use "Telex (<identifier>)"), or `~/.config/autostart/<identifier>.desktop` on Linux (the
+    AppImage's own path when it runs as one); written at each start, so a moved program is
+    found. Turned off in Task Manager's Startup apps (`StartupApproved\Run`, an odd first byte),
+    Settings says so and leaves it to the user. Exported settings leave it out; imports keep
+    this PC's. The NSIS uninstaller takes the Run value away.
+  - Windows 11 shows a new tray icon only behind the ^ arrow, and the choice to show it always is
+    the user's (Settings › Personalization › Taskbar › Other system tray icons, kept by Explorer
+    under `HKCU\Control Panel\NotifyIconSettings`, `IsPromoted`). Telex never writes it: once, the
+    status bar offers to open `ms-settings:taskbar` (`open_taskbar_settings`), and Settings ›
+    Window has the same line and button. Windows 10 keeps its icon choices in an undocumented
+    binary value; the same page ("Select which icons appear on the taskbar") is where they are.
 
 ## Current state (v0.9.20: tags, an address book, calendar invitations, send later and unsubscribe, POP3, drafts on the server, OpenPGP and S/MIME, saving and printing mail, a help panel, seven more languages, and all earlier features below)
 

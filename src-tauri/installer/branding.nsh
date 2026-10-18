@@ -55,3 +55,11 @@ FunctionEnd
     !insertmacro MUI_HEADER_TEXT "$(TelexUpdating)" "$(TelexRestarting)"
   ${EndIf}
 !macroend
+
+; Telex starts with Windows through a value in this user's Run key (Settings › Window); it
+; goes with the app. Not while updating: the new version keeps starting with Windows.
+!macro NSIS_HOOK_POSTUNINSTALL
+  ${If} $UpdateMode <> 1
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "Telex"
+  ${EndIf}
+!macroend

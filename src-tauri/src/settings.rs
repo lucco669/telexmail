@@ -128,9 +128,17 @@ pub fn update_settings(
     let before = settings.current()?;
     let (next, _) = before.merged(&changes);
     let push = next.push_mail != before.push_mail;
+    // Written into the system first: a setting that didn't take isn't saved.
+    if next.start_with_system != before.start_with_system {
+        crate::tray::autostart(&app, next.start_with_system)?;
+    }
+    let window = crate::tray::window_changed(&before, &next);
     let view = settings.replace(next)?;
     if push {
         crate::watch::restart(&app);
+    }
+    if window {
+        crate::tray::apply(&app);
     }
     Ok(view)
 }
@@ -260,9 +268,13 @@ pub fn apply_import(
     let view = match next {
         Some(next) => {
             let push = next.push_mail != current.push_mail;
+            let window = crate::tray::window_changed(&current, &next);
             let view = settings.replace(next)?;
             if push {
                 crate::watch::restart(&app);
+            }
+            if window {
+                crate::tray::apply(&app);
             }
             view
         }

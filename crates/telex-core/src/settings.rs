@@ -86,6 +86,10 @@ const KEYS: &[&str] = &[
     "backup_secret_keys",
     "pgp_sign",
     "pgp_autocrypt",
+    "tray",
+    "close_to_tray",
+    "minimize_to_tray",
+    "taskbar_badge",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,6 +182,66 @@ pub struct Settings {
     /// other programs can encrypt replies (autocrypt.org).
     #[serde(default = "yes")]
     pub pgp_autocrypt: bool,
+    /// Where Telex shows: the taskbar only, the taskbar and the tray (notification area), or
+    /// only the tray.
+    #[serde(default)]
+    pub tray: Tray,
+    /// The window's close button keeps Telex running in the tray instead of quitting it.
+    #[serde(default)]
+    pub close_to_tray: bool,
+    /// Minimizing hides the window in the tray instead of leaving it on the taskbar.
+    #[serde(default)]
+    pub minimize_to_tray: bool,
+    /// The taskbar button shows how many unread messages wait in the Inboxes (Windows).
+    #[serde(default = "yes")]
+    pub taskbar_badge: bool,
+    /// Start Telex when the user signs in to the system, shown or hidden in the tray. It
+    /// belongs to this PC, like `backup_dir`: an exported settings file leaves it out, and
+    /// importing one keeps this PC's.
+    #[serde(default)]
+    pub start_with_system: StartWith,
+}
+
+/// Where Telex shows on the desktop.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Tray {
+    /// A taskbar button only, no tray icon: closing quits, minimizing stays on the taskbar.
+    Off,
+    /// A tray icon always, and a taskbar button while the window is open.
+    #[default]
+    On,
+    /// Only the tray icon: the window never has a taskbar button, so minimizing hides it.
+    Only,
+}
+
+/// Whether Telex starts when the user signs in.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StartWith {
+    #[default]
+    Off,
+    /// Its window open.
+    Open,
+    /// Hidden in the tray (minimized when there is no tray icon).
+    Tray,
+}
+
+impl Settings {
+    /// The close button hides the window in the tray (there must be one).
+    pub fn closes_to_tray(&self) -> bool {
+        self.tray != Tray::Off && self.close_to_tray
+    }
+
+    /// Minimizing hides the window in the tray: always with the tray only, by choice with
+    /// both, never without a tray icon.
+    pub fn minimizes_to_tray(&self) -> bool {
+        match self.tray {
+            Tray::Off => false,
+            Tray::On => self.minimize_to_tray,
+            Tray::Only => true,
+        }
+    }
 }
 
 /// How often the mail base backs itself up.
@@ -385,6 +449,11 @@ impl Default for Settings {
             backup_secret_keys: true,
             pgp_sign: false,
             pgp_autocrypt: true,
+            tray: Tray::On,
+            close_to_tray: false,
+            minimize_to_tray: false,
+            taskbar_badge: true,
+            start_with_system: StartWith::Off,
         }
     }
 }
@@ -1029,6 +1098,7 @@ pub fn export(
     let portable = Settings {
         backup_dir: String::new(),
         usage_count: UsageCount::Ask,
+        start_with_system: StartWith::Off,
         ..settings.clone()
     };
     let bundle = Bundle {
@@ -1242,6 +1312,7 @@ impl Import {
         // Where backups go, and whether this copy is counted, belong to this PC.
         settings.backup_dir.clone_from(&current.backup_dir);
         settings.usage_count = current.usage_count;
+        settings.start_with_system = current.start_with_system;
         let accounts = store.accounts();
         let entries: Vec<AccountEntry> = raw
             .accounts
@@ -2145,6 +2216,63 @@ mod tests {
             .merged(&serde_json::json!({"theme": "dark"}))
             .0;
         assert_eq!(old.usage_count, UsageCount::Ask);
+    }
+
+    #[test]
+    fn starting_with_the_system_stays_on_its_pc() {
+        let (store, _) = store_with("anna@firma.pl", "faktury");
+        let mine = Settings {
+            start_with_system: StartWith::Tray,
+            tray: Tray::Only,
+            close_to_tray: true,
+            ..Settings::default()
+        };
+        let text = export(&store, &mine, ALL, "0.9.21", now()).unwrap();
+        assert!(text.contains("\"start_with_system\": \"off\""));
+        assert!(text.contains("\"tray\": \"only\""));
+        // Another PC keeps its own; the window choices come along.
+        let theirs = Settings {
+            start_with_system: StartWith::Open,
+            ..Settings::default()
+        };
+        let import = Import::read(&text, &store, &theirs).unwrap();
+        let keys: Vec<&str> = import
+            .plan
+            .settings
+            .iter()
+            .map(|c| c.key.as_str())
+            .collect();
+        assert_eq!(keys, ["tray", "close_to_tray"]);
+        // Settings older than the tray: the tray on, closing quits, the badge shows.
+        let old = Settings::default()
+            .merged(&serde_json::json!({"theme": "dark"}))
+            .0;
+        assert_eq!(
+            (
+                old.tray,
+                old.close_to_tray,
+                old.taskbar_badge,
+                old.start_with_system
+            ),
+            (Tray::On, false, true, StartWith::Off)
+        );
+        assert!(!old.closes_to_tray() && !old.minimizes_to_tray());
+        // No tray icon: nothing hides in it, whatever the ticks say.
+        let off = Settings {
+            tray: Tray::Off,
+            close_to_tray: true,
+            minimize_to_tray: true,
+            ..Settings::default()
+        };
+        assert!(!off.closes_to_tray() && !off.minimizes_to_tray());
+        let only = Settings {
+            tray: Tray::Only,
+            ..Settings::default()
+        };
+        assert!(only.minimizes_to_tray() && !only.closes_to_tray());
+        // An unknown value leaves the setting as it was.
+        let (next, ignored) = only.merged(&serde_json::json!({"tray": "dock"}));
+        assert_eq!((next.tray, ignored), (Tray::Only, vec!["tray".to_owned()]));
     }
 
     #[test]
