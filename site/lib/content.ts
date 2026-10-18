@@ -10,6 +10,7 @@ const V099 = '0.9.9';
 const V0910 = '0.9.10';
 const V0911 = '0.9.11';
 const V0920 = '0.9.20';
+const V0921 = '0.9.21';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -473,6 +474,12 @@ export const featureRows: FeatureRow[] = [
       { text: 'Put your accounts in the order you like, and keep any folder in view', since: '0.7.1' },
       { text: 'Choose when mail counts as read: at once, after the time you set, only in its own window, or only when you mark it', since: '0.7.1' },
       'Text from 90% to 200% with Ctrl+= and Ctrl+−',
+      { text: 'Six more themes: Sepia for long reading, Solar light and dark, Classic grey as in Windows 98 and The Bat!, neutral Graphite, and true Black for OLED screens', since: V0921 },
+      { text: 'An accent color of your own, made lighter or darker in each theme so every text keeps the contrast the theme promises', since: V0921 },
+      { text: 'The message pane below the list, beside it, or off with Enter opening a window, as in The Bat!', since: V0921 },
+      { text: 'Four spacings from 20 px rows to roomy, and line spacing and line length for reading', since: V0921 },
+      { text: 'A message’s text larger or smaller on its own with + and − or Ctrl+wheel, in the message pane and in each message’s window', since: V0921 },
+      { text: 'Appearance in five groups, every choice drawn as it will look, and one button back to how Telex starts', since: V0921 },
       'Export settings, rules, identities and servers to a file, never passwords',
       'Import shows what would change, part by part, before anything does',
     ],
@@ -814,8 +821,8 @@ export const screens: Screen[] = [
     id: 'appearance',
     label: 'Appearance',
     title: 'Inbox · sam@lindenstudio.com – Telex',
-    caption: 'Settings › Appearance: six fonts, each card drawn in its own face, text size and rows, five toolbars, and how unread mail stands out.',
-    since: '0.9.1',
+    caption: 'Settings › Appearance: where the message pane goes, four spacings and five toolbars, each card drawn as it will look.',
+    since: V0921,
   },
   {
     id: 'accounts',
@@ -839,7 +846,7 @@ export const screens: Screen[] = [
     id: 'comfortable',
     label: 'Comfortable',
     title: 'Inbox · sam@carterfamily.net – Telex',
-    caption: 'Compact is the default. One click on the toolbar gives every row more room.',
+    caption: 'Compact is the default. The rows button on the toolbar steps through four spacings; this is Comfortable.',
   },
 ];
 

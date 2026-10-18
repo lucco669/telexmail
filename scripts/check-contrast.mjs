@@ -11,6 +11,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -164,27 +165,56 @@ const themes = parseThemes(read('ui/themes.css'));
 const problems = [];
 const results = [];
 
-for (const t of themes.values()) {
-  if (!NEED[t.level]) problems.push(`${t.id}: say its level with --wcag: AA; or --wcag: AAA;`);
-  if (!t.scheme) problems.push(`${t.id}: set color-scheme to light or dark`);
+// Every pair of one theme's tokens. Returns the measurements; failures go into `problems`,
+// named with `label` (the theme, and the accent when one is picked).
+function measure(t, tokens, label) {
   const pairs = [];
   const check = (fg, bg, what, need, kind) => {
-    const a = hex(t.tokens[fg] ?? ''), b = hex(t.tokens[bg] ?? '');
-    if (!a || !b) { problems.push(`${t.id}: --${!a ? fg : bg} is missing or not #rrggbb`); return; }
+    const a = hex(tokens[fg] ?? ''), b = hex(tokens[bg] ?? '');
+    if (!a || !b) { problems.push(`${label}: --${!a ? fg : bg} is missing or not #rrggbb`); return; }
     const r = ratio(a, b);
     pairs.push({ fg, bg, what, kind, need, ratio: Math.round(r * 100) / 100 });
-    if (r < need) problems.push(`${t.id}: --${fg} on --${bg} is ${r.toFixed(2)}:1, needs ${need}:1 (${what})`);
+    if (r < need) problems.push(`${label}: --${fg} on --${bg} is ${r.toFixed(2)}:1, needs ${need}:1 (${what})`);
   };
   for (const [fg, bg, what] of TEXT) check(fg, bg, what, NEED[t.level] ?? 4.5, 'text');
   for (const [fg, bg, what] of UI) check(fg, bg, what, 3, 'ui');
   for (const [fg, [a, p, b, how], what, kind = 'text'] of MIXED) {
-    const [x, y, z] = [fg, a, b].map((k) => hex(t.tokens[k] ?? ''));
+    const [x, y, z] = [fg, a, b].map((k) => hex(tokens[k] ?? ''));
     if (!x || !y || !z) continue; // a missing token is reported above
     const back = mix(y, p, z, how), r = ratio(x, back), need = kind === 'ui' ? 3 : NEED[t.level] ?? 4.5;
     const bg = `${a} ${Math.round(p * 100)}% ${how === 'over' ? 'over' : 'with'} ${b}`;
     const color = '#' + back.map((v) => v.toString(16).padStart(2, '0')).join('');
     pairs.push({ fg, bg, color, what, kind, need, ratio: Math.round(r * 100) / 100 });
-    if (r < need) problems.push(`${t.id}: --${fg} on ${bg} is ${r.toFixed(2)}:1, needs ${need}:1 (${what})`);
+    if (r < need) problems.push(`${label}: --${fg} on ${bg} is ${r.toFixed(2)}:1, needs ${need}:1 (${what})`);
+  }
+  return pairs;
+}
+
+// Accent colors (Settings › Appearance): ui/accent.js fits a pick to each theme. Every preset is
+// checked, and a wheel of colors someone could pick (24 hues, pale to vivid, and greys), with the
+// theme's tokens the accent changes put in.
+const sandbox = {};
+vm.runInNewContext(read('ui/accent.js'), sandbox);
+const { PRESETS, derive } = sandbox.TelexAccent;
+const picks = [...PRESETS.map(([id, color]) => [id, color])];
+for (let h = 0; h < 360; h += 15) {
+  for (const [L, C] of [[0.55, 0.06], [0.6, 0.15], [0.7, 0.25], [0.35, 0.12]]) {
+    const rad = (h * Math.PI) / 180;
+    const rgb = fromLab([L, C * Math.cos(rad), C * Math.sin(rad)]);
+    picks.push([`#${rgb.map((v) => v.toString(16).padStart(2, '0')).join('')}`, null]);
+  }
+}
+for (const g of ['#000000', '#444444', '#808080', '#c0c0c0', '#ffffff']) picks.push([g, null]);
+
+for (const t of themes.values()) {
+  if (!NEED[t.level]) problems.push(`${t.id}: say its level with --wcag: AA; or --wcag: AAA;`);
+  if (!t.scheme) problems.push(`${t.id}: set color-scheme to light or dark`);
+  const pairs = measure(t, t.tokens, t.id);
+  const before = problems.length;
+  for (const [name, color] of picks) {
+    const changed = derive(t.tokens, color ?? name);
+    measure(t, { ...t.tokens, ...changed }, `${t.id} with the accent ${name}`);
+    if (problems.length - before > 20) break; // enough to see what is wrong
   }
   const min = (kind) => Math.min(...pairs.filter((p) => p.kind === kind).map((p) => p.ratio));
   results.push({ ...t, minText: min('text'), minUi: min('ui'), pairs });
@@ -215,4 +245,4 @@ if (problems.length) {
   process.exit(1);
 }
 const mixedUi = MIXED.filter((m) => m[3] === 'ui').length;
-console.log(`\nAll ${results.length} themes pass (${TEXT.length + MIXED.length - mixedUi} text and ${UI.length + mixedUi} UI pairs each).`);
+console.log(`\nAll ${results.length} themes pass (${TEXT.length + MIXED.length - mixedUi} text and ${UI.length + mixedUi} UI pairs each), and with ${picks.length} accent colors each.`);

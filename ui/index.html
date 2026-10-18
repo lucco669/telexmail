@@ -12,7 +12,7 @@
 <body spellcheck="false">
 <!-- Elements with data-i18n have their text, title, placeholder and aria-label translated by
      i18n.js; the English here is the key. -->
-<div class="win" id="win" data-density="compact">
+<div class="win" id="win">
 
   <div class="toolbar" role="toolbar" aria-label="Mail actions" data-i18n>
     <div class="toolbar-actions" id="toolbar-actions">
@@ -121,11 +121,28 @@
     </div>
     <div class="setpanes">
       <section class="spane" role="tabpanel" id="s-pane-look" aria-labelledby="s-tab-look">
+        <!-- Five groups, each choice drawn as it will look; the nav jumps to a group. -->
+        <nav class="lnav" aria-label="Parts of Appearance" data-i18n>
+          <button type="button" class="linkbtn" data-jump="s-look-colors" data-i18n>Colors</button>
+          <button type="button" class="linkbtn" data-jump="s-look-text" data-i18n>Text</button>
+          <button type="button" class="linkbtn" data-jump="s-look-layout" data-i18n>Layout</button>
+          <button type="button" class="linkbtn" data-jump="s-look-reading" data-i18n>Reading</button>
+          <button type="button" class="linkbtn" data-jump="s-look-list" data-i18n>Message list</button>
+          <button type="button" class="btn" id="s-reset" data-i18n>Reset appearance</button>
+        </nav>
+        <p class="dnote snote lreset" id="s-reset-done" role="status" hidden></p>
+        <h3 class="lhead" id="s-look-colors" tabindex="-1" data-i18n>Colors</h3>
         <fieldset class="sgroup">
           <legend data-i18n>Theme</legend>
           <div class="themes" id="s-themes"></div>
           <p class="dnote snote" id="s-forced" hidden data-i18n>A Windows contrast theme is on, so Windows chooses the colors. Turn it off in Windows settings to use these.</p>
         </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Accent color</legend>
+          <div class="themes accents" id="s-accents"></div>
+          <p class="dnote snote" data-i18n>Links, the chosen row and buttons. Each color is made lighter or darker as the theme needs, so text stays as readable as the theme promises.</p>
+        </fieldset>
+        <h3 class="lhead" id="s-look-text" tabindex="-1" data-i18n>Text</h3>
         <fieldset class="sgroup">
           <legend data-i18n>Font</legend>
           <div class="themes fonts" id="s-fonts"></div>
@@ -133,13 +150,37 @@
         <div class="sgrid">
           <span class="lab" id="s-size-l" data-i18n>Text size</span>
           <div class="segs" id="s-size" role="radiogroup" aria-labelledby="s-size-l" title="Ctrl+= larger, Ctrl+− smaller, Ctrl+0 normal" data-i18n></div>
-          <span class="lab" id="s-density-l" data-i18n>Rows</span>
-          <div class="segs" id="s-density" role="radiogroup" aria-labelledby="s-density-l"></div>
         </div>
+        <h3 class="lhead" id="s-look-layout" tabindex="-1" data-i18n>Layout</h3>
+        <fieldset class="sgroup">
+          <legend data-i18n>Message pane</legend>
+          <div class="themes panes" id="s-panes"></div>
+        </fieldset>
+        <fieldset class="sgroup">
+          <legend data-i18n>Spacing</legend>
+          <div class="themes densities" id="s-density"></div>
+          <p class="dnote snote" data-i18n>Rows of the list and the folders, and the room around a message. The rows button in the toolbar steps through them.</p>
+        </fieldset>
         <fieldset class="sgroup">
           <legend data-i18n>Toolbar</legend>
           <div class="themes toolbar-styles" id="s-toolbar"></div>
         </fieldset>
+        <h3 class="lhead" id="s-look-reading" tabindex="-1" data-i18n>Reading</h3>
+        <div class="readgrid">
+          <div class="sgrid">
+            <span class="lab" id="s-lines-l" data-i18n>Line spacing</span>
+            <div class="segs" id="s-lines" role="radiogroup" aria-labelledby="s-lines-l"></div>
+            <span class="lab" id="s-width-l" data-i18n>Longest lines</span>
+            <div class="segs" id="s-width" role="radiogroup" aria-labelledby="s-width-l"></div>
+            <span class="lab" id="s-mzoom-l" data-i18n>Message text</span>
+            <div class="segs zsegs" id="s-mzoom" role="radiogroup" aria-labelledby="s-mzoom-l"></div>
+            <span class="lab" id="s-wzoom-l" data-i18n>In its own window</span>
+            <div class="segs zsegs" id="s-wzoom" role="radiogroup" aria-labelledby="s-wzoom-l"></div>
+          </div>
+          <div class="readprev" id="s-readprev" aria-hidden="true"></div>
+        </div>
+        <p class="dnote" data-i18n>Over a message, + and − or Ctrl+wheel make its text larger or smaller, and 0 goes back to 100%. HTML mail keeps its own line spacing unless you choose another.</p>
+        <h3 class="lhead" id="s-look-list" tabindex="-1" data-i18n>Message list</h3>
         <fieldset class="sgroup">
           <legend data-i18n>Unread mail</legend>
           <div class="themes unreads" id="s-unread"></div>
@@ -564,6 +605,7 @@
 
 <script src="i18n.js"></script>
 <script src="links.js"></script>
+<script src="accent.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

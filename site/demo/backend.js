@@ -37,7 +37,10 @@ function installTelexDemo(options) {
     theme: askedTheme = 'system', lang: askedLang = 'auto', settings: startSettings = {}, frame: frameOption = null,
   } = options;
 
-  const THEMES = ['system', 'light', 'dark', 'paper', 'heather', 'fjord', 'phosphor', 'contrast-light', 'contrast-dark'];
+  const THEMES = ['system', 'light', 'dark', 'paper', 'sepia', 'heather', 'solar-light', 'classic', 'fjord', 'solar-dark', 'graphite', 'phosphor', 'oled',
+    'contrast-light', 'contrast-dark'];
+  const ACCENTS = ['theme', 'blue', 'teal', 'green', 'orange', 'red', 'pink', 'purple', 'gray'];
+  const ZOOMS = [70, 80, 90, 100, 110, 125, 150, 175, 200];
   const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // Screenshots answer at once, so a scene's short waits see the result; the live demo takes
@@ -78,7 +81,8 @@ function installTelexDemo(options) {
   const settings = {
     theme: THEMES.includes(askedTheme) ? askedTheme : 'system',
     language: ['auto', ...SPOKEN].includes(askedLang) ? askedLang : 'auto',
-    toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
+    toolbar_style: 'classic', density: 'compact', account_mark: 'rail', unread_style: 'quiet', font: 'plex', text_size: 100,
+    accent: 'theme', preview_pane: 'below', line_spacing: 'normal', reading_width: 'normal', message_zoom: 100, message_window_zoom: 100, prefer_text: false, mark_read: 'moment', read_delay: 600, check_every: 10, push_mail: true, notify: true,
     threaded: false, mail_paper: 'theme', risk_checks: true, spam_filter: 'careful', compose_format: 'html', reply_format: 'html', sign_replies: true, undo_send: 5, ask_subject: true, ask_attachment: true, ask_many: true, spell_check: true,
     updates: 'off', usage_count: 'off', backup_every: 'off', backup_dir: '', backup_keep: 5,
     backup_secret_keys: true, pgp_sign: false, pgp_autocrypt: true, ...startSettings,
@@ -1680,7 +1684,8 @@ function installTelexDemo(options) {
 
   /* ---------- settings (settings.rs) ---------- */
   const CHOICES = {
-    theme: THEMES, language: ['auto', ...SPOKEN], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'comfortable'], account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
+    theme: THEMES, language: ['auto', ...SPOKEN], toolbar_style: ['classic', 'icons', 'large', 'below', 'text'], density: ['compact', 'normal', 'comfortable', 'spacious'], preview_pane: ['below', 'right', 'off'],
+    line_spacing: ['tight', 'normal', 'relaxed', 'loose'], reading_width: ['narrow', 'normal', 'wide', 'full'], message_zoom: ZOOMS, message_window_zoom: ZOOMS, account_mark: ['rail', 'dot', 'initials', 'tint', 'none'], unread_style: ['quiet', 'bold', 'color'], font: ['plex', 'system', 'classic', 'inter', 'atkinson', 'source'], text_size: [90, 100, 110, 125, 150, 175, 200],
     mark_read: ['moment', 'at_once', 'window', 'manual'], read_delay: [600, 1000, 2000, 3000, 5000, 10000], check_every: [0, 5, 10, 15, 30, 60], mail_paper: ['theme', 'white'], compose_format: ['plain', 'html'],
     reply_format: ['same', 'plain', 'html'], undo_send: [0, 5, 10, 20, 30], updates: ['ask', 'start', 'daily', 'off'], usage_count: ['ask', 'on', 'off'],
     backup_every: ['off', 'daily', 'weekly'], backup_keep: [3, 5, 10, 20], spam_filter: ['off', 'careful', 'normal', 'strict'],
@@ -1691,6 +1696,7 @@ function installTelexDemo(options) {
   function updateSettings({ changes }) {
     for (const [k, v] of Object.entries(changes || {})) {
       if (CHOICES[k]?.includes(v) || (SWITCHES.includes(k) && typeof v === 'boolean')) settings[k] = v;
+      else if (k === 'accent' && (ACCENTS.includes(v) || /^#[0-9a-f]{6}$/.test(v))) settings[k] = v;
     }
     return settingsView();
   }

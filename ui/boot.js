@@ -1,5 +1,5 @@
-// Runs in <head>, before the first paint: puts the saved theme, language, text size, font, toolbar, account
-// mark and unread style on the page, so Telex never flashes the default colors or English first.
+// Runs in <head>, before the first paint: puts the saved theme, accent, language, text size, font, toolbar,
+// account mark, unread style, spacing, message pane and reading choices on the page, so Telex never flashes the default colors or English first.
 // The settings themselves are in settings.json, kept by the Rust core; app.js keeps this copy
 // ("telex-look") in step with it.
 (() => {
@@ -20,6 +20,19 @@
   root.dataset.unread = look.unread || 'quiet';
   root.dataset.font = look.font || 'plex';
   root.dataset.toolbar = ['classic', 'icons', 'large', 'below', 'text'].includes(look.toolbar) ? look.toolbar : 'classic';
+  const one = (value, list) => list.includes(value) ? value : list[0];
+  root.dataset.density = one(look.density, ['compact', 'normal', 'comfortable', 'spacious']);
+  root.dataset.pane = one(look.pane, ['below', 'right', 'off']);
+  root.dataset.lines = one(look.lines, ['normal', 'tight', 'relaxed', 'loose']);
+  root.dataset.width = one(look.width, ['normal', 'narrow', 'wide', 'full']);
+  // The accent as app.js last worked it out for this theme (accent.js needs the theme's colors,
+  // which aren't loaded yet): only plain colors, only when the theme is the same.
+  const accent = look.accent;
+  if (accent && accent.theme === root.dataset.theme && accent.vars && typeof accent.vars === 'object'){
+    for (const [name, value] of Object.entries(accent.vars)){
+      if (/^[a-z-]+$/.test(name) && /^#[0-9a-f]{6}$/i.test(String(value))) root.style.setProperty('--' + name, value);
+    }
+  }
   if (look.zoom && look.zoom !== 100){
     try { window.__TAURI__?.webview?.getCurrentWebview().setZoom(look.zoom / 100); } catch {}
   }

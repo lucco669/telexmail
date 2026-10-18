@@ -36,7 +36,21 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 @media (prefers-reduced-motion: reduce){*,*::before,*::after{transition:none!important;animation:none!important}}
 
 .win{height:100%;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--surface)}
-.win[data-density="comfortable"]{--row:26px;--row-tree:27px}
+/* Spacing (Settings › Appearance; data-density on <html>, and on each card there): the rows of the
+   list and the tree, and the room around the message's header and text. Compact is The Bat!'s 20 px rows. */
+:root{--ph-pad:10px 14px 9px;--pb-pad:12px 14px 28px;--tree-pad:0px}
+[data-density="normal"]{--row:23px;--row-tree:25px;--ph-pad:12px 17px 11px;--pb-pad:14px 18px 30px;--tree-pad:2px}
+[data-density="comfortable"]{--row:26px;--row-tree:27px;--ph-pad:14px 20px 12px;--pb-pad:16px 22px 32px;--tree-pad:4px}
+[data-density="spacious"]{--row:30px;--row-tree:31px;--ph-pad:18px 26px 15px;--pb-pad:20px 30px 36px;--tree-pad:7px}
+/* Reading (data-lines, data-width on <html> and the sample in Settings; --read-zoom on the window
+   from the message zoom): a message's text. HTML mail gets the same from app.js, into its frame. */
+:root{--read-lh:1.55;--read-w:76ch;--read-zoom:1}
+[data-lines="tight"]{--read-lh:1.35}
+[data-lines="relaxed"]{--read-lh:1.75}
+[data-lines="loose"]{--read-lh:2}
+[data-width="narrow"]{--read-w:62ch}
+[data-width="wide"]{--read-w:100ch}
+[data-width="full"]{--read-w:none}
 .toolbar,.tree,.list,.status,.split{user-select:none}
 
 /* Toolbar */
@@ -101,13 +115,21 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 /* Panes */
 .main{display:grid;grid-template-columns:var(--tree-w,212px) 5px minmax(0,1fr);min-height:0;min-width:0}
 .right{display:grid;grid-template-rows:var(--list-h,46%) 5px minmax(0,1fr);min-height:0;min-width:0}
+/* Where the message pane goes (data-pane on <html>): below the list, right of it, or nowhere: the
+   list takes the room and Enter opens a window; a message being written still shows there, over the list. */
+:root[data-pane="right"] .win:not(.viewer,.noacct) .right{grid-template-rows:minmax(0,1fr);grid-template-columns:var(--list-w,52%) 5px minmax(0,1fr)}
+:root[data-pane="right"] .split-h{cursor:col-resize;border-width:0 1px}
+:root[data-pane="off"] .win:not(.viewer,.noacct) .right{grid-template-rows:minmax(0,1fr)}
+:root[data-pane="off"] .win:not(.viewer,.noacct) :is(.split-h,.preview){display:none}
+:root[data-pane="off"] .win:not(.viewer,.noacct):has(#cform) .list{display:none}
+:root[data-pane="off"] .win:not(.viewer,.noacct):has(#cform) .preview{display:block}
 .split{background:var(--chrome);border-color:var(--line);border-style:solid;border-width:0}
 .split-v{cursor:col-resize;border-left-width:1px;border-right-width:1px}
 .split-h{cursor:row-resize;border-top-width:1px;border-bottom-width:1px}
 .split:hover,.split.drag{background:var(--sel)}
 
 /* Folder tree */
-.tree{background:var(--panel);overflow:auto;padding:4px 0 10px;min-height:0}
+.tree{background:var(--panel);overflow:auto;padding:calc(4px + var(--tree-pad)) 0 10px;min-height:0}
 .tree ul{list-style:none;margin:0 0 4px;padding:0}
 .acct{display:flex;align-items:center;gap:5px;width:100%;height:var(--row-tree);padding:0 8px 0 6px;border:0;background:none;cursor:pointer;text-align:left;min-width:0}
 .acct svg{width:12px;height:12px;color:var(--muted);transition:transform .12s}
@@ -122,7 +144,7 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .adot{display:none;flex:none;width:7px;height:7px;border-radius:50%;background:var(--ac)}
 .multi .adot{display:inline-block}
 .agrp{position:relative}
-.multi .agrp+.agrp{margin-top:2px}
+.multi .agrp+.agrp{margin-top:calc(2px + var(--tree-pad))}
 [data-mark="rail"] .multi .agrp::before{content:"";position:absolute;left:0;top:3px;bottom:5px;width:3px;border-radius:0 2px 2px 0;background:var(--ac);pointer-events:none}
 [data-mark="rail"] .adot:not(.pc){width:3px;height:11px;border-radius:1.5px}
 [data-mark="rail"] .agrp>.acct .adot,[data-mark="tint"] .agrp>.acct .adot{display:none}
@@ -282,7 +304,8 @@ td.c-ic{padding:0 0 0 4px}
 :where([data-mark="rail"] .multi) tbody tr.acc.picked td.c-ic{box-shadow:inset 3px 0 var(--accent),inset 6px 0 var(--ac)}
 :where([data-mark="rail"] .multi) .list:focus tbody tr.acc.sel td.c-ic{box-shadow:inset 3px 0 var(--ac),inset 4px 0 var(--surface)}
 :where([data-mark="rail"] .multi) .list:focus tbody tr.acc.sel.picked td.c-ic{box-shadow:inset 3px 0 var(--accent-fg),inset 6px 0 var(--ac)}
-.list:focus tbody tr.sel td.c-date,.list:focus tbody tr.sel td.c-size,.list:focus tbody tr.sel .flag{color:inherit}
+.list:focus tbody tr.sel td.c-date,.list:focus tbody tr.sel td.c-size{color:var(--accent-fg)}
+.list:focus tbody tr.sel .flag{color:inherit}
 td.c-date,td.c-size{font:11.5px var(--font-data);font-variant-numeric:tabular-nums;color:var(--muted)}
 td.c-size{text-align:right}
 /* The status cell: the unread dot and the flag are switches (a click marks read or unread, flags
@@ -312,9 +335,11 @@ tr.empty:hover td{background:none}
 
 /* Preview */
 .preview{overflow:auto;background:var(--surface);min-height:0;min-width:0}
-.ph{padding:10px 14px 9px;background:var(--panel);border-bottom:1px solid var(--line-soft)}
-.ph-top{display:flex;align-items:flex-start;gap:10px}
-.ph-subj{flex:1;min-width:0;margin:0 0 6px;font:600 15px/1.3 var(--font-ui);text-wrap:balance;overflow-wrap:anywhere}
+.ph{padding:var(--ph-pad);background:var(--panel);border-bottom:1px solid var(--line-soft)}
+.ph-top{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 10px}
+/* The buttons go under the subject when the pane is narrow (the message pane on the right). */
+.ph-btns{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;margin-left:auto}
+.ph-subj{flex:1 1 240px;min-width:0;margin:0 0 6px;font:600 15px/1.3 var(--font-ui);text-wrap:balance;overflow-wrap:anywhere}
 /* Who, when and to whom: one face, labels quieter than the people, figures in columns. */
 .ph-grid{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:baseline;gap:2px 12px;margin:0;font-size:12.5px;line-height:1.45}
 .ph-grid dt{color:var(--muted);font-size:12px}
@@ -341,14 +366,14 @@ button.ph-who:hover .pn{text-decoration:underline}
 .bar.note{background:var(--chip-bg);color:var(--chip-fg)}
 .bar.note.warn{background:var(--note-bg);color:var(--note-fg)}
 .linkbtn{border:0;background:none;padding:0;color:inherit;font-weight:600;text-decoration:underline;cursor:pointer}
-.pbody{padding:12px 14px 28px;max-width:76ch;font:13px/1.55 var(--font-ui);user-select:text}
-.pbody .ln{white-space:pre-wrap;overflow-wrap:anywhere;min-height:1.55em}
+.pbody{padding:var(--pb-pad);max-width:var(--read-w);font:calc(13px * var(--read-zoom))/var(--read-lh) var(--font-ui);user-select:text}
+.pbody .ln{white-space:pre-wrap;overflow-wrap:anywhere;min-height:calc(var(--read-lh) * 1em)}
 /* Quoted mail: a block per quoted message, in the text's own color, with a bar for its depth and
    the line that introduced it on top. A long one shows its first lines until Show more or Q. */
 .pbody .qb{margin:6px 0;padding-left:10px;border-left:3px solid var(--qc,var(--accent))}
 .pbody .qb.q1{--qc:var(--accent)} .pbody .qb.q2{--qc:var(--acct-1)} .pbody .qb.q3{--qc:var(--acct-3)} .pbody .qb.q4{--qc:var(--acct-2)}
 .pbody .qh{font-weight:600;white-space:pre-wrap;overflow-wrap:anywhere}
-.pbody .qb.folded>.qin{max-height:calc(3 * 1.55em);overflow:hidden;-webkit-mask-image:linear-gradient(#000 45%,transparent);mask-image:linear-gradient(#000 45%,transparent)}
+.pbody .qb.folded>.qin{max-height:calc(3 * var(--read-lh) * 1em);overflow:hidden;-webkit-mask-image:linear-gradient(#000 45%,transparent);mask-image:linear-gradient(#000 45%,transparent)}
 .pbody .qmore{margin:2px 0 0;padding:0;border:0;background:none;color:var(--accent);font:inherit;font-size:12px;font-weight:600;cursor:pointer}
 .pbody .qmore:hover{text-decoration:underline}
 .pbody a{color:var(--accent)}
@@ -844,6 +869,57 @@ td.c-subj .goes{font-weight:600}
 .m-list b.s::after{background:var(--accent-fg)}
 .m-list b.f::before{content:"";position:absolute;right:7px;top:50%;width:6px;height:7px;margin-top:-3.5px;background:var(--flag);clip-path:polygon(0 0,100% 0,72% 50%,100% 100%,0 100%)}
 .tprev.both .mini+.mini{clip-path:polygon(58% 0,100% 0,100% 100%,42% 100%)}
+/* Settings › Appearance: a row of links to its five groups, with Reset; each group a heading. */
+.lnav{position:sticky;top:0;z-index:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 14px;margin:-12px -16px 12px;padding:9px 16px;background:var(--panel);border-bottom:1px solid var(--line-soft);font-size:12px}
+.lnav .linkbtn{font-weight:500;text-decoration:none;color:var(--accent)}
+.lnav .linkbtn:hover{text-decoration:underline}
+.lnav .btn{margin-left:auto}
+.lhead{margin:22px 0 10px;padding:0 0 4px;border-bottom:1px solid var(--line);font:600 13px var(--font-ui);color:var(--fg)}
+.lhead:focus{outline:0} /* a place to read on from, not a control */
+.lhead:first-of-type{margin-top:4px}
+.spane .lreset{margin:-4px 0 10px;padding:6px 9px;border-radius:3px;background:var(--chip-bg);color:var(--chip-fg)}
+/* Accent colors: a small window in the theme on screen per card, the last with its color picker. */
+.accents{grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:6px}
+.acard .tname{overflow-wrap:normal;font-size:11.5px}
+.acard .tprev{height:46px}
+.acard .mini{grid-template-rows:7px minmax(0,1fr)}
+.apick{width:26px;height:18px;padding:0;border:1px solid var(--field);border-radius:3px;background:var(--surface);cursor:pointer}
+.apick::-webkit-color-swatch-wrapper{padding:1px}
+.apick::-webkit-color-swatch{border:0;border-radius:2px}
+/* Where the message pane goes: each card draws the window that way (data-pane on the card). */
+.panes{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+.lprev{grid-column:1/-1;display:grid;grid-template:minmax(0,1fr) minmax(0,1.1fr) / 26% minmax(0,1fr);height:72px;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface);overflow:hidden}
+:where(.lprev) i,:where(.lprev) b{display:block;font-style:normal}
+.l-tree{grid-row:1/-1;background:var(--panel);border-right:1px solid var(--line)}
+.l-list{display:flex;flex-direction:column;border-bottom:1px solid var(--line)}
+.l-list b{flex:1;border-bottom:1px solid var(--line-soft);background:linear-gradient(var(--muted),var(--muted)) 7px 50%/52% 2px no-repeat}
+.l-list b.s{background-color:var(--sel)}
+.l-msg{display:flex;flex-direction:column;justify-content:flex-start;gap:5px;padding:7px 8px;background:var(--surface)}
+.l-msg b{height:3px;border-radius:2px;background:var(--fg)}
+.l-msg b:first-child{width:56%;height:4px}
+.l-msg b+b{width:84%;background:var(--muted)}
+.lprev[data-pane="right"]{grid-template:minmax(0,1fr) / 26% 38% minmax(0,1fr)}
+.lprev[data-pane="right"] .l-list{border-bottom:0;border-right:1px solid var(--line)}
+.lprev[data-pane="off"]{grid-template:minmax(0,1fr) / 26% minmax(0,1fr)}
+.lprev[data-pane="off"] .l-list{border-bottom:0}
+.lprev[data-pane="off"] .l-msg{display:none}
+/* Spacing: rows as tall as each step makes them, scaled down to fit the card. */
+.densities{grid-template-columns:repeat(auto-fill,minmax(110px,1fr))}
+.dprev{grid-column:1/-1;display:block;height:72px;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface);overflow:hidden}
+.drows{display:flex;flex-direction:column;--h:8px}
+.dprev[data-density="normal"] .drows{--h:9.2px}
+.dprev[data-density="comfortable"] .drows{--h:10.4px}
+.dprev[data-density="spacious"] .drows{--h:12px}
+.drows b{flex:none;height:var(--h);border-bottom:1px solid var(--line-soft);background:linear-gradient(var(--muted),var(--muted)) 12px 50%/48% 2px no-repeat}
+.drows b.u{background-image:radial-gradient(circle,var(--accent) 2px,transparent 2.5px),linear-gradient(var(--fg),var(--fg));background-position:2px 50%,12px 50%;background-size:8px 8px,48% 3px;background-repeat:no-repeat}
+.drows b.s{background-color:var(--sel)}
+/* Reading: the choices beside a few lines drawn with them. */
+.readgrid{margin:0 0 10px}
+.readgrid .sgrid{margin:0 0 10px}
+.readgrid .zsegs .seg2 span{padding:0 6px}
+.readprev{height:118px;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface);overflow:hidden}
+/* The sample at the real size: its lines as long and as far apart as a message's. */
+.readprev p{margin:0;padding:8px 12px;font-weight:400;max-width:var(--read-w);color:var(--fg);font:calc(13px * var(--read-zoom,1)) / var(--read-lh) var(--font-ui)}
 /* Fonts: each card written in its own set. */
 .fonts{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
 .fprev{grid-column:1/-1;display:flex;flex-direction:column;justify-content:center;gap:3px;height:72px;padding:0 9px;border:1px solid var(--line-soft);border-radius:4px;background:var(--surface);color:var(--fg);overflow:hidden;font-family:var(--font-ui)}
