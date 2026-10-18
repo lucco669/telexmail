@@ -168,6 +168,7 @@ function installTelexDemo(options) {
   const incoming = live && !empty ? clone(data.incoming || []) : [];
   const olderMail = data.older_mail || {};
   const files = new Map(); // "demo:<n>" -> File chosen or dropped this session
+  let demoLimit = null; // the limit message_size says, when a scene sets one
   const autoReplies = new Map(); // "rule|sender" -> when the rule last answered
   const lastSync = {}; // account -> local date string
   let nextId = 1, nextFile = 1, checkedOnce = false, busy = false;
@@ -848,7 +849,11 @@ function installTelexDemo(options) {
           let attrs = '';
           if (tag === 'img') {
             const src = (n.getAttribute('src') || '').trim();
-            if (dataPicture(src)) out += `<img src="${src}"${n.getAttribute('alt') != null ? ` alt="${escHtml(n.getAttribute('alt'))}"` : ''}>`;
+            // html::compose_clean: a width of 1–2000 and the one picture style, nothing else.
+            const w = (n.getAttribute('width') || '').trim(), width = /^\d{1,4}$/.test(w) && +w >= 1 && +w <= 2000 ? ` width="${+w}"` : '';
+            const decl = (n.getAttribute('style') || '').split(';').map((d) => d.replace(/\s+/g, '').toLowerCase()).filter(Boolean);
+            const style = decl.length && decl.every((d) => d === 'max-width:100%' || d === 'height:auto') ? ' style="max-width:100%;height:auto"' : '';
+            if (dataPicture(src)) out += `<img src="${src}"${n.getAttribute('alt') != null ? ` alt="${escHtml(n.getAttribute('alt'))}"` : ''}${width}${style}>`;
             continue;
           }
           if (tag === 'a') {
@@ -1876,13 +1881,34 @@ function installTelexDemo(options) {
     folder_templates: () => [...folderTemplates.values()],
     save_folder_template: saveFolderTemplate,
     // images::prepare: the demo puts a picture in as it is.
+    // sizes::estimate and sizes::limit: files and pictures in base64, the demo's servers at
+    // 20 MB (the default; demo.limit sets another for the screenshots).
+    message_size: ({ draft: d }) => {
+      const b64 = (n) => { const c = Math.ceil(n / 3) * 4; return c + Math.ceil(c / 76) * 2; };
+      const parts = (d.attachments || []).map((a) => ({ name: a.name, bytes: b64(files.get(a.path)?.size ?? a.size_kb * 1024) + 160 }));
+      const seen = new Set();
+      let pictures = 0;
+      for (const [, payload] of String(d.html ?? '').matchAll(/src="data:[^;"]+;base64,([^"]+)"/g)) {
+        if (seen.has(payload)) continue;
+        seen.add(payload);
+        pictures += b64(Math.floor(payload.length * 3 / 4)) + 160;
+      }
+      const text = 360 + Math.round((d.html ?? d.body ?? '').replace(/src="data:[^"]+"/g, '').length * 2.1) + [d.to, d.cc, d.bcc, d.subject].join('').length * 1.5;
+      const limit = demoLimit ?? { bytes: 20 * 1048576, source: 'default', name: null, documented_mb: null, for_files: false };
+      return { bytes: Math.round(text) + pictures + parts.reduce((n, f) => n + f.bytes, 0), files: parts, pictures, text: Math.round(text), limit };
+    },
     editor_image: ({ path, data }) => (data != null ? Promise.resolve(data) : new Promise((ok, no) => {
       const file = files.get(path);
       if (!file) { no(tr('Drop "{name}" again: Telex reads only files chosen in it.', 'Upuść plik „{name}” jeszcze raz: Telex czyta tylko pliki wybrane w nim.', { name: path })); return; }
       const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = () => no('?'); r.readAsDataURL(file);
     })).then((src) => {
       if (!dataPicture(src)) return Promise.reject(tr('That isn\'t a picture Telex can put in a message: use PNG, JPEG, GIF or WebP.', 'Tego obrazu Telex nie wstawi do wiadomości: użyj PNG, JPEG, GIF lub WebP.'));
-      return { src, width: 0, height: 0, bytes: Math.round(src.length * 0.75), smaller: false };
+      // images::prepare: the demo puts the picture in as it is, with its size in pixels.
+      return new Promise((ok) => {
+        const img = new Image();
+        const done = () => ok({ src, width: img.naturalWidth, height: img.naturalHeight, source_width: img.naturalWidth, source_height: img.naturalHeight, bytes: Math.round(src.length * 0.75), smaller: false });
+        img.onload = done; img.onerror = done; img.src = src;
+      });
     }),
     save_outgoing: saveOutgoing,
     discard_draft: discardDraft,
@@ -2084,7 +2110,7 @@ function installTelexDemo(options) {
     window: { getCurrentWindow: () => appWindow },
     webview: { getCurrentWebview: () => webview },
   };
-  window.__TELEX_DEMO__ = { emit, addFile, live };
+  window.__TELEX_DEMO__ = { emit, addFile, live, setLimit: (l) => { demoLimit = l; } };
 
   if (live) {
     // The look boot.js puts on the page before the first paint: this visit's theme and language.

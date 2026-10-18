@@ -228,6 +228,8 @@ export const featureRows: FeatureRow[] = [
       'HTML or plain text, as a default or per message; replies can follow the original',
       'Pasted web pages lose their styles and scripts: only formatting goes in',
       { text: 'Pictures in HTML messages: paste one, drop it where it goes, or Insert picture…; large photos are made smaller and lose their hidden location data', since: V0920 },
+      { text: 'Pictures go in at a size that suits the text, and a click on one resizes it: Small, Medium, Large, Fit or Original, its corner, or + and −; the size holds in every mail program, Outlook too', since: V0921 },
+      { text: 'Knows how large a message may be: what your server says, or your provider’s documented limit; a quiet size line warns before you get there, and a message too large waits instead of bouncing', since: V0921 },
       { text: 'Text color, highlight and three sizes from a short palette, shown readable in dark themes and sent as chosen', since: V0920 },
       { text: 'Signatures in HTML, with formatting and a logo; plain-text mail gets their text', since: V0920 },
       { text: 'A reply or forward in HTML quotes the original as it looked, with its own pictures and never remote ones', since: V0920 },

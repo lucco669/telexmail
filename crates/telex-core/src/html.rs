@@ -467,11 +467,15 @@ fn clean_with(html: &str, limits: ImageLimits) -> String {
     });
     let mut builder = Builder::empty();
     builder
+        // empty() empties only the tags: ammonia's own attributes (title, lang, align, an img's
+        // height…) would still pass. Only those named here do.
+        .tag_attributes(HashMap::new())
+        .generic_attributes(HashSet::new())
         .add_tags(COMPOSE_TAGS)
         .add_tags(RICH_TAGS)
         .add_generic_attributes(&["style"])
         .add_tag_attributes("a", &["href"])
-        .add_tag_attributes("img", &["src", "alt", "width", "height"])
+        .add_tag_attributes("img", &["src", "alt", "width"])
         .add_tag_attributes("table", &["border", "cellpadding", "cellspacing"])
         .add_tag_attributes("td", &["colspan", "rowspan"])
         .add_tag_attributes("th", &["colspan", "rowspan"])
@@ -515,7 +519,7 @@ fn compose_filter<'u>(
     attribute: &str,
     value: &'u str,
 ) -> Option<Cow<'u, str>> {
-    let digits = |max: usize| {
+    let digits = |max: usize| -> Option<Cow<'u, str>> {
         let v = value.trim();
         (!v.is_empty() && v.len() <= max && v.bytes().all(|b| b.is_ascii_digit()))
             .then(|| Cow::Owned(v.to_owned()))
@@ -541,12 +545,55 @@ fn compose_filter<'u>(
                     .all(|b| b.is_ascii_alphanumeric() || b".@_-$".contains(&b));
             fine.then(|| Cow::Owned(v.to_owned()))
         }
-        ("img", "width" | "height") => digits(4),
+        // The size the writer gave a picture, the one way every mail program keeps it: the width
+        // (Outlook honours only that), the height following it.
+        ("img", "width") => digits(4).filter(|w| {
+            w.parse::<u16>()
+                .is_ok_and(|w| (1..=MAX_PICTURE_WIDTH).contains(&w))
+        }),
+        ("img", "style") => picture_style(value).then_some(Cow::Borrowed(PICTURE_STYLE)),
         ("td" | "th", "colspan" | "rowspan") => digits(2),
         ("table", "border" | "cellpadding" | "cellspacing") => digits(2),
         (_, "style") => compose_style(value).map(Cow::Owned),
         _ => Some(Cow::Borrowed(value)),
     }
+}
+
+/// The widest a picture may be written in a message, in pixels.
+pub const MAX_PICTURE_WIDTH: u16 = 2000;
+/// A picture's one style: never wider than the text, its height in proportion.
+pub const PICTURE_STYLE: &str = "max-width:100%;height:auto";
+
+/// A cleaned picture's tag (`img src="…" …`, without its angle brackets) with [`PICTURE_STYLE`]
+/// in place of any style it had.
+fn with_picture_style(tag: &str) -> String {
+    let mut tag = tag.to_owned();
+    if let Some(at) = tag.find(" style=\"") {
+        if let Some(len) = tag[at + 8..].find('"') {
+            tag.replace_range(at..at + 8 + len + 1, "");
+        }
+    }
+    let tag = tag.trim_end_matches('/').trim_end();
+    format!("{tag} style=\"{PICTURE_STYLE}\"")
+}
+
+/// A picture's style is kept only when it says nothing but [`PICTURE_STYLE`]'s two things.
+fn picture_style(style: &str) -> bool {
+    let mut any = false;
+    for declaration in style.split(';').filter(|d| !d.trim().is_empty()) {
+        let Some((property, value)) = declaration.split_once(':') else {
+            return false;
+        };
+        let (property, value) = (
+            property.trim().to_ascii_lowercase(),
+            value.trim().to_ascii_lowercase(),
+        );
+        match (property.as_str(), value.as_str()) {
+            ("max-width", "100%") | ("height", "auto") => any = true,
+            _ => return false,
+        }
+    }
+    any
 }
 
 /// A `data:` picture Telex may send: its decoded size, or `None`.
@@ -638,7 +685,9 @@ pub struct InlineImage {
 
 /// Cleaned HTML ([`compose_clean`]) ready to send: each `data:` picture becomes a part of
 /// its own, referenced as `cid:<n>.<cid_base>` (the same picture twice is one part). A `cid:`
-/// that names none of these (pasted from elsewhere) is left out.
+/// that names none of these (pasted from elsewhere) is left out. Each picture goes with
+/// [`PICTURE_STYLE`], so its width never makes it wider than the reader's window (the editor
+/// leaves the style out: its own stylesheet says the same, so the browser drops it there).
 pub fn inline_images(clean: &str, cid_base: &str) -> (String, Vec<InlineImage>) {
     let mut parts: Vec<InlineImage> = Vec::new();
     let mut out = String::with_capacity(clean.len());
@@ -679,11 +728,13 @@ pub fn inline_images(clean: &str, cid_base: &str) -> (String, Vec<InlineImage>) 
                 cid
             }
         };
+        let written = format!(
+            "{}cid:{cid}{}",
+            &tag[..value_start],
+            &tag[value_start + len..]
+        );
         out.push('<');
-        out.push_str(&tag[..value_start]);
-        out.push_str("cid:");
-        out.push_str(&cid);
-        out.push_str(&tag[value_start + len..]);
+        out.push_str(&with_picture_style(&written));
         out.push('>');
     }
     out.push_str(rest);
@@ -1788,6 +1839,60 @@ iVBORw0KGgo=\r\n";
     }
 
     #[test]
+    fn a_pictures_size_goes_out_as_its_width_and_one_style() {
+        let img = |attrs: &str| compose_clean(&format!("<img src=\"{PNG}\" {attrs}>"));
+        let sized =
+            format!("<img src=\"{PNG}\" width=\"480\" style=\"max-width:100%;height:auto\">");
+        assert_eq!(
+            img("width=\"480\" style=\"max-width: 100%; height: auto;\""),
+            sized
+        );
+        assert_eq!(
+            img("width=\"480\" style=\"height:AUTO\""),
+            sized,
+            "written one way"
+        );
+        assert_eq!(
+            img("width=\" 480 \" height=\"270\" style=\"max-width:100%;height:auto\""),
+            sized,
+            "no height"
+        );
+        // Nothing else on a picture: no other style, no width out of 1–2000.
+        let bare = format!("<img src=\"{PNG}\">");
+        for attrs in [
+            "style=\"max-width:100%;height:auto;position:fixed\"",
+            "style=\"width:9999px\"",
+            "style=\"max-width:100%;background:url(https://t.pl/x.gif)\"",
+            "width=\"0\"",
+            "width=\"2001\"",
+            "width=\"50%\"",
+            "width=\"-5\"",
+        ] {
+            assert_eq!(img(attrs), bare, "{attrs}");
+        }
+        assert_eq!(
+            img("width=\"2000\""),
+            format!("<img src=\"{PNG}\" width=\"2000\">")
+        );
+        // ammonia's own attributes don't come along either.
+        assert_eq!(
+            compose_clean("<p title=\"x\" lang=\"pl\" align=\"center\"><img src=\"cid:a@b\" align=\"left\" hspace=\"9\">a</p>"),
+            "<p><img src=\"cid:a@b\">a</p>"
+        );
+        // Other elements don't take the picture's style.
+        assert_eq!(
+            compose_clean("<div style=\"max-width:100%;height:auto\">x</div>"),
+            "<div>x</div>"
+        );
+        // Sent, the size stays on the cid: picture; a draft opened again has it back.
+        let (out, _) = inline_images(&sized, "m@x.pl");
+        assert_eq!(
+            out,
+            "<img src=\"cid:1.m@x.pl\" width=\"480\" style=\"max-width:100%;height:auto\">"
+        );
+    }
+
+    #[test]
     fn the_signature_keeps_its_block_and_nothing_else_keeps_a_class() {
         let clean = compose_clean(
             "<div class=\"telex-signature evil\"><b>Anna</b></div><div class=\"x\" id=\"y\">z</div>",
@@ -1812,8 +1917,15 @@ iVBORw0KGgo=\r\n";
         let (out, parts) = inline_images(&compose_clean(&html), "abc@twojastudio.pl");
         assert_eq!(
             out,
-            "<div>Logo:</div><img src=\"cid:1.abc@twojastudio.pl\" alt=\"a\">\
-             <img src=\"cid:1.abc@twojastudio.pl\"><img src=\"cid:2.abc@twojastudio.pl\">"
+            "<div>Logo:</div><img src=\"cid:1.abc@twojastudio.pl\" alt=\"a\" style=\"max-width:100%;height:auto\">\
+             <img src=\"cid:1.abc@twojastudio.pl\" style=\"max-width:100%;height:auto\">\
+             <img src=\"cid:2.abc@twojastudio.pl\" style=\"max-width:100%;height:auto\">"
+        );
+        // The editor's picture has no style of its own (its stylesheet says it): sent, it has it.
+        let (out, _) = inline_images(&format!("<img src=\"{PNG}\" width=\"300\">"), "m@x.pl");
+        assert_eq!(
+            out,
+            "<img src=\"cid:1.m@x.pl\" width=\"300\" style=\"max-width:100%;height:auto\">"
         );
         assert_eq!(parts.len(), 2, "the same picture twice is one part");
         assert_eq!(parts[0].mime, "image/png");

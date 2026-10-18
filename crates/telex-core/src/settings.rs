@@ -192,6 +192,9 @@ pub struct Settings {
     /// How large pictures put into a message are made (`images::prepare`).
     #[serde(default)]
     pub image_size: ImageSize,
+    /// How wide a picture shows when it goes into a message; the writer can change each one.
+    #[serde(default)]
+    pub picture_width: PictureWidth,
     /// Underline misspelt words while writing.
     pub spell_check: bool,
     /// The languages spelling is checked in ("pl-PL"); a word any of them knows is right.
@@ -340,6 +343,22 @@ pub enum ImageSize {
     Large,
     /// 800 pixels.
     Medium,
+}
+
+/// How wide a picture put into a message shows at first (written as its `width`): never wider
+/// than the text, nor than its own size on the screen.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PictureWidth {
+    /// As wide as the text.
+    Fit,
+    /// 600 pixels, a mail's usual column.
+    #[default]
+    Large,
+    /// 400 pixels.
+    Medium,
+    /// 200 pixels.
+    Small,
 }
 
 /// How actions are shown in the top toolbar.
@@ -539,6 +558,7 @@ impl Default for Settings {
             ask_attachment: true,
             ask_many: true,
             image_size: ImageSize::Large,
+            picture_width: PictureWidth::Large,
             spell_check: true,
             spell_languages: Vec::new(),
             updates: Updates::Ask,

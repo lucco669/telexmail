@@ -29,6 +29,10 @@ pub struct Picture {
     pub bytes: usize,
     /// It was made smaller than the file.
     pub smaller: bool,
+    /// The file's own size in pixels, before it was made smaller: the window shows a picture no
+    /// larger than this over the screen's pixel ratio (a 2x screen's screenshot at its own size).
+    pub source_width: u32,
+    pub source_height: u32,
 }
 
 /// What the longest side may be.
@@ -114,6 +118,7 @@ fn within(data: &[u8], bound: Option<u32>, limit: usize) -> Result<Picture, Refu
     reader.limits(limits);
     let mut decoder = reader.into_decoder().map_err(|_| Refused::NotAPicture)?;
     let (width, height) = decoder.dimensions();
+    let source = (width, height);
     let fits = bound.is_none_or(|b| width.max(height) <= b);
     // As it is: the original asked for, a GIF (it may move), or a PNG small enough already.
     let keep = bound.is_none()
@@ -160,6 +165,8 @@ fn within(data: &[u8], bound: Option<u32>, limit: usize) -> Result<Picture, Refu
         height,
         bytes: bytes.len(),
         smaller,
+        source_width: source.0,
+        source_height: source.1,
     })
 }
 
@@ -209,6 +216,11 @@ mod tests {
         let p = prepare(&photo, ImageSize::Large).unwrap();
         assert_eq!((p.width, p.height), (1600, 600));
         assert!(p.smaller && p.src.starts_with("data:image/jpeg;base64,"));
+        assert_eq!(
+            (p.source_width, p.source_height),
+            (3200, 1200),
+            "the file's own size"
+        );
         let p = prepare(&photo, ImageSize::Medium).unwrap();
         assert_eq!((p.width, p.height), (800, 300));
         let p = prepare(&photo, ImageSize::Original).unwrap();

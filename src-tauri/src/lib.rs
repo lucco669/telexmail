@@ -40,6 +40,7 @@ use telex_core::later::{self, Later};
 use telex_core::openpgp::Choice;
 use telex_core::recipients::Recipient;
 use telex_core::servers;
+use telex_core::sizes;
 use telex_core::smtp::{self, Originals, SendError};
 use telex_core::tr;
 use telex_core::unsubscribe::Method;
@@ -327,6 +328,25 @@ fn draft_context(s: &MailStore, draft: &OutgoingDraft) -> Result<(Account, Origi
         edited: raw(draft.replaces.or(draft.autosaved))?.flatten(),
     };
     Ok((account, originals))
+}
+
+/// What the message being written weighs as sent, and the most its account's server takes
+/// (`sizes::estimate`, `sizes::limit`). Compose asks when files or pictures come or go.
+#[tauri::command]
+async fn message_size(
+    state: State<'_, AppState>,
+    draft: OutgoingDraft,
+) -> CmdResult<sizes::Weight> {
+    let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let carried: Vec<&[u8]> = [&originals.forwarded, &originals.edited]
+            .into_iter()
+            .filter_map(|r| r.as_deref())
+            .collect();
+        sizes::estimate(&draft, &carried, sizes::limit(&account))
+    })
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Save the compose pane's content as a draft, kept as a whole message so its HTML and
@@ -714,7 +734,7 @@ async fn add_account(
     let folders = imap::check_account(&setup.imap_settings(), &password)
         .await
         .map_err(|e| capitalize(&e.to_string()))?;
-    smtp::check(&setup.smtp_settings(), &setup.username, &password)
+    let smtp_max = smtp::check(&setup.smtp_settings(), &setup.username, &password)
         .await
         .map_err(|e| {
             let incoming = setup.imap_settings().protocol().to_uppercase();
@@ -729,6 +749,7 @@ async fn add_account(
             *s = MailStore::open(&state.db_path)?;
         }
         let account = s.upsert_account(&setup)?;
+        s.set_smtp_max(&account.id, smtp_max)?;
         let plan = imap::plan_folders(&folders, &s.folder_hints(&account.id)?);
         s.set_folders(&account.id, &plan)?;
         s.account(&account.id).cloned()
@@ -999,6 +1020,8 @@ async fn send_message(
     } else {
         smtp::compose_protected(&account, &draft, &originals, Local::now(), &protect)?
     };
+    // Larger than the account's server takes: refused here, in words, before it is queued.
+    sizes::check(composed.raw.len() as u64, &sizes::limit(&account))?;
     if pgp.is_some() {
         keys::remember(&state, &draft, choice);
     }
@@ -1474,6 +1497,7 @@ pub fn run() {
             keys::smime_unlock,
             keys::smime_forget,
             save_outgoing,
+            message_size,
             discard_draft,
             draft_html,
             html_to_text,
