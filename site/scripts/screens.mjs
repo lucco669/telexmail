@@ -143,11 +143,9 @@ const scenes = {
     run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(50); ui.click('[data-ids="studio"]'); await ui.wait(50);
     ui.click('#i-list [data-id="2"] [data-i="edit"]'); await ui.wait(50);`,
   },
-  // Settings › Appearance from the fonts down: text size, rows, the toolbars and unread mail.
+  // Settings › Appearance at Layout: where the message pane goes, the four spacings, the toolbars.
   appearance: {
-    run: `ui.click('#b-settings'); await ui.wait(50); const p = document.querySelector('.setpanes');
-    const g = document.getElementById('s-fonts').closest('fieldset');
-    p.scrollTop += g.getBoundingClientRect().top - p.getBoundingClientRect().top - 10; await ui.wait(250);`,
+    run: `ui.click('#b-settings'); await ui.wait(50); document.querySelector('[data-jump="s-look-layout"]').click(); await ui.wait(250);`,
   },
   // Settings › Accounts: every account, its servers and how its last check went.
   accounts: { run: `ui.click('#b-settings'); await ui.wait(50); ui.click('#s-tab-accts'); await ui.wait(150);` },
@@ -163,7 +161,7 @@ const scenes = {
     await ui.wait(50);`,
   },
   outbox: { run: `ui.pane(30); ui.folder('studio/outbox'); await ui.wait(100);` },
-  comfortable: { run: `ui.click('#b-density'); ui.folder('home/inbox'); await ui.wait(100); ui.list.focus();` },
+  comfortable: { settings: { density: 'comfortable' }, run: `ui.folder('home/inbox'); await ui.wait(100); ui.list.focus();` },
   // Settings on its first tab: every theme drawn in its own colors.
   settings: { run: `ui.click('#b-settings'); await ui.wait(150);` },
   polish: { lang: 'pl' },

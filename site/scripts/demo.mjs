@@ -22,7 +22,7 @@ const version = JSON.parse(readFileSync(join(repo, 'src-tauri', 'tauri.conf.json
 rmSync(out, { recursive: true, force: true });
 mkdirSync(join(out, 'fonts'), { recursive: true });
 
-for (const file of ['app.js', 'links.js', 'i18n.js', 'boot.js', 'styles.css', 'themes.css', 'fonts.css', 'telex-mark.svg']) copyFileSync(join(uiDir, file), join(out, file));
+for (const file of ['app.js', 'links.js', 'accent.js', 'i18n.js', 'boot.js', 'styles.css', 'themes.css', 'fonts.css', 'telex-mark.svg']) copyFileSync(join(uiDir, file), join(out, file));
 mkdirSync(join(out, 'i18n'));
 for (const file of readdirSync(join(uiDir, 'i18n'))) if (file.endsWith('.js')) copyFileSync(join(uiDir, 'i18n', file), join(out, 'i18n', file));
 for (const file of readdirSync(join(uiDir, 'fonts'))) {

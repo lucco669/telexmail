@@ -298,9 +298,11 @@ const sdlg = $('set-dlg'); // the settings window, which also holds the accounts
 const win = $('win'), rowsEl = $('rows'), listEl = $('list'), previewEl = $('preview'), treeEl = $('tree'), qEl = $('q');
 if (saved.treeW) win.style.setProperty('--tree-w', saved.treeW + 'px');
 if (saved.listH) win.style.setProperty('--list-h', saved.listH + '%');
+if (saved.listW) win.style.setProperty('--list-w', saved.listW + '%'); // the list's width with the message pane on its right
 const persist = () => store.set({
   treeW: parseInt(win.style.getPropertyValue('--tree-w')) || undefined,
   listH: parseFloat(win.style.getPropertyValue('--list-h')) || undefined,
+  listW: parseFloat(win.style.getPropertyValue('--list-w')) || undefined,
   updateChecked: state.updateChecked || undefined,
   offered: state.offered || undefined,
   helpTold: state.helpTold || undefined,
@@ -316,9 +318,10 @@ const persist = () => store.set({
 // Theme, language, density, text size and the rest live in settings.json, through the core
 // (get_settings, update_settings). The look is also kept for boot.js, which puts it on the
 // page before the first paint.
-const THEMES = ['system', 'light', 'dark', 'paper', 'heather', 'fjord', 'phosphor', 'contrast-light', 'contrast-dark'];
-const THEME_NAMES = {system:N_('Match Windows'), light:N_('Light'), dark:N_('Dark'), paper:N_('Paper'), heather:N_('Heather'), fjord:N_('Fjord'),
-  phosphor:N_('Phosphor'), 'contrast-light':N_('High contrast light'), 'contrast-dark':N_('High contrast dark')};
+const THEMES = ['system', 'light', 'dark', 'paper', 'sepia', 'heather', 'solar-light', 'classic', 'fjord', 'solar-dark', 'graphite', 'phosphor', 'oled',
+  'contrast-light', 'contrast-dark'];
+const THEME_NAMES = {system:N_('Match Windows'), light:N_('Light'), dark:N_('Dark'), paper:N_('Paper'), sepia:N_('Sepia'), heather:N_('Heather'), 'solar-light':N_('Solar light'),
+  classic:N_('Classic grey'), fjord:N_('Fjord'), 'solar-dark':N_('Solar dark'), graphite:N_('Graphite'), phosphor:N_('Phosphor'), oled:N_('Black|theme'), 'contrast-light':N_('High contrast light'), 'contrast-dark':N_('High contrast dark')};
 const LANG_NAMES = Object.fromEntries(I18n.languages); // each in itself, never translated
 const TOOLBAR_STYLES = [
   ['classic', N_('Classic|toolbar'), N_('Icons beside labels; adapts to the window.')],
@@ -328,21 +331,37 @@ const TOOLBAR_STYLES = [
   ['text', N_('Text only'), N_('Clear labels without icons.')],
 ];
 const TEXT_SIZES = [90, 100, 110, 125, 150, 175, 200];
+// A message's text, in the message pane and in its own window (settings::MESSAGE_ZOOMS).
+const MESSAGE_ZOOMS = [70, 80, 90, 100, 110, 125, 150, 175, 200];
+// Spacing, from The Bat!'s 20 px rows up (styles.css: [data-density]).
+const DENSITIES = [['compact', N_('Compact')], ['normal', N_('Normal|spacing')], ['comfortable', N_('Comfortable')], ['spacious', N_('Spacious')]];
+const densityName = id => t(DENSITIES.find(([x]) => x === id)?.[1] ?? 'Compact');
+// Reading: the space between lines, and the longest lines get (plain text in styles.css; HTML mail
+// here, in pixels, times the zoom). Normal leaves HTML mail's own line height alone.
+const LINE_SPACINGS = [['tight', N_('Tight|lines'), 1.35], ['normal', N_('Normal|lines'), null], ['relaxed', N_('Relaxed|lines'), 1.75], ['loose', N_('Loose|lines'), 2]];
+const READING_WIDTHS = [['narrow', N_('Narrow|width'), 760], ['normal', N_('Normal|width'), 960], ['wide', N_('Wide|width'), 1200], ['full', N_('Full width'), 0]];
+const PANES = [['below', N_('Below the list')], ['right', N_('Right of the list')], ['off', N_('Off: Enter opens a window')]];
+// Accent colors: the theme's own, a preset (accent.js fits each to the theme) or one picked.
+const ACCENT_TOKENS = ['accent', 'sel', 'chip-bg', 'chip-fg', 'img-a', 'img-b'];
+const ACCENT_NEEDS = [...ACCENT_TOKENS, 'wcag', 'surface', 'panel', 'chrome', 'hover', 'line-soft', 'accent-fg', 'fg', 'muted', 'flag', ...[0, 1, 2, 3, 4, 5].map(i => 'acct-' + i)];
 const CHECK_EVERY = [5, 10, 15, 30, 60, 0];
 const UNDO_SEND = [0, 5, 10, 20, 30];
 const READ_DELAYS = [600, 1000, 2000, 3000, 5000, 10000]; // ms on screen before a message counts as read
 const darkMode = matchMedia('(prefers-color-scheme: dark)'), forcedColors = matchMedia('(forced-colors: active)');
 const shownTheme = id => id === 'system' ? (darkMode.matches ? 'dark' : 'light') : id;
 // Themes on dark paper. HTML mail goes on the same paper there, unless the settings say white.
-const DARK_THEMES = new Set(['dark', 'fjord', 'phosphor', 'contrast-dark']);
+const DARK_THEMES = new Set(['dark', 'fjord', 'solar-dark', 'graphite', 'phosphor', 'oled', 'contrast-dark']);
 let SETTINGS = {
-  settings:{theme:'system', language:'auto', toolbar_style:'classic', density:'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
+  // The spacing boot.js put on the page until the settings come, so the rows don't jump.
+  settings:{theme:'system', language:'auto', toolbar_style:'classic', density:document.documentElement.dataset.density || 'compact', account_mark:'rail', unread_style:'quiet', font:'plex', text_size:100,
+    accent:'theme', preview_pane:'below', line_spacing:'normal', reading_width:'normal', message_zoom:100, message_window_zoom:100, prefer_text:false, mark_read:'moment', read_delay:600, check_every:10,
     threaded:false, push_mail:true, notify:true, mail_paper:'theme', risk_checks:true, spam_filter:'careful', compose_format:'html', reply_format:'html', sign_replies:true, undo_send:5, ask_subject:true, ask_attachment:true, ask_many:true,
     image_size:'large', spell_check:true, updates:'ask', usage_count:'ask', backup_every:'off', backup_dir:'', backup_keep:5},
   language:I18n.lang(), offer:null, fresh:false,
 };
 const pref = () => SETTINGS.settings;
 let zoomed = 100;
+let paperLook = ''; // the theme and accent the open message was drawn in
 let threadSetting = false;
 // The colors HTML mail gets on dark paper: the theme's own (themes.css), or null for white.
 function darkPaper(id){
@@ -351,14 +370,73 @@ function darkPaper(id){
   const css = getComputedStyle(document.documentElement), v = name => css.getPropertyValue(name).trim();
   return {paper:v('--surface'), ink:v('--fg'), link:v('--accent'), line:v('--line'), muted:v('--muted')};
 }
+// A theme's own tokens, read from an element that carries only its data-theme (the window's may
+// carry an accent), and the tokens an accent changes in it, worked out once.
+const themeProbe = document.createElement('i');
+themeProbe.hidden = true; document.body.append(themeProbe);
+const accentMade = new Map();
+function accentVars(theme, accent){
+  const pick = window.TelexAccent?.pickOf(accent);
+  if (!pick) return {};
+  const key = theme + ' ' + pick;
+  if (!accentMade.has(key)){
+    themeProbe.dataset.theme = theme;
+    const css = getComputedStyle(themeProbe);
+    accentMade.set(key, TelexAccent.derive(Object.fromEntries(ACCENT_NEEDS.map(n => [n, css.getPropertyValue('--' + n).trim()])), pick));
+  }
+  return accentMade.get(key);
+}
+// Puts a theme's tokens for an accent on an element (the window, a card); the theme's own when none.
+function paintAccent(el, theme, accent){
+  const vars = accentVars(theme, accent);
+  for (const n of ACCENT_TOKENS) if (vars[n]) el.style.setProperty('--' + n, vars[n]); else el.style.removeProperty('--' + n);
+  return vars;
+}
+let paneShown = null; // the message pane's place, once the settings have said
+const paneOff = () => !VIEWER && pref().preview_pane === 'off';
+// The message's text: its zoom here (the pane or its own window), line spacing and width; into
+// the HTML mail frame too, whose document is the core's.
+const readZoom = () => (VIEWER ? pref().message_window_zoom : pref().message_zoom) / 100 || 1;
+function paintReading(){
+  const s = pref();
+  document.documentElement.dataset.lines = s.line_spacing || 'normal';
+  document.documentElement.dataset.width = s.reading_width || 'normal';
+  win.style.setProperty('--read-zoom', String(readZoom()));
+  const frame = previewEl.querySelector('.hframe');
+  if (frame) fitFrame(frame);
+}
+function fitFrame(frame){
+  const d = frame.contentDocument;
+  if (!d?.body) return;
+  const z = readZoom(), s = pref();
+  const cap = READING_WIDTHS.find(([id]) => id === s.reading_width)?.[2] ?? 960;
+  const lh = LINE_SPACINGS.find(([id]) => id === s.line_spacing)?.[2] ?? null;
+  d.documentElement.style.zoom = z === 1 ? '' : String(z);
+  d.body.style.maxWidth = cap ? cap + 'px' : '';
+  d.body.style.lineHeight = lh ? String(lh) : '';
+  d.body.style.padding = getComputedStyle(win).getPropertyValue('--pb-pad').trim();
+  frame.style.height = d.documentElement.scrollHeight + 'px';
+}
+// Where the message pane is; the splitter between list and pane turns with it.
+function paintPane(){
+  const pane = VIEWER ? 'below' : pref().preview_pane || 'below';
+  const root = document.documentElement, was = paneShown;
+  root.dataset.pane = pane;
+  if (was === pane) return;
+  paneShown = pane;
+  $('split-h').setAttribute('aria-orientation', pane === 'right' ? 'vertical' : 'horizontal');
+  colsDone = ''; fitColumns();
+  if (was && was !== pane && !state.compose && ACCOUNTS.length) renderPreview(); // shown again, or not any more
+}
 function applySettings(){
-  const s = pref(), theme = document.documentElement.dataset.theme;
+  const s = pref();
   if (threadSetting !== !!s.threaded){
     threadSetting = !!s.threaded;
     state.expanded.clear(); unpick();
     if (!VIEWER && list.seq) loadView();
   }
   document.documentElement.dataset.theme = shownTheme(s.theme);
+  const accent = paintAccent(document.documentElement, shownTheme(s.theme), s.accent);
   document.documentElement.dataset.mark = s.account_mark;
   document.documentElement.dataset.unread = s.unread_style;
   document.documentElement.dataset.toolbar = s.toolbar_style || 'classic';
@@ -366,19 +444,25 @@ function applySettings(){
     document.documentElement.dataset.font = s.font;
     measured = null; colsDone = ''; fitColumns(); // the dates' width is the new face's
   }
-  // HTML mail on dark paper takes the theme's colors: show it again in the new ones.
-  if (theme !== shownTheme(s.theme) && !state.compose && ACCOUNTS.length) renderPreview();
+  // HTML mail on dark paper takes the theme's colors (its links the accent): show it again in the new ones.
+  const look = shownTheme(s.theme) + ' ' + JSON.stringify(accent);
+  if (paperLook && look !== paperLook && !state.compose && ACCOUNTS.length && !paneOff()) renderPreview();
+  paperLook = look;
+  paintPane(); paintReading();
   if (s.text_size !== zoomed){
     zoomed = s.text_size;
     try { window.__TAURI__?.webview?.getCurrentWebview().setZoom(s.text_size / 100); } catch {}
   }
-  const rows = win.dataset.density;
+  const rows = document.documentElement.dataset.density;
   paintDensity();
-  if (win.dataset.density !== rows) drawSoon(); // the list keeps the same rows on screen
+  if (document.documentElement.dataset.density !== rows) drawSoon(); // the list keeps the same rows on screen
   scheduleChecks();
   if (SETTINGS.language !== I18n.lang()) switchLanguage(SETTINGS.language);
   renderUpdates();
-  try { localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font, toolbar:s.toolbar_style})); } catch {}
+  try {
+    localStorage.setItem('telex-look', JSON.stringify({theme:s.theme, lang:SETTINGS.language, zoom:s.text_size, mark:s.account_mark, unread:s.unread_style, font:s.font, toolbar:s.toolbar_style,
+      density:s.density, pane:s.preview_pane, lines:s.line_spacing, width:s.reading_width, accent:{theme:shownTheme(s.theme), vars:accent}}));
+  } catch {}
   fitToolbarSoon(); // labels, language, font and layout all change how wide the actions are
 }
 darkMode.addEventListener('change', () => { if (pref().theme === 'system') applySettings(); });
@@ -444,6 +528,28 @@ function stepTextSize(dir){
   if (next === now) return;
   changeSettings({text_size:next}).then(ok => ok && say(t('Text size {n}%. Ctrl+0 goes back to 100%.', {n:next}), 3000));
 }
+// A message's text larger or smaller (+ − 0, Ctrl+wheel over it, the … above it): the message pane
+// and a message's own window each keep their own. Shown at once, saved a moment later.
+let zoomSave = null, zoomWheelAt = 0;
+function stepZoom(dir){
+  const key = VIEWER ? 'message_window_zoom' : 'message_zoom', now = pref()[key] ?? 100, i = MESSAGE_ZOOMS.indexOf(now);
+  const next = dir === 0 ? 100 : MESSAGE_ZOOMS[clamp((i < 0 ? 3 : i) + dir, 0, MESSAGE_ZOOMS.length - 1)];
+  if (next === now){ if (dir) say(t('Message text {n}%. 0 goes back to 100%.', {n:now}), 2000); return; }
+  SETTINGS.settings[key] = next;
+  paintReading();
+  say(t('Message text {n}%. 0 goes back to 100%.', {n:next}), 2500);
+  clearTimeout(zoomSave);
+  zoomSave = setTimeout(() => changeSettings({[key]:next}), 400);
+}
+// A wheel's notches, or a touchpad's many small turns, one step at a time.
+function zoomWheel(e){
+  if (!(e.ctrlKey || e.metaKey) || state.compose) return;
+  e.preventDefault();
+  const now = performance.now(); // this window's clock: the frame's events count from its own start
+  if (!e.deltaY || now - zoomWheelAt < 120) return;
+  zoomWheelAt = now;
+  stepZoom(e.deltaY < 0 ? 1 : -1);
+}
 
 /* ---------- toolbar ---------- */
 const TOOLBAR = [['b-get','get',N_('Get mail')],['b-new','neu',N_('New|message')],['b-reply','reply',N_('Reply')],['b-replyall','replyall',N_('Reply all')],
@@ -458,9 +564,12 @@ function paintToolbar(){
   $('search-ic').innerHTML = I.search;
 }
 function paintDensity(){
-  win.dataset.density = pref().density;
-  $('b-density').innerHTML = I.rows + `<span class="lbl">${esc(pref().density === 'compact' ? t('Compact') : t('Comfortable'))}</span>`;
-  $('b-density').setAttribute('aria-label', t('Switch row density') + ': ' + t(pref().density === 'compact' ? 'Compact' : 'Comfortable'));
+  document.documentElement.dataset.density = pref().density;
+  $('b-density').innerHTML = I.rows + `<span class="lbl">${esc(densityName(pref().density))}</span>`;
+  $('b-density').setAttribute('aria-label', t('Switch row density') + ': ' + densityName(pref().density));
+  // The spacing changes the room around the message too.
+  const frame = previewEl.querySelector('.hframe');
+  if (frame) fitFrame(frame);
 }
 // Classic shows its words while they fit; when they don't (a narrow window, longer Polish words)
 // it shows only the icons, each with its tooltip, instead of scrolling. Measured, not guessed.
@@ -1713,7 +1822,8 @@ function select(id, silent){
   selRow = list.rows.find(r => r.id === id) ?? (selRow?.id === id ? selRow : null);
   clearTimeout(readTimer);
   const m = current(), how = pref().mark_read;
-  if (m && m.unread && !silent && (how === 'moment' || how === 'at_once')){
+  // Without the message pane, nothing is on screen to read: its own window reads it.
+  if (m && m.unread && !silent && !paneOff() && (how === 'moment' || how === 'at_once')){
     readTimer = setTimeout(() => {
       call('set_unread', {id:m.id, unread:false}).then(() => { changed(m, {unread:false}); reorder(); }).catch(() => {});
     }, how === 'at_once' ? 0 : pref().read_delay ?? 600);
@@ -2115,7 +2225,11 @@ function outItems(id, full = true){
     {label:t('Save as PDF…'), run:() => savePdf(id)},
     ...(full ? [{sep:true}] : []),
     {label:t('View source'), key:'Ctrl+U', run:() => showSource(id)},
-    ...(full ? [{label:t('All headers'), run:() => showSource(id, 'headers')}] : []),
+    ...(full ? [{label:t('All headers'), run:() => showSource(id, 'headers')},
+      {sep:true},
+      {label:t('Larger text'), key:'+', run:() => stepZoom(1)},
+      {label:t('Smaller text'), key:'−', run:() => stepZoom(-1)},
+      {label:t('Text at 100% (now {n}%)', {n:(VIEWER ? pref().message_window_zoom : pref().message_zoom) ?? 100}), key:'0', disabled:readZoom() === 1, run:() => stepZoom(0)}] : []),
   ];
 }
 async function saveMessages(ids = chosen()){
@@ -2243,8 +2357,10 @@ function mountFrame(frame, documentHtml, spam, id){
     foldFrameQuotes(d, id);
     markLinks(d, spam);
     bindPreviewLinks(d, spam, frame);
+    fitFrame(frame); // zoom, line spacing, width and the room around it, as the settings say
     const fit = () => { frame.style.height = d.documentElement.scrollHeight + 'px'; };
     fit();
+    d.addEventListener('wheel', zoomWheel, {passive:false}); // Ctrl+wheel zooms the message
     new ResizeObserver(fit).observe(d.documentElement);
     d.querySelectorAll('img').forEach(img => img.addEventListener('load', fit));
     d.addEventListener('click', e => {
@@ -2341,7 +2457,7 @@ function headerHtml(m, controls){
   const book = m.from_email && !VIEWER && !isOut(m.folder)
     ? `<button type="button" class="pbtn ph-ab${known ? ' known' : ''}" data-act="contact" title="${esc(bookTip)}" aria-label="${esc(bookTip)}">${known ? I.person : I.personAdd}</button>` : '';
   return `<header class="ph">
-  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2>${controls}</div>
+  <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2><div class="ph-btns">${controls}</div></div>
   <div class="ph-tags">${tagChips(m.tags)}</div>
   <dl class="ph-grid">
     <dt>${esc(t('From'))}</dt><dd class="ph-from">${sender}${book}<span class="ph-when" title="${esc(t('Date'))}">${fmtFull(parseDate(m.date))} · ${fmtSize(m.size_kb)}</span></dd>
@@ -2655,6 +2771,7 @@ ${from ? `<button type="button" class="btn" data-act="move-in" data-path="${esc(
 <p class="wkeys">${esc(t('Telex works from the keyboard.'))} <button type="button" class="linkbtn" data-act="help" data-help-open><kbd>?</kbd> ${esc(t('Every key and tip'))}</button></p></div>`;
     return;
   }
+  if (paneOff()){ previewEl.replaceChildren(); return; } // not shown: Enter opens the message
   if (state.picked.size > 1){
     const keys = [['Del', N_('to Trash')], ['M', N_('move|messages')], ['F', N_('flag|several')], ['U', N_('read or unread')], ['Ctrl+C', N_('copy as Markdown')], ['Esc', N_('clear the selection')]];
     previewEl.innerHTML = `<div class="pempty">${I.mail}<div><b>${esc(tn(state.picked.size, '{n} message selected', '{n} messages selected', {n:num(state.picked.size)}))}</b></div>`
@@ -4479,7 +4596,11 @@ $('b-replyall').addEventListener('click', () => openCompose('replyall'));
 $('b-forward').addEventListener('click', () => openCompose('forward'));
 $('b-flag').addEventListener('click', toggleFlag);
 $('b-delete').addEventListener('click', del);
-$('b-density').addEventListener('click', () => changeSettings({density:pref().density === 'compact' ? 'comfortable' : 'compact'}));
+// The toolbar's button steps through the spacings, and round again.
+$('b-density').addEventListener('click', () => {
+  const i = DENSITIES.findIndex(([id]) => id === pref().density);
+  changeSettings({density:DENSITIES[(i + 1) % DENSITIES.length][0]});
+});
 $('b-settings').addEventListener('click', () => openSettings());
 // The filter matches senders, recipients and subjects at once, then also message text a
 // moment later (the core's full-text index). In all mail it looks in every account.
@@ -6144,6 +6265,85 @@ function toolbarCards(){
     + `<span class="navprev" data-style="${id}" aria-hidden="true">${sample('neu', 'New|message')}${sample('reply', 'Reply')}</span>`
     + `<span class="tname">${esc(t(name))}</span></label>`).join('');
 }
+// Accent colors: each card is a small window in the theme on screen with that accent; the last
+// one is a color of the user's own, picked with the system's color dialog.
+const ACCENT_NAMES = {blue:N_('Blue'), teal:N_('Teal'), green:N_('Green'), orange:N_('Orange'), red:N_('Red'), pink:N_('Pink'), purple:N_('Purple'), gray:N_('Gray')};
+const accentName = v => v === 'theme' ? t('The theme’s own') : ACCENT_NAMES[v] ? t(ACCENT_NAMES[v]) : v;
+function accentCards(){
+  const now = pref().accent || 'theme', own = /^#/.test(now) ? now : '';
+  const card = (value, name, extra = '') => `<label class="tcard acard"><input type="radio" name="accent" value="${esc(value)}"${now === value ? ' checked' : ''}>`
+    + `<span class="tprev" aria-hidden="true">${mini(shownTheme(pref().theme))}</span><span class="tname">${esc(name)}</span>${extra}</label>`;
+  return card('theme', accentName('theme'))
+    + TelexAccent.PRESETS.map(([id]) => card(id, accentName(id))).join('')
+    + card(own || 'custom', t('Your own'), `<input type="color" class="apick" id="s-accent-pick" value="${esc(own || '#2f6fd6')}" aria-label="${esc(t('Pick your own accent color'))}" title="${esc(t('Pick your own accent color'))}">`);
+}
+// Each card's small window in the accent it stands for (the custom one in the color picked).
+function paintAccentCards(){
+  const theme = shownTheme(pref().theme);
+  $('s-accents').querySelectorAll('.acard').forEach(c => {
+    const v = c.querySelector('input[name="accent"]').value, pick = v === 'custom' ? $('s-accent-pick').value : v;
+    paintAccent(c.querySelector('.mini'), theme, pick);
+  });
+}
+// Where the message pane goes: each card draws the window that way.
+function paneCards(){
+  return PANES.map(([id, name]) => `<label class="tcard pcard"><input type="radio" name="preview_pane" value="${id}"${pref().preview_pane === id ? ' checked' : ''}>`
+    + `<span class="lprev" data-pane="${id}" aria-hidden="true"><i class="l-tree"></i><i class="l-list"><b></b><b class="s"></b><b></b><b></b></i><i class="l-msg"><b></b><b></b><b></b></i></span>`
+    + `<span class="tname">${esc(t(name))}</span></label>`).join('');
+}
+// Spacing: each card a few rows of the list, and a message's first lines, as roomy as it makes them.
+function densityCards(){
+  return DENSITIES.map(([id, name]) => `<label class="tcard dcard"><input type="radio" name="density" value="${id}"${pref().density === id ? ' checked' : ''}>`
+    + `<span class="dprev" data-density="${id}" aria-hidden="true"><span class="drows"><b class="u"></b><b class="s"></b><b></b><b></b><b></b><b></b></span></span>`
+    + `<span class="tname">${esc(t(name))}</span></label>`).join('');
+}
+// A few lines of a message as the reading choices draw them, at the pane's zoom.
+function renderReadPreview(){
+  const el = $('s-readprev'), s = pref();
+  el.dataset.lines = s.line_spacing; el.dataset.width = s.reading_width;
+  el.style.setProperty('--read-zoom', String((s.message_zoom ?? 100) / 100));
+  el.innerHTML = `<p>${esc(t('Hi Anna, thanks for the plans. They look great, and the new kitchen window works well with the light in the morning. I will send the photos tomorrow, so you have them before the visit on Friday.'))}</p>`;
+}
+// Settings › Appearance to the defaults, and back again while the window is open.
+const LOOK_DEFAULTS = {theme:'system', accent:'theme', font:'plex', text_size:100, density:'compact', toolbar_style:'classic', unread_style:'quiet', account_mark:'rail',
+  preview_pane:'below', line_spacing:'normal', reading_width:'normal', message_zoom:100, message_window_zoom:100};
+let lookBefore = null; // what the reset changed: settings, columns and pane sizes
+const PANE_SIZES = ['--tree-w', '--list-h', '--list-w'];
+async function resetLook(){
+  const s = pref(), before = {settings:Object.fromEntries(Object.keys(LOOK_DEFAULTS).map(k => [k, s[k]])), cols:{...colPref},
+    panes:Object.fromEntries(PANE_SIZES.map(p => [p, win.style.getPropertyValue(p)]))};
+  if (!await changeSettings(LOOK_DEFAULTS)) return;
+  setLookLayout({from:null, where:null, size:true, dates:'short'}, {});
+  lookBefore = before;
+  paintLookReset(t('Appearance is back to how Telex starts.'));
+}
+async function undoLookReset(){
+  const was = lookBefore;
+  if (!was || !await changeSettings(was.settings)) return;
+  setLookLayout(was.cols, was.panes);
+  lookBefore = null;
+  paintLookReset(t('Appearance is as it was.'));
+}
+function setLookLayout(cols, panes){
+  Object.assign(colPref, cols);
+  for (const p of PANE_SIZES) if (panes[p]) win.style.setProperty(p, panes[p]); else win.style.removeProperty(p);
+  persist(); measured = null; colsDone = ''; fitColumns(); drawRows(); renderColumnChoices();
+}
+function paintLookReset(text){
+  const line = $('s-reset-done');
+  line.hidden = !text;
+  line.innerHTML = text ? esc(text) + (lookBefore ? ` <button type="button" class="linkbtn" id="s-reset-undo">${esc(t('Undo'))}</button>` : '') : '';
+}
+$('s-reset').addEventListener('click', resetLook);
+$('s-reset-done').addEventListener('click', e => { if (e.target.id === 's-reset-undo') undoLookReset(); });
+// The nav at the top of Appearance: to a group, its heading focused.
+sdlg.querySelector('.lnav').addEventListener('click', e => {
+  const b = e.target.closest('[data-jump]');
+  if (!b) return;
+  const h = $(b.dataset.jump), p = sdlg.querySelector('.setpanes');
+  p.scrollTop += h.getBoundingClientRect().top - p.getBoundingClientRect().top - sdlg.querySelector('.lnav').offsetHeight - 8;
+  h.focus({preventScroll:true});
+});
 function renderSettings(keepFocus){
   const focused = keepFocus && document.activeElement?.closest?.('#set-dlg') ? document.activeElement : null;
   const again = focused && (focused.name ? `[name="${focused.name}"][value="${focused.value}"]` : focused.id ? '#' + focused.id : null);
@@ -6163,7 +6363,14 @@ function renderSettings(keepFocus){
     el.title = t('Meets WCAG 2.2 {level} contrast', {level:lvl});
   });
   $('s-forced').hidden = !forcedColors.matches;
-  $('s-density').innerHTML = segs('density', [['compact', esc(t('Compact'))], ['comfortable', esc(t('Comfortable'))]], s.density);
+  $('s-accents').innerHTML = accentCards();
+  $('s-panes').innerHTML = paneCards();
+  $('s-density').innerHTML = densityCards();
+  $('s-lines').innerHTML = segs('line_spacing', LINE_SPACINGS.map(([v, label]) => [v, esc(t(label))]), s.line_spacing);
+  $('s-width').innerHTML = segs('reading_width', READING_WIDTHS.map(([v, label]) => [v, esc(t(label))]), s.reading_width);
+  $('s-mzoom').innerHTML = segs('message_zoom', MESSAGE_ZOOMS.map(n => [n, n + '%']), s.message_zoom);
+  $('s-wzoom').innerHTML = segs('message_window_zoom', MESSAGE_ZOOMS.map(n => [n, n + '%']), s.message_window_zoom);
+  syncAccents();
   $('s-marks').innerHTML = markCards();
   $('s-unread').innerHTML = unreadCards();
   renderColumnChoices();
@@ -6224,10 +6431,24 @@ function paneOpened(tab){
   if (tab === 'move') renderMove();
   if (tab === 'keys'){ keys_.list = null; keys_.paste = false; keys_.armed = ''; keys_.p12 = null; keys_.p12err = ''; renderKeys(); }
 }
+// The accent's cards in the theme on screen, the theme cards in the accent, the reading sample.
+function syncAccents(){
+  const s = pref(), theme = shownTheme(s.theme), accent = s.accent || 'theme', own = accent.startsWith('#');
+  const custom = $('s-accents').querySelector('.acard:last-child input[name="accent"]');
+  if (custom) custom.value = own ? accent : 'custom';
+  if (own) $('s-accent-pick').value = accent;
+  $('s-accents').querySelectorAll('.mini').forEach(m => { m.dataset.theme = theme; });
+  $('s-accents').querySelectorAll('input[name="accent"]').forEach(r => { r.checked = r.value === accent; });
+  paintAccentCards();
+  $('s-themes').querySelectorAll('.mini').forEach(m => paintAccent(m, m.dataset.theme, accent));
+  renderReadPreview();
+}
 // After a change that keeps the words: only the ticks move, so focus stays where it was.
 function syncSettings(){
   const s = pref();
-  const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
+  syncAccents();
+  const want = {theme:s.theme, toolbar_style:s.toolbar_style || 'classic', density:s.density, preview_pane:s.preview_pane, line_spacing:s.line_spacing,
+    reading_width:s.reading_width, message_zoom:String(s.message_zoom), message_window_zoom:String(s.message_window_zoom), account_mark:s.account_mark, unread_style:s.unread_style, font:s.font, text_size:String(s.text_size), language:s.language, mark_read:s.mark_read, prefer_text:s.prefer_text ? 'text' : 'html',
     mail_paper:s.mail_paper, spam_filter:s.spam_filter ?? 'careful', compose_format:s.compose_format, reply_format:s.reply_format, image_size:s.image_size ?? 'large', backup_every:s.backup_every, updates:s.updates};
   sdlg.querySelectorAll('input[type="radio"]').forEach(r => { if (r.name in want) r.checked = r.value === want[r.name]; });
   $('s-every').value = String(s.check_every);
@@ -6260,6 +6481,7 @@ const delayText = ms => ms === 600 ? t('a moment|on screen') : tn(ms / 1000, '{n
 const undoText = n => n === 0 ? t('Off: send at once') : tn(n, '{n} second', '{n} seconds');
 function openSettings(tab){
   if (tab) setTab = tab;
+  if (!sdlg.open){ lookBefore = null; paintLookReset(''); }
   move_ = {plan:null, choice:null, report:null, exported:move_.exported, error:'', counts:null};
   if (!moveIn.running) moveIn = {...moveIn, source:null, report:null, error:'', passwords:{}};
   renderSettings();
@@ -6290,6 +6512,13 @@ sdlg.addEventListener('change', e => {
   if (el.name === 'theme') changeSettings({theme:v});
   else if (el.name === 'toolbar_style') changeSettings({toolbar_style:v});
   else if (el.name === 'density') changeSettings({density:v});
+  else if (el.name === 'accent') changeSettings({accent:v === 'custom' ? $('s-accent-pick').value.toLowerCase() : v});
+  else if (el.id === 's-accent-pick') changeSettings({accent:v.toLowerCase()});
+  else if (el.name === 'preview_pane') changeSettings({preview_pane:v});
+  else if (el.name === 'line_spacing') changeSettings({line_spacing:v});
+  else if (el.name === 'reading_width') changeSettings({reading_width:v});
+  else if (el.name === 'message_zoom') changeSettings({message_zoom:Number(v)});
+  else if (el.name === 'message_window_zoom') changeSettings({message_window_zoom:Number(v)});
   else if (el.name === 'account_mark') changeSettings({account_mark:v});
   else if (el.name === 'unread_style') changeSettings({unread_style:v});
   else if (el.name === 'list_dates') setDates(v);
@@ -6324,6 +6553,8 @@ sdlg.addEventListener('change', e => {
   else if (el.dataset.part) move_.choice[el.dataset.part] = el.checked;
 });
 forcedColors.addEventListener('change', () => { if (sdlg.open) $('s-forced').hidden = !forcedColors.matches; });
+// While the color dialog is open, its card shows the color being picked.
+sdlg.addEventListener('input', e => { if (e.target.id === 's-accent-pick') paintAccentCards(); });
 $('s-check').addEventListener('click', () => { sdlg.close(); openUpdates(); });
 // A login that works saves the account, so it isn't left halfway: no closing until it answers.
 $('s-close').addEventListener('click', () => { if (wizardBusy !== 'login') sdlg.close(); });
@@ -6339,7 +6570,8 @@ sdlg.addEventListener('close', () => {
 // passwords. Importing shows what would change first; nothing changes until Import.
 // How large pictures put into a message are made (images::prepare).
 const IMAGE_SIZES = [['large', N_('Large: at most 1600 pixels across')], ['medium', N_('Medium: at most 800 pixels across')], ['original', N_('As they are')]];
-const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), prefer_text:N_('HTML mail'),
+const SETTING_LABELS = {theme:N_('Theme'), language:N_('Language'), toolbar_style:N_('Toolbar'), density:N_('Rows'), account_mark:N_('Account colors'), unread_style:N_('Unread mail'), font:N_('Font'), text_size:N_('Text size'), accent:N_('Accent color'), preview_pane:N_('Message pane'), line_spacing:N_('Line spacing'),
+  reading_width:N_('Longest lines'), message_zoom:N_('Message text'), message_window_zoom:N_('Message text in its own window'), prefer_text:N_('HTML mail'),
   threaded:N_('Threads'), mark_read:N_('Mark messages as read'), read_delay:N_('A moment on screen'), check_every:N_('Check for new mail'), mail_paper:N_('HTML mail in a dark theme'),
   risk_checks:N_('Scam warnings'), spam_filter:N_('Spam filter'), compose_format:N_('New messages'), reply_format:N_('Replies and forwards'), sign_replies:N_('Sign replies and forwards too'), image_size:N_('Pictures'), ask_subject:N_('Ask before sending a message without a subject'), ask_attachment:N_('Ask when the text mentions an attachment but none is attached'), ask_many:N_('Ask before a reply to all goes to 8 people or more'),
   spell_check:N_('Underline spelling mistakes'), spell_languages:N_('Spelling languages'), updates:N_('Updates'), push_mail:N_('Show new mail at once'),
@@ -6349,7 +6581,12 @@ function settingValue(key, v){
   switch (key){
     case 'theme': return THEME_NAMES[v] ? t(THEME_NAMES[v]) : v;
     case 'language': return v === 'auto' ? t('Automatic, as in Windows') : LANG_NAMES[v] ?? v;
-    case 'density': return v === 'comfortable' ? t('Comfortable') : t('Compact');
+    case 'density': return densityName(v);
+    case 'accent': return accentName(v);
+    case 'preview_pane': return t(PANES.find(([id]) => id === v)?.[1] ?? v);
+    case 'line_spacing': return t(LINE_SPACINGS.find(([id]) => id === v)?.[1] ?? v);
+    case 'reading_width': return t(READING_WIDTHS.find(([id]) => id === v)?.[1] ?? v);
+    case 'message_zoom': case 'message_window_zoom': return v + '%';
     case 'toolbar_style': return TOOLBAR_STYLES.find(([id]) => id === v) ? t(TOOLBAR_STYLES.find(([id]) => id === v)[1]) : v;
     case 'account_mark': return MARKS.find(([id]) => id === v) ? t(MARKS.find(([id]) => id === v)[1]) : v;
     case 'unread_style': return UNREAD_STYLES.find(([id]) => id === v) ? t(UNREAD_STYLES.find(([id]) => id === v)[1]) : v;
@@ -7737,6 +7974,8 @@ const KEYS = [
   {g:'read', k:'Esc', d:N_('in a message’s own window: close it'), doc:'Enter, double-click'},
   {g:'read', k:'H', d:N_('HTML or plain text'), doc:'H', run:true},
   {g:'read', k:'Q', d:N_('open or fold the quoted mail'), doc:'Q', run:true},
+  {g:'read', k:'+ − 0', d:N_('the message’s text larger, smaller or at 100%'), doc:'+ / − / 0'},
+  {g:'read', k:'Ctrl+wheel', d:N_('over a message: its text larger or smaller'), doc:'+ / − / 0'},
   {g:'read', k:'→ ←', d:N_('with threads on: expand or collapse a thread'), doc:'→ / ←'},
   {g:'read', k:'Ctrl+C', d:N_('the selected messages, or the open one, as Markdown for notes or an AI chat'), doc:'Ctrl+C'},
   {g:'read', k:'Ctrl+S', d:N_('save as .eml files, as they came'), doc:'Ctrl+S'},
@@ -8009,6 +8248,9 @@ function onKey(e){
   else if (k === 't') toggleThread();
   else if (k === 'o') toggleUnreadOnly();
   else if (/^[1-5]$/.test(k) && !shift && TAGS[Number(k) - 1]) toggleTag(TAGS[Number(k) - 1].keyword);
+  else if ((k === '+' || k === '=') && !state.compose) stepZoom(1);
+  else if (k === '-' && !state.compose) stepZoom(-1);
+  else if (k === '0' && !state.compose) stepZoom(0);
   else if (k === 'z') undo();
   else if (k === '/') qEl.focus();
   else if (k === '?') toggleHelp();
@@ -8034,13 +8276,22 @@ splitter($('split-v'),
     const d = k === 'ArrowLeft' ? -12 : k === 'ArrowRight' ? 12 : 0; if (!d) return false;
     win.style.setProperty('--tree-w', clamp(Math.round(treeEl.getBoundingClientRect().width + d), 150, 380) + 'px'); return true;
   });
+// Between the list and the message pane: its height, or its width with the pane on the right.
+const sideBySide = () => paneShown === 'right';
 splitter($('split-h'),
-  ev => { const r = $('right').getBoundingClientRect(); win.style.setProperty('--list-h', clamp((ev.clientY - r.top) / r.height * 100, 18, 82).toFixed(1) + '%'); },
+  ev => {
+    const r = $('right').getBoundingClientRect();
+    if (sideBySide()) win.style.setProperty('--list-w', clamp((ev.clientX - r.left) / r.width * 100, 25, 80).toFixed(1) + '%');
+    else win.style.setProperty('--list-h', clamp((ev.clientY - r.top) / r.height * 100, 18, 82).toFixed(1) + '%');
+  },
   k => {
-    const d = k === 'ArrowUp' ? -4 : k === 'ArrowDown' ? 4 : 0; if (!d) return false;
-    const r = $('right').getBoundingClientRect(), cur = listEl.getBoundingClientRect().height / r.height * 100;
-    win.style.setProperty('--list-h', clamp(cur + d, 18, 82).toFixed(1) + '%'); return true;
+    const side = sideBySide(), d = (side ? {ArrowLeft:-4, ArrowRight:4} : {ArrowUp:-4, ArrowDown:4})[k] ?? 0; if (!d) return false;
+    const r = $('right').getBoundingClientRect(), l = listEl.getBoundingClientRect();
+    if (side) win.style.setProperty('--list-w', clamp(l.width / r.width * 100 + d, 25, 80).toFixed(1) + '%');
+    else win.style.setProperty('--list-h', clamp(l.height / r.height * 100 + d, 18, 82).toFixed(1) + '%');
+    return true;
   });
+previewEl.addEventListener('wheel', zoomWheel, {passive:false}); // Ctrl+wheel over a message zooms it
 
 /* ---------- boot ---------- */
 /* ---------- a message in its own window ---------- */

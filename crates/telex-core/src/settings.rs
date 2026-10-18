@@ -32,9 +32,15 @@ pub const THEMES: &[&str] = &[
     "light",
     "dark",
     "paper",
+    "sepia",
     "heather",
+    "solar-light",
+    "classic",
     "fjord",
+    "solar-dark",
+    "graphite",
     "phosphor",
+    "oled",
     "contrast-light",
     "contrast-dark",
 ];
@@ -42,6 +48,14 @@ pub const THEMES: &[&str] = &[
 pub const LANGUAGES: &[&str] = &["en", "pl", "de", "cs", "sk", "uk", "es", "fr", "it"];
 /// Text sizes, in percent of the normal size.
 pub const TEXT_SIZES: &[u16] = &[90, 100, 110, 125, 150, 175, 200];
+/// Accent colors offered as presets; besides them "theme" (the theme's own) and a picked
+/// "#rrggbb". The window fits each to the theme (`ui/accent.js`), checked by check-contrast.mjs.
+pub const ACCENTS: &[&str] = &[
+    "blue", "teal", "green", "orange", "red", "pink", "purple", "gray",
+];
+/// How large a message's text is shown, in percent: in the message pane and in a message's own
+/// window, each on its own (Ctrl+wheel, + and −).
+pub const MESSAGE_ZOOMS: &[u16] = &[70, 80, 90, 100, 110, 125, 150, 175, 200];
 /// Minutes between background checks for mail. 0: only when the user asks.
 pub const CHECK_INTERVALS: &[u16] = &[0, 5, 10, 15, 30, 60];
 /// Seconds sent mail waits in the Outbox, so Send can be undone. 0: it goes at once.
@@ -62,6 +76,12 @@ const KEYS: &[&str] = &[
     "threaded",
     "font",
     "text_size",
+    "accent",
+    "preview_pane",
+    "line_spacing",
+    "reading_width",
+    "message_zoom",
+    "message_window_zoom",
     "prefer_text",
     "mark_read",
     "read_delay",
@@ -110,6 +130,24 @@ pub struct Settings {
     pub font: Font,
     /// Percent, one of [`TEXT_SIZES`].
     pub text_size: u16,
+    /// "theme" (the theme's own), one of [`ACCENTS`], or a picked "#rrggbb".
+    #[serde(default = "theme_accent")]
+    pub accent: String,
+    /// Where the message pane is: below the list, right of it, or nowhere (Enter opens a window).
+    #[serde(default)]
+    pub preview_pane: PreviewPane,
+    /// The space between the lines of a message.
+    #[serde(default)]
+    pub line_spacing: LineSpacing,
+    /// How long a message's lines may get on a wide screen.
+    #[serde(default)]
+    pub reading_width: ReadingWidth,
+    /// Percent, one of [`MESSAGE_ZOOMS`]: a message's text in the message pane.
+    #[serde(default = "hundred")]
+    pub message_zoom: u16,
+    /// Percent, one of [`MESSAGE_ZOOMS`]: the same in a message's own window.
+    #[serde(default = "hundred")]
+    pub message_window_zoom: u16,
     /// Show HTML mail as plain text (H switches).
     pub prefer_text: bool,
     pub mark_read: MarkRead,
@@ -252,12 +290,49 @@ pub enum ToolbarStyle {
     Text,
 }
 
-/// Row height in the lists: 20 px, or 26 px for people who want air.
+/// How much room the window gives: the rows of the lists and the folders (20, 23, 26 or 30 px),
+/// and the space around the message's header and text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Density {
     Compact,
+    Normal,
     Comfortable,
+    Spacious,
+}
+
+/// Where the message pane is, as in The Bat!: under the list, beside it, or not shown (the list
+/// takes the window, and Enter opens a message in a window of its own).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreviewPane {
+    #[default]
+    Below,
+    Right,
+    Off,
+}
+
+/// Line height of a message's text: 1.35, 1.55, 1.75 or 2 times the text size.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineSpacing {
+    Tight,
+    #[default]
+    Normal,
+    Relaxed,
+    Loose,
+}
+
+/// The longest a message's lines get: plain text at about 62, 76 or 100 characters, HTML mail at
+/// 760, 960 or 1200 pixels (times the message zoom), or as wide as the pane.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadingWidth {
+    Narrow,
+    #[default]
+    Normal,
+    Wide,
+    Full,
 }
 
 /// How the folder tree (and wherever an account is named) tells accounts apart.
@@ -346,6 +421,25 @@ pub enum UsageCount {
     Off,
 }
 
+fn theme_accent() -> String {
+    "theme".into()
+}
+
+fn hundred() -> u16 {
+    100
+}
+
+/// "theme", a preset, or a color written "#rrggbb" in lower case.
+fn is_accent(value: &str) -> bool {
+    value == "theme"
+        || ACCENTS.contains(&value)
+        || (value.len() == 7
+            && value.starts_with('#')
+            && value[1..]
+                .chars()
+                .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)))
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -358,6 +452,12 @@ impl Default for Settings {
             threaded: false,
             font: Font::Plex,
             text_size: 100,
+            accent: theme_accent(),
+            preview_pane: PreviewPane::Below,
+            line_spacing: LineSpacing::Normal,
+            reading_width: ReadingWidth::Normal,
+            message_zoom: 100,
+            message_window_zoom: 100,
             prefer_text: false,
             mark_read: MarkRead::Moment,
             read_delay: 600,
@@ -410,6 +510,9 @@ impl Settings {
         THEMES.contains(&self.theme.as_str())
             && (self.language == "auto" || LANGUAGES.contains(&self.language.as_str()))
             && TEXT_SIZES.contains(&self.text_size)
+            && is_accent(&self.accent)
+            && MESSAGE_ZOOMS.contains(&self.message_zoom)
+            && MESSAGE_ZOOMS.contains(&self.message_window_zoom)
             && READ_DELAYS.contains(&self.read_delay)
             && CHECK_INTERVALS.contains(&self.check_every)
             && UNDO_SEND.contains(&self.undo_send)
@@ -1837,6 +1940,71 @@ mod tests {
         let mut ignored = ignored;
         ignored.sort();
         assert_eq!(ignored, ["colour", "text_size", "theme"]);
+    }
+
+    #[test]
+    fn appearance_choices_are_checked_and_older_files_get_the_old_look() {
+        let (s, ignored) = Settings::default().merged(&serde_json::json!({
+            "theme": "solar-dark", "accent": "#1a7f6e", "density": "spacious",
+            "preview_pane": "right", "line_spacing": "relaxed", "reading_width": "wide",
+            "message_zoom": 125, "message_window_zoom": 150,
+        }));
+        assert!(ignored.is_empty(), "{ignored:?}");
+        assert_eq!(
+            (s.theme.as_str(), s.accent.as_str()),
+            ("solar-dark", "#1a7f6e")
+        );
+        assert_eq!(s.density, Density::Spacious);
+        assert_eq!(s.preview_pane, PreviewPane::Right);
+        assert_eq!(s.line_spacing, LineSpacing::Relaxed);
+        assert_eq!(s.reading_width, ReadingWidth::Wide);
+        assert_eq!((s.message_zoom, s.message_window_zoom), (125, 150));
+        for accent in ["teal", "theme", "#00ff00"] {
+            assert_eq!(
+                s.merged(&serde_json::json!({ "accent": accent })).0.accent,
+                accent
+            );
+        }
+        // Not a color Telex can use, or not one of the steps: left as it was.
+        for bad in [
+            serde_json::json!({"accent": "#00FF00"}),
+            serde_json::json!({"accent": "#0f0"}),
+            serde_json::json!({"accent": "red; background:url(x)"}),
+            serde_json::json!({"message_zoom": 133}),
+            serde_json::json!({"preview_pane": "left"}),
+        ] {
+            let (same, ignored) = s.merged(&bad);
+            assert_eq!(same, s);
+            assert_eq!(ignored.len(), 1);
+        }
+        // A file from before these choices: the look it had.
+        let (old, ignored) = Settings::default()
+            .merged(&serde_json::json!({"theme": "dark", "density": "comfortable"}));
+        assert!(ignored.is_empty());
+        assert_eq!(old.accent, "theme");
+        assert_eq!(old.preview_pane, PreviewPane::Below);
+        assert_eq!(old.line_spacing, LineSpacing::Normal);
+        assert_eq!(old.reading_width, ReadingWidth::Normal);
+        assert_eq!((old.message_zoom, old.message_window_zoom), (100, 100));
+        // An import names what changes, in the window's order.
+        let keys: Vec<String> = Settings::default()
+            .changes_to(&s)
+            .into_iter()
+            .map(|c| c.key)
+            .collect();
+        assert_eq!(
+            keys,
+            [
+                "theme",
+                "density",
+                "accent",
+                "preview_pane",
+                "line_spacing",
+                "reading_width",
+                "message_zoom",
+                "message_window_zoom"
+            ]
+        );
     }
 
     #[test]

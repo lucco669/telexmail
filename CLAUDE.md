@@ -11,7 +11,7 @@ plain sentences in your summary.
 ## What Telex should feel like
 
 - **Dense.** 20 px rows by default, a condensed face in the message list, mono for dates and sizes.
-  No spacious, Mac-style padding. A "Comfortable" density toggle exists for people who want air.
+  No spacious, Mac-style padding by default. Normal, Comfortable and Spacious steps exist for people who want air.
 - **Keyboard-first.** Every common action has a single key (see the table below). Mouse is optional.
 - **Fast and light.** Starts instantly, small installer, no Electron, no account or cloud service.
 - **Local mail base.** Mail is stored on the user's disk and searchable offline.
@@ -221,11 +221,15 @@ src-tauri/           Thin Tauri shell: exposes MailStore methods as commands. Ke
   tauri.linux.conf.json    Merged on Linux by Tauri: AppImage and .deb instead of nsis/msi.
 ui/                  The interface. index.html + styles.css + app.js, no build step, no framework.
   themes.css         Every color, one block per theme (data-theme on <html> and on theme cards).
+  accent.js          Accent colors fitted to a theme in OKLab, the lightness found so every pair
+                     still meets the theme's WCAG level (window.TelexAccent; check-contrast.mjs
+                     runs it for every theme with every preset and a wheel of picked colors).
   i18n.js            English and Polish: t(), tn() (plurals), data-i18n in index.html; the list
                      of languages, their locales, load() for the others.
   i18n/<code>.js     German, Czech, Slovak, Ukrainian, Spanish, French, Italian: a table each, keyed
                      by the English, loaded only when chosen.
-  boot.js            Puts the saved theme, language and text size on <html> before first paint
+  boot.js            Puts the saved theme (and its accent), language, text size, spacing, message
+                     pane and reading choices on <html> before first paint
                      (and writes the <script> of a language in i18n/, so it is there at once).
   links.js           A link's real destination, hidden characters made visible (no network).
   fonts/             IBM Plex, Inter, JetBrains Mono, Atkinson Hyperlegible Next and Mono, Source Sans 3
@@ -246,7 +250,7 @@ brand/               The logo: telex-mark.svg (48 px and up) and telex-mark-smal
                      below). `npm run icons` in site/ makes every app and site icon from them.
 scripts/             set-version.mjs: sets the version in every file that has it, or checks them.
                      check-signing-key.mjs: the release key pair belongs together (release.yml).
-                     check-contrast.mjs: every theme meets its WCAG level (CI; --json for the site).
+                     check-contrast.mjs: every theme meets its WCAG level, with every accent (CI; --json for the site).
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI).
                      check-keys.mjs: the help's keys (KEYS in app.js) and the keyboard table here agree (CI).
                      check-i18n.mjs: every text in app.js and index.html has its Polish (CI), the
@@ -446,14 +450,21 @@ Folder keys are `"<account>/<folder>"`, e.g. `firma/inbox`; the folders on this 
 
 Settings: `theme` (one of `settings::THEMES`; "system" follows Windows' light/dark), `language`
 ("auto", or one of `settings::LANGUAGES`: en, pl, de, cs, sk, uk, es, fr, it), `toolbar_style` (classic, icons, large, below, text), `threaded` (thread rows
-in folder lists, off by default), `density`, `account_mark` (rail, dot, initials, tint, none: how accounts'
+in folder lists, off by default), `density` (compact, normal, comfortable, spacious: 20, 23, 26, 30 px rows, the tree and
+the room around a message's header and text; `data-density` on `<html>`), `account_mark` (rail, dot, initials, tint, none: how accounts'
 colors show in the tree, on the rows of every list (with two or more accounts; a dot or the
 initials stand once above one account's folder), and the status bar; `data-mark` on `<html>`),
 `unread_style` (quiet: read mail in `--muted`, bold: weight only, color: unread mail in
 `--accent`; `data-unread` on `<html>`), `font` (plex, system, classic, inter, atkinson, source:
 the window's, the list's and the mono face; `data-font` on `<html>`, sets of `--font-ui`,
 `--font-list`, `--font-data` in styles.css),
-`text_size` (90–200, webview zoom), `prefer_text`, `mark_read`
+`text_size` (90–200, webview zoom), `accent` ("theme", one of `settings::ACCENTS`, or a picked "#rrggbb";
+ui/accent.js fits it to the theme: `--accent`, `--sel`, `--chip-*`, `--img-*` set on `<html>`), `preview_pane` (below, right,
+off: no message pane, Enter opens a window, nothing is read by selecting; `data-pane` on `<html>`), `line_spacing`
+(tight, normal, relaxed, loose: 1.35 to 2; normal leaves HTML mail's own), `reading_width` (narrow, normal, wide,
+full: plain text at 62, 76, 100 ch, HTML mail at 760, 960, 1200 px times the zoom; `data-lines`, `data-width`),
+`message_zoom` and `message_window_zoom` (70–200: a message's text in the pane and in its own window, + − 0
+and Ctrl+wheel; the HTML frame's document gets CSS zoom), `prefer_text`, `mark_read`
 (moment, at_once, window, manual), `read_delay` (ms a message is on screen before it counts as
 read with moment: 600, 1000, 2000, 3000, 5000, 10000), `check_every` (minutes, 0 = only on Get mail), `push_mail` (IMAP
 IDLE on each Inbox), `notify` (a notification for new mail while the window isn't active),
@@ -470,10 +481,11 @@ the secret parts of OpenPGP keys, locked with their passphrases; off: public par
 (compose starts signed) and `pgp_autocrypt` (an Autocrypt header with the sender's key). Reading or changing them
 also sets the core's language (`i18n::set`). They live in `%APPDATA%\app.telexmail.desktop\settings.json`, written whole or not at
 all, even before the first account. The window keeps only its own state in localStorage
-(`telex-ui`: pane sizes, the list's columns (`cols`: From and Folder widths, Size, short or full
+(`telex-ui`: pane sizes (`treeW`, `listH`, `listW` with the message pane on the right), the list's columns (`cols`: From and Folder widths, Size, short or full
 dates), filter scope, "more" folders, folders kept in view (`pinned`), recent searches, the last
 update check, whether the status bar has said where the help is (`helpTold`); `telex-look`: a
-copy of theme, language, zoom, account mark, unread style and font for boot.js).
+copy of theme, language, zoom, account mark, unread style, font, toolbar, spacing, message pane, reading
+choices and the accent's colors for the theme on screen, for boot.js).
 
 ## Commands
 
@@ -595,6 +607,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Enter, double-click | open the message in a window of its own (Esc closes it); in all-mail results and conversations Enter opens the message's folder |
 | H            | switch HTML / plain text view (remembered) |
 | Q            | open or fold the quoted mail of the open message |
+| + / − / 0    | the open message's text larger, smaller, at 100% (also Ctrl+wheel over it and the … above it); the message pane and a message's own window each keep their own |
 | Esc          | clear filter, the selection, the conversation or only-unread; in compose: save draft and close |
 | ↓ ↑ Enter Tab Esc | in To, Cc, Bcc: choose a suggested address |
 | Ctrl+Enter   | send (compose)                 |
@@ -660,6 +673,38 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
   - Search: `is:replied` (`is:answered`), `is:unreplied`, `is:forwarded`. Rules have no
     condition on them yet (`filters::Field::State` reads the summary's unread and flag, and a rule
     on arrival never sees answered mail).
+- Settings › Appearance, extended (no schema change; settings `accent`, `preview_pane`, `line_spacing`,
+  `reading_width`, `message_zoom`, `message_window_zoom`, and `density` takes normal and spacious):
+  - Six more themes (14 in all): Sepia (warm brown on toned paper, for long reading), Solar light and
+    Solar dark (after Solarized, darkened where it falls short of AA), Classic grey (Windows 98 and
+    The Bat!: grey frame, white lists, navy for the chosen row), Graphite (neutral greys, amber accent)
+    and Black (true black for OLED). The dark ones take HTML mail onto their paper (`DARK_THEMES`).
+  - Accent color: the theme's own, eight presets or one picked with the system's color dialog. The pick
+    gives hue and colorfulness; `ui/accent.js` finds the lightness in OKLab from the theme accent's,
+    away from what it is drawn on, until every pair it is in meets the theme's level (AA, AAA for high
+    contrast), and gives the selection, chips and image stand-ins its hue at the theme's lightness;
+    what can't fit stays the theme's own. check-contrast.mjs runs it for every theme with every preset
+    and 101 picked colors (24 hues, pale to vivid, and greys). Links on dark paper follow it.
+  - Spacing in four steps (Compact 20 px rows, Normal 23, Comfortable 26, Spacious 30): the list, the
+    tree, the message header and the text's margins (`--ph-pad`, `--pb-pad`, `--tree-pad`); the
+    toolbar's rows button steps through them.
+  - Reading: line spacing (Tight 1.35, Normal 1.55, Relaxed 1.75, Loose 2; HTML mail keeps its own on
+    Normal) and the longest lines (plain text 62/76/100 ch or the pane; HTML mail 760/960/1200 px).
+  - Message zoom apart from the window's text size: + − 0 over the list or a message, Ctrl+wheel over a
+    message (its HTML frame too), and Larger text / Smaller text / Text at 100% in the … above it. The
+    message pane and a message's own window keep their own (`message_zoom`, `message_window_zoom`);
+    shown at once, saved 0.4 s later. HTML mail is zoomed with CSS zoom on its frame's document,
+    plain text by its font size, so lines keep their length in characters.
+  - The message pane below the list, right of it (the splitter turns; `listW` in `telex-ui`), or off:
+    the list takes the room, Enter opens the window, selecting reads nothing, and a message being
+    written shows over the list. The header's buttons go under the subject when the pane is narrow.
+  - The Appearance page: five groups (Colors, Text, Layout, Reading, Message list) with a sticky row of
+    links to them, every choice drawn as it will look (theme cards in the chosen accent, accent cards in
+    the theme on screen, the message pane's three layouts, rows at each spacing, a sample paragraph at
+    the chosen line spacing, width and zoom), and Reset appearance (settings, columns, pane sizes) with
+    Undo while the window is open.
+- Fixed: the date and size of the selected row in the focused list were drawn in the text color on
+  the accent (hard to read in every theme); they take `--accent-fg` like the rest of the row.
 
 ## Current state (v0.9.20: tags, an address book, calendar invitations, send later and unsubscribe, POP3, drafts on the server, OpenPGP and S/MIME, saving and printing mail, a help panel, seven more languages, and all earlier features below)
 
