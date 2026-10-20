@@ -1,5 +1,5 @@
 import { PageLink as Link } from '@/components/PageNavigation';
-import { facts, versions } from '@/lib/content';
+import { facts, hero, versions } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { megabytes, type Release } from '@/lib/release';
 import { isReleased, versionAnchor, versionName } from '@/lib/versions';
@@ -59,8 +59,7 @@ export function Hero({ release, unknown = false }: { release: Release | null; un
         </div>
         <div className={s.side}>
           <p className={s.lead}>
-            Light on your PC. Quick through your inbox. Telex is an email client for Windows and Linux, with dense lists, one key for every action, and all
-            your mail on your own disk. A spam filter that learns on your PC, searches kept close, and rules you can preview.
+            Fast, local email for Windows and Linux. Offline search, a learning spam filter and rules you can preview.
           </p>
           <div className={s.actions}>
             <DownloadButton release={release} unknown={unknown} />
@@ -76,7 +75,7 @@ export function Hero({ release, unknown = false }: { release: Release | null; un
 
       <div className={s.stage}>
         <div className="container">
-          <HeroStage />
+          <HeroStage id={hero.id} title={hero.title} demoPath={pages.demo.path} />
         </div>
         <div className="container">
           <ul className={s.facts} aria-label="What you get">

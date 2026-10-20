@@ -28,6 +28,15 @@
   color-scheme: light;
 }
 
+/* Phone text paints immediately in device-native faces. Desktop retains the app's Plex faces. */
+@media screen and (max-width: 899px) {
+  :root {
+    --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-cond: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  }
+}
+
 /* Dark: when the system asks for it, unless the visitor picked light, or when they picked dark.
    The choice is data-theme on <html>, set before the first paint by the script in app/layout.tsx. */
 @media (prefers-color-scheme: dark) {
@@ -101,7 +110,7 @@ body {
 }
 
 h1, h2, h3 { margin: 0; font-family: var(--font-cond); font-weight: 600; text-wrap: balance; }
-p { margin: 0; text-wrap: pretty; }
+p { margin: 0; }
 a { color: inherit; }
 img { display: block; max-width: 100%; height: auto; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
@@ -115,6 +124,14 @@ img { display: block; max-width: 100%; height: auto; }
   padding-inline: var(--gutter);
 }
 .section { padding-block: 56px; }
+/* Keep long landing sections searchable and focusable while skipping offscreen layout/paint.
+   The browser remembers each section's real size once it has been displayed. */
+@media screen {
+  .home-sections > section {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 800px;
+  }
+}
 @media (min-width: 640px) {
   .section { padding-block: 72px; }
 }
@@ -229,6 +246,7 @@ img { display: block; max-width: 100%; height: auto; }
 
 /* Long-form text (privacy, about) */
 .prose { max-width: 68ch; font-size: 17px; line-height: 1.7; }
+.prose p { text-wrap: pretty; }
 .prose h2 { margin: 56px 0 12px; font-size: 30px; line-height: 1.15; letter-spacing: -0.01em; }
 .prose h3 { margin: 32px 0 8px; font-size: 21px; }
 .prose p, .prose ul, .prose ol { margin: 0 0 16px; }

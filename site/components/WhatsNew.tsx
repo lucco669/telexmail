@@ -57,7 +57,7 @@ export function WhatsNew({ release }: { release: Release | null }) {
                 </div>
               )}
               <p className={s.text}>{c.text}</p>
-              {c.href && <Link className="more" href={c.href} aria-label={`Details: ${c.title}`}>See details</Link>}
+              {c.href && <Link className="more" href={c.href} aria-label={`See details: ${c.title}`}>See details</Link>}
             </li>
           ))}
         </ul>

@@ -1,7 +1,7 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { shortcuts, type Shortcut } from '@/lib/content';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import type { Shortcut } from '@/lib/content';
 import type { Release } from '@/lib/release';
 import { Since } from './Since';
 import s from './Keyboard.module.css';
@@ -43,18 +43,17 @@ function Keys({ sc }: { sc: Shortcut }) {
 /**
  * The shortcut table. Pressing a listed key lights up its row, like selecting a message in the
  * app, and the readout above says what it does. `grouped` adds Move / Select / Write … headings;
- * `onlyHome` keeps the short list for the home page.
+ * the caller supplies only the rows needed by this page.
  */
 export function KeyboardDemo({
   release,
   grouped = false,
-  onlyHome = false,
+  items: list,
 }: {
   release: Release | null;
   grouped?: boolean;
-  onlyHome?: boolean;
+  items: Shortcut[];
 }) {
-  const list = useMemo(() => (onlyHome ? shortcuts.filter((x) => x.home) : shortcuts), [onlyHome]);
   const [hit, setHit] = useState<string | null>(null);
   const [tried, setTried] = useState<Set<string>>(() => new Set());
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);

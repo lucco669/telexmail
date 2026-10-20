@@ -11,7 +11,7 @@
 .date { color: var(--accent); font: 500 13px/1.5 var(--font-mono); padding-top: 3px; }
 .timeline h3 { font-size: 23px; line-height: 1.15; margin-bottom: 7px; }
 .timeline p { color: var(--muted); font-size: 15px; line-height: 1.65; max-width: 60ch; }
-.timeline a { color: var(--accent); text-decoration: none; padding: 0 6px; }
+.timeline a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; padding: 0 6px; }
 .lab { border: 1px solid var(--line); padding: 26px; background: var(--panel); margin: 28px 0 0; }
 .labHeading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-bottom: 20px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 .label { color: var(--muted); font: 500 10.5px/1.6 var(--font-mono); letter-spacing: .07em; text-transform: uppercase; }

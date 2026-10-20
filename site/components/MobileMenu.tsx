@@ -1,13 +1,12 @@
 'use client';
 
 import { useRef } from 'react';
-import { nav, pages } from '@/lib/pages';
-import { NavLinks } from './NavLinks';
+import { NavLinks, type NavItem } from './NavLinks';
 import { ThemeToggle } from './ThemeToggle';
 import s from './Header.module.css';
 
 /** The menu on narrow screens: a popover, so Esc and clicking outside close it. */
-export function MobileMenu() {
+export function MobileMenu({ items }: { items: NavItem[] }) {
   const menu = useRef<HTMLDivElement>(null);
   const close = () => menu.current?.hidePopover();
   return (
@@ -19,7 +18,7 @@ export function MobileMenu() {
       </button>
       <div id="site-menu" popover="auto" ref={menu} className={s.menu}>
         <nav aria-label="Pages" className={s.menuNav}>
-          <NavLinks items={[...nav, pages.download, pages.about]} onNavigate={close} />
+          <NavLinks items={items} onNavigate={close} />
         </nav>
         <div className={s.menuFoot}>
           <span>Theme</span>

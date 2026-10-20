@@ -10,29 +10,22 @@ const FONT: Record<string, string[]> = {
 const PITCH = 10;
 
 /**
- * A word in big dot-matrix letters over a faint grid of unlit dots. Pointing at dots lights them
- * in the accent color and they fade back slowly, like phosphor (CSS only).
+ * A word in big dot-matrix letters over a faint grid. A path per letter and a repeating pattern
+ * keep the same dots with very few DOM nodes; hovering a letter gives it a phosphor glow.
  */
 export function DotMatrix({ word }: { word: string }) {
   const letters = word.toUpperCase().split('').filter((c) => FONT[c]);
   const cols = letters.length * 6 - 1; // one blank column between letters
-  const dots: { x: number; y: number; on: boolean }[] = [];
-  for (let c = 0; c < cols; c++) {
-    const letter = FONT[letters[Math.floor(c / 6)]];
-    const lc = c % 6;
-    for (let r = 0; r < 7; r++) dots.push({ x: c, y: r, on: lc < 5 && letter[r][lc] === '1' });
-  }
+  const glyphs = letters.map((letter, i) => FONT[letter].flatMap((row, r) => [...row].flatMap((on, c) => {
+    const x = (i * 6 + c) * PITCH + PITCH / 2;
+    const y = r * PITCH + PITCH / 2;
+    return on === '1' ? [`M${x - 3.6},${y}a3.6,3.6 0 1,0 7.2,0a3.6,3.6 0 1,0 -7.2,0`] : [];
+  })).join(''));
   return (
     <svg className={s.matrix} viewBox={`0 0 ${cols * PITCH} ${7 * PITCH}`} role="img" aria-label={word}>
-      {dots.map((d) => (
-        <circle
-          key={`${d.x}-${d.y}`}
-          cx={d.x * PITCH + PITCH / 2}
-          cy={d.y * PITCH + PITCH / 2}
-          r={PITCH * 0.36}
-          className={d.on ? s.on : s.off}
-        />
-      ))}
+      <defs><pattern id="telex-word-grid" width={PITCH} height={PITCH} patternUnits="userSpaceOnUse"><circle cx={PITCH / 2} cy={PITCH / 2} r={PITCH * 0.36} className={s.off} /></pattern></defs>
+      <rect width={cols * PITCH} height={7 * PITCH} fill="url(#telex-word-grid)" />
+      {glyphs.map((d, i) => <path key={i} d={d} className={s.on} />)}
     </svg>
   );
 }

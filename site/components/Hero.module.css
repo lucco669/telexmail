@@ -58,6 +58,9 @@
   line-height: 0.98;
   letter-spacing: -0.028em;
 }
+@media (max-width: 899px) {
+  .title { font-size: clamp(44px, 13.6vw, 64px); }
+}
 @media (min-width: 1024px) {
   .title { max-width: none; font-size: clamp(56px, 6vw, 80px); }
 }

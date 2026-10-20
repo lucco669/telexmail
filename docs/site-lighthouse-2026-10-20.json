@@ -1,0 +1,390 @@
+{
+  "date": "2026-10-20",
+  "scope": "Telex landing home page, local production build",
+  "baseCommit": "030ec8f",
+  "buildId": "yfIe4Yz-yz4XpLqYZeIeS",
+  "method": "Lighthouse CLI defaults, cold fresh Chrome per run. HTTP2 local proxy forwards the unmodified Next response body and security headers; streaming Brotli Q5, no response cache. Local certificate bypass applies only to temporary audit Chrome. No resources or audits blocked. Non-Vercel build omits Vercel Analytics; measure its deployed cost separately.",
+  "limitations": [
+    "Local lab results, not deployed-domain or field Core Web Vitals.",
+    "Transport types match Vercel, but this does not emulate CDN latency/cache, production Analytics, or firewall.",
+    "Shared computer load and Lighthouse variability mean no guarantee that every run will score 100.",
+    "HTTP1/gzip and HTTP2/Brotli results must be compared as different environments."
+  ],
+  "runs": [
+    {
+      "report": "mobile-css-graph.json",
+      "reportSha256": "cc3e0339b375c223f28fbfa38de59dca818648f35c5a1252f802a47414b4d67c",
+      "fetchTime": "2026-10-20T06:55:32.500Z",
+      "lighthouseVersion": "13.5.0",
+      "transport": "HTTPS/HTTP2 + Brotli Q5",
+      "requestedUrl": "https://127.0.0.1:4318/",
+      "finalDisplayedUrl": "https://127.0.0.1:4318/",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "value": 1009.623,
+          "unit": "millisecond"
+        },
+        "largest-contentful-paint": {
+          "value": 1905.623,
+          "unit": "millisecond"
+        },
+        "total-blocking-time": {
+          "value": 42,
+          "unit": "millisecond"
+        },
+        "cumulative-layout-shift": {
+          "value": 0,
+          "unit": "unitless"
+        },
+        "speed-index": {
+          "value": 1009.623,
+          "unit": "millisecond"
+        }
+      },
+      "settings": {
+        "formFactor": "mobile",
+        "throttlingMethod": "simulate",
+        "throttling": {
+          "rttMs": 150,
+          "throughputKbps": 1638.4,
+          "requestLatencyMs": 562.5,
+          "downloadThroughputKbps": 1474.5600000000002,
+          "uploadThroughputKbps": 675,
+          "cpuSlowdownMultiplier": 4
+        },
+        "screenEmulation": {
+          "mobile": true,
+          "width": 412,
+          "height": 823,
+          "deviceScaleFactor": 1.75,
+          "disabled": false
+        },
+        "onlyCategories": [
+          "performance",
+          "accessibility",
+          "best-practices",
+          "seo"
+        ],
+        "blockedUrlPatterns": null,
+        "disableStorageReset": false
+      },
+      "environment": {
+        "networkUserAgent": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36",
+        "hostUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+        "benchmarkIndex": 4646.5,
+        "credits": {
+          "axe-core": "4.14.0"
+        }
+      },
+      "requests": 16,
+      "fonts": 0,
+      "transferBytes": 199482
+    },
+    {
+      "report": "mobile-css-graph-2.json",
+      "reportSha256": "771a21c2e91c3083c309a39362d7184e5c832fd36d3acf4397cfe3ec33631677",
+      "fetchTime": "2026-10-20T06:56:09.638Z",
+      "lighthouseVersion": "13.5.0",
+      "transport": "HTTPS/HTTP2 + Brotli Q5",
+      "requestedUrl": "https://127.0.0.1:4318/",
+      "finalDisplayedUrl": "https://127.0.0.1:4318/",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "value": 1002.568,
+          "unit": "millisecond"
+        },
+        "largest-contentful-paint": {
+          "value": 1885.568,
+          "unit": "millisecond"
+        },
+        "total-blocking-time": {
+          "value": 31,
+          "unit": "millisecond"
+        },
+        "cumulative-layout-shift": {
+          "value": 0,
+          "unit": "unitless"
+        },
+        "speed-index": {
+          "value": 1002.568,
+          "unit": "millisecond"
+        }
+      },
+      "settings": {
+        "formFactor": "mobile",
+        "throttlingMethod": "simulate",
+        "throttling": {
+          "rttMs": 150,
+          "throughputKbps": 1638.4,
+          "requestLatencyMs": 562.5,
+          "downloadThroughputKbps": 1474.5600000000002,
+          "uploadThroughputKbps": 675,
+          "cpuSlowdownMultiplier": 4
+        },
+        "screenEmulation": {
+          "mobile": true,
+          "width": 412,
+          "height": 823,
+          "deviceScaleFactor": 1.75,
+          "disabled": false
+        },
+        "onlyCategories": [
+          "performance",
+          "accessibility",
+          "best-practices",
+          "seo"
+        ],
+        "blockedUrlPatterns": null,
+        "disableStorageReset": false
+      },
+      "environment": {
+        "networkUserAgent": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36",
+        "hostUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+        "benchmarkIndex": 4395,
+        "credits": {
+          "axe-core": "4.14.0"
+        }
+      },
+      "requests": 16,
+      "fonts": 0,
+      "transferBytes": 199482
+    },
+    {
+      "report": "mobile-css-graph-3.json",
+      "reportSha256": "774aaf00d696b930e9d164de8d325800e1fc514febe26b3764359d7c3123c2b4",
+      "fetchTime": "2026-10-20T06:56:43.748Z",
+      "lighthouseVersion": "13.5.0",
+      "transport": "HTTPS/HTTP2 + Brotli Q5",
+      "requestedUrl": "https://127.0.0.1:4318/",
+      "finalDisplayedUrl": "https://127.0.0.1:4318/",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "value": 1005.7925,
+          "unit": "millisecond"
+        },
+        "largest-contentful-paint": {
+          "value": 1889.7925,
+          "unit": "millisecond"
+        },
+        "total-blocking-time": {
+          "value": 36,
+          "unit": "millisecond"
+        },
+        "cumulative-layout-shift": {
+          "value": 0,
+          "unit": "unitless"
+        },
+        "speed-index": {
+          "value": 1005.7925,
+          "unit": "millisecond"
+        }
+      },
+      "settings": {
+        "formFactor": "mobile",
+        "throttlingMethod": "simulate",
+        "throttling": {
+          "rttMs": 150,
+          "throughputKbps": 1638.4,
+          "requestLatencyMs": 562.5,
+          "downloadThroughputKbps": 1474.5600000000002,
+          "uploadThroughputKbps": 675,
+          "cpuSlowdownMultiplier": 4
+        },
+        "screenEmulation": {
+          "mobile": true,
+          "width": 412,
+          "height": 823,
+          "deviceScaleFactor": 1.75,
+          "disabled": false
+        },
+        "onlyCategories": [
+          "performance",
+          "accessibility",
+          "best-practices",
+          "seo"
+        ],
+        "blockedUrlPatterns": null,
+        "disableStorageReset": false
+      },
+      "environment": {
+        "networkUserAgent": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36",
+        "hostUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+        "benchmarkIndex": 3532,
+        "credits": {
+          "axe-core": "4.14.0"
+        }
+      },
+      "requests": 16,
+      "fonts": 0,
+      "transferBytes": 199482
+    },
+    {
+      "report": "desktop-css-graph.json",
+      "reportSha256": "70a621dce6c958726eb65c11eea9fa4b3b88531ab44034679ea6ff2181d299c0",
+      "fetchTime": "2026-10-20T06:57:13.030Z",
+      "lighthouseVersion": "13.5.0",
+      "transport": "HTTPS/HTTP2 + Brotli Q5",
+      "requestedUrl": "https://127.0.0.1:4318/",
+      "finalDisplayedUrl": "https://127.0.0.1:4318/",
+      "scores": {
+        "performance": 100,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "value": 322.49,
+          "unit": "millisecond"
+        },
+        "largest-contentful-paint": {
+          "value": 504.49,
+          "unit": "millisecond"
+        },
+        "total-blocking-time": {
+          "value": 0,
+          "unit": "millisecond"
+        },
+        "cumulative-layout-shift": {
+          "value": 0,
+          "unit": "unitless"
+        },
+        "speed-index": {
+          "value": 322.49,
+          "unit": "millisecond"
+        }
+      },
+      "settings": {
+        "formFactor": "desktop",
+        "throttlingMethod": "simulate",
+        "throttling": {
+          "rttMs": 40,
+          "throughputKbps": 10240,
+          "requestLatencyMs": 0,
+          "downloadThroughputKbps": 0,
+          "uploadThroughputKbps": 0,
+          "cpuSlowdownMultiplier": 1
+        },
+        "screenEmulation": {
+          "mobile": false,
+          "width": 1350,
+          "height": 940,
+          "deviceScaleFactor": 1,
+          "disabled": false
+        },
+        "onlyCategories": [
+          "performance",
+          "accessibility",
+          "best-practices",
+          "seo"
+        ],
+        "blockedUrlPatterns": null,
+        "disableStorageReset": false
+      },
+      "environment": {
+        "networkUserAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+        "hostUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+        "benchmarkIndex": 4097,
+        "credits": {
+          "axe-core": "4.14.0"
+        }
+      },
+      "requests": 21,
+      "fonts": 5,
+      "transferBytes": 325542
+    },
+    {
+      "report": "mobile-css-graph-http1.json",
+      "reportSha256": "d8d94b92bfd920ce5ff405069610f3caa949ba1068e53f2641c5e519d682d41f",
+      "fetchTime": "2026-10-20T07:00:24.737Z",
+      "lighthouseVersion": "13.5.0",
+      "transport": "HTTP1.1 + gzip",
+      "requestedUrl": "http://127.0.0.1:4317/",
+      "finalDisplayedUrl": "http://127.0.0.1:4317/",
+      "scores": {
+        "performance": 98,
+        "accessibility": 100,
+        "best-practices": 100,
+        "seo": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "value": 1055.6512,
+          "unit": "millisecond"
+        },
+        "largest-contentful-paint": {
+          "value": 2496.3024,
+          "unit": "millisecond"
+        },
+        "total-blocking-time": {
+          "value": 35,
+          "unit": "millisecond"
+        },
+        "cumulative-layout-shift": {
+          "value": 0,
+          "unit": "unitless"
+        },
+        "speed-index": {
+          "value": 1055.6512,
+          "unit": "millisecond"
+        }
+      },
+      "settings": {
+        "formFactor": "mobile",
+        "throttlingMethod": "simulate",
+        "throttling": {
+          "rttMs": 150,
+          "throughputKbps": 1638.4,
+          "requestLatencyMs": 562.5,
+          "downloadThroughputKbps": 1474.5600000000002,
+          "uploadThroughputKbps": 675,
+          "cpuSlowdownMultiplier": 4
+        },
+        "screenEmulation": {
+          "mobile": true,
+          "width": 412,
+          "height": 823,
+          "deviceScaleFactor": 1.75,
+          "disabled": false
+        },
+        "onlyCategories": [
+          "performance",
+          "accessibility",
+          "best-practices",
+          "seo"
+        ],
+        "blockedUrlPatterns": null,
+        "disableStorageReset": false
+      },
+      "environment": {
+        "networkUserAgent": "Mozilla/5.0 (Linux; Android 11; moto g power (2022)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36",
+        "hostUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+        "benchmarkIndex": 4528.5,
+        "credits": {
+          "axe-core": "4.14.0"
+        }
+      },
+      "requests": 16,
+      "fonts": 0,
+      "transferBytes": 230738
+    }
+  ]
+}

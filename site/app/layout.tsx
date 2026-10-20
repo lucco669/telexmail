@@ -9,20 +9,27 @@ import { THEME_SCRIPT } from '@/lib/theme-script';
 import './globals.css';
 
 // next/font downloads the fonts at build time and serves them from this site: no requests to Google.
+// Plex is optional on desktop; phones use native faces in globals.css. Avoid unconditional
+// preloads so phones never fetch unused fonts, or swap text after it has painted.
 const sans = IBM_Plex_Sans({
-  subsets: ['latin', 'latin-ext'],
-  weight: ['400', '500', '600'],
+  subsets: ['latin'],
+  weight: 'variable',
+  display: 'optional',
   variable: '--font-plex-sans',
+  preload: false,
 });
 const cond = IBM_Plex_Sans_Condensed({
-  subsets: ['latin', 'latin-ext'],
+  subsets: ['latin'],
   weight: ['600'],
+  display: 'optional',
   variable: '--font-plex-cond',
+  preload: false,
 });
 // Only small labels use mono, so it isn't worth preloading.
 const mono = IBM_Plex_Mono({
-  subsets: ['latin', 'latin-ext'],
+  subsets: ['latin'],
   weight: ['400', '500'],
+  display: 'optional',
   variable: '--font-plex-mono',
   preload: false,
 });
@@ -81,7 +88,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Footer />
         </PageNavigation>
         {/* Vercel Web Analytics: page views without cookies (see the privacy page). */}
-        <Analytics />
+        {process.env.VERCEL === '1' && <Analytics />}
       </body>
     </html>
   );

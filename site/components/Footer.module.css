@@ -1,4 +1,7 @@
 .footer { margin-top: 0; }
+@media screen {
+  .footer { content-visibility: auto; contain-intrinsic-block-size: auto 720px; }
+}
 .top {
   display: grid;
   gap: 40px;

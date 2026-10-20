@@ -8,6 +8,7 @@ import { Performance } from '@/components/Performance';
 import { Roadmap } from '@/components/Roadmap';
 import { Screens } from '@/components/Screens';
 import { WhatsNew } from '@/components/WhatsNew';
+import { homeScreens, screens } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { getReleaseInfo } from '@/lib/release';
 import { appLd, organizationLd, pageMetadata, websiteLd } from '@/lib/seo';
@@ -23,14 +24,16 @@ export default async function Home() {
     <>
       <JsonLd items={[organizationLd(), websiteLd(), appLd(release)]} />
       <Hero release={release} unknown={unknown} />
-      <Performance release={release} />
-      <Features />
-      <Keyboard release={release} />
-      <DemoBand />
-      <Screens release={release} />
-      <WhatsNew release={release} />
-      <Roadmap release={release} />
-      <Download release={release} unknown={unknown} />
+      <div className="home-sections">
+        <Performance release={release} />
+        <Features />
+        <Keyboard release={release} />
+        <DemoBand />
+        <Screens release={release} items={homeScreens} total={screens.length + 1} galleryPath={pages.screenshots.path} />
+        <WhatsNew release={release} />
+        <Roadmap release={release} />
+        <Download release={release} unknown={unknown} />
+      </div>
     </>
   );
 }

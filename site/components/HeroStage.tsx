@@ -1,29 +1,30 @@
 'use client';
 
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
 import { PageLink as Link } from '@/components/PageNavigation';
-import { hero } from '@/lib/content';
-import { pages } from '@/lib/pages';
-import { DemoFrame } from './DemoFrame';
 import { Shot } from './Shot';
 import { WindowFrame } from './WindowFrame';
 import s from './HeroStage.module.css';
 
 // Wide enough for the app's window to be usable in place; narrower screens open the demo page.
 const WIDE = '(min-width: 900px)';
+const DemoFrame = dynamic(() => import('./DemoFrame').then((module) => module.DemoFrame), {
+  loading: () => <div aria-busy="true"><WindowFrame title="Starting Telex…"><Shot id="inbox" alt="Loading the Telex live demo." eager poster /></WindowFrame></div>,
+});
 
 /**
  * The hero's screenshot, which turns into the live demo where it stands. The picture stays the
  * first paint (and the page's largest image); the demo loads only on a click. Without script, or on
  * a narrow screen, it is a link to the demo page.
  */
-export function HeroStage() {
+export function HeroStage({ id, title, demoPath }: { id: string; title: string; demoPath: string }) {
   const [live, setLive] = useState(false);
   if (live) return <DemoFrame />;
   return (
-    <WindowFrame title={hero.title}>
+    <WindowFrame title={title}>
       <Link
-        href={pages.demo.path}
+        href={demoPath}
         className={s.poster}
         onClick={(e) => {
           if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0 || !window.matchMedia(WIDE).matches) return;
@@ -31,7 +32,7 @@ export function HeroStage() {
           setLive(true);
         }}
       >
-        <Shot id={hero.id} alt="Telex main window: folder tree, message list and the selected message." eager />
+        <Shot id={id} alt="Telex main window: folder tree, message list and the selected message." eager poster />
         <span className={s.cta}>
           <span className={s.play} aria-hidden="true">
             <svg viewBox="0 0 16 16">

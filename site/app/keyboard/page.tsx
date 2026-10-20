@@ -4,7 +4,7 @@ import { KeyboardDemo } from '@/components/KeyboardDemo';
 import { PageHeader } from '@/components/PageHeader';
 import { PrintButton } from '@/components/PrintButton';
 import { Since } from '@/components/Since';
-import { keyboardTips } from '@/lib/content';
+import { keyboardTips, shortcuts } from '@/lib/content';
 import { pages } from '@/lib/pages';
 import { getLatestRelease } from '@/lib/release';
 import { pageMetadata } from '@/lib/seo';
@@ -27,7 +27,7 @@ export default async function KeyboardPage() {
         </Link>
       </PageHeader>
       <div className={`container ${s.layout}`}>
-        <KeyboardDemo release={release} grouped />
+        <KeyboardDemo release={release} items={shortcuts} grouped />
         <aside className={s.tips} aria-labelledby="tips">
           <h2 id="tips" className={s.tipsTitle}>
             Good to know

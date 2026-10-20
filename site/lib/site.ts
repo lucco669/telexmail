@@ -2,9 +2,9 @@
 
 function siteUrl(): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
-  // Set by Vercel: the production domain, e.g. your custom domain once it is attached.
-  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  return 'http://localhost:3000';
+  // Canonicals must stay on the public domain in local builds, previews and other hosts too.
+  // Vercel's production URL can be a *.vercel.app alias until a custom domain is configured.
+  return 'https://telexmail.app';
 }
 
 export const site = {

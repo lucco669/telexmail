@@ -40,7 +40,7 @@ export function Gallery({ items }: { items: Screen[] }) {
       <ul className={s.grid}>
         {items.map((sc, i) => (
           <li key={sc.id}>
-            <button type="button" className={s.card} onClick={() => show(i)} aria-label={`Open full size: ${sc.label}`}>
+            <button type="button" className={s.card} onClick={() => show(i)} aria-label={`${sc.title}: open ${sc.label} screenshot full size`}>
               <WindowFrame title={sc.title} theme={choice}>
                 <Shot id={sc.id} alt="" theme={choice} sizes={THUMB_SIZES} />
               </WindowFrame>

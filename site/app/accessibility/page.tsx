@@ -7,6 +7,7 @@ import { pageMetadata } from '@/lib/seo';
 import { site } from '@/lib/site';
 // Measured from ui/themes.css by scripts/check-contrast.mjs (`npm run themes` writes this file).
 import data from '@/lib/themes.json';
+import { ThemeMeasurements } from './theme-measurements';
 import s from './page.module.css';
 
 export const metadata = pageMetadata(pages.accessibility);
@@ -15,9 +16,15 @@ const about: Record<string, { name: string; note: string }> = {
   light: { name: 'Light', note: 'The default when Windows is light. Cool greys, a blue accent.' },
   dark: { name: 'Dark', note: 'The default when Windows is dark. Soft on the eyes at night.' },
   paper: { name: 'Paper', note: 'Teleprinter paper and petrol ink, with a brick-red flag. Selected rows look highlighted.' },
+  sepia: { name: 'Sepia', note: 'Warm paper tones with brown ink.' },
   heather: { name: 'Heather', note: 'Lavender greys, a violet accent and a raspberry flag.' },
+  'solar-light': { name: 'Solar light', note: 'A light palette with warm surfaces and restrained accents.' },
+  classic: { name: 'Classic', note: 'A familiar grey interface with a blue selection.' },
   fjord: { name: 'Fjord', note: 'A deep blue-slate night with frost-cyan accents and an amber flag.' },
+  'solar-dark': { name: 'Solar dark', note: 'A dark palette with blue-green surfaces.' },
+  graphite: { name: 'Graphite', note: 'Neutral dark greys for a quiet workspace.' },
   phosphor: { name: 'Phosphor', note: 'A green phosphor terminal screen, with an amber flag.' },
+  oled: { name: 'OLED', note: 'Black surfaces with bright text and accents.' },
   'contrast-light': { name: 'High contrast light', note: 'Black on white. Every text at 7:1 or more, borders you can’t miss.' },
   'contrast-dark': { name: 'High contrast dark', note: 'White on black. Every text at 7:1 or more, borders you can’t miss.' },
 };
@@ -78,7 +85,7 @@ const beyond = [
     text: 'Icon buttons have names, the settings use real tabs, radio buttons and dialogs, the list says how it is sorted, and the status bar and the message pane announce changes.',
   },
   {
-    title: 'English and Polish',
+    title: 'Nine languages',
     text: 'Telex follows the Windows display language, or the one you pick. The page’s language changes with it, so a screen reader reads with the right voice.',
   },
 ];
@@ -216,39 +223,7 @@ export default function AccessibilityPage() {
         </div>
         <div className={s.details}>
           {themes.map((t) => (
-            <details key={t.id}>
-              <summary>
-                Every pair in {about[t.id]?.name ?? t.id} <span>({t.pairs.length})</span>
-              </summary>
-              <table className={s.pairs}>
-                <thead>
-                  <tr>
-                    <th scope="col">Where</th>
-                    <th scope="col">Color on background</th>
-                    <th scope="col">Contrast</th>
-                    <th scope="col">Needs</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {t.pairs.map((p) => {
-                    const tokens = t.tokens as Record<string, string>;
-                    return (
-                      <tr key={`${p.kind}-${p.fg}-${p.bg}`}>
-                        <td>{p.what}</td>
-                        <td>
-                          <span className={s.chip} style={{ background: (p as { color?: string }).color ?? tokens[p.bg], color: tokens[p.fg] }} aria-hidden="true">
-                            Aa
-                          </span>
-                          {p.fg} on {p.bg}
-                        </td>
-                        <td>{ratio(p.ratio)}</td>
-                        <td>{p.need}:1</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </details>
+            <ThemeMeasurements key={t.id} id={t.id} name={about[t.id]?.name ?? t.id} count={t.pairs.length} />
           ))}
         </div>
       </section>

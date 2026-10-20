@@ -22,13 +22,14 @@ type Step = Column & { last: boolean };
  * printed underneath. Runs only while on screen; stands still for reduced motion; can be paused.
  */
 export function TelexTicker({ messages }: { messages: string[] }) {
+  const [started, setStarted] = useState(false);
   const program = useMemo<Step[]>(
     () =>
-      messages.flatMap((m) => {
+      (started ? messages : messages.slice(0, 1)).flatMap((m) => {
         const cols = encode(`${m}   `);
         return cols.map((c, i) => ({ ...c, last: i === cols.length - 1 }));
       }),
-    [messages],
+    [messages, started],
   );
   const first = useMemo(() => program.findIndex((c) => c.last) + 1, [program]);
   // Server and first paint show the first message already punched.
@@ -43,20 +44,28 @@ export function TelexTicker({ messages }: { messages: string[] }) {
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
-    const io = new IntersectionObserver(([e]) => setVisible(e.isIntersecting));
-    ro.observe(el);
+    const io = new IntersectionObserver(([e]) => {
+      setVisible(e.isIntersecting);
+      if (e.isIntersecting) setStarted(true);
+    });
     io.observe(el);
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     const onMotion = () => setStill(mq.matches);
     onMotion();
     mq.addEventListener('change', onMotion);
     return () => {
-      ro.disconnect();
       io.disconnect();
       mq.removeEventListener('change', onMotion);
     };
   }, []);
+
+  useEffect(() => {
+    const el = box.current;
+    if (!el || !visible) return;
+    const ro = new ResizeObserver(([e]) => setWidth(Math.round(e.contentRect.width)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [visible]);
 
   const wanted = override ?? !still;
   const running = visible && wanted;
@@ -80,6 +89,14 @@ export function TelexTicker({ messages }: { messages: string[] }) {
   const cols = [];
   for (let i = from; i < count; i++) cols.push({ i, ...program[i % program.length] });
   const y = (row: number) => TOP + row * ROW;
+  // One path and two text runs replace hundreds of React/SVG nodes. Each character still has
+  // its original tape coordinate, including blanks and the letter/figure shift columns.
+  const holes = cols.flatMap((c) => CHANNEL_ROWS.flatMap((row, bit) => {
+    if (c.code[bit] !== '1') return [];
+    const x = c.i * COL + COL / 2;
+    return [`M${x - 3.3},${y(row)}a3.3,3.3 0 1,0 6.6,0a3.3,3.3 0 1,0 -6.6,0`];
+  })).join('');
+  const shifts = cols.filter((c) => c.shift);
 
   return (
     <div className={`${s.strip} no-print`} ref={box}>
@@ -92,24 +109,13 @@ export function TelexTicker({ messages }: { messages: string[] }) {
         <rect width="100%" height={TAPE_H} fill="url(#tlx-feed)" />
         {/* Everything punched so far, shifted so the newest column sits just left of the head. */}
         <g transform={`translate(${head - count * COL} 0)`}>
-          {cols.map((c) => (
-            <g key={c.i}>
-              {CHANNEL_ROWS.map((row, bit) =>
-                c.code[bit] === '1' ? <circle key={row} cx={c.i * COL + COL / 2} cy={y(row)} r="3.3" className={s.hole} /> : null,
-              )}
-              {c.char.trim() && (
-                <text x={c.i * COL + COL / 2} y={TEXT_Y} className={s.char}>
-                  {c.char}
-                </text>
-              )}
-              {/* Shift columns switch between letters and figures; a faint arrow shows where. */}
-              {c.shift && (
-                <text x={c.i * COL + COL / 2} y={TEXT_Y} className={s.shift}>
-                  {c.shift === 'figs' ? '↑' : '↓'}
-                </text>
-              )}
-            </g>
-          ))}
+          <path d={holes} className={s.hole} />
+          <text x={cols.map((c) => c.i * COL + COL / 2).join(' ')} y={TEXT_Y} className={s.char} xmlSpace="preserve">
+            {cols.map((c) => c.char.trim() ? c.char : ' ').join('')}
+          </text>
+          {shifts.length > 0 && <text x={shifts.map((c) => c.i * COL + COL / 2).join(' ')} y={TEXT_Y} className={s.shift}>
+            {shifts.map((c) => c.shift === 'figs' ? '↑' : '↓').join('')}
+          </text>}
         </g>
         <line x1={head} x2={head} y1={4} y2={TAPE_H - 4} className={s.head} />
         <rect x={head + 3} y={TEXT_Y - 10} width="7" height="12" className={running ? s.caret : s.caretStill} />

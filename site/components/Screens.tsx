@@ -2,8 +2,7 @@
 
 import { PageLink as Link } from '@/components/PageNavigation';
 import { useId, useRef, useState } from 'react';
-import { homeScreens as screens, screens as allScreens } from '@/lib/content';
-import { pages } from '@/lib/pages';
+import type { Screen } from '@/lib/content';
 import type { Release } from '@/lib/release';
 import { useResolvedTheme } from '@/lib/theme';
 import { Shot, type ShotTheme } from './Shot';
@@ -11,10 +10,8 @@ import { Since } from './Since';
 import { WindowFrame } from './WindowFrame';
 import s from './Screens.module.css';
 
-const screensCount = allScreens.length + 1; // and the inbox at the top of the page
-
 /** Tabbed screenshots with a light/dark switch (it starts on the page's theme). Arrow keys move between tabs. */
-export function Screens({ release }: { release: Release | null }) {
+export function Screens({ release, items: screens, total, galleryPath }: { release: Release | null; items: Screen[]; total: number; galleryPath: string }) {
   const [index, setIndex] = useState(0);
   const [choice, setChoice] = useState<ShotTheme>('site');
   const site = useResolvedTheme() ?? 'light';
@@ -44,8 +41,8 @@ export function Screens({ release }: { release: Release | null }) {
             Real screenshots of the newest build, with a demo mailbox, in light and dark.
           </p>
           <p>
-            <Link className="more" href={pages.screenshots.path}>
-              All {screensCount} screenshots, full size
+            <Link className="more" href={galleryPath}>
+              All {total} screenshots, full size
             </Link>
           </p>
         </header>

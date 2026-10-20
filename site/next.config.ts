@@ -2,8 +2,8 @@ import type { NextConfig } from 'next';
 
 // With a custom domain attached, the project's *.vercel.app address serves the same page; keep
 // search engines on the custom domain. (Vercel already hides preview deployments from them.)
-const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? '';
-const hasCustomDomain = productionHost !== '' && !productionHost.endsWith('.vercel.app');
+const canonicalHost = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://telexmail.app').hostname;
+const hasCustomDomain = !canonicalHost.endsWith('.vercel.app');
 
 // Content Security Policy: everything from this site only. 'unsafe-inline' scripts are needed for
 // the inline data Next.js streams into static pages and for the theme script (nonces would make
@@ -13,6 +13,7 @@ const live = preview ? ' https://vercel.live' : '';
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${live}`,
+  "script-src-attr 'none'",
   `style-src 'self' 'unsafe-inline'${live}`,
   `img-src 'self' data: blob:${preview ? ' https://vercel.live https://vercel.com' : ''}`,
   `font-src 'self'${preview ? ' https://vercel.live https://assets.vercel.com' : ''}`,
@@ -44,7 +45,10 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Next 16 caching model: the release lookup in lib/release.ts is a `use cache` function.
   cacheComponents: true,
-  partialPrefetching: true,
+  // Public routes are prerendered; intent-based links fetch their full page in one request.
+  partialPrefetching: false,
+  // Keep unrelated subpage styles out of the landing page's render-blocking CSS.
+  experimental: { cssChunking: 'graph' },
   images: {
     // Screenshots are mostly text, so they get a higher quality than the default 75.
     qualities: [75, 90],
@@ -55,6 +59,11 @@ const nextConfig: NextConfig = {
   turbopack: { root: __dirname },
   // Used for the footer year and security.txt's expiry.
   env: { BUILD_DATE: new Date().toISOString() },
+  async rewrites() {
+    // Older indexed/cached HTML still asks the optimizer for PNG screenshots. Serve the WebP
+    // bytes at those old paths too; an HTTP redirect would fail an internal optimizer fetch.
+    return [{ source: '/screens/:file([a-z0-9-]+)\\.png', destination: '/screens/:file.webp' }];
+  },
   async headers() {
     const rules = [];
     // Not in development: the dev server needs eval for fast refresh.
@@ -76,6 +85,8 @@ const nextConfig: NextConfig = {
       source: '/:file(screens/.*|icon-.*\\.png)',
       headers: [{ key: 'Cache-Control', value: 'public, max-age=86400, stale-while-revalidate=604800' }],
     });
+    // These first-paint derivatives include their content hash in the filename.
+    rules.push({ source: '/posters/:path*', headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }] });
     if (hasCustomDomain) {
       rules.push({
         source: '/:path*',

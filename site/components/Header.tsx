@@ -6,6 +6,9 @@ import { NavLinks } from './NavLinks';
 import { ThemeToggle } from './ThemeToggle';
 import s from './Header.module.css';
 
+const links = nav.map(({ path, label }) => ({ path, label }));
+const menuLinks = [...nav, pages.download, pages.about].map(({ path, label }) => ({ path, label }));
+
 export function Header() {
   return (
     <header className={`${s.header} no-print`}>
@@ -14,13 +17,13 @@ export function Header() {
           <Logo />
         </Link>
         <nav className={s.nav} aria-label="Pages">
-          <NavLinks items={nav} className={s.link} />
+          <NavLinks items={links} className={s.link} />
         </nav>
         <ThemeToggle className={s.theme} />
         <Link href={pages.download.path} className="btn btn-primary btn-sm">
           Download
         </Link>
-        <MobileMenu />
+        <MobileMenu items={menuLinks} />
       </div>
     </header>
   );

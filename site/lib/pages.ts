@@ -75,7 +75,7 @@ export const pages = {
     label: 'Accessibility',
     title: 'Accessibility: fourteen themes, all WCAG 2.2',
     description:
-      'Eight measured themes, six fonts, five toolbar layouts and text up to 200%. AA contrast, two AAA themes, keyboard access, English and Polish.',
+      'Fourteen measured themes, accent colors, six fonts and text up to 200%. AA contrast, two AAA themes, keyboard access and nine languages.',
     ogTitle: 'Readable in every theme.',
     ogScreen: 'settings',
   },

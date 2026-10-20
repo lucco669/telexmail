@@ -26,7 +26,7 @@ export function Keyboard({ release }: { release: Release | null }) {
           </p>
         </header>
         <div className={s.side}>
-          <KeyboardDemo release={release} onlyHome />
+          <KeyboardDemo release={release} items={shortcuts.filter((shortcut) => shortcut.home)} />
           <p>
             <Link className="more" href={pages.keyboard.path}>
               All {shortcuts.length} shortcuts, with tips

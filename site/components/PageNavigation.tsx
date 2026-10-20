@@ -2,7 +2,7 @@
 
 import NextLink from 'next/link';
 import { usePathname } from 'next/navigation';
-import { createContext, useCallback, useContext, useLayoutEffect, useRef, type ComponentProps, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 
 const NavigationContext = createContext<(pathname: string | null) => void>(() => {});
 
@@ -25,13 +25,18 @@ export function PageNavigation({ children }: { children: ReactNode }) {
 type PageLinkProps = Omit<ComponentProps<typeof NextLink>, 'href'> & { href: string };
 
 /** Ordinary page links start at the top; explicit hash links keep their section target. */
-export function PageLink({ href, onNavigate, ...props }: PageLinkProps) {
+export function PageLink({ href, onNavigate, prefetch, onMouseEnter, onFocus, onTouchStart, ...props }: PageLinkProps) {
   const prepareNavigation = useContext(NavigationContext);
+  const [intent, setIntent] = useState(false);
 
   return (
     <NextLink
       {...props}
       href={href}
+      prefetch={prefetch === undefined ? (intent ? null : false) : prefetch}
+      onMouseEnter={(event) => { onMouseEnter?.(event); if (!event.defaultPrevented) setIntent(true); }}
+      onFocus={(event) => { onFocus?.(event); if (!event.defaultPrevented) setIntent(true); }}
+      onTouchStart={(event) => { onTouchStart?.(event); if (!event.defaultPrevented) setIntent(true); }}
       onNavigate={(event) => {
         let prevented = false;
         onNavigate?.({ preventDefault: () => { prevented = true; event.preventDefault(); } });

@@ -1,14 +1,15 @@
 # Telex website
 
 The website for Telex: Next.js 16 (App Router), plain CSS with the app's color tokens, no other
-dependencies. Fifteen prerendered pages (home, features, live demo, keyboard, performance, accessibility,
-screenshots, download, changelog, roadmap, FAQ, about, history, privacy, security), light and dark, with a download button
+dependencies. Sixteen prerendered pages (home, features, live demo, keyboard, performance, accessibility,
+screenshots, download, changelog, roadmap, FAQ, about, history, privacy, security, license), light and dark, with a download button
 that finds the newest installer on its own, and a live demo that runs the app's own interface.
 
 ```
 npm install
 npm run dev        # http://localhost:3000
 npm run build      # what Vercel runs
+npm run posters    # refresh responsive hero derivatives (also checked before every build)
 npm run screens    # retake the screenshots from ../ui (needs Edge or Chrome)
 npm run demo       # rebuild the live demo from ../ui into public/demo-app
 npm run icons      # rebuild every app and site icon from ../brand
@@ -53,6 +54,9 @@ npm run themes     # measure the app's themes again into lib/themes.json (the ac
   impacts, a 50-baud printer, a motor, rain and a metal bell. Delivered telegrams track first-view
   reaction time, active writing time, five-character WPM, insertion accuracy and queue delay.
 - `public/screens/`: screenshots, `<scene>-light.webp` and `<scene>-dark.webp` (lossless), 1280×800 at 2×.
+- `public/posters/` and `lib/hero-posters.json`: fingerprinted AVIF/WebP hero derivatives, generated
+  by `scripts/posters.mjs` from the inbox screenshots. Keep these files together in Git. The
+  prebuild step checks the source hashes and regenerates missing/outdated derivatives.
 - `app/**/opengraph-image.png`: one link preview per page, made by `npm run screens`.
   Pages can set `ogImage` in `lib/pages.ts` to use editorial artwork instead of a screenshot.
 
@@ -162,6 +166,32 @@ dot grid, bigger dots) for 32 px and below. `npm run icons` renders both with sh
 
 The header mark in `components/Logo.tsx` draws the small variant inline; keep it in step.
 
+## Landing performance
+
+Phones below 900px use device-native fonts, with no font downloads. Desktop keeps the locally
+served Plex families with optional display; no unconditional font preload competes with the
+first paint. The hero uses a theme-matched responsive AVIF with WebP fallback, precomputed so
+a cold visit does not wait for the image optimizer. Gallery screenshots keep their original
+quality. The live demo's code and iframe load only after activation.
+
+Long home sections and the footer use `content-visibility: auto` on screen. Their content stays
+in server HTML, remains available to search/accessibility and prints normally. The tape pauses
+offscreen; repeating SVG dots use patterns/paths instead of hundreds of elements. Client
+components receive only their needed content, and page links prefetch on hover, focus or touch
+instead of fetching every visible link on initial load. Full-page prefetching is sufficient for
+these prerendered routes; hourly release revalidation remains enabled.
+
+Next's experimental `cssChunking: 'graph'` prevents unrelated subpage styles being merged into
+the landing's initial CSS. This is covered by production-build browser checks; recheck both
+loading and styling when upgrading Next. Do not enable global CSS inlining: it duplicates the
+styles in HTML/RSC and measured worse here.
+
+The 20 October local production-build audit reached 100 in all four Lighthouse categories on
+three cold mobile runs and one desktop run over HTTP/2 + Brotli. A direct HTTP/1.1 + gzip
+`next start` mobile check scored 98. These transport environments differ; verify the deployed
+domain separately. Method, limitations and measurements are in
+[`../docs/site-seo-audit-2026-10-20.md`](../docs/site-seo-audit-2026-10-20.md).
+
 ## SEO
 
 Each page exports `pageMetadata(pages.x)` (`lib/seo.ts`): title, description, canonical URL, Open
@@ -173,6 +203,20 @@ the FAQ page its questions (FAQPage). Next.js generates `robots.txt`,
 a custom domain attached, the `*.vercel.app` address answers with `X-Robots-Tag: noindex`, so
 only your domain gets indexed. The sitemap omits `lastmod` until actual page-update dates are
 tracked; rebuilding the site does not mean every page's content changed.
+
+Canonical URLs default to `https://telexmail.app` in every environment, including local builds
+and previews. Only `NEXT_PUBLIC_SITE_URL` overrides that origin; a Vercel deployment alias is
+never chosen automatically. Legacy `/screens/*.png` URLs are internally rewritten to WebP so
+cached pages and old `/_next/image` requests keep working.
+
+The accessibility page sends theme summaries and links in its initial HTML. Its detailed
+contrast tables load on opening a disclosure, from prerendered
+`/accessibility/contrast/<theme>.json` evidence files (intentionally `noindex`, outside the
+sitemap). The JSON links also work without JavaScript. This keeps the page below the audit
+crawler's 600 KB HTML limit rather than sending all 2,170 measurement rows twice in HTML/RSC.
+Run `npm run test:seo` for the canonical-origin and JSON-LD script-escaping regressions.
+After `npm run build`, run `npm run check:seo` to verify every public page's metadata, headings,
+canonical, sitemap inclusion, JSON-LD, original images and the 600 KB HTML budget.
 
 ### SEO audits through Vercel
 
@@ -200,7 +244,7 @@ only for the confirmed sources. See [custom rules](https://vercel.com/docs/verce
 [system bypass rules](https://vercel.com/docs/vercel-firewall/vercel-waf/system-bypass-rules).
 
 After publishing the rule and deploying code changes, rerun the full scan. The scanner should
-receive the real `200` HTML, read all 15 public sitemap URLs and load the page assets; the
+receive the real `200` HTML, read all 16 public sitemap URLs and load the page assets; the
 rendered title must be the page's title. Verify actual Googlebot access separately with
 Search Console's URL Inspection live test, and repeat PageSpeed against the current deployment.
 
@@ -232,7 +276,7 @@ scripts/count.test.mjs`.
   only; inline scripts allowed because static Next.js pages need them), HSTS, nosniff, DENY
   framing, a strict referrer policy, Permissions-Policy and COOP. Previews also allow Vercel's
   toolbar. If you add a third-party script or font, add its origin to the CSP there.
-- Vercel Web Analytics (`<Analytics />` in `app/layout.tsx`) counts page views without cookies;
+- Vercel Web Analytics (`<Analytics />` in `app/layout.tsx`, enabled only on Vercel) counts page views without cookies;
   its script comes from the site itself (`/_vercel/insights`). Turn it on in the Vercel project
   under **Analytics**, or the script answers 404. The privacy page describes it.
 - `app/llms.txt/route.ts` and `app/.well-known/security.txt/route.ts` are generated from the
@@ -264,8 +308,8 @@ Use `npm run screens -- og:history` to regenerate only the history page's editor
 
 1. Import the GitHub repo in Vercel and set **Root Directory** to `site`. Everything else is
    detected (Next.js, `npm install`, `npm run build`).
-2. Add the domain under **Settings → Domains**. The site picks up the production domain on its own
-   (`VERCEL_PROJECT_PRODUCTION_URL`) for canonical links, the sitemap and link previews.
+2. Add `telexmail.app` under **Settings → Domains**. Canonical links, the sitemap and link previews
+   use this domain by default. Set `NEXT_PUBLIC_SITE_URL` explicitly if the public domain changes.
 3. Pushes to `main` that don't touch `site/` are skipped (`vercel.json`, `ignoreCommand`), so app
    commits don't rebuild the website. The same check cancels **Redeploy** of a commit already
    deployed (it starts, then disappears), so after changing environment variables, push a commit
@@ -275,7 +319,7 @@ Optional environment variables:
 
 | Variable               | Default               | Use                                           |
 |------------------------|-----------------------|-----------------------------------------------|
-| `NEXT_PUBLIC_SITE_URL` | Vercel's production URL | Force the canonical URL                     |
+| `NEXT_PUBLIC_SITE_URL` | `https://telexmail.app` | Override the canonical origin                 |
 | `TELEX_RELEASES_REPO`  | `lucco669/telexmail`  | Repo whose GitHub Releases hold the installers |
 | `GITHUB_TOKEN`         | –                     | Only raises GitHub's API rate limit           |
 | `NEXT_PUBLIC_CONTACT_EMAIL` | `admin@telexmail.app` | Overrides the contact address on the privacy page |
