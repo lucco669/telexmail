@@ -2,7 +2,7 @@
   "name": "telex-site",
   "version": "0.1.0",
   "private": true,
-  "description": "Landing page for Telex, deployed on Vercel",
+  "description": "Landing page for Telex, deployed on the home Coolify server",
   "scripts": {
     "dev": "next dev",
     "prebuild": "node scripts/posters.mjs",
@@ -21,8 +21,7 @@
     "node": ">=20.9.0"
   },
   "dependencies": {
-    "@vercel/analytics": "2.0.1",
-    "next": "16.4.0",
+    "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },

@@ -269,6 +269,7 @@ test('operator names: charset, length, one alphabet, words in English and Polish
 test('rate limits key a hashed network: IPv4 alone, IPv6 by its /64', () => {
   const at = (headers) => clientNetwork(new Request('https://telexmail.app/api/night-shift/session', { headers }));
   assert.equal(at({ 'x-real-ip': '203.0.113.7' }), '203.0.113.7');
+  assert.equal(at({ 'cf-connecting-ip': '198.51.100.4', 'x-forwarded-for': '10.0.0.1' }), '198.51.100.4');
   assert.equal(at({ 'x-forwarded-for': '203.0.113.7, 10.0.0.1' }), '203.0.113.7');
   assert.equal(at({ 'x-real-ip': '2001:db8:0:12::1' }), '2001:db8:0:12::/64');
   assert.equal(at({ 'x-real-ip': '2001:0db8:0000:0012:abcd:1:2:3' }), '2001:db8:0:12::/64');

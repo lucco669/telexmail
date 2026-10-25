@@ -113,9 +113,11 @@ function humanPace(keys: number[], reactions: number[]) {
 }
 
 // The caller's network, for rate limits: an IPv4 address, or an IPv6 /64 (one home or phone
-// usually has a whole /64). Vercel sets these headers itself; elsewhere they fall back to "local".
+// usually has a whole /64). Behind Cloudflare the address is cf-connecting-ip: the tunnel and the
+// reverse proxy in front of the app rewrite x-forwarded-for to their own hop. Without any of these
+// headers it falls back to "local".
 export function clientNetwork(request: Request) {
-  const raw = (request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0] ?? '').trim().toLowerCase();
+  const raw = (request.headers.get('cf-connecting-ip') ?? request.headers.get('x-real-ip') ?? request.headers.get('x-forwarded-for')?.split(',')[0] ?? '').trim().toLowerCase();
   if (/^\d{1,3}(\.\d{1,3}){3}$/.test(raw)) return raw;
   if (/^[0-9a-f:.]+$/.test(raw) && raw.includes(':')) {
     const [head, tail = ''] = raw.split('::');

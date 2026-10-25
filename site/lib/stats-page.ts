@@ -50,7 +50,7 @@ export function statsPage(data: StatsData, now = new Date()) {
       parts.push(bars(last.map((d) => ({ label: d.day, value: d.installers })), 'Installer downloads per day'));
       parts.push(bars(last.map((d) => ({ label: d.day, value: d.latest })), 'Update checks per day (latest.json fetches)'));
     } else {
-      parts.push('<p class="muted">Downloads per day appear after two daily snapshots (the cron in vercel.json, or opening this page on two days).</p>');
+      parts.push('<p class="muted">Downloads per day appear after two daily snapshots (the daily scheduled task, or opening this page on two days).</p>');
     }
     const rows = releases.map((r) => `<tr><td>${esc(r.release)}</td><td>${esc(r.date?.slice(0, 10) ?? '')}</td>${KINDS.map((k) => `<td class="num">${n(r.kinds[k])}</td>`).join('')}<td class="num"><b>${n(r.installers)}</b></td><td class="num">${n(r.latest)}</td></tr>`).join('');
     parts.push(`<table class="grid"><thead><tr><th>Release</th><th>Published</th>${KINDS.map((k) => `<th class="num">${KIND_NAMES[k]}</th>`).join('')}<th class="num">Installers</th><th class="num">latest.json</th></tr></thead><tbody>${rows}</tbody></table>`);

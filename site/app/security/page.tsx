@@ -160,7 +160,7 @@ export default function SecurityPage() {
                 </div>
               ))}
             </dl>
-            <p className={s.note}>This website uses Vercel Web Analytics for cookieless page counts.
+            <p className={s.note}>This website uses Umami on our own server for cookieless page counts.
               Website statistics are separate from the desktop app. <Link href={pages.privacy.path}>Details of storage, analytics and requests</Link>.</p>
           </section>
 

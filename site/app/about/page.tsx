@@ -29,7 +29,7 @@ const stack = [
   ['Mail base', 'SQLite with FTS5 full-text search, one file on your disk'],
   ['Window', 'Tauri 2: WebView2 on Windows, WebKitGTK on Linux, so no browser is bundled'],
   ['Interface', 'Plain HTML, CSS and JavaScript, with six fonts, fourteen themes and five toolbar layouts'],
-  ['This site', 'Next.js on Vercel, with no cookies and cookieless page counts. The live demo is the app’s own interface'],
+  ['This site', 'Next.js on our own server behind Cloudflare, with no cookies and cookieless page counts. The live demo is the app’s own interface'],
 ];
 
 export default function AboutPage() {

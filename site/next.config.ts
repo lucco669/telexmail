@@ -5,19 +5,20 @@ import type { NextConfig } from 'next';
 const canonicalHost = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'https://telexmail.app').hostname;
 const hasCustomDomain = !canonicalHost.endsWith('.vercel.app');
 
-// Content Security Policy: everything from this site only. 'unsafe-inline' scripts are needed for
+// Content Security Policy: everything from this site only, plus Umami's script and beacons on
+// stats.szram.uk. 'unsafe-inline' scripts are needed for
 // the inline data Next.js streams into static pages and for the theme script (nonces would make
 // every page dynamic). Preview deployments also allow Vercel's comment toolbar.
 const preview = process.env.VERCEL_ENV === 'preview';
 const live = preview ? ' https://vercel.live' : '';
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${live}`,
+  `script-src 'self' 'unsafe-inline' https://stats.szram.uk${live}`,
   "script-src-attr 'none'",
   `style-src 'self' 'unsafe-inline'${live}`,
   `img-src 'self' data: blob:${preview ? ' https://vercel.live https://vercel.com' : ''}`,
   `font-src 'self'${preview ? ' https://vercel.live https://assets.vercel.com' : ''}`,
-  `connect-src 'self'${preview ? ' https://vercel.live wss://ws-us3.pusher.com' : ''}`,
+  `connect-src 'self' https://stats.szram.uk${preview ? ' https://vercel.live wss://ws-us3.pusher.com' : ''}`,
   // Frames from this site only: the live demo on /demo, and the HTML mail frame inside it.
   `frame-src 'self'${live}`,
   "frame-ancestors 'none'",

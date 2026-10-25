@@ -1,5 +1,5 @@
-import { Analytics } from '@vercel/analytics/next';
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import { IBM_Plex_Mono, IBM_Plex_Sans, IBM_Plex_Sans_Condensed } from 'next/font/google';
 import { Footer } from '@/components/Footer';
 import { Header } from '@/components/Header';
@@ -7,6 +7,10 @@ import { PageNavigation } from '@/components/PageNavigation';
 import { site } from '@/lib/site';
 import { THEME_SCRIPT } from '@/lib/theme-script';
 import './globals.css';
+
+// Holds every Umami send until a first real pointer, touch, wheel or key event and drops
+// automated browsers: Umami's own bot check is the user agent alone.
+const UMAMI_GATE = `(function(){var human=false,wait=[],ev=['pointermove','pointerdown','touchstart','wheel','keydown'];function go(e){if(!e.isTrusted||human)return;human=true;ev.forEach(function(n){removeEventListener(n,go,true)});wait.splice(0).forEach(function(f){f()})}ev.forEach(function(n){addEventListener(n,go,{capture:true,passive:true})});window.umamiBeforeSend=function(type,payload){if(navigator.webdriver)return null;return human?payload:new Promise(function(r){wait.push(function(){r(payload)})})}})();`;
 
 // next/font downloads the fonts at build time and serves them from this site: no requests to Google.
 // Plex is optional on desktop; phones use native faces in globals.css. Avoid unconditional
@@ -87,8 +91,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main id="content">{children}</main>
           <Footer />
         </PageNavigation>
-        {/* Vercel Web Analytics: page views without cookies (see the privacy page). */}
-        {process.env.VERCEL === '1' && <Analytics />}
+        {/* Umami on the self-hosted stats.szram.uk: page views without cookies (see the privacy page). */}
+        <script dangerouslySetInnerHTML={{ __html: UMAMI_GATE }} />
+        <Script
+          src="https://stats.szram.uk/script.js"
+          data-website-id="2f758525-dfe0-4e8f-ac75-a69453171fcf"
+          data-before-send="umamiBeforeSend"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

@@ -8,7 +8,7 @@ import s from './page.module.css';
 export const metadata = pageMetadata(pages.privacy);
 
 // Change this date whenever the text below changes.
-const UPDATED = '17 October 2026';
+const UPDATED = '25 October 2026';
 
 export default function PrivacyPage() {
   return (
@@ -29,7 +29,7 @@ export default function PrivacyPage() {
             <li>Update checks contact GitHub only if allowed by your setting or started manually</li>
             <li>From 0.9.11 the app can be counted once a day, without an ID, only if you say yes</li>
             <li>Saved searches, the spam filter and scam warning checks stay local; configured forwards send mail to their recipients</li>
-            <li>This site uses cookieless Vercel Web Analytics for page counts</li>
+            <li>This site counts page views with Umami on our own server, without cookies</li>
             <li>The live demo runs in your browser: nothing you do there is sent</li>
           </ul>
         </aside>
@@ -172,7 +172,8 @@ export default function PrivacyPage() {
           <p>
             What we keep is a sum per UTC day for each combination of those values (for example “14 copies of 0.9.11
             on Windows in Polish, first counted in October”), not a row per request. Like every request, this one
-            shows Vercel, which hosts the site, your IP address. The site does not store it: it uses only a keyed
+            shows your IP address to Cloudflare, which carries the traffic, and to our server, which hosts the site.
+            The site does not store it: it uses only a keyed
             hash of your network to stop one network from adding more than 200 counts a day, and that hash is deleted
             after two days. The sums are kept in a Supabase database that only the site’s server can read.
           </p>
@@ -203,15 +204,15 @@ export default function PrivacyPage() {
           <h2>This website</h2>
           <h3 id="cookies">Cookies and ads</h3>
           <p>
-            This site has no advertising integration. Its visitor statistics use cookieless Vercel Web Analytics,
-            described below. Its fonts are served from this site, not from a font service.
+            This site has no advertising integration. Its visitor statistics use cookieless Umami, described
+            below. Its fonts are served from this site, not from a font service.
           </p>
           <h3>Visitor statistics</h3>
           <p>
-            To know which pages are read, the site uses Vercel Web Analytics. It counts page views, the page you came
-            from, and your country, browser and device type. It uses no cookies; the analytics script is served
-            through this site. See{' '}
-            <a href="https://vercel.com/docs/analytics/privacy-policy">how Vercel Web Analytics handles data</a>.
+            To know which pages are read, the site uses Umami, running on our own server. It counts page views, the
+            page you came from, and your country, browser and device type. It uses no cookies and does not store
+            your IP address: visitors are told apart by a one-way hash whose salt changes every month. A view only
+            counts after a first real mouse move, touch, scroll or key press, which keeps bots out of the totals.
           </p>
           <h3 id="downloads">Download numbers</h3>
           <p>
@@ -221,9 +222,10 @@ export default function PrivacyPage() {
           </p>
           <h3>Hosting</h3>
           <p>
-            The site is hosted by Vercel. Like any web server, Vercel processes your IP address and the details of each
-            request to deliver the pages and keep the service secure. See{' '}
-            <a href="https://vercel.com/legal/privacy-notice">Vercel’s privacy policy</a>.
+            The site runs on our own server and reaches you through Cloudflare. Like any web service, Cloudflare
+            and the server process your IP address and the details of each request to deliver the pages and keep the
+            service secure. See{' '}
+            <a href="https://www.cloudflare.com/privacypolicy/">Cloudflare’s privacy policy</a>.
           </p>
           <h3>Theme</h3>
           <p>

@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { dayOf, snapshotRows } from '@/lib/count';
 import { countConfig, githubReleases, saveTotals } from '@/lib/count-store';
 
-// Vercel's cron (vercel.json) calls this once a day with `Authorization: Bearer <CRON_SECRET>`:
+// A Coolify scheduled task (00:05 UTC) calls this once a day with `Authorization: Bearer <CRON_SECRET>`:
 // GitHub's download totals for today, so /stats can show downloads per day.
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
