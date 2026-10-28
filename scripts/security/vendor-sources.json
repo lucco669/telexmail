@@ -1214,7 +1214,7 @@
     },
     {
       "path": "vendor/tauri-plugin-notification/src/desktop.rs",
-      "sha256": "db50a6732119eb3f96d9cd7717cb8dbaa2794882b21bb7ce6ae9f6216817c30e"
+      "sha256": "772dd1133bbabd7367a9693e8b80f4b12eb8ef0fac1184ab5d35c2313c402d24"
     },
     {
       "path": "vendor/tauri-plugin-notification/src/error.rs",

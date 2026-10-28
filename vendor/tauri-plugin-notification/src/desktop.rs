@@ -815,7 +815,6 @@ mod tests {
     ) -> zbus::message::Message {
         let (_, path, interface) = imp::BUS;
         zbus::message::Message::signal(path, interface, member)
-            .unwrap()
             .build(body)
             .unwrap()
     }
