@@ -6,7 +6,7 @@ const npmAudit = total => JSON.stringify({ auditReportVersion: 2, metadata: {
   vulnerabilities: { info: 0, low: 0, moderate: 0, high: total, critical: 0, total },
 } });
 const rustAudit = warnings => JSON.stringify({ database: { 'last-commit': 'fixture' },
-  vulnerabilities: { count: 0, list: [] }, warnings });
+  settings: { ignore: [] }, vulnerabilities: { count: 0, list: [] }, warnings });
 
 test('an unavailable audit service or tool cannot produce a pass', () => {
   assert.throws(() => npmResult('{"error":{"code":"ENOAUDIT"}}', 1));
@@ -23,6 +23,14 @@ test('reported findings fail even if the process unexpectedly exits successfully
   assert.equal(secretsResult('[{"RuleID":"fixture"}]', 0).status, 'failed');
   const advisory = { advisory: { id: 'fixture', informational: 'unsound' }, package: { name: 'fixture', version: '1' } };
   assert.equal(rustResult(rustAudit({ unsound: [advisory] }), 0).status, 'failed');
+});
+
+test('advisory exclusions cannot turn an incomplete Rust scan into a pass', () => {
+  const report = JSON.parse(rustAudit({}));
+  report.settings.ignore = ['RUSTSEC-2023-0071'];
+  assert.throws(() => rustResult(JSON.stringify(report), 0), /without advisory exclusions/);
+  delete report.settings;
+  assert.throws(() => rustResult(JSON.stringify(report), 0), /without advisory exclusions/);
 });
 
 test('maintenance advisories stay visible in a completed scan', () => {

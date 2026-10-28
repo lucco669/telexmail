@@ -109,6 +109,14 @@ security audit, installer antivirus assessment or reproducible-build evidence is
   with those dependencies' 0.5 requirements; there is no published 0.5.6 backport. Local
   desktop execution does not establish that secret-key operations are unexploitable.
   The finding remains subject to the release gate.
+- [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) also remains in
+  rsa 0.9.10, used for OpenPGP and S/MIME. No patched version is published, including the
+  newer 0.10 release candidates. The previous audit exclusion has been removed; local use
+  does not establish absence of a timing side channel. The release gate now reports both
+  remaining cryptographic vulnerabilities, and rejects scans with advisory exclusions.
+- The full lockfile also reports seven maintenance warnings: proc-macro-error 1.0.4,
+  zbus_names 3.0.0 and 4.3.5, zvariant 4.2.0 and 5.15.1, and zvariant_derive 4.2.0 and
+  5.15.1. These are unmaintained-package findings, separate from vulnerability advisories.
 
 ## Native webview and parser tests
 

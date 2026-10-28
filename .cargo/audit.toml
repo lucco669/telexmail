@@ -1,8 +1,4 @@
 # cargo audit (npm run security, and the release gate).
 [advisories]
-# RUSTSEC-2023-0071, the Marvin attack on the rsa crate: RSA decryption whose timing can leak
-# the private key to someone who can time very many decryptions. No fixed rsa release exists
-# (0.10 is only a release candidate), and both pgp 0.21 and cms 0.2 need rsa 0.9. Telex
-# decrypts only on this PC, once per message the user opens, and tells nobody how long it took,
-# so there is nothing to time. Remove this line once pgp and cms move to a fixed rsa.
-ignore = ["RUSTSEC-2023-0071"]
+# Keep the complete dependency findings visible, including local cryptographic operations.
+ignore = []

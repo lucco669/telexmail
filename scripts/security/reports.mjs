@@ -20,6 +20,9 @@ export function npmResult(text, exitCode) {
 export function rustResult(text, exitCode) {
   const report = JSON.parse(text);
   const vulnerabilities = report.vulnerabilities;
+  if (!Array.isArray(report.settings?.ignore) || report.settings.ignore.length !== 0) {
+    throw new Error('RustSec must run without advisory exclusions');
+  }
   if (!report.database?.['last-commit'] || !Array.isArray(vulnerabilities?.list)
     || vulnerabilities.count !== vulnerabilities.list.length) throw new Error('RustSec did not return a completed audit');
   const warnings = report.warnings ?? {};
