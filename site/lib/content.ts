@@ -21,7 +21,7 @@ export const features = [
   },
   {
     title: 'One key per action',
-    text: 'Reply, flag, move, delete, undo, search, read on to the next unread: one key each, for one message or fifty. The mouse is optional.',
+    text: 'Reply, flag, move, undo and search with one key. Reply, Reply all and Forward also sit above the message preview, ready for a click.',
   },
   {
     title: 'Your mail, on your disk',
@@ -32,16 +32,16 @@ export const features = [
     text: 'Match senders, text, named headers and attachments. Preview the matches, then file, flag, copy or forward new mail, with a note explaining each change.',
   },
   {
-    title: 'Conversations your way',
-    text: 'T brings a conversation together across folders. Prefer a shorter list? Turn on expandable thread rows, with counts and arrow-key controls.',
+    title: 'New mail, easy to spot',
+    text: 'Get mail starts with your selected mailbox. Today’s unread arrivals highlight the existing folder count; mail you deliberately left unread stays quiet.',
   },
   {
     title: 'Private by default',
-    text: 'Remote images stay blocked and passwords use your system’s store. The spam filter learns on your PC, and links and scam warning signs are checked there too. No Telex account, and nothing counted unless you say yes.',
+    text: 'Remote images stay blocked and passwords use your system’s store. The spam filter learns on your PC and catches high-risk scam arrivals before training is ready. Link checks stay local too. No Telex account, and nothing counted unless you say yes.',
   },
   {
     title: 'Readable your way',
-    text: 'Eight measured themes, six fonts, text up to 200%, and five toolbar layouts. Keep labels, use larger icons, or choose a toolbar made entirely of text.',
+    text: 'Fourteen measured themes, six fonts, text up to 200%, and five toolbar layouts. Keep labels, use larger icons, or choose a toolbar made entirely of text.',
   },
   {
     title: 'Light on your PC',
@@ -54,7 +54,7 @@ export const features = [
 ];
 
 /** The strip under the hero's screenshot: what you get, in a few words each. */
-export const facts = ['Spam filter that learns', 'Saved searches', 'Rule previews', 'Copy as Markdown', 'Undo send', 'Windows and Linux', 'No Electron', 'No tracking'];
+export const facts = ['Your mailbox first', 'Preview reply buttons', 'New unread highlights', 'Local spam and scam checks', 'Saved searches', 'Windows and Linux', 'No Electron', 'No tracking'];
 
 /**
  * Which mail works, beside the download buttons. Keep it true to crates/telex-core/src/autoconfig.rs:
@@ -62,7 +62,7 @@ export const facts = ['Spam filter that learns', 'Saved searches', 'Rule preview
  * `unsupported: MicrosoftSignIn` until OAuth2 sign-in lands (roadmap step 5).
  */
 export const compat = {
-  works: 'Works with any IMAP/SMTP mail, Gmail included (with an app password).',
+  works: 'IMAP or POP3 with SMTP. Gmail works with an app password.',
   later: 'Outlook.com and Microsoft 365: coming with Microsoft sign-in.',
 };
 
@@ -71,7 +71,7 @@ export type ProviderGroup = { title: string; text: string; link?: { href: string
 export const providers: Record<'works' | 'appPassword' | 'later', ProviderGroup> = {
   works: {
     title: 'Works today',
-    text: 'Any provider with IMAP and SMTP over SSL/TLS or STARTTLS and a password: your own domain or hosting mailbox, Zoho, GMX, WEB.DE, mail.com, OVHcloud, WP, o2, Onet, Interia and many more. For some of them you turn on IMAP in their settings first; Telex says so.',
+    text: 'Providers with IMAP or POP3 for incoming mail and SMTP for sending, over TLS and with a password: your own domain or hosting mailbox, Zoho, GMX, WEB.DE, mail.com, OVHcloud, WP, o2, Onet, Interia and many more. For some of them you turn on IMAP in their settings first; Telex says so.',
   },
   appPassword: {
     title: 'Works with an app password',
@@ -87,9 +87,9 @@ export const providers: Record<'works' | 'appPassword' | 'later', ProviderGroup>
 /** Beside the download buttons: what Telex does for you, true to the current build. */
 export const benefits = [
   { title: 'Keep searches close', text: 'Search offline across your accounts, then save the query in your folder list.' },
-  { title: 'Junk out of the way', text: 'A spam filter that learns from your own mail on your PC, and says why it moved each message.' },
+  { title: 'Junk out of the way', text: 'Learning from your own mail, plus high-risk scam checks before training is ready. Every move comes with a reason.' },
   { title: 'Preview your rules', text: 'Match headers and attachments, and inspect results before filing or forwarding new mail.' },
-  { title: 'Several accounts, one window', text: 'Each in its own color, one search across all of them.' },
+  { title: 'Several accounts, one window', text: 'Get mail starts with your selected mailbox; today’s unread arrivals stand out in the folder list.' },
   { title: 'Take it back', text: 'Z undoes a delete, a move or a discarded message, and holds sent mail for five seconds.' },
   { title: 'Nothing to sign up for', text: 'No account, no tracking, no Telex server between you and your mail.' },
 ];
@@ -127,11 +127,12 @@ export const featureRows: FeatureRow[] = [
   },
   {
     id: 'read',
-    screen: 'menu',
+    screen: 'preview-actions',
     title: 'Read on your terms',
     text: 'Space reads on: it pages down the message, then opens the next unread one, and after the last it takes you to the next folder with new mail. Mail counts as read when you say so, and everything you can do with a message is one right-click away.',
     since: '0.7.1',
     points: [
+      { text: 'Reply, Reply all and Forward above the preview’s subject and sender details, with the same shortcuts as the message menu', since: V0923 },
       'Settings › Reading: read at once, after a moment you choose, only when opened in its own window, or only when you mark it',
       'Click the dot at the start of a row for read or unread, the flag next to it to flag; the envelope above a message does the same',
       'Right-click a message (or Shift+F10) for reply, move, flag, read, the conversation and a rule, each with its key',
@@ -222,6 +223,7 @@ export const featureRows: FeatureRow[] = [
     text: 'R opens the reply right in the reading pane, quoted and signed. New messages and replies start in HTML, for bold, lists and links, and always go out with a plain-text copy; switch a message, or the default, to plain text in a mono face.',
     points: [
       'Reply, reply to all and forward, each one key',
+      { text: 'Tab follows To, Cc, visible Bcc, Subject and the message, skipping the Bcc toggle and formatting buttons; Alt+B opens Bcc', since: V0923 },
       { text: 'Reply | Reply all at the top of every reply: switch any time, your text stays; with Reply, a line names who else was on the original, one click from being added', since: V0910 },
       { text: 'A reply to all that goes to 8 people or more asks once before Send', since: V0910 },
       { text: 'Mention an attachment without attaching one, and Send asks first: “attached”, “enclosed”, “w załączniku”; quotes and your signature don’t count', since: V0910 },
@@ -262,7 +264,7 @@ export const featureRows: FeatureRow[] = [
       { text: 'An address book (B): contacts with several addresses, a phone, an organization and a note, and groups you type in To by name, which go in as their people', since: V0920 },
       { text: 'Contacts come first in the suggestions and above messages, by the names you saved; people you write to are offered, never added on their own', since: V0920 },
       { text: 'vCard files in and out, from Google, Apple, Outlook or old Polish exports, and Thunderbird’s and Outlook’s contacts when you move in', since: V0920 },
-      'A warning before you send more than 20 MB',
+      'A size warning based on your server’s limit, your provider’s documented limit, or a 20 MB fallback',
     ],
   },
   {
@@ -310,10 +312,12 @@ export const featureRows: FeatureRow[] = [
   },
   {
     id: 'sync',
-    screen: 'comfortable',
+    screen: 'fresh-mail',
     title: 'Two-way sync, and new mail at once',
     text: 'Reading, flagging, moving and deleting happen on your PC at once and reach the server right after. Changes wait in a queue that survives restarts and lost connections.',
     points: [
+      { text: 'Get mail checks the selected mailbox and folder first, then the remaining accounts in parallel', since: V0923 },
+      { text: 'Today’s unread arrivals add a dot and highlight the existing folder count, with no second number; older unread mail stays quiet, and markers follow moves and reset daily', since: V0923 },
       { text: 'New mail shows within seconds: one IMAP IDLE connection per Inbox', since: '0.5.0' },
       { text: 'A notification names the sender while Telex is in the background', since: '0.5.0' },
       { text: 'Lives in the system tray if you like: the close button or minimizing hides it there, a click brings it back, and it keeps checking, sending and notifying', since: V0922 },
@@ -380,6 +384,7 @@ export const featureRows: FeatureRow[] = [
       'In a dark theme, HTML mail takes the theme’s colors; one click shows it on white',
       'No Telex account or mail relay; counted only if you say yes, without an ID',
       { text: 'Signed and encrypted mail (OpenPGP, as GnuPG and Thunderbird write it): signatures checked against the sender’s key, encrypted mail decrypted only while it is open and never kept or searched as text', since: V0920 },
+      { text: 'OpenPGP v4 and S/MIME use the updated cryptography backend in 0.9.23; existing keys, encrypted mail and saved credentials retain their format. OpenPGP v6 keys are unsupported', since: V0923 },
       { text: 'Sign and Encrypt in compose, to everyone’s keys and yours; Telex says whose key is missing instead of sending in the clear', since: V0920 },
       { text: 'Keys in Settings › Keys: make one in a click, import or export, compare fingerprints; keys come with mail too (Autocrypt)', since: V0920 },
       { text: 'S/MIME too, as Outlook and Apple Mail write it: your certificate from a .p12 or .pfx file signs and decrypts, Windows says whether a sender’s certificate is from an authority it trusts, and people’s certificates come with their signed mail', since: V0920 },
@@ -389,7 +394,7 @@ export const featureRows: FeatureRow[] = [
     id: 'spam-filter',
     screen: 'spam-filter',
     title: 'A spam filter that learns from you',
-    text: 'Telex learns what your spam looks like from your own Spam folder and the mail you keep, on your PC, and files new junk away before you see it. Each message it moves says why.',
+    text: 'Learning from your own Spam folder and kept mail combines with local scam checks on new arrivals. With filtering on, high-risk Inbox arrivals go to Spam even before statistical training is ready. Each move says why.',
     since: V098,
     points: [
       'A statistical filter (as SpamBayes): words, senders, link hosts and a few header facts, nothing uploaded',
@@ -500,8 +505,8 @@ export const featureRows: FeatureRow[] = [
 export const notYet = [
   'Outlook.com, Hotmail and Microsoft 365 accept only Microsoft sign-in (OAuth2), which isn’t built yet. Gmail works today with an app password; signing in with Google comes in the same step.',
   'HTML mail keeps its inline styling, but style sheets inside a message (<style> blocks) are dropped for now.',
-  'Drafts stay on your PC; they aren’t saved to the server’s Drafts folder yet.',
-  'HTML compose has no images or colors yet, and signatures are plain text.',
+  'OpenPGP v6 keys and post-quantum algorithms are unsupported by the current backend; existing version 4 keys remain supported.',
+  'Scam checks have a bounded scope: they do not verify SPF, DKIM, DMARC, attachments or link reputation.',
   'There is no Mac version, and the Windows installer isn’t code-signed yet, so SmartScreen may warn when you install.',
 ];
 
@@ -567,6 +572,16 @@ export const shortcuts: Shortcut[] = [
 export type Tip = { title: string; text: string; since?: string };
 
 export const keyboardTips: Tip[] = [
+  {
+    title: 'Tab straight through compose',
+    text: 'After R, Tab moves through To, Cc, visible Bcc, Subject and the message. The Bcc toggle and formatting buttons stay out of that path; Alt+B opens Bcc. Reply, Reply all and Forward are also above the preview.',
+    since: V0923,
+  },
+  {
+    title: 'New arrivals beside older unread mail',
+    text: 'A dot and a highlighted folder count show unread mail that arrived today. The number still counts all unread messages, so older mail you left unread stays visible without a second number.',
+    since: V0923,
+  },
   {
     title: 'Arrow past without reading',
     text: 'A message counts as read after it has been on screen for a moment, so moving through the list with ↑ ↓ doesn’t mark everything you pass. Settings › Reading says how long, or leaves it to you.',
@@ -646,6 +661,14 @@ export const hero: Screen = {
 };
 
 export const screens: Screen[] = [
+  {
+    id: 'preview-actions', label: 'Preview actions', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'Reply, Reply all and Forward above the message subject, beside its sender and recipient details. The familiar keyboard shortcuts work too.', since: V0923,
+  },
+  {
+    id: 'fresh-mail', label: 'Today’s unread arrivals', title: 'Inbox · sam@lindenstudio.com – Telex',
+    caption: 'A dot and a highlighted folder count show unread mail that arrived today. The number still includes all unread mail; older messages you left unread keep their quiet count.', since: V0923,
+  },
   {
     id: 'markdown', label: 'Copy as Markdown', title: 'Inbox · sam@lindenstudio.com – Telex',
     caption: 'Copy as Markdown, from the menu, Ctrl+C or the button above a message: the subject as a heading, who, when and which files, then the text. Select a conversation to copy it all, oldest first.', since: V0911,
@@ -867,12 +890,22 @@ export const screens: Screen[] = [
  */
 export const demoFirst: { keys: string[]; text: string }[] = [
   { keys: ['/'], text: 'and type from:anna: the list narrows as you type, and [Tab] looks in all her mail.' },
-  { keys: ['T'], text: 'on Daniel Price’s “Re: Online shop estimate”: the whole conversation, from four folders.' },
+  { keys: ['Reply'], text: 'above the preview opens a reply. [Tab] moves through recipients, subject and message; [Alt+B] opens Bcc.' },
   { keys: ['Del'], text: 'moves a message to Trash, and [Z] brings it back.' },
 ];
 
 /** The cards under the live demo. Keep them true to scripts/demo-mailbox.json and demo/backend.js. */
 export const demoTries: { keys: string[]; title: string; text: string }[] = [
+  {
+    keys: ['Reply', 'Tab'],
+    title: 'Reply from the preview',
+    text: 'Choose a message and use Reply, Reply all or Forward above its subject. In compose, Tab moves through To, Cc, visible Bcc, Subject and the text; Alt+B opens Bcc without detouring through toolbar buttons.',
+  },
+  {
+    keys: ['Get mail'],
+    title: 'Spot today’s arrivals',
+    text: 'Get mail simulates an arrival from the demo queue, preferring the mailbox you are viewing. A dot and a highlighted folder count show today’s unread arrivals. Older unread mail keeps its usual count; reading the new message clears its fresh marker.',
+  },
   {
     keys: ['/', 'Save search'],
     title: 'Keep a live search',
@@ -971,7 +1004,7 @@ export const demoTries: { keys: string[]; title: string; text: string }[] = [
 ];
 
 /** The tabs on the home page: a tour, not the whole gallery. */
-export const homeScreens = ['markdown', 'reply-checks', 'quotes', 'spelling', 'spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'connections', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
+export const homeScreens = ['preview-actions', 'fresh-mail', 'markdown', 'reply-checks', 'quotes', 'spelling', 'spam-filter', 'links', 'signatures', 'saved-searches', 'rule-preview', 'connections', 'threads', 'unread', 'reply', 'thread', 'local', 'images', 'appearance', 'polish'].map(
   (id) => screens.find((s) => s.id === id)!,
 );
 
@@ -992,7 +1025,7 @@ export const versions: Version[] = [
     version: V0923,
     title: 'Quicker mail checks, preview actions and stronger scam filtering',
     date: '2026-10-28',
-    summary: 'Get mail starts with the mailbox and folder you are using. Reply and forward from the preview, tab through compose without detours, and see which folders have new unread arrivals today. High-risk scams now go to Spam as they arrive.',
+    summary: 'Get mail starts with the mailbox and folder you are using. Reply and forward from the preview, tab through compose without detours, and see which folders have new unread arrivals today. High-risk scams now go to Spam as they arrive. The release also updates encryption and replaces unmaintained dependencies, with no audit exceptions.',
     points: [
       'Get mail checks the selected account and folder first, then checks the remaining accounts in parallel.',
       'Reply, Reply all and Forward buttons sit above the subject in the message preview.',
@@ -1000,15 +1033,16 @@ export const versions: Version[] = [
       'With spam filtering enabled, new Inbox mail with scam risk of 70/100 or more goes to Spam immediately, before statistical training is ready. PKO and iPKO biznes matching includes the official business banking domain. Existing trusted-sender exceptions and Not spam corrections are respected.',
       'Today’s unread arrivals add a dot and highlight the existing folder count. Older unread messages stay quiet. The markers follow rules and moves, survive restarts and reset each day.',
       'A quick restart no longer freezes while the tray icon is being updated.',
-      'OpenPGP and S/MIME private-key operations now use RNP/Botan. Vulnerable Rust cryptography packages and unmaintained Linux dependencies are removed, with no audit exceptions. Existing version 4 keys, encrypted mail and saved credentials remain compatible.',
+      'OpenPGP and S/MIME private-key operations now use RNP/Botan. Vulnerable Rust cryptography packages and unmaintained Linux dependencies are removed, with no audit exceptions. Existing version 4 keys, encrypted mail and saved credentials remain compatible; OpenPGP v6 keys are unsupported.',
     ],
-    upgrade: 'Version 0.9.23 upgrades the local mail base to remember today’s arrivals. Back up in Settings › Backups before updating; older Telex versions cannot reopen the upgraded mail base.',
+    upgrade: 'Back up in Settings › Backups before installing 0.9.23: its mail-database upgrade for today’s arrivals cannot be reopened by older Telex versions. Existing OpenPGP v4 keys, S/MIME certificates and saved passwords retain their format; OpenPGP v6 keys are unsupported.',
     highlights: [
       { title: 'Your mailbox first', text: 'Get mail starts where you are working.', href: '/features#sync' },
       { title: 'Preview actions', text: 'Reply, Reply all and Forward beside the message.', keys: 'R · Shift+R · Shift+F', href: '/features#read' },
       { title: 'Straight through compose', text: 'Tab moves between fields and into the message.', keys: 'Tab · Alt+B', href: '/features#writing' },
       { title: 'High-risk scams to Spam', text: 'Local scam checks now help filter new arrivals.', href: '/features#spam-filter' },
       { title: 'New unread at a glance', text: 'A highlight for today’s arrivals, with one count.', href: '/features#sync' },
+      { title: 'Updated encryption', text: 'Existing v4 keys, encrypted mail and saved passwords keep working. Inspect the release’s security results.', href: '/security#release-0923' },
     ],
   },
   {
@@ -1432,7 +1466,7 @@ export const roadmap: Step[] = [
     title: 'Sending',
     text: 'SMTP over SSL/TLS or STARTTLS, an Outbox that retries, and a copy of every sent message in Sent on the server.',
     status: 'done',
-    notYet: 'Drafts on the server’s Drafts folder.',
+    notYet: 'Recalling a message after the receiving server accepts it.',
   },
   {
     title: 'HTML mail',
@@ -1444,13 +1478,11 @@ export const roadmap: Step[] = [
     title: 'Filters',
     text: 'A Sorting Office: match text, named headers and attachments; preview matches, then move, flag or copy mail. Forwarding and auto-replies run on new arrivals, with notes and duplicate protection.',
     status: 'done',
-    notYet: 'Regular expressions and rules that run on a schedule.',
   },
   {
     title: 'Templates and identities',
     text: 'Several identities per account, each with its own signature and reply and forward templates. A reply is from the address it was sent to.',
     status: 'done',
-    notYet: 'Greeting templates for new messages, HTML signatures.',
   },
   {
     title: 'Updates',
@@ -1459,16 +1491,16 @@ export const roadmap: Step[] = [
     notYet: 'A code-signed installer with a verified publisher identity. SmartScreen reputation may still take time.',
   },
   {
-    title: 'Settings, themes and Polish',
-    text: 'A settings window, eight themes that all meet WCAG 2.2 AA contrast (two at AAA), text up to 200%, the whole interface in Polish, and settings, rules and identities exported to one file and imported with a preview.',
+    title: 'Settings, fourteen themes and nine languages',
+    text: 'Fourteen measured themes, two with AAA contrast, your own accent color, six fonts, text up to 200%, and nine interface languages. Settings, rules and identities travel in one file, with a preview before importing.',
     status: 'done',
-    notYet: 'More languages.',
+    notYet: 'Native-speaker review of the seven newer translations.',
   },
   {
     title: 'HTML compose, usage and Linux',
     text: 'Write in plain text or HTML, with a plain-text copy always going along. HTML mail takes a dark theme’s colors. A Usage page for each account. An AppImage that updates itself, and a .deb.',
     status: 'done',
-    notYet: 'Images and colors in HTML compose, HTML signatures, a Mac version.',
+    notYet: 'A Mac version.',
   },
   {
     title: 'Attachments and mail at speed',
@@ -1520,7 +1552,19 @@ export const roadmap: Step[] = [
     text: 'A statistical spam filter that learns from your mail on your PC and explains each move, link destinations in one quiet line, new messages and replies in HTML, and every signature in Settings › Writing.',
     status: 'done',
     since: V098,
-    notYet: 'HTML signatures, and images and colors in HTML compose.',
+  },
+  {
+    title: 'Your mailbox first, preview actions and fresh unread markers',
+    text: 'Check the selected mailbox first, reply or forward above the preview, tab straight through compose and spot today’s unread arrivals without a second count.',
+    status: 'done',
+    since: V0923,
+  },
+  {
+    title: 'High-risk scams and maintained encryption dependencies',
+    text: 'High-risk Inbox arrivals go to Spam before training is ready. OpenPGP and S/MIME use the updated cryptography backend, with dependency scans and maintenance findings gating releases.',
+    status: 'done',
+    since: V0923,
+    notYet: 'OpenPGP v6 keys and post-quantum algorithms.',
   },
   {
     title: 'Sign in with Microsoft and Google',
@@ -1559,7 +1603,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Can I attach files and open attachments?',
-        a: 'From version 0.5. Click an attachment to open it in its app, or save one or all of them. Programs, scripts, shortcuts, macro documents and anything in Spam ask before they open. Attach files with Attach… or by dropping them on the window; Telex warns above 20 MB. Before 0.5, attachments could only be forwarded.',
+        a: 'From version 0.5. Click an attachment to open it in its app, or save one or all of them. Programs, scripts, shortcuts, macro documents and anything in Spam ask before they open. Attach files with Attach… or by dropping them on the window; Telex warns against your server’s size limit, a documented provider limit, or 20 MB when neither is known.',
       },
       {
         q: 'Does new mail show up right away?',
@@ -1579,6 +1623,14 @@ export const faqGroups: { title: string; items: Question[] }[] = [
         a: 'Yes. Reading, flagging, moving and deleting happen locally at once and then on the server. If you are offline, they wait in a queue and go out at the next sync.',
       },
       {
+        q: 'How do I spot new mail without clearing older unread messages?',
+        a: 'In 0.9.23 a dot and a highlighted folder count identify unread messages that arrived today. The number still counts all unread mail, so there is no second badge. Mail you deliberately left unread on earlier days stays quiet. The markers follow moves, survive restarts and reset each day.',
+      },
+      {
+        q: 'Which mailbox does Get mail check first?',
+        a: 'Get mail starts with the account and folder you are using, then checks the remaining accounts in parallel. New IMAP Inbox mail can still arrive through IDLE between checks. The browser demo simulates arrivals; it does not connect to a server.',
+      },
+      {
         q: 'Can I keep mail unread until I decide?',
         a: 'From version 0.7, yes. Settings › Reading says when a message counts as read: as soon as you select it, after it has been on screen for a moment you choose, only when you open it in its own window, or only when you mark it yourself, with U, the dot at the start of its row, or the envelope above it. Space goes to the next unread message either way.',
       },
@@ -1592,7 +1644,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Can I write in HTML?',
-        a: 'Yes. From version 0.9.8 new messages and replies start in HTML, with bold, italics, lists, quotes and links. Every HTML message goes out with a plain-text copy, and pasted web pages lose their styles and scripts. Prefer plain text in a mono face? Settings › Writing makes it the default, and the Text | HTML switch changes one message. If you chose plain text before 0.9.8, that choice stays.',
+        a: 'Yes. New messages and replies start in HTML, with bold, italics, lists, quotes, links, text colors, highlights, sizes and embedded pictures. Signatures can include formatting and a logo. Every HTML message goes out with a plain-text copy, and pasted web pages lose their styles and scripts. Prefer plain text in a mono face? Settings › Writing makes it the default, and the Text | HTML switch changes one message. If you chose plain text before 0.9.8, that choice stays.',
       },
     ],
   },
@@ -1606,7 +1658,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Can rules match headers and attachments?',
-        a: 'Yes, in 0.9.5. Alongside sender, recipients, subject and text, conditions can inspect a named header, attachment filename or MIME type, including presence and absence. Combine all or any conditions. Rules can move, flag, mark read, copy, forward or reply, and leave notes explaining their changes. Regular expressions and scheduled rules are not built yet.',
+        a: 'Yes, in 0.9.5. Alongside sender, recipients, subject and text, conditions can inspect a named header, attachment filename or MIME type, including presence and absence. Combine all or any conditions. Rules can move, flag, mark read, copy, forward or reply, and leave notes explaining their changes. Regular-expression patterns and rules scheduled hourly, daily or weekly are available too; automatic replies and forwarding still run only on new arrivals.',
       },
       {
         q: 'Does previewing a rule change anything?',
@@ -1622,7 +1674,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Can I change the toolbar layout?',
-        a: 'Yes. Settings › Appearance offers Classic, Icons only, Large icons, Labels below and Text only. Your choice applies immediately and is saved. Search and Settings remain reachable in narrow windows. The same tab offers eight themes, six fonts, larger text, density and unread-mail styling.',
+        a: 'Yes. Settings › Appearance offers Classic, Icons only, Large icons, Labels below and Text only. Your choice applies immediately and is saved. Search and Settings remain reachable in narrow windows. The same tab offers fourteen themes, accent colors, six fonts, larger text, density and unread-mail styling.',
       },
     ],
   },
@@ -1642,7 +1694,11 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       {
         id: 'spam-filter',
         q: 'Does Telex have its own spam filter?',
-        a: 'From version 0.9.8, yes, besides whatever your provider filters. It learns on your PC from the mail in your Spam folders and the read mail you keep, and moves new Inbox mail it is sure about to Spam, with a note giving the score and the words that told. It never moves mail from people you have written to, senders whose images you trust, or answers to your own mail, and it does nothing until it has seen 50 messages of each kind. Mark as spam and Not spam in the message menu teach it. Settings › Mail sets it to careful (the default), normal or strict, or turns it off. Nothing is uploaded or looked up.',
+        a: 'From version 0.9.8, yes, besides whatever your provider filters. It learns on your PC from the mail in your Spam folders and the read mail you keep, and moves new Inbox mail it is sure about to Spam, with a note giving the score and the words that told. It never moves mail from people you have written to, senders whose images you trust, or answers to your own mail. Statistical filtering waits for 50 examples of each kind. From 0.9.23, high-risk arrivals (70/100 or more) can go to Spam immediately while filtering is on, before that training is ready; the same trusted-sender exceptions apply. Mark as spam and Not spam in the message menu teach it. Settings › Mail sets it to careful (the default), normal or strict, or turns it off. Nothing is uploaded or looked up.',
+      },
+      {
+        q: 'Does 0.9.23 change my encryption keys or saved passwords?',
+        a: 'The cryptography and credential dependencies were migrated without changing stored version 4 OpenPGP keys, encrypted mail, S/MIME certificates or saved password identities. Operations stay on your PC. The new OpenPGP backend does not support version 6 keys or post-quantum algorithms. Back up before upgrading: the separate mail-database change for today’s arrivals cannot be reopened by older Telex versions.',
       },
       {
         q: 'Does the scam check upload mail or open links?',
@@ -1696,7 +1752,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Is Telex available in Polish?',
-        a: 'Yes. The interface speaks English and Polish and follows the Windows display language; if Windows is in English but set to Poland, Telex offers Polish on first start. You can switch any time in Settings › Language.',
+        a: 'Yes. The interface speaks English, Polish, German, Czech, Slovak, Ukrainian, Spanish, French and Italian, and follows the Windows display language; if Windows is in English but set to Poland, Telex offers Polish on first start. You can switch any time in Settings › Language. The seven newer translations are machine-written and await native-speaker review.',
       },
       {
         q: 'Is there a Mac or Linux version?',
@@ -1728,7 +1784,9 @@ export const ticker = [
   'INSPECT LINKS. SCAM WARNING SIGNS ARE CHECKED ON YOUR PC.',
   'FIVE TOOLBAR LAYOUTS: PICK YOUR WAY TO WORK.',
   'GMAIL: WORKS WITH AN APP PASSWORD. NEXT: MICROSOFT SIGN-IN',
-  'EIGHT THEMES, ALL WCAG 2.2. SIX FONTS. ENGLISH AND POLISH.',
+  'FOURTEEN THEMES, ALL WCAG 2.2. SIX FONTS. NINE LANGUAGES.',
+  'GET MAIL STARTS WITH YOUR MAILBOX. NEW UNREAD ARRIVALS STAND OUT.',
+  'REPLY FROM THE PREVIEW. TAB STRAIGHT THROUGH COMPOSE.',
   'TRY: SPACE = NEXT UNREAD, R = REPLY, T = CONVERSATION, / = SEARCH',
   'NNNN',
 ];

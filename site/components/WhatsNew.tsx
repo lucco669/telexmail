@@ -47,7 +47,7 @@ export function WhatsNew({ release }: { release: Release | null }) {
                   {c.title && <h3 className={s.title}>{c.title}</h3>}
                   {c.keys && (
                     <span className={s.keys} aria-label={`Key: ${c.keys}`}>
-                      {c.keys.split('+').map((k) => (
+                      {c.keys.split(/\s*·\s*/).map((k) => (
                         <kbd key={k} className="kbd">
                           {k}
                         </kbd>

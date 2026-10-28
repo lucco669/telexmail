@@ -121,6 +121,21 @@ export default async function DownloadPage() {
         <h2 id="first-steps" className={s.h2}>Make the new tools yours</h2>
         <div className={s.mailGrid}>
           <div className={s.group}>
+            <h3>Your mailbox first</h3>
+            <p className={s.p}>Choose a folder and click Get mail: that mailbox is checked first. A dot and a highlighted folder count show today’s unread arrivals without adding a second number.</p>
+            <Link className="more" href={`${pages.features.path}#sync`}>Mail checks and unread arrivals</Link>
+          </div>
+          <div className={s.group}>
+            <h3>Reply from the preview</h3>
+            <p className={s.p}>Reply, Reply all and Forward sit above the subject. In compose, Tab follows the recipients, subject and message; Alt+B opens Bcc.</p>
+            <Link className="more" href={`${pages.features.path}#writing`}>Writing and preview actions</Link>
+          </div>
+          <div className={s.group}>
+            <h3>Keep high-risk scams out</h3>
+            <p className={s.p}>With filtering on in Settings › Mail, new Inbox mail with scam risk of 70/100 or more can go to Spam before training is ready. Not spam corrects a mistake; trusted-sender exceptions still apply.</p>
+            <Link className="more" href={`${pages.features.path}#spam-filter`}>Local spam and scam checks</Link>
+          </div>
+          <div className={s.group}>
             <h3>Save a useful search</h3>
             <p className={s.p}>Press /, type <code>has:file is:unread</code>, choose the folder or all mail, and click Save search.
               Your named query appears beside your folders.</p>
@@ -266,9 +281,9 @@ export default async function DownloadPage() {
             <dt>Runtime</dt>
             <dd>WebView2, built into Windows 11 and fetched by the installer on Windows 10</dd>
             <dt>Incoming</dt>
-            <dd>IMAP over SSL/TLS (port 993) or STARTTLS (port 143), with a password or an app password</dd>
+            <dd>IMAP over TLS (993) or STARTTLS (143), or POP3 over TLS (995) or STLS (110), with a password or app password</dd>
             <dt>Outgoing</dt>
-            <dd>SMTP over SSL/TLS (465) or STARTTLS (587), same login as IMAP</dd>
+            <dd>SMTP over TLS (465) or STARTTLS (587), using the account’s sending-server login</dd>
           </dl>
           <p className={s.p} style={{ marginTop: 16 }}>
             Not sure about your provider? The <Link href={pages.faq.path}>questions and answers</Link> cover the usual

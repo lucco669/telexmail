@@ -12,11 +12,13 @@ export const site = {
   // Search results show about 60 characters of the title and 155 of the description.
   title: 'Telex – fast email for Windows and Linux',
   description:
-    'Fast email for Windows and Linux: offline saved searches, powerful rule previews, optional threads and local scam checks. No Electron or tracking.',
+    'Fast email for Windows and Linux: your mailbox checked first, preview reply buttons, fresh unread markers and local spam/scam checks. No Electron or tracking.',
   keywords: [
     'email client for Windows',
     'email client for Linux',
     'IMAP email client',
+    'POP3 email client',
+    'local spam filter',
     'keyboard-driven email',
     'offline email search',
     'saved email searches',

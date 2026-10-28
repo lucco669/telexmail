@@ -5,9 +5,10 @@
 // Writes public/demo-app/, which the site serves at /demo-app/index.html (the /demo page shows
 // it in a frame). Nothing in it talks to a network: the mailbox is in demo-data.js.
 
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { removeGeneratedDirectory } from './generated-files.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const site = resolve(here, '..');
@@ -19,7 +20,7 @@ const mailbox = JSON.parse(readFileSync(join(here, 'demo-mailbox.json'), 'utf8')
 const version = JSON.parse(readFileSync(join(repo, 'src-tauri', 'tauri.conf.json'), 'utf8')).version;
 
 // Start clean, so files the UI no longer has don't linger.
-rmSync(out, { recursive: true, force: true });
+removeGeneratedDirectory(out, join(site, 'public'));
 mkdirSync(join(out, 'fonts'), { recursive: true });
 
 for (const file of ['app.js', 'links.js', 'accent.js', 'i18n.js', 'boot.js', 'styles.css', 'themes.css', 'fonts.css', 'telex-mark.svg']) copyFileSync(join(uiDir, file), join(out, file));

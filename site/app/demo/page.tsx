@@ -17,7 +17,7 @@ export default function DemoPage() {
         page={pages.demo}
         compact
         title="Try Telex in your browser."
-        lead="Telex’s real interface on a made-up mailbox. Try saved searches, rule previews, expandable threads and five toolbar layouts, then read, reply and organize with the keyboard. Your mailbox edits stay in this tab."
+        lead="Telex’s real interface on a made-up mailbox. Reply from the preview, tab through compose and spot new unread arrivals, then try saved searches, rule previews and expandable threads. Your mailbox edits stay in this tab."
       />
 
       <section className={`container ${s.stage}`} aria-label="Live demo">
@@ -65,10 +65,11 @@ export default function DemoPage() {
           <h2 className={s.h3}>What is real</h2>
           <ul className={s.list}>
             <li>The whole interface, from the folder tree to the settings, exactly as the app has it.</li>
-            <li>Every key, the selection, search with its suggestions and operators, compose in text or HTML.</li>
+            <li>Preview Reply, Reply all and Forward buttons, direct compose Tab order, selection and search in text or HTML.</li>
+            <li>Today’s unread highlights and simulated Get mail arrivals that prefer the mailbox you are viewing.</li>
             <li>Saved queries, header and attachment conditions, rule previews and copying inside the demo mailbox.</li>
             <li>Optional thread rows, all five toolbar layouts, fourteen themes, accent colors, six fonts, text size and spacing.</li>
-            <li>Link destinations and copying, including in Spam, and the interface in English and Polish.</li>
+            <li>Link destinations and copying, including in Spam, and all nine interface languages. The seven newer translations still need native-speaker review.</li>
           </ul>
         </div>
         <div>
@@ -76,7 +77,7 @@ export default function DemoPage() {
           <ul className={s.list}>
             <li>The mailbox: Sam Carter of Linden Studio, and the people who write to him, are made up.</li>
             <li>
-              The servers. In the app, a Rust core syncs with IMAP and sends over SMTP; here a small script in the page
+              The servers. In the app, a Rust core receives IMAP or POP3 mail and sends over SMTP; here a small script in the page
               answers in its place. “Sent” mail only moves to Sent, and attachments can’t be opened.
             </li>
             <li>

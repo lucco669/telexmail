@@ -15,7 +15,7 @@
 @media (min-width: 640px) {
   .card { padding: 24px 24px 28px; }
 }
-.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .title { font-size: 21px; line-height: 1.2; }
-.keys { display: inline-flex; gap: 4px; }
+.keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .text { color: var(--muted); font-size: 15.5px; }

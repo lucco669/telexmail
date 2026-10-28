@@ -177,6 +177,9 @@ function installTelexDemo(options) {
   const message = (m, extra = {}) => ({
     id: nextId++, folder: m.folder, from_name: m.from_name || '', from_email: m.from_email || '', to: m.to || '', cc: m.cc || '',
     bcc: m.bcc || '', subject: m.subject || '', date: m.date, size_kb: Math.max(1, m.size_kb || 1), unread: !!m.unread,
+    // Synthetic arrivals use the demo's clock. Retain the day when mail is read or moved,
+    // so marking an old message unread does not turn it into a fresh arrival.
+    arrived_on: m.arrived_on ?? (m.unread && m.date?.slice(0, 10) === stamp().slice(0, 10) ? stamp().slice(0, 10) : null),
     flagged: !!m.flagged, remote_images: !!m.remote_images, note: (startLang === 'pl' && m.note_pl) || m.note || null,
     attachments: (m.attachments || []).map((a) => ({ name: a.name, size_kb: a.size_kb })), body: m.body || '', html: m.html || null,
     thread: m.thread || null, reply_to_line: m.reply_to || null, risk: m.risk || null, invite: m.invite ? clone(m.invite) : null, out: null, tags: [...(m.tags || [])].sort(),
@@ -510,9 +513,10 @@ function installTelexDemo(options) {
   function folderTree() {
     const counts = {};
     for (const m of msgs) {
-      const c = (counts[m.folder] ??= { total: 0, unread: 0 });
+      const c = (counts[m.folder] ??= { total: 0, unread: 0, new_unread: 0 });
       c.total++;
       if (m.unread) c.unread++;
+      if (m.unread && m.arrived_on === stamp().slice(0, 10)) c.new_unread++;
       if (m.out?.held) c.stuck = (c.stuck ?? 0) + 1; // taken back: it didn't go
     }
     for (const [key, n] of Object.entries(older)) if (n > 0 && folderOf(key)) (counts[key] ??= { total: 0, unread: 0 }).older = n;
@@ -1626,7 +1630,7 @@ function installTelexDemo(options) {
     const a = account(acctId(folder)), f = folderOf(folder);
     emit('sync-progress', { account: a?.name ?? acctId(folder), folder: f?.name ?? folder, key: folder, done, total });
   }
-  async function checkMail({ account: only = null } = {}) {
+  async function checkMail({ account: only = null, priorityFolder = null } = {}) {
     if (busy) return { new: [], new_in: null, sent: [], sorted: 0, errors: [], busy: true };
     busy = true;
     try {
@@ -1641,7 +1645,10 @@ function installTelexDemo(options) {
       }
       for (const a of list) out.sent.push(...sendOutbox(a.id));
       // One new message per check, from the mailbox's queue; with an account (IDLE), its Inbox only.
-      const i = incoming.findIndex((m) => list.some((a) => a.id === acctId(m.folder)) && (!only || kindOf(m.folder) === 'inbox'));
+      const eligible = (m) => list.some((a) => a.id === acctId(m.folder)) && (!only || kindOf(m.folder) === 'inbox');
+      let i = priorityFolder ? incoming.findIndex((m) => eligible(m) && m.folder === priorityFolder) : -1;
+      if (i < 0 && priorityFolder) i = incoming.findIndex((m) => eligible(m) && acctId(m.folder) === acctId(priorityFolder));
+      if (i < 0) i = incoming.findIndex(eligible);
       if (i >= 0) {
         const item = incoming.splice(i, 1)[0];
         await later(250);

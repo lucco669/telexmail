@@ -10,6 +10,9 @@ export const metadata = pageMetadata(pages.security);
 const repo = `https://github.com/${site.sourceRepo}`;
 const source = (path: string) => `${repo}/blob/main/${path}`;
 const workflow = `${repo}/actions/workflows/security.yml`;
+const releaseRun = `${repo}/actions/runs/40689971610`;
+const releaseCi = `${repo}/actions/runs/40689967240`;
+const releasedSource = (path: string) => `${repo}/blob/v0.9.23/${path}`;
 
 const protections = [
   {
@@ -22,9 +25,10 @@ const protections = [
   },
   {
     title: 'Encrypted connections to your mail provider',
-    text: 'IMAP and SMTP use TLS or require STARTTLS, with certificate validation. This protects the connection to your provider; it does not encrypt stored mail or make email end-to-end encrypted.',
+    text: 'IMAP, POP3 and SMTP use TLS or require STARTTLS/STLS, with certificate validation. This protects the connection to your provider; it does not encrypt ordinary stored mail or make it end-to-end encrypted.',
     evidence: [
       { label: 'IMAP connection code', path: 'crates/telex-core/src/imap.rs' },
+      { label: 'POP3 connection code', path: 'crates/telex-core/src/pop3.rs' },
       { label: 'SMTP connection code', path: 'crates/telex-core/src/smtp.rs' },
     ],
   },
@@ -92,7 +96,7 @@ const protections = [
 
 const connections = [
   { purpose: 'Read and send mail', when: 'When you add, check or use an account, including background sync and Inbox watching.',
-    destination: 'Your configured IMAP and SMTP servers. The desktop app connects directly to them.', path: 'crates/telex-core/src/imap.rs' },
+    destination: 'Your configured IMAP or POP3 incoming servers and SMTP sending server. The desktop app connects directly to them.', path: 'crates/telex-core/src/imap.rs' },
   { purpose: 'Find account settings', when: 'During automatic account setup.',
     destination: 'DNS and provider setup URLs. One URL includes your email address; HTTPS redirects can lead to another server.', path: 'crates/telex-core/src/autoconfig.rs' },
   { purpose: 'Load remote images', when: 'After you allow images in a message or trust a sender.',
@@ -103,6 +107,10 @@ const connections = [
     destination: 'LibreOffice dictionary files on GitHub, at a fixed commit. Each file must match a recorded SHA-256 hash.', path: 'crates/telex-core/src/spell.rs' },
   { purpose: 'Set a server-side away reply', when: 'When you configure an away reply and your provider supports it.',
     destination: 'Your provider’s ManageSieve service, with STARTTLS before login.', path: 'crates/telex-core/src/sieve.rs' },
+  { purpose: 'Unsubscribe from a mailing list', when: 'After you choose the message’s unsubscribe action, outside Spam.',
+    destination: 'The list’s declared HTTPS endpoint, an unsubscribe email through your SMTP server, or a page in your default browser.', path: 'crates/telex-core/src/unsubscribe.rs' },
+  { purpose: 'Send the optional daily count', when: 'Only after you agree to be counted; at most once a day.',
+    destination: 'This website’s count endpoint. It receives app version, system, language and coarse first-use information, without an ID or mailbox content.', path: 'crates/telex-core/src/count.rs' },
 ];
 
 export default function SecurityPage() {
@@ -118,13 +126,14 @@ export default function SecurityPage() {
       </PageHeader>
       <div className={`container ${s.layout}`}>
         <aside className={s.summary}>
-          <p className={s.updated}>Updated 13 October 2026</p>
+          <p className={s.updated}>Updated 28 October 2026 · 0.9.23</p>
           <p className={s.summaryTitle}>Evidence you can inspect.</p>
           <p>Source, tests and scan results describe specific protections. They do not establish that an app is safe in every situation.</p>
           <nav aria-label="On this page">
             <a href="#protections">Protections and source</a>
             <a href="#network">Network access</a>
             <a href="#checks">Automated checks</a>
+            <a href="#release-0923">0.9.23 release results</a>
             <a href="#limits">Current limits</a>
             <a href="#report">Report a problem</a>
           </nav>
@@ -169,11 +178,11 @@ export default function SecurityPage() {
             <p className={s.intro}>The security workflow is configured for pushes to main, version tags, pull requests and a weekly advisory refresh,
               on Windows and Linux. Open a run to see its actual result, date and tested commit.</p>
             <ul className={s.checks}>
-              <li><b>Rust dependencies:</b> cargo-audit checks the complete Cargo lockfile against RustSec. Vulnerabilities and soundness advisories fail the check; maintenance warnings remain visible.</li>
+              <li><b>Rust dependencies:</b> cargo-audit checks the application and fuzz lockfiles, plus the upstream registry identities of verified source overrides. Vulnerabilities, soundness and unmaintained-package advisories fail the check. Advisory exclusions are rejected.</li>
               <li><b>JavaScript dependencies:</b> npm audit checks both the desktop tooling and website lockfiles, including development dependencies. Reported vulnerabilities fail the check.</li>
               <li><b>Secrets:</b> Gitleaks scans fetched Git history and the current source for recognized secret patterns. Public evidence contains counts and rule names, with matched values and contextual source text omitted.</li>
               <li><b>Security regressions:</b> tests check desktop security settings, mail-frame restrictions and misleading link display, then run the mail engine’s unit tests, including HTML, image, attachment, local risk and password-export cases.</li>
-              <li><b>Linux source verification:</b> the vendored GLib inventory and hashes are checked, then its affected iterator operations run in an optimized regression test.</li>
+              <li><b>Source verification:</b> complete inventories and hashes verify the Rust source overrides and bundled native archives. GLib’s affected iterator operations also run in an optimized Linux regression test.</li>
               <li><b>Native mail rendering:</b> isolated Tauri builds test hostile messages on light and dark paper in Windows WebView2 and Linux WebKitGTK, using the production CSP and IPC layer. A separate raw-script fixture exercises the sandbox.</li>
               <li><b>Parser fuzzing:</b> coverage-guided MIME/HTML and complete PST-import targets each run for 60 seconds, with per-input timeout, memory and input-size limits. Crashes, timeouts and memory-limit failures fail the gate and retain reproducers.</li>
             </ul>
@@ -188,12 +197,30 @@ export default function SecurityPage() {
               <a href={source('.github/workflows/release.yml')}>Inspect the release gate ↗</a>
               <a href={source('docs/security.md')}>Repeat the checks yourself ↗</a>
             </div>
-            <p className={s.note}>This page does not display an assumed passing badge. No completed run means no completed result to claim.
-              The checks do not prove that installers match the source or establish antivirus clearance.</p>
+            <p className={s.note}>The dated result below applies to one completed release run. Use newer runs for later source or dependency changes.
+              These checks do not establish antivirus clearance or reproducible builds.</p>
+          </section>
+
+          <section id="release-0923" aria-labelledby="release-0923-h">
+            <h2 id="release-0923-h">0.9.23: completed release checks</h2>
+            <p className={s.intro}>Published 28 October 2026 from commit <code>2db2d53</code> on main.
+              The <a href={releaseRun}>release workflow</a> completed the Windows and Linux security gates before signing its packages.</p>
+            <ul className={s.checks}>
+              <li><b>Dependency results:</b> the application, fuzz and vendor-reference RustSec scans reported zero vulnerabilities and zero warnings, with no advisory exceptions. Both npm audits also reported zero vulnerabilities.</li>
+              <li><b>Runtime checks:</b> core tests, the optimized GLib regression, hostile-email tests in WebView2 and WebKitGTK, and bounded MIME/HTML and PST fuzzing passed.</li>
+              <li><b>Desktop integration:</b> <a href={releaseCi}>CI passed</a> the Windows installer build, Linux app checks, notification tests and real D-Bus single-instance handoff and failure cases.</li>
+              <li><b>Release files:</b> Windows EXE/MSI and Linux AppImage/DEB packages have update signatures, SHA-256 checksums and GitHub build-provenance attestations. <Link href={`${pages.download.path}#verify`}>Verify a download</Link>.</li>
+            </ul>
+            <div className={s.actions}>
+              <a href={releaseRun}>Inspect the completed release run ↗</a>
+              <a href={releasedSource('Cargo.lock')}>Inspect the released lockfile ↗</a>
+              <a href={`${repo}/releases/tag/v0.9.23`}>Release notes and files ↗</a>
+            </div>
+            <p className={s.note}>This is evidence for 0.9.23, not an independent security audit or a guarantee that every possible problem has been found.</p>
           </section>
 
           <section id="limits" aria-labelledby="limits-h">
-            <h2 id="limits-h">Current limits and open findings</h2>
+            <h2 id="limits-h">Current limits and dependency maintenance</h2>
             <ul className={s.checks}>
               <li><b>Local scam checks have a bounded scope.</b> The initial brand catalogue is small and scans have size limits.
                 The checker does not verify attachments, remote images, final redirects, site reputation, SPF, DKIM or DMARC.

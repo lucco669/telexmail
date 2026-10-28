@@ -133,6 +133,12 @@ run it after UI changes, like `npm run screens`, and commit the result (Vercel b
 folder). The screenshots use the same backend with the clock stopped at 10.10.2026 09:30; the live
 demo moves the mailbox's dates so that its "today" is the visitor's.
 
+The 0.9.23 demo also keeps synthetic arrival days independently of read state. Folder counts
+expose `new_unread` for the app's dot and highlight; reading and moves update those counts.
+Get mail prefers the selected folder and account when choosing the next queued example.
+These are browser simulations: the Rust spam scanner, cryptography and real mail servers do
+not run in the demo. `preview-actions` and `fresh-mail` are dedicated screenshot scenes.
+
 `components/DemoFrame.tsx` starts it in the page's theme (`?theme=light|dark`; `?lang=en|pl` works
 too), shows the inbox screenshot until the app has drawn itself, and puts the app's window title in
 the frame's title bar. When the visitor switches the site between light and dark, it posts

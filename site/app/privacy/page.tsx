@@ -8,7 +8,7 @@ import s from './page.module.css';
 export const metadata = pageMetadata(pages.privacy);
 
 // Change this date whenever the text below changes.
-const UPDATED = '25 October 2026';
+const UPDATED = '28 October 2026';
 
 export default function PrivacyPage() {
   return (
@@ -83,8 +83,8 @@ export default function PrivacyPage() {
           </p>
           <h3>Who it talks to</h3>
           <p>
-            The IMAP and SMTP servers you set up, over encrypted connections (SSL/TLS, or STARTTLS on port 587 and, from
-            version 0.5, 143), never unencrypted. There is no Telex server: your mail never passes through us, and we
+            The IMAP or POP3 incoming servers and SMTP sending servers you set up, over TLS or with STARTTLS/STLS required
+            before login. There is no Telex server: your mail never passes through us, and we
             never see it. From version 0.5, to show new mail at once, Telex keeps one connection open to each
             account’s IMAP server, watching the Inbox (IMAP IDLE); you can turn that off in Settings › Mail.
           </p>
@@ -93,6 +93,11 @@ export default function PrivacyPage() {
             A forward sends the message through your SMTP server to those recipients; automatic and away replies also
             send through your account. These actions need no Telex relay. Previewing a rule checks local matches and
             sends nothing; running rules manually does not forward old messages or send automatic replies.
+          </p>
+          <p>
+            When you choose Unsubscribe on a mailing-list message, Telex can send a one-click HTTPS request to the
+            list’s declared endpoint, send an unsubscribe email through your account, or open the list’s page in your
+            default browser. The action is blocked in Spam. The list can learn that you used its unsubscribe link.
           </p>
           <p>
             When you add an account, Telex finds its servers itself. It looks in its own list of common providers

@@ -7,11 +7,12 @@
 // picture. Set BROWSER to a browser executable if yours isn't found automatically.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import sharp from 'sharp';
+import { removeGeneratedDirectory } from './generated-files.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
@@ -27,6 +28,8 @@ const W = 1280, H = 800, SCALE = 2;
 // `settings`: settings to start with. Messages with `only` in the mailbox show in those scenes.
 const scenes = {
   inbox: {},
+  'preview-actions': { run: `ui.pane(42); ui.row('Re: Online shop estimate'); await ui.wait(200);` },
+  'fresh-mail': { settings: { mark_read: 'manual' }, run: `ui.pane(42); await ui.wait(200);` },
   reply: { run: `ui.key('r'); await ui.wait(150);` },
   // A reply to the launch plan with three people on Cc and two files: "attached" in the text,
   // nothing attached, and Send asks.
@@ -243,7 +246,7 @@ function shoot(browser, file, out, size = [W, H], scale = SCALE) {
       '--virtual-time-budget=5000', `--screenshot=${out}`, pathToFileURL(file).href,
     ], {stdio: 'ignore', timeout: 60_000});
   } finally {
-    rmSync(profile, {recursive: true, force: true});
+    removeGeneratedDirectory(profile, tmpdir());
   }
 }
 
@@ -377,4 +380,4 @@ if (!only.length || only.includes('og') || ogTargets.length) {
     console.log(`app${p.path === '/' ? '' : p.path}/opengraph-image.png`);
   }
 }
-rmSync(work, {recursive: true, force: true});
+removeGeneratedDirectory(work, tmpdir());

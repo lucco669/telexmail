@@ -22,7 +22,7 @@ export const pages = {
     label: 'Home',
     title: 'Telex – fast email for Windows and Linux',
     description:
-      'Fast email for Windows and Linux: a spam filter that learns on your PC, saved searches, rule previews and optional threads. No Electron or telemetry.',
+      'Fast email for Windows and Linux: your mailbox checked first, preview reply buttons, fresh unread markers and local spam/scam filtering. No Electron.',
     ogTitle: 'Email at the speed of your keyboard.',
     ogScreen: 'inbox',
   },
@@ -31,7 +31,7 @@ export const pages = {
     label: 'Features',
     title: 'Features of a fast, keyboard-driven email client',
     description:
-      'Explore Telex: a learning spam filter, saved searches, header and attachment rules with previews, optional threads, link checks and HTML compose.',
+      'Explore Telex: mailbox-first checks, preview actions, today’s unread markers, spam/scam filtering, scheduled rules, encrypted mail and HTML compose.',
     ogTitle: 'Everything Telex does today.',
     ogScreen: 'rule-preview',
   },
@@ -40,7 +40,7 @@ export const pages = {
     label: 'Live demo',
     title: 'Live demo: try Telex in your browser',
     description:
-      'Try Telex’s real interface: saved searches, rule previews, threads, spam notes and toolbar layouts in a demo mailbox. Your edits stay in the tab.',
+      'Try Telex’s real interface: preview reply buttons, straight-through compose, unread arrival highlights, rules and threads. Edits stay in the demo tab.',
     ogTitle: 'Try it in your browser.',
     ogScreen: 'thread',
   },
@@ -84,7 +84,7 @@ export const pages = {
     label: 'Download',
     title: 'Download for Windows and Linux',
     description:
-      'Download Telex for Windows or Linux. Get saved searches, stronger rules and local scam checks, with installation, migration and upgrade guidance.',
+      'Download Telex 0.9.23 for Windows or Linux: mailbox-first checks, preview actions, spam/scam filtering and updated encryption. Upgrade guidance included.',
     ogTitle: 'Get Telex for Windows and Linux.',
     ogScreen: 'account',
   },
@@ -93,7 +93,7 @@ export const pages = {
     label: 'Changelog',
     title: 'Changelog: what’s new in each version',
     description:
-      'Every Telex release, including 0.9.5: saved searches, stronger rules, threads, toolbar layouts and local scam checks. Notes, upgrades and downloads.',
+      'Every Telex release, including 0.9.23: mailbox-first checks, preview actions, unread arrivals, scam filtering and encryption migration. Notes and downloads.',
     ogTitle: 'What’s new in Telex.',
     ogScreen: 'saved-searches',
   },
@@ -102,7 +102,7 @@ export const pages = {
     label: 'Roadmap',
     title: 'Roadmap: what’s done and what’s next',
     description:
-      'Telex’s shipped features and current limits: saved searches, richer rules, local mail inspection and security gates. Next: Microsoft and Google sign-in.',
+      'Telex’s shipped features and limits: unread arrival markers, scam filtering, encrypted mail and security gates. Next: Microsoft and Google sign-in.',
     ogTitle: 'Early, and honest about it.',
     ogScreen: 'comfortable',
   },
@@ -111,7 +111,7 @@ export const pages = {
     label: 'FAQ',
     title: 'Questions and answers',
     description:
-      'Telex answers: providers, saved searches, rule previews, copy and forwarding, threads, toolbar layouts, local scam checks, privacy and upgrades.',
+      'Telex answers: providers, preview actions, today’s unread mail, spam/scam checks, encryption compatibility, privacy and upgrading to 0.9.23.',
     ogTitle: 'Questions and answers.',
     ogScreen: 'images',
   },
