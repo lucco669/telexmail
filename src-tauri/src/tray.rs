@@ -53,6 +53,16 @@ fn settings(app: &AppHandle) -> Settings {
     app.state::<SettingsState>().get()
 }
 
+/// Run `f` on the window's thread: at once when called there, else queued without waiting.
+/// Every change to the icon and the taskbar button goes this way. Tauri's tray and window
+/// calls from another thread wait for the window's thread to do them; one that waited while
+/// holding the icon's lock froze 0.9.22 at a quick restart: the mail base opened while setup
+/// was still running, and setup then waited for that lock before showing the window.
+fn on_main(app: &AppHandle, f: impl FnOnce(&AppHandle) + Send + 'static) {
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || f(&handle));
+}
+
 /// At start: the icon, the taskbar button, starting with the system, and the window shown
 /// unless Telex started hidden (`--tray`, from starting with the system).
 pub fn start(app: &AppHandle) {
@@ -80,6 +90,10 @@ pub fn start(app: &AppHandle) {
 
 /// The settings changed: the icon shown or taken away, the taskbar button, the badge.
 pub fn apply(app: &AppHandle) {
+    on_main(app, apply_here);
+}
+
+fn apply_here(app: &AppHandle) {
     let s = settings(app);
     let state = app.state::<TrayState>();
     {
@@ -277,10 +291,14 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
 /// The icon, its tooltip and its menu drawn again from what is known now.
 fn redraw(app: &AppHandle) {
+    on_main(app, redraw_here);
+}
+
+fn redraw_here(app: &AppHandle) {
     let state = app.state::<TrayState>();
     let unread = lock(&state.unread).clone();
-    let icon = lock(&state.icon);
-    let Some(icon) = icon.as_ref() else {
+    // A copy, so no lock is held while the tray is changed.
+    let Some(icon) = lock(&state.icon).clone() else {
         return;
     };
     let any = unread.iter().any(|u| u.unread > 0);
@@ -312,6 +330,10 @@ pub fn refresh(app: &AppHandle, tree: &FolderTree) {
 /// where there is no button. `again`: set even when the count is the same (the button was
 /// made anew after the window was hidden).
 fn set_badge(app: &AppHandle, again: bool) {
+    on_main(app, move |app| set_badge_here(app, again));
+}
+
+fn set_badge_here(app: &AppHandle, again: bool) {
     let s = settings(app);
     let state = app.state::<TrayState>();
     let total: usize = lock(&state.unread).iter().map(|u| u.unread).sum();
