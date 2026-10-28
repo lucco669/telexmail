@@ -1434,7 +1434,7 @@
     },
     {
       "path": "vendor/tauri-plugin-single-instance/src/platform_impl/linux.rs",
-      "sha256": "225caa8abbc4131c9945544ea62e91271827e95002613d67c54d36b36cf68428"
+      "sha256": "4d17322be036721dba9399c22501295d26b6203238003a32e15757a5684191b7"
     },
     {
       "path": "vendor/tauri-plugin-single-instance/src/platform_impl/macos.rs",
@@ -1450,7 +1450,7 @@
     },
     {
       "path": "vendor/tauri-plugin-single-instance/tests/dbus_errors.rs",
-      "sha256": "e7bf4fe7ae2c4e94766e2fc74e85dd2e436e9220bac6a0d429f8dd228c95e912"
+      "sha256": "d8648dc2b4d0102a80f0e5bb831cca26b649a3ec577d83d4813f7981e0822382"
     }
   ]
 }

@@ -53,21 +53,16 @@ pub fn init<R: Runtime>(
                 app_handle: app.clone(),
             };
 
-            let builder = match zbus::connection::Builder::session() {
-                Ok(builder) => builder,
-                Err(error) => {
-                    tracing::warn!(
-                        "single-instance: invalid D-Bus session address, launching normally: {error}"
-                    );
-                    return Ok(());
-                }
-            };
-
-            match builder
-                .name(dbus_name.as_str())?
+            // zbus 6 records builder errors and reports them from build().
+            // Invalid application identifiers remain setup errors; only an unavailable
+            // session bus falls back to launching without single-instance support.
+            let name = WellKnownName::try_from(dbus_name.as_str())?;
+            let path = zbus::ObjectPath::try_from(dbus_path.as_str())?;
+            match zbus::connection::Builder::session()
+                .name(name)
                 .replace_existing_names(false)
                 .allow_name_replacements(false)
-                .serve_at(dbus_path.as_str(), single_instance_dbus)?
+                .serve_at(path, single_instance_dbus)
                 .build().await
             {
                 Ok(connection) => {

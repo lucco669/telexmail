@@ -60,6 +60,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo clippy -p telex --all-targets -- -D warnings
       - run: cargo test -p tauri-plugin-notification -p tauri-plugin-opener -p tauri-plugin-single-instance --lib --locked
+      - name: Single-instance handoff and session-bus failures
+        run: dbus-run-session -- cargo test -p tauri-plugin-single-instance --test dbus_errors --locked -- --ignored
 
   # The Windows-only code (Windows' spell checker, its languages, Outlook in the registry) is
   # checked and tested here; then the installer is built.
