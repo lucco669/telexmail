@@ -617,7 +617,6 @@ mod imp {
                 .await?
                 .body()
                 .deserialize()
-                .map_err(Into::into)
         })
     }
 
