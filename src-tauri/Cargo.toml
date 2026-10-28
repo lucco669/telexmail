@@ -15,6 +15,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 telex-core = { path = "../crates/telex-core" }
+keyring-core = "1.0.1"
 # tray-icon: the notification area icon and its menu (tray.rs; AppIndicator on Linux).
 tauri = { version = "2", features = ["tray-icon"] }
 serde.workspace = true
@@ -36,7 +37,7 @@ tauri-plugin-updater = { version = "2.13.2", default-features = false, features 
 
 # Passwords in the system's own store (secrets.rs), one backend per system.
 [target.'cfg(windows)'.dependencies]
-keyring = { version = "3.6.3", features = ["windows-native"] }
+windows-native-keyring-store = { version = "1.1.0", default-features = false }
 # Save as PDF through WebView2's own PrintToPdf, and messages dragged out as files through the
 # shell's drag: the same webview2-com and windows crates Tauri already uses.
 webview2-com = "0.39.1"
@@ -44,9 +45,12 @@ windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_System_Co
 
 # The Secret Service over D-Bus: GNOME Keyring, KWallet, KeePassXC. Building needs libdbus-1-dev.
 [target.'cfg(target_os = "linux")'.dependencies]
-keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust"] }
+dbus-secret-service-keyring-store = { version = "1.0.1", features = ["crypto-rust"] }
 # Messages dragged out of the window as files, through GTK's drag (the GTK Tauri already uses).
 gtk = "0.18.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-keyring = { version = "3.6.3", features = ["apple-native"] }
+apple-native-keyring-store = { version = "1", features = ["keychain"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Security_Credentials"] }

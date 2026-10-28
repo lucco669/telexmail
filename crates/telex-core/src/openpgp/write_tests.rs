@@ -38,8 +38,7 @@ fn recipients_in(raw: &[u8]) -> Vec<String> {
         Found::MimeEncrypted { payload, .. } => payload,
         _ => panic!("not encrypted"),
     };
-    let (msg, _) = PgpMessage::from_reader(BufReader::new(Cursor::new(&payload[..]))).unwrap();
-    recipients_of(&msg)
+    recipients_of(&payload).unwrap()
 }
 
 #[test]
@@ -86,7 +85,7 @@ fn an_encrypted_message_hides_its_text_and_subject_and_reads_back() {
     // Alice reads her own copy: subject, text, signature, her key attached.
     let id = add(&mut s, &raw);
     let (shown, v) = view(&s, id);
-    assert!(v.decrypted);
+    assert!(v.decrypted, "{v:?}");
     assert_eq!(v.signature.unwrap().status, SigStatus::Good);
     assert_eq!(shown.message.subject, "Umowa na październik");
     assert!(shown.message.body.contains("w załączniku poprawki"));
@@ -94,7 +93,9 @@ fn an_encrypted_message_hides_its_text_and_subject_and_reads_back() {
     assert!(shown.message.attachments[0].name.starts_with("OpenPGP_0x"));
     // Encrypted to Bob too: his encryption subkey is among the recipients.
     let bob = s.public_key(BOB_FP).unwrap();
-    assert!(recipients_in(&raw).contains(&key_id_of(&bob.public_subkeys[0].key)));
+    assert!(recipients_in(&raw)
+        .iter()
+        .any(|id| bob.ids.iter().skip(2).any(|part| part == id)));
 }
 
 #[test]
@@ -108,7 +109,7 @@ fn bcc_recipients_are_encrypted_to_without_being_named() {
     let raw = composed(&s, &draft_to("alice@telex.test", "bob@gnupg.test"), encrypt);
     let recipients = recipients_in(&raw);
     let bob = s.public_key(BOB_FP).unwrap();
-    assert!(!recipients.contains(&key_id_of(&bob.public_subkeys[0].key)));
+    assert!(!recipients.iter().any(|id| bob.ids.contains(id)));
     assert!(
         recipients.iter().any(|r| r.chars().all(|c| c == '0')),
         "{recipients:?}"

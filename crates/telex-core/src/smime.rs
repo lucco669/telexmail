@@ -2,7 +2,7 @@
 //! certificates, the way Outlook, Apple Mail, Thunderbird and most company mail do it.
 //!
 //! RustCrypto's `cms`, `x509-cert` and `pkcs12` read and build the structures (MIT or
-//! Apache-2.0); this module decides what they mean: whose certificate signed a message and
+//! Apache-2.0); Botan performs RSA/ECDSA operations. This module decides whose certificate signed a message and
 //! whether it is the sender's, which own certificate can decrypt it, which certificates mail
 //! may be encrypted to. Whether a certificate chains to an authority the system trusts is
 //! Windows' to say (trust.rs); elsewhere rustls-webpki checks it against the system's
@@ -257,7 +257,10 @@ fn facts(der: &[u8]) -> Option<Facts> {
 fn algorithm_name(spki: &SubjectPublicKeyInfoOwned) -> String {
     if spki.algorithm.oid == RSA_ENCRYPTION {
         return match rsa_public(spki) {
-            Some(k) => format!("RSA {}", rsa::traits::PublicKeyParts::size(&k) * 8),
+            Some(k) => format!(
+                "RSA {}",
+                k.get_field("n").and_then(|n| n.bit_count()).unwrap_or(0)
+            ),
             None => "RSA".to_owned(),
         };
     }
@@ -275,65 +278,70 @@ fn curve_of(spki: &SubjectPublicKeyInfoOwned) -> Option<ObjectIdentifier> {
     spki.algorithm.parameters.as_ref()?.decode_as().ok()
 }
 
-fn rsa_public(spki: &SubjectPublicKeyInfoOwned) -> Option<rsa::RsaPublicKey> {
+fn rsa_public(spki: &SubjectPublicKeyInfoOwned) -> Option<botan::Pubkey> {
     let bits = spki.subject_public_key.as_bytes()?;
-    let key = rsa::pkcs1::RsaPublicKey::from_der(bits).ok()?;
-    let n = rsa::BigUint::from_bytes_be(key.modulus.as_bytes());
-    let e = rsa::BigUint::from_bytes_be(key.public_exponent.as_bytes());
-    rsa::RsaPublicKey::new_with_max_size(n, e, MAX_RSA_BITS).ok()
+    let encoded = pkcs1::RsaPublicKey::from_der(bits).ok()?;
+    if encoded.modulus.as_bytes().len() > MAX_RSA_BITS / 8 {
+        return None;
+    }
+    botan::Pubkey::load_der(&spki.to_der().ok()?).ok()
 }
 
-/// A certificate's public key, as [`public_key_of`] gives a private key's (EC points
-/// uncompressed), to pair a key with its certificate.
 pub(crate) fn cert_public_key(der: &[u8]) -> Option<Vec<u8>> {
     let cert = Certificate::from_der(der).ok()?;
     let spki = &cert.tbs_certificate.subject_public_key_info;
-    let bits = spki.subject_public_key.as_bytes()?;
+    let key = botan::Pubkey::load_der(&spki.to_der().ok()?).ok()?;
     if spki.algorithm.oid == EC_PUBLIC_KEY {
-        let curve = curve_of(spki)?;
-        if curve == P256 {
-            let p = p256::PublicKey::from_sec1_bytes(bits).ok()?;
-            return Some(p256::EncodedPoint::from(p).as_bytes().to_vec());
+        if !matches!(curve_of(spki), Some(c) if c == P256 || c == P384) {
+            return None;
         }
-        if curve == P384 {
-            let p = p384::PublicKey::from_sec1_bytes(bits).ok()?;
-            return Some(p384::EncodedPoint::from(p).as_bytes().to_vec());
+        return key.ec_public_point().ok();
+    }
+    spki.subject_public_key.as_bytes().map(<[u8]>::to_vec)
+}
+
+pub(crate) enum PrivateKey {
+    Rsa(Box<botan::Privkey>),
+    P256(botan::Privkey),
+    P384(botan::Privkey),
+}
+impl PrivateKey {
+    fn native(&self) -> &botan::Privkey {
+        match self {
+            Self::Rsa(k) => k,
+            Self::P256(k) | Self::P384(k) => k,
         }
+    }
+}
+fn private_key(pkcs8: &[u8]) -> Option<PrivateKey> {
+    let info = pkcs8::PrivateKeyInfo::from_der(pkcs8).ok()?;
+    let key = botan::Privkey::load_der(pkcs8).ok()?;
+    let public = key.pubkey().ok()?;
+    if info.algorithm.oid == RSA_ENCRYPTION {
+        if public.get_field("n").ok()?.bit_count().ok()? > MAX_RSA_BITS {
+            return None;
+        }
+        return Some(PrivateKey::Rsa(Box::new(key)));
+    }
+    if info.algorithm.oid != EC_PUBLIC_KEY {
         return None;
     }
-    Some(bits.to_vec())
-}
-
-/// A private key (PKCS #8) that Telex can use.
-pub(crate) enum PrivateKey {
-    Rsa(Box<rsa::RsaPrivateKey>),
-    P256(p256::SecretKey),
-    P384(p384::SecretKey),
-}
-
-fn private_key(pkcs8: &[u8]) -> Option<PrivateKey> {
-    use pkcs8::DecodePrivateKey;
-    if let Ok(k) = rsa::RsaPrivateKey::from_pkcs8_der(pkcs8) {
-        return Some(PrivateKey::Rsa(Box::new(k)));
+    let curve: ObjectIdentifier = info.algorithm.parameters.as_ref()?.decode_as().ok()?;
+    match curve {
+        P256 => Some(PrivateKey::P256(key)),
+        P384 => Some(PrivateKey::P384(key)),
+        _ => None,
     }
-    if let Ok(k) = p256::SecretKey::from_pkcs8_der(pkcs8) {
-        return Some(PrivateKey::P256(k));
-    }
-    p384::SecretKey::from_pkcs8_der(pkcs8)
-        .ok()
-        .map(PrivateKey::P384)
 }
 
-/// A private key's public key, as [`cert_public_key`] gives a certificate's.
 pub(crate) fn public_key_of(pkcs8: &[u8]) -> Option<Vec<u8>> {
-    match private_key(pkcs8)? {
-        PrivateKey::Rsa(k) => {
-            let public = rsa::pkcs1::EncodeRsaPublicKey::to_pkcs1_der(&k.to_public_key()).ok()?;
-            Some(public.as_bytes().to_vec())
-        }
-        PrivateKey::P256(k) => Some(p256::EncodedPoint::from(k.public_key()).as_bytes().to_vec()),
-        PrivateKey::P384(k) => Some(p384::EncodedPoint::from(k.public_key()).as_bytes().to_vec()),
+    let key = private_key(pkcs8)?;
+    let der = key.native().pubkey().ok()?.der_encode().ok()?;
+    let spki = SubjectPublicKeyInfoOwned::from_der(&der).ok()?;
+    if spki.algorithm.oid == EC_PUBLIC_KEY {
+        return key.native().pubkey().ok()?.ec_public_point().ok();
     }
+    spki.subject_public_key.as_bytes().map(<[u8]>::to_vec)
 }
 
 /// Certificates in PEM or DER, or a certificates-only CMS file (.p7b, .p7c).
@@ -822,37 +830,31 @@ fn verify(
     if sig_alg.oid == RSASSA_PSS {
         return None;
     }
-    if spki.algorithm.oid == RSA_ENCRYPTION {
-        let key = rsa_public(spki)?;
-        let scheme = match hash {
-            Hash::Sha1 => rsa::Pkcs1v15Sign::new::<sha1::Sha1>(),
-            Hash::Sha224 => rsa::Pkcs1v15Sign::new::<sha2::Sha224>(),
-            Hash::Sha256 => rsa::Pkcs1v15Sign::new::<sha2::Sha256>(),
-            Hash::Sha384 => rsa::Pkcs1v15Sign::new::<sha2::Sha384>(),
-            Hash::Sha512 => rsa::Pkcs1v15Sign::new::<sha2::Sha512>(),
-        };
-        return Some(key.verify(scheme, hashed, sig).is_ok());
+    let key = botan::Pubkey::load_der(&spki.to_der().ok()?).ok()?;
+    let mut verifier = if spki.algorithm.oid == RSA_ENCRYPTION {
+        rsa_public(spki)?;
+        botan::Verifier::new(&key, format!("PKCS1v15(Raw,{})", hash_name(hash))).ok()?
+    } else if spki.algorithm.oid == EC_PUBLIC_KEY
+        && matches!(curve_of(spki), Some(c) if c == P256 || c == P384)
+    {
+        botan::Verifier::new_with_der_formatted_signatures(&key, "Raw").ok()?
+    } else {
+        return None;
+    };
+    if verifier.update(hashed).is_err() {
+        return Some(false);
     }
-    if spki.algorithm.oid == EC_PUBLIC_KEY {
-        use signature::hazmat::PrehashVerifier;
-        let bits = spki.subject_public_key.as_bytes()?;
-        let curve = curve_of(spki)?;
-        if curve == P256 {
-            let key = p256::ecdsa::VerifyingKey::from_sec1_bytes(bits).ok()?;
-            let Ok(sig) = p256::ecdsa::Signature::from_der(sig) else {
-                return Some(false);
-            };
-            return Some(key.verify_prehash(hashed, &sig).is_ok());
-        }
-        if curve == P384 {
-            let key = p384::ecdsa::VerifyingKey::from_sec1_bytes(bits).ok()?;
-            let Ok(sig) = p384::ecdsa::Signature::from_der(sig) else {
-                return Some(false);
-            };
-            return Some(key.verify_prehash(hashed, &sig).is_ok());
-        }
+    Some(verifier.finish(sig).unwrap_or(false))
+}
+
+fn hash_name(hash: Hash) -> &'static str {
+    match hash {
+        Hash::Sha1 => "SHA-1",
+        Hash::Sha224 => "SHA-224",
+        Hash::Sha256 => "SHA-256",
+        Hash::Sha384 => "SHA-384",
+        Hash::Sha512 => "SHA-512",
     }
-    None
 }
 
 /// The certificate a signature (or a recipient) names: by issuer and serial, or by subject
@@ -1183,7 +1185,7 @@ fn unwrap_key(key: &PrivateKey, alg: &AlgorithmIdentifierOwned, wrapped: &[u8]) 
         return None;
     };
     if alg.oid == RSA_ENCRYPTION {
-        return key.decrypt(rsa::Pkcs1v15Encrypt, wrapped).ok();
+        return key.decrypt(wrapped, "PKCS1v15").ok();
     }
     if alg.oid == RSAES_OAEP {
         // Defaults: SHA-1 for both the hash and MGF1 (RFC 4055).
@@ -1191,7 +1193,7 @@ fn unwrap_key(key: &PrivateKey, alg: &AlgorithmIdentifierOwned, wrapped: &[u8]) 
             None => (Hash::Sha1, Hash::Sha1),
             Some(p) => {
                 let der = p.to_der().ok()?;
-                let params = rsa::pkcs1::RsaOaepParams::from_der(&der).ok()?;
+                let params = pkcs1::RsaOaepParams::from_der(&der).ok()?;
                 let h = hash_of(&params.hash.oid)?;
                 let mgf = params
                     .mask_gen
@@ -1210,18 +1212,14 @@ fn unwrap_key(key: &PrivateKey, alg: &AlgorithmIdentifierOwned, wrapped: &[u8]) 
                 (h, mgf)
             }
         };
-        let oaep = match (h, mgf) {
-            (Hash::Sha1, Hash::Sha1) => rsa::Oaep::new::<sha1::Sha1>(),
-            (Hash::Sha256, Hash::Sha256) => rsa::Oaep::new::<sha2::Sha256>(),
-            (Hash::Sha256, Hash::Sha1) => {
-                rsa::Oaep::new_with_mgf_hash::<sha2::Sha256, sha1::Sha1>()
-            }
-            (Hash::Sha384, Hash::Sha384) => rsa::Oaep::new::<sha2::Sha384>(),
-            (Hash::Sha512, Hash::Sha512) => rsa::Oaep::new::<sha2::Sha512>(),
-            _ => return None,
+        let padding = if h as u8 == mgf as u8 {
+            format!("OAEP({})", hash_name(h))
+        } else {
+            format!("OAEP({},MGF1({}))", hash_name(h), hash_name(mgf))
         };
-        return key.decrypt(oaep, wrapped).ok();
+        return key.decrypt(wrapped, padding).ok();
     }
+
     None
 }
 
@@ -1839,72 +1837,104 @@ impl MailStore {
 /// A CMS signature (SignedData, DER) over `data`, detached, SHA-256, with the signing time,
 /// the algorithms Telex reads (S/MIME capabilities) and the certificate and its issuers.
 pub fn sign_detached(own: &OwnCert, data: &[u8]) -> Result<Vec<u8>, WriteProblem> {
-    use cms::builder::{create_signing_time_attribute, SignedDataBuilder, SignerInfoBuilder};
-    use cms::signed_data::EncapsulatedContentInfo;
-    let failed = |_| WriteProblem::Failed;
+    use cms::content_info::CmsVersion;
+    use cms::signed_data::{CertificateSet, EncapsulatedContentInfo, SignerInfos};
+    use der::asn1::SetOfVec;
+    fn failed<E>(_: E) -> WriteProblem {
+        WriteProblem::Failed
+    }
     let cert = Certificate::from_der(&own.cert).map_err(failed)?;
-    let content_digest = sha2::Sha256::digest(data).to_vec();
-    let eci = EncapsulatedContentInfo {
-        econtent_type: ID_DATA,
-        econtent: None,
+    let mut attrs = SetOfVec::new();
+    for (oid, value) in [
+        (
+            ID_CONTENT_TYPE,
+            der::Any::encode_from(&ID_DATA).map_err(failed)?,
+        ),
+        (
+            ID_MESSAGE_DIGEST,
+            der::Any::encode_from(
+                &OctetString::new(sha2::Sha256::digest(data).to_vec()).map_err(failed)?,
+            )
+            .map_err(failed)?,
+        ),
+        (
+            ID_SIGNING_TIME,
+            der::Any::encode_from(
+                &x509_cert::time::Time::try_from(std::time::SystemTime::now()).map_err(failed)?,
+            )
+            .map_err(failed)?,
+        ),
+    ] {
+        let mut values = SetOfVec::new();
+        values.insert(value).map_err(failed)?;
+        attrs
+            .insert(x509_cert::attr::Attribute { oid, values })
+            .map_err(failed)?;
+    }
+    attrs
+        .insert(capabilities().ok_or(WriteProblem::Failed)?)
+        .map_err(failed)?;
+    let bytes = attrs.to_der().map_err(failed)?;
+    let (signer, signature_algorithm) = match &own.key {
+        PrivateKey::Rsa(k) => (
+            botan::Signer::new(k, "PKCS1v15(SHA-256)"),
+            AlgorithmIdentifierOwned {
+                oid: RSA_ENCRYPTION,
+                parameters: Some(der::Any::null()),
+            },
+        ),
+        PrivateKey::P256(k) | PrivateKey::P384(k) => (
+            botan::Signer::new_with_der_formatted_signatures(k, "EMSA1(SHA-256)"),
+            AlgorithmIdentifierOwned {
+                oid: ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.2"),
+                parameters: None,
+            },
+        ),
     };
+    let mut signer = signer.map_err(failed)?;
+    signer.update(&bytes).map_err(failed)?;
+    let signature = signer
+        .finish(&mut botan::RandomNumberGenerator::new_system().map_err(failed)?)
+        .map_err(failed)?;
     let digest_alg = AlgorithmIdentifierOwned {
         oid: SHA256_OID,
         parameters: None,
     };
-    let sid = SignerIdentifier::IssuerAndSerialNumber(IssuerAndSerialNumber {
-        issuer: cert.tbs_certificate.issuer.clone(),
-        serial_number: cert.tbs_certificate.serial_number.clone(),
-    });
-    let mut builder = SignedDataBuilder::new(&eci);
-    builder
-        .add_digest_algorithm(digest_alg.clone())
-        .map_err(|_| WriteProblem::Failed)?;
-    builder
-        .add_certificate(CertificateChoices::Certificate(cert))
-        .map_err(|_| WriteProblem::Failed)?;
+    let info = SignerInfo {
+        version: CmsVersion::V1,
+        sid: SignerIdentifier::IssuerAndSerialNumber(IssuerAndSerialNumber {
+            issuer: cert.tbs_certificate.issuer.clone(),
+            serial_number: cert.tbs_certificate.serial_number.clone(),
+        }),
+        digest_alg: digest_alg.clone(),
+        signed_attrs: Some(attrs),
+        signature_algorithm,
+        signature: OctetString::new(signature).map_err(failed)?,
+        unsigned_attrs: None,
+    };
+    let mut certificates = vec![CertificateChoices::Certificate(cert)];
     for issuer in &own.chain {
-        let c = Certificate::from_der(issuer).map_err(failed)?;
-        builder
-            .add_certificate(CertificateChoices::Certificate(c))
-            .map_err(|_| WriteProblem::Failed)?;
+        certificates.push(CertificateChoices::Certificate(
+            Certificate::from_der(issuer).map_err(failed)?,
+        ));
     }
-    let attrs = [
-        create_signing_time_attribute().map_err(|_| WriteProblem::Failed)?,
-        capabilities().ok_or(WriteProblem::Failed)?,
-    ];
-    macro_rules! sign_with {
-        ($signer:expr, $sig:ty) => {{
-            let signer = $signer;
-            let mut info =
-                SignerInfoBuilder::new(&signer, sid, digest_alg, &eci, Some(&content_digest))
-                    .map_err(|_| WriteProblem::Failed)?;
-            for a in attrs {
-                info.add_signed_attribute(a)
-                    .map_err(|_| WriteProblem::Failed)?;
-            }
-            builder
-                .add_signer_info::<_, $sig>(info)
-                .map_err(|_| WriteProblem::Failed)?;
-        }};
+    let sd = SignedData {
+        version: CmsVersion::V1,
+        digest_algorithms: SetOfVec::try_from(vec![digest_alg]).map_err(failed)?,
+        encap_content_info: EncapsulatedContentInfo {
+            econtent_type: ID_DATA,
+            econtent: None,
+        },
+        certificates: Some(CertificateSet::try_from(certificates).map_err(failed)?),
+        crls: None,
+        signer_infos: SignerInfos::try_from(vec![info]).map_err(failed)?,
+    };
+    ContentInfo {
+        content_type: ID_SIGNED_DATA,
+        content: der::Any::encode_from(&sd).map_err(failed)?,
     }
-    match &own.key {
-        PrivateKey::Rsa(k) => sign_with!(
-            rsa::pkcs1v15::SigningKey::<sha2::Sha256>::new((**k).clone()),
-            rsa::pkcs1v15::Signature
-        ),
-        PrivateKey::P256(k) => {
-            sign_with!(p256::ecdsa::SigningKey::from(k), p256::ecdsa::DerSignature)
-        }
-        PrivateKey::P384(k) => {
-            sign_with!(p384::ecdsa::SigningKey::from(k), p384::ecdsa::DerSignature)
-        }
-    }
-    builder
-        .build()
-        .map_err(|_| WriteProblem::Failed)?
-        .to_der()
-        .map_err(failed)
+    .to_der()
+    .map_err(failed)
 }
 
 /// The S/MIME capabilities attribute (RFC 8551 §2.5.2): AES-256, AES-192, AES-128, so the
@@ -1928,32 +1958,62 @@ fn capabilities() -> Option<x509_cert::attr::Attribute> {
 
 /// `data` encrypted (EnvelopedData, DER, AES-256-CBC) to each certificate's RSA key.
 pub fn encrypt(data: &[u8], to: &[Vec<u8>]) -> Result<Vec<u8>, WriteProblem> {
-    use cms::builder::{
-        ContentEncryptionAlgorithm, EnvelopedDataBuilder, KeyEncryptionInfo,
-        KeyTransRecipientInfoBuilder,
-    };
-    let failed = |_| WriteProblem::Failed;
-    let mut rngs: Vec<rand::rngs::ThreadRng> = to.iter().map(|_| rand::thread_rng()).collect();
-    let mut builder =
-        EnvelopedDataBuilder::new(None, data, ContentEncryptionAlgorithm::Aes256Cbc, None)
-            .map_err(|_| WriteProblem::Failed)?;
-    for (der, rng) in to.iter().zip(rngs.iter_mut()) {
+    use cbc::cipher::{block_padding::Pkcs7, BlockEncryptMut, KeyIvInit};
+    use cms::content_info::CmsVersion;
+    use cms::enveloped_data::{EncryptedContentInfo, KeyTransRecipientInfo, RecipientInfos};
+    use rand::RngCore;
+    fn failed<E>(_: E) -> WriteProblem {
+        WriteProblem::Failed
+    }
+    if to.is_empty() || to.len() > MAX_RECIPIENTS {
+        return Err(WriteProblem::Failed);
+    }
+    let mut cek = Zeroizing::new([0u8; 32]);
+    let mut iv = [0u8; 16];
+    rand::rngs::OsRng.fill_bytes(cek.as_mut());
+    rand::rngs::OsRng.fill_bytes(&mut iv);
+    let ciphertext = cbc::Encryptor::<aes::Aes256>::new_from_slices(cek.as_ref(), &iv)
+        .map_err(failed)?
+        .encrypt_padded_vec_mut::<Pkcs7>(data);
+    let mut rng = botan::RandomNumberGenerator::new_system().map_err(failed)?;
+    let mut recipients = Vec::new();
+    for der in to {
         let cert = Certificate::from_der(der).map_err(failed)?;
         let key = rsa_public(&cert.tbs_certificate.subject_public_key_info)
             .ok_or(WriteProblem::Failed)?;
-        let rid = RecipientIdentifier::IssuerAndSerialNumber(IssuerAndSerialNumber {
-            issuer: cert.tbs_certificate.issuer.clone(),
-            serial_number: cert.tbs_certificate.serial_number.clone(),
-        });
-        let info = KeyTransRecipientInfoBuilder::new(rid, KeyEncryptionInfo::Rsa(key), rng)
-            .map_err(|_| WriteProblem::Failed)?;
-        builder
-            .add_recipient_info(info)
-            .map_err(|_| WriteProblem::Failed)?;
+        let encrypted = key
+            .encrypt(cek.as_ref(), "PKCS1v15", &mut rng)
+            .map_err(failed)?;
+        recipients.push(RecipientInfo::Ktri(KeyTransRecipientInfo {
+            version: CmsVersion::V0,
+            rid: RecipientIdentifier::IssuerAndSerialNumber(IssuerAndSerialNumber {
+                issuer: cert.tbs_certificate.issuer.clone(),
+                serial_number: cert.tbs_certificate.serial_number.clone(),
+            }),
+            key_enc_alg: AlgorithmIdentifierOwned {
+                oid: RSA_ENCRYPTION,
+                parameters: Some(der::Any::null()),
+            },
+            enc_key: OctetString::new(encrypted).map_err(failed)?,
+        }));
     }
-    let enveloped = builder
-        .build_with_rng(&mut rand::thread_rng())
-        .map_err(|_| WriteProblem::Failed)?;
+    let enveloped = EnvelopedData {
+        version: CmsVersion::V0,
+        originator_info: None,
+        recip_infos: RecipientInfos::try_from(recipients).map_err(failed)?,
+        encrypted_content: EncryptedContentInfo {
+            content_type: ID_DATA,
+            content_enc_alg: AlgorithmIdentifierOwned {
+                oid: AES256_CBC,
+                parameters: Some(
+                    der::Any::encode_from(&OctetString::new(iv).map_err(failed)?)
+                        .map_err(failed)?,
+                ),
+            },
+            encrypted_content: Some(OctetString::new(ciphertext).map_err(failed)?),
+        },
+        unprotected_attrs: None,
+    };
     ContentInfo {
         content_type: ID_ENVELOPED_DATA,
         content: der::Any::encode_from(&enveloped).map_err(failed)?,

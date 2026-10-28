@@ -1,11 +1,23 @@
 [workspace]
 resolver = "2"
-members = ["crates/telex-core", "crates/telex-i18n", "crates/telex-security", "src-tauri"]
-exclude = ["vendor/glib", "fuzz"]
+members = ["crates/telex-core", "crates/telex-i18n", "crates/telex-security", "src-tauri",
+    "vendor/tauri-plugin-notification", "vendor/tauri-plugin-opener", "vendor/tauri-plugin-single-instance"]
+exclude = ["vendor/glib", "vendor/glib-macros", "vendor/gtk3-macros", "vendor/rnp-rs",
+    "vendor/rnp-src", "vendor/rnp-sys", "vendor/botan-src", "vendor/botan-sys", "fuzz"]
 
 # GTK 0.18 requires GLib 0.18. Keep its API and backport the upstream iterator fix.
 [patch.crates-io]
 glib = { path = "vendor/glib" }
+rnp-rs = { path = "vendor/rnp-rs" }
+rnp-src = { path = "vendor/rnp-src" }
+rnp-sys = { path = "vendor/rnp-sys" }
+botan-src = { path = "vendor/botan-src" }
+botan-sys = { path = "vendor/botan-sys" }
+glib-macros = { path = "vendor/glib-macros" }
+gtk3-macros = { path = "vendor/gtk3-macros" }
+tauri-plugin-opener = { path = "vendor/tauri-plugin-opener" }
+tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
+tauri-plugin-notification = { path = "vendor/tauri-plugin-notification" }
 
 [workspace.package]
 version = "0.9.23"

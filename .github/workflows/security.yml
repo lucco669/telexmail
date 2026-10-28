@@ -18,6 +18,10 @@ concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_BUILD_JOBS: 2
+  RUST_MIN_STACK: 33554432
+
 jobs:
   security:
     name: Security checks (${{ matrix.os }})
@@ -26,7 +30,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -49,6 +53,10 @@ jobs:
       - name: Install the checksum-verified secret scanner
         run: node scripts/security/install-gitleaks.mjs
 
+      - name: Native crypto build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++
+
       # No npm dependency installation is needed: the runner uses Node's built-in modules.
       # npm audit reads both lockfiles, including development dependencies.
       - name: Run scans and security regression tests
@@ -58,7 +66,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev xvfb xdotool
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev cmake ninja-build g++ xvfb xdotool
 
       - name: GLib iterator regression with compiler optimizations
         if: runner.os == 'Linux'
@@ -90,7 +98,7 @@ jobs:
   fuzz:
     name: MIME, HTML and PST fuzzing
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -103,7 +111,7 @@ jobs:
       - name: Parser fixture libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev clang
+          sudo apt-get install -y libglib2.0-dev clang cmake ninja-build g++
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22

@@ -16,7 +16,7 @@ permissions and does not use a scanner service token or upload source to a secre
 
 | Check | Scope | Failure policy |
 | --- | --- | --- |
-| RustSec / cargo-audit | Complete Cargo.lock, including dependencies for other platforms | Vulnerabilities and `unsound` advisories fail. Other warnings remain in the report. |
+| RustSec / cargo-audit | Complete Cargo.lock, including dependencies for other platforms | Vulnerabilities, `unsound` and `unmaintained` advisories fail; advisory exclusions fail. Application, fuzz and verified vendor registry identities are scanned. |
 | npm audit | Root and site lockfiles, including development dependencies | Any reported vulnerability fails. npm receives the dependency inventory to perform the audit. |
 | Gitleaks history | All fetched Git history (`--all`) | Findings fail. The workflow checks out full history. |
 | Gitleaks current source | Git-tracked and non-ignored files, including local modifications | Findings fail. Generated/ignored build and profile files are outside this scope. |
@@ -45,7 +45,7 @@ manually on PATH. `npm run security:test` runs just the configuration and eviden
 To inspect a particular failing scan directly:
 
 ```
-.bench/security-tools/bin/cargo-audit audit --deny unsound --json
+.bench/security-tools/bin/cargo-audit audit --deny unsound --deny unmaintained --json
 .bench/security-tools/bin/gitleaks git --log-opts=--all --redact=100 --ignore-gitleaks-allow
 npm audit --json
 ```
@@ -89,7 +89,7 @@ release's exact commit before publishing; a passing run describes only its teste
   exercises all affected iterator operations. Local path dependencies are outside RustSec's
   registry matching; the additional checks are required. See [the backport evidence](security-backport.md).
 - RUSTSEC-2024-0370 reports proc-macro-error 1.0.4 as unmaintained, also through Linux
-  dependencies. This remains a visible maintenance warning.
+  dependencies. The 0.9.23 dependency migration replaces it with maintained proc-macro-error3.
 
 The current mail database, backups and exported mail are not encrypted by Telex. Account
 passwords are stored separately by the operating system's credential service. Windows publisher
@@ -102,21 +102,20 @@ security audit, installer antivirus assessment or reproducible-build evidence is
   certificate authorities/intermediates. The dependency updates use rustls-webpki 0.103.16,
   webpki-roots 1.0.10 and webpki-root-certs 1.0.10, with both application and fuzz lockfiles
   updated. Installed releases are not changed by a source update.
-- [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html) remains in
-  crypto-bigint 0.5.5, through pgp 0.21.0's cx448 and elliptic-curve dependencies and the
-  S/MIME elliptic-curve implementation. It reports timing/microarchitectural side channels
-  in operations intended to be constant-time. The patched line (>=0.7.6) is not compatible
-  with those dependencies' 0.5 requirements; there is no published 0.5.6 backport. Local
-  desktop execution does not establish that secret-key operations are unexploitable.
-  The finding remains subject to the release gate.
-- [RUSTSEC-2023-0071](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) also remains in
-  rsa 0.9.10, used for OpenPGP and S/MIME. No patched version is published, including the
-  newer 0.10 release candidates. The previous audit exclusion has been removed; local use
-  does not establish absence of a timing side channel. The release gate now reports both
-  remaining cryptographic vulnerabilities, and rejects scans with advisory exclusions.
-- The full lockfile also reports seven maintenance warnings: proc-macro-error 1.0.4,
-  zbus_names 3.0.0 and 4.3.5, zvariant 4.2.0 and 5.15.1, and zvariant_derive 4.2.0 and
-  5.15.1. These are unmaintained-package findings, separate from vulnerability advisories.
+- RUSTSEC-2026-0387 (`crypto-bigint`) and RUSTSEC-2023-0071 (`rsa`) are addressed by
+  migrating OpenPGP to RNP 0.18.1 with Botan 3.13.0 and S/MIME private-key operations to Botan.
+  Neither affected Rust package remains in the application or fuzz lockfile. Existing stored
+  version 4 OpenPGP keys, mail and S/MIME credentials retain their representation.
+- Unmaintained proc-macro-error, zbus_names 3/4 and zvariant/derive 4/5 are removed. GTK macro
+  dependencies use proc-macro-error3; Linux Tauri IPC uses zbus 6.1 and its maintained types.
+  Password storage uses maintained platform drivers with the existing credential identities.
+- Pinned vendor source inventories and native archives are checked byte for byte. A supplemental
+  lockfile restores the original registry identities of the verified Rust overrides for advisory
+  scanning, retaining the actual migrated dependency edges. An upstream advisory therefore
+  remains visible despite a local path override. No audit exceptions are used.
+
+See [migration details and reproduction commands](security-dependency-migration.md). A source
+migration affects installed users only after they install a release built from that source.
 
 ## Native webview and parser tests
 

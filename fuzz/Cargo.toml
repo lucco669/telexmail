@@ -14,6 +14,13 @@ telex-core = { path = "../crates/telex-core" }
 [workspace]
 members = ["."]
 
+[patch.crates-io]
+rnp-rs = { path = "../vendor/rnp-rs" }
+rnp-src = { path = "../vendor/rnp-src" }
+rnp-sys = { path = "../vendor/rnp-sys" }
+botan-src = { path = "../vendor/botan-src" }
+botan-sys = { path = "../vendor/botan-sys" }
+
 [[bin]]
 name = "mime_html"
 path = "fuzz_targets/mime_html.rs"

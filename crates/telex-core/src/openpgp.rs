@@ -1,7 +1,7 @@
 //! OpenPGP mail: signed and encrypted messages read (PGP/MIME, RFC 3156, and inline PGP), the
 //! keys Telex knows, and Autocrypt (Level 1) keys collected from incoming mail.
 //!
-//! rPGP (the `pgp` crate, MIT or Apache-2.0, pure Rust, audited) does the cryptography; this
+//! RNP and Botan (BSD-2-Clause, with MIT Rust bindings) do the cryptography; this
 //! module decides what it means: which key a signature is from and whether that key is the
 //! sender's, which own key can decrypt a message, which part of a key may encrypt.
 //!
@@ -14,25 +14,21 @@
 //!   it by its sender and subject only). Opening it decrypts it in memory; the decrypted
 //!   message stays in memory while it is one of the last [`KEEP_OPENED`] opened, and reaches
 //!   the disk only when the user opens or saves one of its attachments.
-//! - Errors never carry key material or rPGP's own messages: each failure is one of the
+//! - Errors never carry key material or native-library messages: each failure is one of the
 //!   [`Problem`] codes, which the window words.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
-use std::io::{BufReader, Cursor, Read};
+use std::io::Cursor;
 use std::sync::Arc;
 
 use base64::Engine;
 use chrono::{DateTime, Local, NaiveDateTime};
 use mail_parser::{MessageParser, MessagePart, MimeHeaders, PartType};
-use pgp::composed::{
-    CleartextSignedMessage, Deserializable, DetachedSignature, Esk, Message as PgpMessage,
-    PublicOrSecret, SignedPublicKey, SignedSecretKey,
-};
-use pgp::packet::{PublicKey, PublicSubkey, Signature, SignatureType};
-use pgp::ser::Serialize as _;
-use pgp::types::{KeyDetails, Password, Tag};
+mod backend;
+use backend::{Password, Primary, PublicOrSecret, SignedPublicKey, SignedSecretKey};
+
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
 
@@ -249,12 +245,12 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02X}")).collect()
 }
 
-fn fingerprint_of(key: &impl KeyDetails) -> String {
-    hex(key.fingerprint().as_bytes())
+fn fingerprint_of(key: &Primary) -> String {
+    key.fingerprint.clone()
 }
-
-fn key_id_of(key: &impl KeyDetails) -> String {
-    hex(key.legacy_key_id().as_ref())
+#[cfg(test)]
+fn key_id_of(key: &Primary) -> String {
+    key.id.clone()
 }
 
 fn local_time(secs: u32) -> NaiveDateTime {
@@ -295,17 +291,11 @@ pub fn read_keys(data: &[u8]) -> (Vec<PublicOrSecret>, usize) {
             skipped += 1;
             continue;
         }
-        let Ok((iter, _)) = PublicOrSecret::from_reader_many(Cursor::new(block)) else {
-            skipped += 1;
-            continue;
-        };
-        for key in iter.take(1000) {
-            match key {
-                Ok(key) if usable(&key) => keys.push(key),
-                _ => skipped += 1,
-            }
-        }
+        let (mut found, invalid) = backend::read_keys(block);
+        keys.append(&mut found);
+        skipped += invalid;
     }
+
     (keys, skipped)
 }
 
@@ -325,178 +315,29 @@ fn armored_blocks(text: &str) -> Vec<&str> {
     out
 }
 
-/// A key worth keeping: its primary key signs its user ids (at least one).
-fn usable(key: &PublicOrSecret) -> bool {
-    let public = public_of(key);
-    !valid_user_ids(&public).is_empty()
-}
-
 fn public_of(key: &PublicOrSecret) -> SignedPublicKey {
     match key {
         PublicOrSecret::Public(p) => p.clone(),
         PublicOrSecret::Secret(s) => s.to_public_key(),
     }
 }
-
-/// The user ids the key's own primary key certifies.
 fn valid_user_ids(key: &SignedPublicKey) -> Vec<String> {
-    key.details
-        .users
-        .iter()
-        .filter(|u| {
-            u.signatures.iter().any(|sig| {
-                is_self_issued(sig, &key.primary_key)
-                    && sig
-                        .verify_certification(&key.primary_key, Tag::UserId, &u.id)
-                        .is_ok()
-            })
-        })
-        .filter_map(|u| u.id.as_str().map(str::to_owned))
-        .collect()
+    key.user_ids.clone()
 }
-
-/// The signature names the primary key as its issuer (or names no issuer at all).
-fn is_self_issued(sig: &Signature, primary: &PublicKey) -> bool {
-    let ids = sig.issuer_key_id();
-    let fps = sig.issuer_fingerprint();
-    (ids.is_empty() && fps.is_empty())
-        || ids.iter().any(|id| **id == primary.legacy_key_id())
-        || fps.iter().any(|fp| **fp == primary.fingerprint())
-}
-
-/// The newest valid self-signature on the primary key's user ids (or a direct-key one): it
-/// carries the key's flags and expiry.
-fn primary_self_signature<'a>(key: &'a SignedPublicKey) -> Option<&'a Signature> {
-    let mut best: Option<&Signature> = None;
-    let mut consider = |sig: &'a Signature| {
-        if best.is_none_or(|b| sig.created() > b.created()) {
-            best = Some(sig);
-        }
-    };
-    for u in &key.details.users {
-        for sig in &u.signatures {
-            if is_self_issued(sig, &key.primary_key)
-                && sig
-                    .verify_certification(&key.primary_key, Tag::UserId, &u.id)
-                    .is_ok()
-            {
-                consider(sig);
-            }
-        }
-    }
-    for sig in &key.details.direct_signatures {
-        if sig.verify_key(&key.primary_key).is_ok() {
-            consider(sig);
-        }
-    }
-    best
-}
-
-/// When the key expires, if it does.
 fn expires(key: &SignedPublicKey) -> Option<u32> {
-    let sig = primary_self_signature(key)?;
-    let after = sig.key_expiration_time()?.as_secs();
-    (after > 0).then(|| key.primary_key.created_at().as_secs().saturating_add(after))
+    key.expires
 }
-
-/// Its owner revoked it.
 fn revoked(key: &SignedPublicKey) -> bool {
-    key.details.revocation_signatures.iter().any(|sig| {
-        sig.typ() == Some(SignatureType::KeyRevocation) && sig.verify_key(&key.primary_key).is_ok()
-    })
+    key.revoked
 }
-
 fn now_secs() -> u32 {
     u32::try_from(chrono::Utc::now().timestamp()).unwrap_or(u32::MAX)
 }
-
-/// A subkey that its primary key binds, with the binding's flags; `None` when no binding
-/// holds, it was revoked or it has expired.
-fn bound_subkey<'a>(
-    key: &'a SignedPublicKey,
-    sub: &'a pgp::composed::SignedPublicSubKey,
-    at: u32,
-) -> Option<&'a Signature> {
-    let revoked = sub.signatures.iter().any(|sig| {
-        sig.typ() == Some(SignatureType::SubkeyRevocation)
-            && sig
-                .verify_subkey_binding(&key.primary_key, &sub.key)
-                .is_ok()
-    });
-    if revoked {
-        return None;
-    }
-    let binding = sub
-        .signatures
-        .iter()
-        .filter(|sig| sig.typ() == Some(SignatureType::SubkeyBinding))
-        .filter(|sig| {
-            sig.verify_subkey_binding(&key.primary_key, &sub.key)
-                .is_ok()
-        })
-        .max_by_key(|sig| sig.created())?;
-    if let Some(after) = binding.key_expiration_time() {
-        let after = after.as_secs();
-        if after > 0 && sub.key.created_at().as_secs().saturating_add(after) < at {
-            return None;
-        }
-    }
-    Some(binding)
+pub(crate) fn encryption_key(key: &SignedPublicKey) -> Option<&SignedPublicKey> {
+    key.encrypt.then_some(key)
 }
-
-/// The part of a key to encrypt to: the newest valid subkey that may encrypt, else the
-/// primary key when it may. `None` for a key that can't receive encrypted mail now.
-pub(crate) fn encryption_key(key: &SignedPublicKey) -> Option<EncryptTo<'_>> {
-    let now = now_secs();
-    if revoked(key) || expires(key).is_some_and(|t| t < now) {
-        return None;
-    }
-    let sub = key
-        .public_subkeys
-        .iter()
-        .filter(|sub| sub.key.algorithm().can_encrypt())
-        .filter(|sub| {
-            bound_subkey(key, sub, now).is_some_and(|b| {
-                let flags = b.key_flags();
-                flags.encrypt_comms() || flags.encrypt_storage()
-            })
-        })
-        .max_by_key(|sub| sub.key.created_at());
-    if let Some(sub) = sub {
-        return Some(EncryptTo::Sub(&sub.key));
-    }
-    let primary = primary_self_signature(key)?;
-    let flags = primary.key_flags();
-    (key.primary_key.algorithm().can_encrypt()
-        && (flags.encrypt_comms() || flags.encrypt_storage()))
-    .then_some(EncryptTo::Primary(&key.primary_key))
-}
-
-/// A key part to encrypt to.
-pub(crate) enum EncryptTo<'a> {
-    Primary(&'a PublicKey),
-    Sub(&'a PublicSubkey),
-}
-
-fn algorithm_name(key: &PublicKey) -> String {
-    use pgp::types::PublicParams;
-    match key.public_params() {
-        PublicParams::RSA(p) => {
-            let bits = rsa_bits(p);
-            format!("RSA {bits}")
-        }
-        PublicParams::EdDSALegacy(_) | PublicParams::Ed25519(_) => "Ed25519".to_owned(),
-        PublicParams::Ed448(_) => "Ed448".to_owned(),
-        PublicParams::ECDSA(_) => "ECDSA".to_owned(),
-        PublicParams::DSA(_) => "DSA".to_owned(),
-        PublicParams::ECDH(_) | PublicParams::X25519(_) => "X25519".to_owned(),
-        _ => format!("{:?}", key.algorithm()),
-    }
-}
-
-fn rsa_bits(p: &pgp::types::RsaPublicParams) -> usize {
-    use rsa::traits::PublicKeyParts;
-    p.key.n().bits()
+fn algorithm_name(key: &Primary) -> String {
+    key.algorithm.clone()
 }
 
 /// What a key is, for the keys page and the store.
@@ -517,19 +358,13 @@ fn facts(key: &SignedPublicKey) -> Facts {
         .filter_map(|u| email_of_user_id(u))
         .collect();
     emails.dedup();
-    let mut ids = vec![
-        fingerprint_of(&key.primary_key),
-        key_id_of(&key.primary_key),
-    ];
-    for sub in &key.public_subkeys {
-        ids.push(fingerprint_of(&sub.key));
-        ids.push(key_id_of(&sub.key));
-    }
+    let ids = key.ids.clone();
+
     Facts {
         fingerprint: fingerprint_of(&key.primary_key),
         user_ids,
         emails,
-        created: local_time(key.primary_key.created_at().as_secs()),
+        created: local_time(key.primary_key.created_at()),
         expires: expires(key).map(local_time),
         ids,
     }
@@ -579,7 +414,7 @@ pub(crate) fn save_key(
         }
     };
     // A copy the user brought (a file, a pasted key, their own) replaces the stored one
-    // whole: rPGP doesn't merge certificates, and the user chose this one.
+    // whole: merging is not part of this store operation, and the user chose this copy.
     db.execute(
         "INSERT INTO pgp_keys (fingerprint, public, secret, user_ids, emails, created, expires,
              source, verified, added)
@@ -688,20 +523,10 @@ fn own_keys(db: &Connection) -> Result<Vec<(String, SignedSecretKey)>, StoreErro
 /// The secret key needs a passphrase: its primary key or a subkey is encrypted (a missing
 /// primary, as GnuPG's offline keys have, counts as encrypted).
 fn is_protected(key: &SignedSecretKey) -> bool {
-    key.primary_key.secret_params().is_encrypted()
-        || key
-            .secret_subkeys
-            .iter()
-            .any(|s| s.secret_params().is_encrypted())
+    key.protected
 }
-
-/// The passphrase opens the key: its primary key or one of its subkeys unlocks with it.
 fn opens(key: &SignedSecretKey, pw: &Password) -> bool {
-    matches!(key.primary_key.unlock(pw, |_, _| Ok(())), Ok(Ok(())))
-        || key
-            .secret_subkeys
-            .iter()
-            .any(|s| matches!(s.unlock(pw, |_, _| Ok(())), Ok(Ok(()))))
+    key.opens(pw)
 }
 
 impl MailStore {
@@ -834,8 +659,7 @@ impl MailStore {
     /// A key's certificate, armored, to send or publish.
     pub fn export_public_key(&self, fingerprint: &str) -> Result<String, StoreError> {
         let key = self.public_key(fingerprint)?;
-        key.to_armored_string(None.into())
-            .map_err(|_| unreadable_key())
+        key.to_armored_string(None).map_err(|_| unreadable_key())
     }
 
     /// An own key with its secret part, armored, protected by its passphrase as stored.
@@ -852,8 +676,7 @@ impl MailStore {
         let key = bytes
             .and_then(|b| SignedSecretKey::from_bytes(Cursor::new(b)).ok())
             .ok_or_else(no_such_key)?;
-        key.to_armored_string(None.into())
-            .map_err(|_| unreadable_key())
+        key.to_armored_string(None).map_err(|_| unreadable_key())
     }
 
     pub(crate) fn public_key(&self, fingerprint: &str) -> Result<SignedPublicKey, StoreError> {
@@ -921,11 +744,6 @@ pub fn generate(
     passphrase: &str,
     kind: KeyKind,
 ) -> Result<SignedSecretKey, StoreError> {
-    use pgp::composed::{EncryptionCaps, KeyType, SecretKeyParamsBuilder, SubkeyParamsBuilder};
-    use pgp::crypto::{ecc_curve::ECCCurve, hash::HashAlgorithm, sym::SymmetricKeyAlgorithm};
-    use pgp::types::CompressionAlgorithm;
-    use smallvec::smallvec;
-
     let email = email.trim();
     if email_of_user_id(email).is_none() {
         return Err(StoreError::Invalid(tr!(
@@ -945,45 +763,12 @@ pub fn generate(
     } else {
         format!("{name} <{email}>")
     };
-    let (primary, sub) = match kind {
-        KeyKind::Ed25519 => (
-            KeyType::Ed25519Legacy,
-            KeyType::ECDH(ECCCurve::Curve25519Legacy),
-        ),
-        KeyKind::Rsa3072 => (KeyType::Rsa(3072), KeyType::Rsa(3072)),
-    };
-    let failed = || {
+    backend::generate(&uid, passphrase, kind).map_err(|_| {
         StoreError::Invalid(tr!(
             "Telex couldn't make the key.",
             "Telex nie zdołał utworzyć klucza."
         ))
-    };
-    let mut rng = rand::thread_rng();
-    let subkey = SubkeyParamsBuilder::default()
-        .key_type(sub)
-        .can_encrypt(EncryptionCaps::All)
-        .passphrase(Some(passphrase.to_owned()))
-        .build()
-        .map_err(|_| failed())?;
-    let params = SecretKeyParamsBuilder::default()
-        .key_type(primary)
-        .can_certify(true)
-        .can_sign(true)
-        .primary_user_id(uid)
-        .passphrase(Some(passphrase.to_owned()))
-        .preferred_symmetric_algorithms(smallvec![
-            SymmetricKeyAlgorithm::AES256,
-            SymmetricKeyAlgorithm::AES128,
-        ])
-        .preferred_hash_algorithms(smallvec![HashAlgorithm::Sha512, HashAlgorithm::Sha256])
-        .preferred_compression_algorithms(smallvec![
-            CompressionAlgorithm::ZLIB,
-            CompressionAlgorithm::ZIP,
-        ])
-        .subkeys(vec![subkey])
-        .build()
-        .map_err(|_| failed())?;
-    params.generate(&mut rng).map_err(|_| failed())
+    })
 }
 
 impl MailStore {
@@ -1009,32 +794,6 @@ impl MailStore {
 }
 
 // ---- Writing: signing and encrypting ----
-
-/// The part of an own key that signs: the primary key when its self-signature lets it (or
-/// says nothing), else a signing subkey whose secret is here.
-fn signing_part(key: &SignedSecretKey) -> Option<&dyn pgp::types::SigningKey> {
-    let public = key.to_public_key();
-    let primary_signs = primary_self_signature(&public).is_some_and(|s| {
-        let flags = s.key_flags();
-        flags.sign() || !(flags.certify() || flags.encrypt_comms() || flags.encrypt_storage())
-    });
-    if primary_signs {
-        return Some(&key.primary_key);
-    }
-    let now = now_secs();
-    key.secret_subkeys
-        .iter()
-        .filter(|s| {
-            public
-                .public_subkeys
-                .iter()
-                .find(|p| p.key.fingerprint() == s.public_key().fingerprint())
-                .and_then(|p| bound_subkey(&public, p, now))
-                .is_some_and(|b| b.key_flags().sign())
-        })
-        .max_by_key(|s| s.public_key().created_at())
-        .map(|s| &s.key as &dyn pgp::types::SigningKey)
-}
 
 /// Why signing or encrypting didn't happen, for the window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -1159,8 +918,7 @@ impl MailStore {
                 email: email.clone(),
             })?;
         let password = match self.pgp.borrow().passphrases.get(&fingerprint) {
-            Some(Password::Static(pw)) => Password::from(&pw[..]),
-            Some(Password::Dynamic(f)) => Password::from(&f()[..]),
+            Some(pw) => pw.clone(),
             None if !is_protected(&key) => Password::empty(),
             None => {
                 return Err(WriteProblem::Locked {
@@ -1246,65 +1004,7 @@ impl MailStore {
 
 /// A detached, armored signature over `data` (RFC 3156's application/pgp-signature).
 pub fn sign_detached(own: &OwnKey, data: &[u8]) -> Result<String, WriteProblem> {
-    use pgp::crypto::hash::HashAlgorithm;
-    let signer = signing_part(&own.key).ok_or(WriteProblem::Failed)?;
-    let sig = DetachedSignature::sign_binary_data(
-        rand::thread_rng(),
-        &SignerRef(signer),
-        &own.password,
-        HashAlgorithm::Sha256,
-        data,
-    )
-    .map_err(|_| WriteProblem::Failed)?;
-    sig.to_armored_string(None.into())
-        .map_err(|_| WriteProblem::Failed)
-}
-
-/// A `&dyn SigningKey` that is a `SigningKey` itself (rPGP's functions take `impl`).
-struct SignerRef<'a>(&'a dyn pgp::types::SigningKey);
-
-impl std::fmt::Debug for SignerRef<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("SignerRef")
-    }
-}
-
-impl KeyDetails for SignerRef<'_> {
-    fn version(&self) -> pgp::types::KeyVersion {
-        self.0.version()
-    }
-    fn legacy_key_id(&self) -> pgp::types::KeyId {
-        self.0.legacy_key_id()
-    }
-    fn fingerprint(&self) -> pgp::types::Fingerprint {
-        self.0.fingerprint()
-    }
-    fn algorithm(&self) -> pgp::crypto::public_key::PublicKeyAlgorithm {
-        self.0.algorithm()
-    }
-    fn created_at(&self) -> pgp::types::Timestamp {
-        self.0.created_at()
-    }
-    fn legacy_v3_expiration_days(&self) -> Option<u16> {
-        self.0.legacy_v3_expiration_days()
-    }
-    fn public_params(&self) -> &pgp::types::PublicParams {
-        self.0.public_params()
-    }
-}
-
-impl pgp::types::SigningKey for SignerRef<'_> {
-    fn sign(
-        &self,
-        key_pw: &Password,
-        hash: pgp::crypto::hash::HashAlgorithm,
-        data: &[u8],
-    ) -> pgp::errors::Result<pgp::types::SignatureBytes> {
-        self.0.sign(key_pw, hash, data)
-    }
-    fn hash_alg(&self) -> pgp::crypto::hash::HashAlgorithm {
-        self.0.hash_alg()
-    }
+    backend::sign_detached(&own.key, &own.password, data).map_err(|_| WriteProblem::Failed)
 }
 
 /// `data` encrypted to `to` (each key's encryption part), armored; signed inside when a
@@ -1412,53 +1112,11 @@ fn own_public(db: &Connection, email: &str) -> Option<(String, SignedPublicKey)>
         .find(|(_, k)| encryption_key(k).is_some())
 }
 
-/// The smallest form of a certificate for an Autocrypt header: the primary key, the user
-/// ids of `email` with their self-signatures, and the subkey to encrypt to.
-fn minimal(key: &SignedPublicKey, email: &str) -> SignedPublicKey {
-    use pgp::composed::SignedKeyDetails;
-    let users = key
-        .details
-        .users
-        .iter()
-        .filter(|u| u.id.as_str().and_then(email_of_user_id).as_deref() == Some(email))
-        .map(|u| {
-            let mut u = u.clone();
-            u.signatures.retain(|s| is_self_issued(s, &key.primary_key));
-            u
-        })
-        .collect();
-    let now = now_secs();
-    let subkeys = key
-        .public_subkeys
-        .iter()
-        .filter(|s| {
-            bound_subkey(key, s, now).is_some_and(|b| {
-                let f = b.key_flags();
-                f.encrypt_comms() || f.encrypt_storage()
-            })
-        })
-        .cloned()
-        .collect();
-    SignedPublicKey::new(
-        key.primary_key.clone(),
-        SignedKeyDetails::new(
-            Vec::new(),
-            key.details.direct_signatures.clone(),
-            users,
-            Vec::new(),
-        ),
-        subkeys,
-    )
-}
-
 /// The Autocrypt header's value for an address and its key (Level 1, no prefer-encrypt).
 pub fn autocrypt_value(email: &str, key: &SignedPublicKey) -> Option<String> {
     let email = email.trim().to_lowercase();
-    let small = minimal(key, &email);
-    if small.details.users.is_empty() {
-        return None;
-    }
-    let bytes = small.to_bytes().ok()?;
+    let bytes = key.autocrypt(&email).ok()?;
+
     let data = base64::engine::general_purpose::STANDARD.encode(bytes);
     // Folded at 76 columns, each continuation line starting with a space.
     let folded: Vec<&str> = data
@@ -1527,7 +1185,7 @@ impl MailStore {
             }
             if choice.attach_key {
                 let armored = key
-                    .to_armored_string(None.into())
+                    .to_armored_string(None)
                     .map_err(|_| WriteProblem::Failed)?;
                 p.key_file = Some((
                     format!("OpenPGP_0x{}.asc", &fp[fp.len().saturating_sub(16)..]),
@@ -1810,39 +1468,8 @@ fn encrypt_hidden(
     hidden: &[SignedPublicKey],
     signer: Option<&OwnKey>,
 ) -> Result<String, WriteProblem> {
-    use pgp::composed::MessageBuilder;
-    use pgp::crypto::{hash::HashAlgorithm, sym::SymmetricKeyAlgorithm};
-    let mut rng = rand::thread_rng();
-    let mut builder = MessageBuilder::from_bytes("", data.to_vec())
-        .seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
-    for key in to {
-        match encryption_key(key).ok_or(WriteProblem::Failed)? {
-            EncryptTo::Primary(k) => builder.encrypt_to_key(&mut rng, k),
-            EncryptTo::Sub(k) => builder.encrypt_to_key(&mut rng, k),
-        }
-        .map_err(|_| WriteProblem::Failed)?;
-    }
-    for key in hidden {
-        match encryption_key(key).ok_or(WriteProblem::Failed)? {
-            EncryptTo::Primary(k) => builder.encrypt_to_key_anonymous(&mut rng, k),
-            EncryptTo::Sub(k) => builder.encrypt_to_key_anonymous(&mut rng, k),
-        }
-        .map_err(|_| WriteProblem::Failed)?;
-    }
-    if let Some(own) = signer {
-        let part = signing_part(&own.key).ok_or(WriteProblem::Failed)?;
-        builder.sign(part, clone_password(&own.password), HashAlgorithm::Sha256);
-    }
-    builder
-        .to_armored_string(&mut rng, None.into())
+    backend::encrypt(data, to, hidden, signer.map(|s| (&s.key, &s.password)))
         .map_err(|_| WriteProblem::Failed)
-}
-
-fn clone_password(pw: &Password) -> Password {
-    match pw {
-        Password::Static(b) => Password::from(&b[..]),
-        Password::Dynamic(f) => Password::from(&f()[..]),
-    }
 }
 
 fn no_such_key() -> StoreError {
@@ -2129,10 +1756,10 @@ pub fn index_text(body: &str) -> String {
             break;
         };
         let block = &text[start..stop];
-        let Ok((csm, _)) = CleartextSignedMessage::from_string(block) else {
+        let Ok(plain) = backend::open(block.as_bytes(), &[], false) else {
             break;
         };
-        let inner = csm.signed_text().replace("\r\n", "\n");
+        let inner = String::from_utf8_lossy(&plain.data).replace("\r\n", "\n");
         text.replace_range(start..stop, &inner);
     }
     text
@@ -2200,129 +1827,51 @@ pub(crate) fn canonical(data: &[u8]) -> Vec<u8> {
 
 // ---- Checking signatures ----
 
-/// A part of a key that may have made a signature.
-enum Signer<'a> {
-    Primary(&'a PublicKey),
-    Sub(&'a PublicSubkey),
-}
-
-/// The ids a signature names its key by, upper-case hex: fingerprints first.
-fn issuer_ids(sig: &Signature) -> Vec<String> {
-    let mut ids: Vec<String> = sig
-        .issuer_fingerprint()
-        .iter()
-        .map(|fp| hex(fp.as_bytes()))
-        .collect();
-    ids.extend(sig.issuer_key_id().iter().map(|id| hex(id.as_ref())));
-    ids
-}
-
-/// The parts of `key` that `ids` name and that may sign: the primary key, or a subkey it
-/// binds now (or did when the message was signed).
-fn signers<'a>(key: &'a SignedPublicKey, ids: &[String], at: u32) -> Vec<Signer<'a>> {
-    let named = |k: &dyn KeyDetailsDyn| ids.contains(&k.fp()) || ids.contains(&k.id());
-    let mut out = Vec::new();
-    if named(&key.primary_key) {
-        out.push(Signer::Primary(&key.primary_key));
-    }
-    for sub in &key.public_subkeys {
-        if named(&sub.key) && bound_subkey(key, sub, at).is_some_and(|b| b.key_flags().sign()) {
-            out.push(Signer::Sub(&sub.key));
-        }
-    }
-    out
-}
-
-/// Fingerprint and key id of a key part, through one trait object.
-trait KeyDetailsDyn {
-    fn fp(&self) -> String;
-    fn id(&self) -> String;
-}
-
-impl KeyDetailsDyn for PublicKey {
-    fn fp(&self) -> String {
-        fingerprint_of(self)
-    }
-    fn id(&self) -> String {
-        key_id_of(self)
-    }
-}
-
-impl KeyDetailsDyn for PublicSubkey {
-    fn fp(&self) -> String {
-        fingerprint_of(self)
-    }
-    fn id(&self) -> String {
-        key_id_of(self)
-    }
-}
-
-/// The verdict on one signature: `check` says whether it verifies with a key part. The key
-/// is looked for among the stored keys and those the message itself carries.
-fn judge(
-    sig: &Signature,
+fn verdict(
+    sig: &backend::Checked,
     stored: &[(SignedPublicKey, bool, Source)],
     offered: &[SignedPublicKey],
     from: &str,
-    check: &dyn Fn(&Signer<'_>) -> bool,
 ) -> SigView {
-    let ids = issuer_ids(sig);
-    let created = sig.created().map(|t| t.as_secs());
-    let at = created.unwrap_or_else(now_secs);
-    let key_id = ids
-        .iter()
-        .find(|id| id.len() == 16)
-        .cloned()
-        .or_else(|| {
-            ids.first()
-                .map(|fp| fp[fp.len().saturating_sub(16)..].to_owned())
-        })
-        .unwrap_or_default();
-    let view = |status, key: Option<&SignedPublicKey>| SigView {
-        status,
-        key: key.map(|k| KeyRef {
-            fingerprint: fingerprint_of(&k.primary_key),
-            name: valid_user_ids(k).into_iter().next().unwrap_or_default(),
-        }),
-        key_id: key_id.clone(),
-        created: created.map(local_time),
-        issuer: None,
-    };
     let candidates = stored
         .iter()
-        .map(|(k, verified, source)| (k, *verified || source.confirmed()))
+        .map(|(k, v, s)| (k, *v || s.confirmed()))
         .chain(offered.iter().map(|k| (k, false)));
-    let mut seen_key = None;
-    for (key, confirmed) in candidates {
-        let parts = signers(key, &ids, at);
-        if parts.is_empty() {
-            continue;
+    let known = candidates.into_iter().find(|(k, _)| {
+        sig.primary.as_deref() == Some(&k.primary_key.fingerprint) || k.ids.contains(&sig.key_id)
+    });
+    let status = match known {
+        None => SigStatus::NoKey,
+        Some((k, _)) if k.revoked => SigStatus::Revoked,
+        Some((k, _))
+            if sig.code == 0x1200000c
+                || sig.code == 0x14000008
+                || expires(k).is_some_and(|t| t < sig.created.unwrap_or_else(now_secs)) =>
+        {
+            SigStatus::Expired
         }
-        seen_key.get_or_insert(key);
-        if !parts.iter().any(check) {
-            continue;
+        Some(_) if sig.code != 0 => SigStatus::Bad,
+        Some((k, _))
+            if !k
+                .user_ids
+                .iter()
+                .filter_map(|u| email_of_user_id(u))
+                .any(|e| e == from.trim().to_lowercase()) =>
+        {
+            SigStatus::OtherSender
         }
-        if revoked(key) {
-            return view(SigStatus::Revoked, Some(key));
-        }
-        if expires(key).is_some_and(|t| t < at) {
-            return view(SigStatus::Expired, Some(key));
-        }
-        let from = from.trim().to_lowercase();
-        let theirs = valid_user_ids(key)
-            .iter()
-            .filter_map(|u| email_of_user_id(u))
-            .any(|e| e == from);
-        let status = match (theirs, confirmed) {
-            (false, _) => SigStatus::OtherSender,
-            (true, true) => SigStatus::Good,
-            (true, false) => SigStatus::Unconfirmed,
-        };
-        return view(status, Some(key));
-    }
-    match seen_key {
-        Some(key) => view(SigStatus::Bad, Some(key)),
-        None => view(SigStatus::NoKey, None),
+        Some((_, true)) => SigStatus::Good,
+        Some(_) => SigStatus::Unconfirmed,
+    };
+    SigView {
+        status,
+        key: known.map(|(k, _)| KeyRef {
+            fingerprint: k.primary_key.fingerprint.clone(),
+            name: k.user_ids.first().cloned().unwrap_or_default(),
+        }),
+        key_id: sig.key_id.clone(),
+        created: sig.created.map(local_time),
+        issuer: None,
     }
 }
 
@@ -2357,33 +1906,15 @@ pub(crate) enum Stop {
 }
 
 /// The key ids an encrypted message names as recipients (upper-case hex).
-fn recipients_of(msg: &PgpMessage<'_>) -> Vec<String> {
-    let PgpMessage::Encrypted { esk, .. } = msg else {
-        return Vec::new();
-    };
-    esk.iter()
-        .filter_map(|e| match e {
-            Esk::PublicKeyEncryptedSessionKey(pk) => {
-                if let Ok(Some(fp)) = pk.fingerprint() {
-                    Some(hex(fp.as_bytes()))
-                } else {
-                    pk.id().ok().map(|id| hex(id.as_ref()))
-                }
-            }
-            Esk::SymKeyEncryptedSessionKey(_) => None,
-        })
-        .collect()
+fn recipients_of(data: &[u8]) -> Result<Vec<String>, Problem> {
+    backend::recipients(data)
 }
 
 impl MailStore {
     /// Decrypt an OpenPGP message (armored or binary) with the user's keys.
     fn decrypt(&self, data: &[u8], from: &str, offered: &[SignedPublicKey]) -> Result<Plain, Stop> {
-        let parse = || PgpMessage::from_reader(BufReader::new(Cursor::new(data)));
-        let (msg, _) = parse().map_err(|_| Stop::Problem(Problem::Failed))?;
-        if !msg.is_encrypted() {
-            return Err(Stop::Problem(Problem::Failed));
-        }
-        let recipients = recipients_of(&msg);
+        let recipients = recipients_of(data).map_err(Stop::Problem)?;
+
         let own = own_keys(&self.db).map_err(|_| Stop::Problem(Problem::Failed))?;
         // Own keys named as recipients (an anonymous recipient, all zeros, could be any).
         let anonymous = recipients.iter().any(|r| r.chars().all(|c| c == '0'));
@@ -2425,56 +1956,19 @@ impl MailStore {
         if keys.is_empty() {
             return Err(Stop::Locked(locked));
         }
-        let mut plain = msg
-            .decrypt_with_keys(passwords, keys)
-            .map_err(|e| Stop::Problem(problem_of(&e)))?;
-        for _ in 0..4 {
-            if !plain.is_compressed() {
-                break;
-            }
-            plain = plain
-                .decompress()
-                .map_err(|e| Stop::Problem(problem_of(&e)))?;
-        }
-        let mut data = Vec::new();
-        (&mut plain)
-            .take(MAX_PLAIN as u64 + 1)
-            .read_to_end(&mut data)
-            .map_err(|_| Stop::Problem(Problem::Failed))?;
-        if data.len() > MAX_PLAIN {
-            return Err(Stop::Problem(Problem::TooLarge));
-        }
-        let signature = if plain.is_signed() {
-            self.judge_message(&plain, from, offered)
-        } else {
-            None
-        };
-        Ok(Plain { data, signature })
-    }
-
-    /// The verdict on the signatures of a signed OpenPGP message read to its end.
-    fn judge_message(
-        &self,
-        msg: &PgpMessage<'_>,
-        from: &str,
-        offered: &[SignedPublicKey],
-    ) -> Option<SigView> {
-        let PgpMessage::Signed { reader, .. } = msg else {
-            return None;
-        };
-        let mut views = Vec::new();
-        for index in 0..reader.num_signatures().min(MAX_SIGNATURES) {
-            let Some(sig) = reader.signature(index) else {
-                continue;
-            };
-            let stored = keys_by_ids(&self.db, &issuer_ids(sig)).unwrap_or_default();
-            let check = |signer: &Signer<'_>| match signer {
-                Signer::Primary(k) => msg.verify_nested_explicit(index, *k).is_ok(),
-                Signer::Sub(k) => msg.verify_nested_explicit(index, *k).is_ok(),
-            };
-            views.push(judge(sig, &stored, offered, from, &check));
-        }
-        best(views)
+        let pairs = keys.into_iter().zip(passwords).collect::<Vec<_>>();
+        let plain = backend::open(data, &pairs, true).map_err(Stop::Problem)?;
+        let packets = plain
+            .signatures
+            .iter()
+            .flat_map(|s| s.packet.iter().copied())
+            .collect::<Vec<_>>();
+        let signature = (!packets.is_empty())
+            .then(|| self.judge_detached(&packets, &plain.data, from, offered));
+        Ok(Plain {
+            data: plain.data,
+            signature,
+        })
     }
 
     /// The verdict on a detached signature over `data`.
@@ -2485,20 +1979,22 @@ impl MailStore {
         from: &str,
         offered: &[SignedPublicKey],
     ) -> SigView {
-        let sigs = read_signatures(signature);
-        let views = sigs
+        let first = backend::check_detached(signature, data, &[]).unwrap_or_default();
+        let ids = first.iter().map(|s| s.key_id.clone()).collect::<Vec<_>>();
+        let stored = keys_by_ids(&self.db, &ids).unwrap_or_default();
+        let keys = stored
             .iter()
-            .take(MAX_SIGNATURES)
-            .map(|sig| {
-                let stored = keys_by_ids(&self.db, &issuer_ids(sig)).unwrap_or_default();
-                let check = |signer: &Signer<'_>| match signer {
-                    Signer::Primary(k) => sig.verify(*k, data).is_ok(),
-                    Signer::Sub(k) => sig.verify(*k, data).is_ok(),
-                };
-                judge(sig, &stored, offered, from, &check)
-            })
-            .collect();
-        best(views).unwrap_or(SigView {
+            .map(|(k, _, _)| k.clone())
+            .chain(offered.iter().cloned())
+            .collect::<Vec<_>>();
+        let checked = backend::check_detached(signature, data, &keys).unwrap_or_default();
+        best(
+            checked
+                .iter()
+                .map(|s| verdict(s, &stored, offered, from))
+                .collect(),
+        )
+        .unwrap_or(SigView {
             status: SigStatus::Bad,
             key: None,
             key_id: String::new(),
@@ -2565,7 +2061,7 @@ impl MailStore {
                 view.partial =
                     !text[..block.0].trim().is_empty() || !text[block.1..].trim().is_empty();
                 let armored = &text[block.0..block.1];
-                let Ok((csm, _)) = CleartextSignedMessage::from_string(armored) else {
+                let Ok(plain) = backend::open(armored.as_bytes(), &[], false) else {
                     view.signature = Some(SigView {
                         status: SigStatus::Bad,
                         key: None,
@@ -2579,26 +2075,18 @@ impl MailStore {
                         body: None,
                     });
                 };
-                let views = csm
-                    .signatures()
+                let packets = plain
+                    .signatures
                     .iter()
-                    .take(MAX_SIGNATURES)
-                    .map(|sig| {
-                        let stored = keys_by_ids(&self.db, &issuer_ids(sig)).unwrap_or_default();
-                        let check = |signer: &Signer<'_>| match signer {
-                            Signer::Primary(k) => {
-                                sig.verify(*k, csm.signed_text().as_bytes()).is_ok()
-                            }
-                            Signer::Sub(k) => sig.verify(*k, csm.signed_text().as_bytes()).is_ok(),
-                        };
-                        judge(sig, &stored, &offered_keys, from, &check)
-                    })
-                    .collect();
-                view.signature = best(views);
+                    .flat_map(|s| s.packet.iter().copied())
+                    .collect::<Vec<_>>();
+                view.signature =
+                    Some(self.judge_detached(&packets, &plain.data, from, &offered_keys));
+
                 let body = format!(
                     "{}{}{}",
                     &text[..block.0],
-                    csm.signed_text(),
+                    String::from_utf8_lossy(&plain.data),
                     &text[block.1..]
                 );
                 Some(Opened {
@@ -2747,36 +2235,6 @@ pub(crate) fn stopped(view: &mut View, stop: Stop) {
             view.recipients = ids;
         }
     }
-}
-
-/// rPGP's error, as one of Telex's codes (its text never reaches the window).
-fn problem_of(e: &pgp::errors::Error) -> Problem {
-    let text = e.to_string().to_lowercase();
-    if text.contains("bzip") || text.contains("unsupported") || text.contains("legacy") {
-        Problem::Unsupported
-    } else {
-        Problem::Failed
-    }
-}
-
-/// The signatures in a detached signature block (armored or binary).
-fn read_signatures(data: &[u8]) -> Vec<Signature> {
-    if data.len() > MAX_KEY {
-        return Vec::new();
-    }
-    if let Ok((sigs, _)) = DetachedSignature::from_reader_many(Cursor::new(data)) {
-        let sigs: Vec<Signature> = sigs
-            .take(MAX_SIGNATURES)
-            .filter_map(Result::ok)
-            .map(|s| s.signature)
-            .collect();
-        if !sigs.is_empty() {
-            return sigs;
-        }
-    }
-    DetachedSignature::from_bytes(Cursor::new(data))
-        .map(|s| vec![s.signature])
-        .unwrap_or_default()
 }
 
 /// The keys a message carries that Telex doesn't have: its Autocrypt header's (for its

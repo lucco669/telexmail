@@ -1,0 +1,39 @@
+[package]
+name = "rnp-src"
+version = "0.3.7"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Ribose Inc. <open.source@ribose.com>"]
+license = "BSD-2-Clause"
+description = "Compile librnp and dependencies from source (build-time library)"
+repository = "https://github.com/rnpgp/rnp-rs"
+homepage = "https://github.com/rnpgp/rnp-rs"
+
+[features]
+default = []
+# Build librnp with ENABLE_PQC=ON and Botan with PQC modules enabled.
+# PQC + crypto-refresh code paths in librnp 0.18.1 are incompatible with
+# Botan 3.12's opaque EC_Group/EC_Point API; when this feature is on,
+# rnp-src clones librnp HEAD (which has the fixes) instead of using the
+# 0.18.1 release tarball.
+pqc = ["crypto-refresh"]
+# Build librnp with ENABLE_CRYPTO_REFRESH=ON. Same HEAD-vs-0.18.1
+# reasoning as `pqc`.
+crypto-refresh = []
+
+[dependencies]
+# Botan 3.13.0. The short-RSA-MPI decrypt failure it exposed in librnp
+# 0.18.1 (rnpgp/rnp#2465, rnp-rs#79) is backported via
+# patches/rsa-short-mpi-botan-3.13.patch, so 3.13 is safe again.
+# Pinned exactly (not >=): botan-src 0.31300.1 switched Windows builds to
+# nmake, which does not exist under MSYS2/mingw.
+botan-src = "=0.31300.0"
+# Pure-Rust HTTP + tarball extraction so we don't depend on the system
+# having curl + tar in PATH (Windows runners don't always have curl).
+flate2 = "1"
+tar = "0.4"
+# Latest ureq (3.x). Default features include TLS (rustls) so HTTPS works
+# — required because all rnp-src's download URLs are https://. In 3.x the
+# body is read via `res.body_mut().as_reader()` (the older
+# `res.into_reader()` was removed).
+ureq = "3"

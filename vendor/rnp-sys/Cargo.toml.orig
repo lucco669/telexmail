@@ -1,0 +1,71 @@
+[package]
+name = "rnp-sys"
+version = "0.1.3"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Ribose Inc. <open.source@ribose.com>"]
+license = "BSD-2-Clause"
+description = "Raw FFI bindings to librnp (RNP OpenPGP C API), with optional from-source build"
+repository = "https://github.com/rnpgp/rnp-rs"
+homepage = "https://github.com/rnpgp/rnp-rs"
+documentation = "https://docs.rs/rnp-sys"
+keywords = ["openpgp", "pgp", "rnp", "ffi", "cryptography"]
+categories = ["external-ffi-bindings", "cryptography"]
+links = "rnp"
+build = "build.rs"
+include = [
+    "src/**/*.rs",
+    "build.rs",
+    "wrapper.h",
+    "bindings/*.rs",
+    "Cargo.toml",
+    "README.md",
+]
+
+[package.metadata.docs.rs]
+# Build with all features so the PQC + crypto-refresh API surface appears
+# in the rendered docs. docs.rs ignores features whose build deps aren't
+# available, so this won't fail the doc build.
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = []
+# Compile librnp + Botan + json-c + zlib + bzip2 from source via the
+# rnp-src crate (build-time library) and statically link. Fully
+# self-contained — no system librnp/Botan needed. First build takes
+# ~10 min; cached in OUT_DIR after that. Requires: C/C++ compiler,
+# cmake, python3.
+vendored = ["dep:rnp-src"]
+# Build with ENABLE_PQC=ON — forwards to rnp-src, which also switches to
+# librnp HEAD (0.18.1's PQC paths don't compile against Botan 3.12+).
+pqc = ["crypto-refresh", "rnp-src?/pqc"]
+# Build with ENABLE_CRYPTO_REFRESH=ON — same HEAD switch as `pqc`.
+crypto-refresh = ["rnp-src?/crypto-refresh"]
+# Diagnostic: pull in botan-sys so its links metadata becomes visible to
+# this build script. When another crate in the graph enables
+# botan-sys/vendored (e.g. the `botan` crate), Botan is compiled twice —
+# once by botan-sys, once by rnp-src via our vendored path — and the final
+# link binds whichever archive comes first. Emit a loud warning instead of
+# leaving that to fail (or link the wrong Botan) silently. Requires a
+# system Botan OR a vendored botan elsewhere in the graph, since botan-sys's
+# non-vendored build probes for a system install.
+botan-sys-detect = ["dep:botan-sys"]
+
+[build-dependencies]
+# Build-time library that compiles the whole C/C++ stack (botan-rs
+# `botan-src` pattern: the -sys crate's build script calls rnp_src::build()).
+rnp-src = { version = "0.3", path = "../rnp-src", optional = true }
+# Optional, only with the `botan-sys-detect` feature. Version follows
+# rnp-src's botan-src pin so a detected graph shares one Botan version.
+botan-sys = { version = "1.20260811", optional = true }
+bindgen = "0.72"
+pkg-config = "0.3"
+
+[lib]
+name = "rnp_sys"
+# The bindgen-generated FFI bindings carry the upstream C API doc comments,
+# many of which contain fenced code blocks (e.g. JSON output examples) that
+# the doctest harness tries to compile as standalone programs. Those
+# snippets are C/JSON, not Rust, so we disable doctests on this crate.
+doctest = false

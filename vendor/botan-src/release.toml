@@ -1,0 +1,4 @@
+# Pinned release, override using BOTAN_SRC_DIR or BOTAN_SRC_TARBALL
+version = "3.13.0"
+sha256 = "12f5a8358890bbee82edfe9d2e7769b0a610b6dd0e0698aea13d20a675d84620"
+url = "https://botan.randombit.net/releases/Botan-{version}.tar.xz"

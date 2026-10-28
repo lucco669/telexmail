@@ -1,0 +1,32 @@
+# BotanConfig.cmake.in — template processed by rnp-src's build.rs.
+#
+# Mirrors the BotanConfig.cmake that `make install` would produce, minus
+# the docs/man pages we skip. Substitution variables (filled in by
+# write_botan_cmake_config):
+#
+#   @BOTAN_VERSION@  e.g. 3.12.0
+#   @BOTAN_PREFIX@   staging prefix rnp-src created
+#
+# rnp-src always stages the static lib as libbotan-3.a regardless of
+# platform (Botan's native Windows output is botan-3.lib; we rename
+# during copy so cargo's GNU link convention finds it).
+
+set(BOTAN_FOUND TRUE)
+set(BOTAN_VERSION "@BOTAN_VERSION@")
+set(BOTAN_LIBRARY "@BOTAN_PREFIX@/lib/libbotan-3.a")
+set(BOTAN_INCLUDE_DIRS "@BOTAN_PREFIX@/include/botan-3")
+
+add_library(Botan::Botan STATIC IMPORTED GLOBAL)
+set_target_properties(Botan::Botan PROPERTIES
+    IMPORTED_LOCATION "@BOTAN_PREFIX@/lib/libbotan-3.a"
+    INTERFACE_INCLUDE_DIRECTORIES "@BOTAN_PREFIX@/include/botan-3"
+)
+
+# Botan's static lib has platform-specific transitive dependencies.
+# Without declaring them here, the consumer (librnp) gets unresolved
+# symbols when linking against libbotan-3.a.
+if(WIN32)
+    set_target_properties(Botan::Botan PROPERTIES
+        INTERFACE_LINK_LIBRARIES "ws2_32;crypt32"
+    )
+endif()

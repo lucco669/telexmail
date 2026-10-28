@@ -1,0 +1,30 @@
+[package]
+name = "botan-sys"
+version = "1.20260811.1"
+authors = ["Jack Lloyd <jack@randombit.net>"]
+links = "botan"
+build = "build/main.rs"
+description = "FFI wrapper for Botan cryptography library"
+license = "MIT"
+homepage = "https://botan.randombit.net/"
+repository = "https://github.com/randombit/botan-rs"
+documentation = "https://docs.rs/botan-sys"
+readme = "README.md"
+categories = [ "cryptography", "external-ffi-bindings", "no-std" ]
+edition = "2024"
+rust-version = "1.85"
+
+[features]
+default = []
+vendored = ["botan-src"]
+static = []
+pkg-config = ["dep:pkg-config"]
+dynamic-loading = ["dep:libloading"]
+
+[dependencies]
+libloading = { version = "0.8", optional = true }
+
+[build-dependencies]
+botan-src = { version = "0.31300.0", optional = true, path = "../botan-src" }
+pkg-config = { version = "0.3.30", optional = true }
+cc = "1"

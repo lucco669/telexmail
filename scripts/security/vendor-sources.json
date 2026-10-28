@@ -1,0 +1,1456 @@
+{
+  "packages": [
+    {
+      "name": "botan-src",
+      "version": "0.31300.0",
+      "changes": "Ninja/MSVC bootstrap, job limit and omission of a documentation-only symlink; pinned Botan source unchanged.",
+      "directory": "vendor/botan-src",
+      "archiveSha256": "beaf2e44ca0a9933cdf6011545241d935cd57d3dedfd80ec3c99314c93ee47cf",
+      "revision": "cf0d2109ca4087f930ed1a435c9e48d0db050b8b"
+    },
+    {
+      "name": "botan-sys",
+      "version": "1.20260811.1",
+      "changes": "Export target library/header metadata so RNP shares this single Botan build.",
+      "directory": "vendor/botan-sys",
+      "archiveSha256": "4cad0b52cabead10d0d240d93229ea6e91240577bcff5a9af383d11e4ab2278b",
+      "revision": "cf0d2109ca4087f930ed1a435c9e48d0db050b8b"
+    },
+    {
+      "name": "rnp-src",
+      "version": "0.3.7",
+      "changes": "Offline checksum-pinned native archives; json-c 0.18 and zlib 1.3.2; shared Botan; Windows static linkage and compiler settings; source-keyed cache; exact existing upstream RSA-MPI backport applied without an external patch tool.",
+      "directory": "vendor/rnp-src",
+      "archiveSha256": "fa8f191f0c2194eab3935cb09377faa80d1027e0f8eac24f482e9d64f3f3f8f0",
+      "revision": "a81d9da9d1b944f9200e7eacbb0c31fa0bb4614c"
+    },
+    {
+      "name": "rnp-sys",
+      "version": "0.1.3",
+      "changes": "Use target-side Botan metadata, and initialize native Windows compiler/CMake/Ninja tools.",
+      "directory": "vendor/rnp-sys",
+      "archiveSha256": "830cdbf93741409b9183d31eeae6303a7514a48a6ceb6ad0e5d9155d128b44ab",
+      "revision": "3e468f5ba963a33cca9adc0d03de18a8fe4ed31c"
+    },
+    {
+      "name": "rnp-rs",
+      "version": "0.1.18",
+      "changes": "Tie borrowed verification handles to their operation lifetime; preserve failed-validation metadata alongside mandatory status, and expose its numeric status.",
+      "directory": "vendor/rnp-rs",
+      "archiveSha256": "9f9b179f34facf71764d2e9ca1ad26c796360f20b89862c1b1c341b0564bac3d",
+      "revision": "62d3ccb306fac62704f2885d1c5072b3493d4c1e"
+    },
+    {
+      "name": "glib-macros",
+      "version": "0.18.5",
+      "changes": "Replace unmaintained proc-macro-error with proc-macro-error3, using its syn 2 support.",
+      "directory": "vendor/glib-macros",
+      "archiveSha256": "0bb0228f477c0900c880fd78c8759b95c7636dbd7842707f49e132378aa2acdc",
+      "revision": "42b9caf98e03ded086362d9653ca58fe94dc8658"
+    },
+    {
+      "name": "gtk3-macros",
+      "version": "0.18.2",
+      "changes": "Replace unmaintained proc-macro-error with proc-macro-error3, using its syn 2 support.",
+      "directory": "vendor/gtk3-macros",
+      "archiveSha256": "52ff3c5b21f14f0736fed6dcfc0bfb4225ebf5725f3c0209edeec181e4d73e9d",
+      "revision": "00133512bfc8bbb8e9be59b20e93406c6a3eeb21"
+    },
+    {
+      "name": "tauri-plugin-opener",
+      "version": "2.7.2",
+      "changes": "Migrate Linux IPC to maintained zbus 6 async APIs; preserve the existing Tauri 2 API and dedicated-thread behavior.",
+      "directory": "vendor/tauri-plugin-opener",
+      "archiveSha256": "53810be1b4fed22bb6ac3f4cab5a2b80d9391d1af436bda145607532bc0bb219",
+      "revision": "44293a5722efcaf27060504e63b17aeba721b40f"
+    },
+    {
+      "name": "tauri-plugin-single-instance",
+      "version": "2.5.4",
+      "changes": "Migrate Linux IPC to maintained zbus 6 async APIs; preserve the existing Tauri 2 API and single-instance behavior.",
+      "directory": "vendor/tauri-plugin-single-instance",
+      "archiveSha256": "561cd99484561bc39c954768e7b41a66cebbe1ac3d9d081c34361f740c489e2c",
+      "revision": "44293a5722efcaf27060504e63b17aeba721b40f"
+    },
+    {
+      "name": "tauri-plugin-notification",
+      "version": "2.7.0",
+      "changes": "Migrate Linux IPC, values and signals to maintained zbus 6; use the maintained libdbus backend for notify-rust fallback.",
+      "directory": "vendor/tauri-plugin-notification",
+      "archiveSha256": "b939d7b19c8af1381a72ef8474b3aba2b56c1ddac2c23f0c8e96abbcf86b198b",
+      "revision": "44293a5722efcaf27060504e63b17aeba721b40f"
+    }
+  ],
+  "nativeArchives": [
+    {
+      "path": "vendor/rnp-src/vendor/bzip2-1.0.8.tar.gz",
+      "sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269"
+    },
+    {
+      "path": "vendor/rnp-src/vendor/json-c-0.18.tar.gz",
+      "sha256": "876ab046479166b869afc6896d288183bbc0e5843f141200c677b3e8dfb11724"
+    },
+    {
+      "path": "vendor/rnp-src/vendor/rnp-v0.18.1.tar.gz",
+      "sha256": "423c8e32e1e591462f759adf8441b1c44bca96d9f5daff13b82e81a79f18ecfd"
+    },
+    {
+      "path": "vendor/rnp-src/vendor/zlib-1.3.2.tar.gz",
+      "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
+    },
+    {
+      "path": "vendor/botan-src/vendor/Botan-3.13.0.tar.xz",
+      "sha256": "12f5a8358890bbee82edfe9d2e7769b0a610b6dd0e0698aea13d20a675d84620"
+    }
+  ],
+  "files": [
+    {
+      "path": "vendor/botan-src/.cargo_vcs_info.json",
+      "sha256": "d36dfc7cf24f9cc9097664872ba35ef47b081bf363ae7ebef1d3b5806263d972"
+    },
+    {
+      "path": "vendor/botan-src/Cargo.lock",
+      "sha256": "09cbced4e58348b728117373c4221c2c4a3827a6c397ab18d1c1e063acb093e8"
+    },
+    {
+      "path": "vendor/botan-src/Cargo.toml",
+      "sha256": "4d32c50e24dc3b799b792c951599eac2f402c347d12ee354ab752a6834190540"
+    },
+    {
+      "path": "vendor/botan-src/Cargo.toml.orig",
+      "sha256": "fc56fc4381d8e69e8b75adda15720fe6e0cb0ec8a1342d41c1c4ea92db0f597f"
+    },
+    {
+      "path": "vendor/botan-src/LICENSE",
+      "sha256": "37162bec527773fe3f15aeb27333368615e5b3a1e55275b3619dbf26491bc1e7"
+    },
+    {
+      "path": "vendor/botan-src/README.md",
+      "sha256": "ad8688a64262d66148db5d56b05f243c54050c866017ad0cf4a1da5b05fee277"
+    },
+    {
+      "path": "vendor/botan-src/build.rs",
+      "sha256": "e14b533472752f4125371b065634bbb854bf41de5e04b313578bc1be8c51b745"
+    },
+    {
+      "path": "vendor/botan-src/examples/build.rs",
+      "sha256": "5e7fbf6f8cfa9814d81111e4a1d0905cc0350ba522057a28725dc5171d060851"
+    },
+    {
+      "path": "vendor/botan-src/release.toml",
+      "sha256": "d74fad1e8a72bdc1855d68c152d69fc929af0dbc9fe79554b4c4caca8e43024c"
+    },
+    {
+      "path": "vendor/botan-src/scripts/fetch.py",
+      "sha256": "af7d077550ebbc68f195744f924cdc1938bd29021e3a8a7a87f69c95cddb739b"
+    },
+    {
+      "path": "vendor/botan-src/src/lib.rs",
+      "sha256": "57628dfad50d3970f0a770bb7f01fa433012016859b18cae615bbe9b898813c5"
+    },
+    {
+      "path": "vendor/botan-src/vendor/Botan-3.13.0.tar.xz",
+      "sha256": "12f5a8358890bbee82edfe9d2e7769b0a610b6dd0e0698aea13d20a675d84620"
+    },
+    {
+      "path": "vendor/botan-sys/.cargo_vcs_info.json",
+      "sha256": "9a68189b0756949020a1afc0404350c38219845e7b67af92acd0d33623e494d4"
+    },
+    {
+      "path": "vendor/botan-sys/Cargo.lock",
+      "sha256": "aaee029a42aa671d60099331ee6a3d209096095ce3e4793c17516fadc515e163"
+    },
+    {
+      "path": "vendor/botan-sys/Cargo.toml",
+      "sha256": "2eaf14f0c93f0c7698a035b9261ecc5a2e6941f0867db7c7d9024b402b808850"
+    },
+    {
+      "path": "vendor/botan-sys/Cargo.toml.orig",
+      "sha256": "c587912082ba8a06e262f9565db3bc7a136a0e5e206cd5858d2675681d0c51de"
+    },
+    {
+      "path": "vendor/botan-sys/LICENSE",
+      "sha256": "37162bec527773fe3f15aeb27333368615e5b3a1e55275b3619dbf26491bc1e7"
+    },
+    {
+      "path": "vendor/botan-sys/README.md",
+      "sha256": "1070c39a99fd79925176c2d9075870720d8a929a24ecf69c08da8d0ce2e7db75"
+    },
+    {
+      "path": "vendor/botan-sys/build/main.rs",
+      "sha256": "d98ffedb43350744763aaa2f41d64a88ad6a192b5c9245834dd124bd9535728f"
+    },
+    {
+      "path": "vendor/botan-sys/build/version.c",
+      "sha256": "a8415649256b92344773ca48c471c63b7754a94886092c44a1564a96054c7278"
+    },
+    {
+      "path": "vendor/botan-sys/src/block.rs",
+      "sha256": "a4ce06c652e86255cec7ba3ebd8e6706d3a01646f36f401c8a89bbf28c7f1680"
+    },
+    {
+      "path": "vendor/botan-sys/src/cipher.rs",
+      "sha256": "e40ace7cd952a3865a7be79163b1f3a12139ea84afa9f304647814a7ec4b1ef2"
+    },
+    {
+      "path": "vendor/botan-sys/src/ec_group.rs",
+      "sha256": "ed93b34ca361ee9c58930302e3343857a34863bd20c75e5928075ac913ad94f5"
+    },
+    {
+      "path": "vendor/botan-sys/src/errors.rs",
+      "sha256": "62be39f9f8456ea00f50aae0e26bd5526eea0b1448a8f3c32327705eae190e5f"
+    },
+    {
+      "path": "vendor/botan-sys/src/fpe.rs",
+      "sha256": "5e87f4f4ea63a8a1af0089e0ce9e7866581e880211b2c3539fc77a4ef6d3f9e3"
+    },
+    {
+      "path": "vendor/botan-sys/src/hash.rs",
+      "sha256": "a327c6ea6a4c5f511b1490d5259603a2085574568ab5e3b0943b1a9bed72d1ac"
+    },
+    {
+      "path": "vendor/botan-sys/src/kdf.rs",
+      "sha256": "4bea4e703625bbcd5e145675d77dd7ae4f39c951889e0a067cb141c4187da60a"
+    },
+    {
+      "path": "vendor/botan-sys/src/keywrap.rs",
+      "sha256": "6fb55893abd4315dbbe8dd51f7156ea100f48d2f942ad44e9e8f410844899443"
+    },
+    {
+      "path": "vendor/botan-sys/src/lib.rs",
+      "sha256": "c06809cc09239e7f102920ab5b8240b33740aeca7b8efee5568c82420bb40210"
+    },
+    {
+      "path": "vendor/botan-sys/src/loader.rs",
+      "sha256": "db54218a1f7e57e1766189d6f702c02c0c81c876ac65a7c1685b7b54bce8ecdb"
+    },
+    {
+      "path": "vendor/botan-sys/src/mac.rs",
+      "sha256": "512d48d582d77b93a2c60a1e96d85fdfefc9205dbfd65ea56a56055ab6483f63"
+    },
+    {
+      "path": "vendor/botan-sys/src/macros.rs",
+      "sha256": "80a336f447315c44cdecbdad7013c26434cd1ca4c75e7143e2a41d5bf57fcf7c"
+    },
+    {
+      "path": "vendor/botan-sys/src/mp.rs",
+      "sha256": "0cf6787b269f6f2c153946a70244889a79cd86e5037db2bc811e8e75e123ed27"
+    },
+    {
+      "path": "vendor/botan-sys/src/oid.rs",
+      "sha256": "0db2ec4a6fab134eecb7add2433eb8d7f27b97763f4f45132394306ea4e24a3e"
+    },
+    {
+      "path": "vendor/botan-sys/src/otp.rs",
+      "sha256": "6449c94437b14d29d9ce8fadb9d0e7a1f75ea2c7d758310de00b48db691b1232"
+    },
+    {
+      "path": "vendor/botan-sys/src/passhash.rs",
+      "sha256": "18cc631fbee7e75c2948eaf4a4780803e747f036eed5156ceb9910de2086b600"
+    },
+    {
+      "path": "vendor/botan-sys/src/pk_ops.rs",
+      "sha256": "ca8a1e75a520c7bb520e343e6befdcf123cf293962fc9329da842f5182ad6197"
+    },
+    {
+      "path": "vendor/botan-sys/src/pubkey.rs",
+      "sha256": "10e65b7160e771d11405de1015b98e2d6941f1ebbab33f3bc1c9a1d732631cf7"
+    },
+    {
+      "path": "vendor/botan-sys/src/rng.rs",
+      "sha256": "1950305415deeac0e1257a81ef1773e2c93baca9d5a006e9f66c7d7d0e55ddd7"
+    },
+    {
+      "path": "vendor/botan-sys/src/spake2p.rs",
+      "sha256": "cabf3e30f6dfcd5426f83c395cf2f1ccdf642251cc49868f43076699d628116e"
+    },
+    {
+      "path": "vendor/botan-sys/src/srp6.rs",
+      "sha256": "621b834008ef5fad60b26abcf06a9dc0f153de0ed4b090f5f3701695e0097bcd"
+    },
+    {
+      "path": "vendor/botan-sys/src/tpm2.rs",
+      "sha256": "54e4bd6c93d6bc112eed01616014b20f6a694e6b175d1c6c27855e7509e98641"
+    },
+    {
+      "path": "vendor/botan-sys/src/utils.rs",
+      "sha256": "1a68e3bf8dbf058788e8785555594673234bcc516c606ef320a2e2c20149d94d"
+    },
+    {
+      "path": "vendor/botan-sys/src/version.rs",
+      "sha256": "66dcc46e6907c4c6a3f7b8d00a09ee3bc94be7a5433038ab51af9fd3763fb732"
+    },
+    {
+      "path": "vendor/botan-sys/src/x509.rs",
+      "sha256": "0955e18ac9b52218a459acf43c120ee966119de438ecd3446c4d1fc378c8e329"
+    },
+    {
+      "path": "vendor/botan-sys/src/xof.rs",
+      "sha256": "629d0d8648cf93a0266b687ee9e853eb85553f5a089ff0f191b49ba36bf66d1b"
+    },
+    {
+      "path": "vendor/botan-sys/src/zfec.rs",
+      "sha256": "7f992958372e6869a61a9dbb78be03c230db5093790b1a58453fcfbdf8c77c00"
+    },
+    {
+      "path": "vendor/botan-sys/tests/tests.rs",
+      "sha256": "2d43885496f57229e1322344560158eb26123468f403e4af3c96e28073defb33"
+    },
+    {
+      "path": "vendor/glib-macros/.cargo_vcs_info.json",
+      "sha256": "5944e042d440f2f877f71f0858a3c9fdcb2f36ba403f7f58df79d9d0951f25cd"
+    },
+    {
+      "path": "vendor/glib-macros/COPYRIGHT",
+      "sha256": "dae402989de65164815b7e2b6bc2b9576285434c3785934c8b6ece0fa055960d"
+    },
+    {
+      "path": "vendor/glib-macros/Cargo.toml",
+      "sha256": "b859cb2bbaa3447238573cbfd2616225c06de5f6da4e0f579c2c3aea45d30f93"
+    },
+    {
+      "path": "vendor/glib-macros/Cargo.toml.orig",
+      "sha256": "678c7634f90840664c1e1e6179dce0fb1b4fb9bd5a585a42a26154ffb4070ee5"
+    },
+    {
+      "path": "vendor/glib-macros/LICENSE",
+      "sha256": "8cf56d10131ce201cf69ab74b111d3ebac1acca3833d7efb39ae357224b70edb"
+    },
+    {
+      "path": "vendor/glib-macros/src/boxed_derive.rs",
+      "sha256": "74cebb3a387e04cdcc289e092f8747f34f8936094d6b0761b4e0f3d57e79294e"
+    },
+    {
+      "path": "vendor/glib-macros/src/clone.rs",
+      "sha256": "5e1b1c5c4c38095733f0f643bce330ed481d65f4ab323abff5a65e830db04e65"
+    },
+    {
+      "path": "vendor/glib-macros/src/closure.rs",
+      "sha256": "4c3aa84ad56e98406d009d8c1d38d2c6d290f77887af53123f617bbde9d8ad7e"
+    },
+    {
+      "path": "vendor/glib-macros/src/derived_properties_attribute.rs",
+      "sha256": "0fee53690fb527dc927e1cd0d815ff37a74810980e6498802668140bf819c4a4"
+    },
+    {
+      "path": "vendor/glib-macros/src/downgrade_derive/enums.rs",
+      "sha256": "f8f9b7eb2045bf85ba551b18cd9f9ece8685e3501dc1b0baf04cbdf728db3db8"
+    },
+    {
+      "path": "vendor/glib-macros/src/downgrade_derive/fields.rs",
+      "sha256": "cffb119e6da33dcf0acdc378b584ed1b425e923aaaed63dab21dcebc63caf86f"
+    },
+    {
+      "path": "vendor/glib-macros/src/downgrade_derive/mod.rs",
+      "sha256": "fc97640b70e3a013b4528bb171820494ff44a8367daf762807dfc0ffc63be58e"
+    },
+    {
+      "path": "vendor/glib-macros/src/downgrade_derive/structs.rs",
+      "sha256": "87a2cf8f9ad8a487c18b734b4faab60948c656b2969172638430b86fd15a204f"
+    },
+    {
+      "path": "vendor/glib-macros/src/enum_derive.rs",
+      "sha256": "ad83f525b13e49787a6368f1f113f2fb0868e2bab0eb0019d2a876fe2a13c68c"
+    },
+    {
+      "path": "vendor/glib-macros/src/error_domain_derive.rs",
+      "sha256": "52fa8d58247bd037393c8a456796b0ed4380b6334d7b3c77035899fa166ebd73"
+    },
+    {
+      "path": "vendor/glib-macros/src/flags_attribute.rs",
+      "sha256": "f17e1e6eb4b87f0477f8febba639b4cb3307e8b946e7e657a764013602641b0f"
+    },
+    {
+      "path": "vendor/glib-macros/src/lib.rs",
+      "sha256": "2b6ee732b808f6b85b2c04ceb2ab559f8df027a9df0a501ceb56990466accf34"
+    },
+    {
+      "path": "vendor/glib-macros/src/object_interface_attribute.rs",
+      "sha256": "e9ec90ad213a0aab9e531d56b524c1357cb643a8c5e6aad8aabb08f0ad6b4632"
+    },
+    {
+      "path": "vendor/glib-macros/src/object_subclass_attribute.rs",
+      "sha256": "9ead37c20c107882fc7882cda12e160ed7d850057abc7c97c4de311f74257cae"
+    },
+    {
+      "path": "vendor/glib-macros/src/properties.rs",
+      "sha256": "b72beab29b9d0bc05b797e7d8f7d07a19d912d646f02fff4e3aff233e35af98f"
+    },
+    {
+      "path": "vendor/glib-macros/src/shared_boxed_derive.rs",
+      "sha256": "9d6ce4710980501aaa3d5f781b57d62cb3ddb87eeead8da428fca9820f1fca2d"
+    },
+    {
+      "path": "vendor/glib-macros/src/utils.rs",
+      "sha256": "a61024ae6643411569a285331bbe0d2dbce86f12e0f804869347945cb7bbb057"
+    },
+    {
+      "path": "vendor/glib-macros/src/value_delegate_derive.rs",
+      "sha256": "e265d82a2ea848c56a37a71cafd59050c6aa9461c3d113f54b46164a99de594d"
+    },
+    {
+      "path": "vendor/glib-macros/src/variant_derive.rs",
+      "sha256": "1a620f6582c4bb6f955e6501fc9364f9998f6779bd12238257ab8f1b24ad1643"
+    },
+    {
+      "path": "vendor/glib-macros/tests/clone.rs",
+      "sha256": "001c141f8e392c905c82fad4b0ce8df8b2e982068e5a59d61ac476495502a550"
+    },
+    {
+      "path": "vendor/glib-macros/tests/properties.rs",
+      "sha256": "2eb551deb84525305e4f523b7185c28185e28bccb6cd93e34f107b85c3e830db"
+    },
+    {
+      "path": "vendor/glib-macros/tests/test.rs",
+      "sha256": "9326121fbc5b3de6bfa104c8c263bfbf1fa8fc62b39edef4ab090f2aa86b1cf4"
+    },
+    {
+      "path": "vendor/glib-macros/tests/value_delegate_derive.rs",
+      "sha256": "16b97a9d67230197bfa18f28382b30b21f118ea168e484f52b43b01e4a530935"
+    },
+    {
+      "path": "vendor/gtk3-macros/.cargo_vcs_info.json",
+      "sha256": "247e46cff0ec8621c9620d484b03b0f16d249f1e439fcb43b87844e425592fb7"
+    },
+    {
+      "path": "vendor/gtk3-macros/COPYRIGHT",
+      "sha256": "dae402989de65164815b7e2b6bc2b9576285434c3785934c8b6ece0fa055960d"
+    },
+    {
+      "path": "vendor/gtk3-macros/Cargo.toml",
+      "sha256": "fb4ac6e3a9d99cb2e63921865190300fcbb02d3f4f514ff3eac6bab37494bf1a"
+    },
+    {
+      "path": "vendor/gtk3-macros/Cargo.toml.orig",
+      "sha256": "43e2f01afb15ce3c1548063c5c628db6d449bf3b8ba60d7a3a6c5f2b2e599d48"
+    },
+    {
+      "path": "vendor/gtk3-macros/LICENSE",
+      "sha256": "8cf56d10131ce201cf69ab74b111d3ebac1acca3833d7efb39ae357224b70edb"
+    },
+    {
+      "path": "vendor/gtk3-macros/src/attribute_parser.rs",
+      "sha256": "9b28b1a11dcc1fd6d3b53041bfd989d0694d686b77f701f1ff5763ff7ec81f50"
+    },
+    {
+      "path": "vendor/gtk3-macros/src/composite_template_derive.rs",
+      "sha256": "485476e7d41306c1ba5a2c879a4e6fc9ab6683015ab97c8321c3d60a0a4e0290"
+    },
+    {
+      "path": "vendor/gtk3-macros/src/lib.rs",
+      "sha256": "a24c7543f210254aaf151e3462d65974a4b61127e9ef50a202d174689e6dcfcd"
+    },
+    {
+      "path": "vendor/gtk3-macros/src/util.rs",
+      "sha256": "a6036310f63cb2b31a5ff486abbdebf789fc5d602e170a7a6a19613173610c13"
+    },
+    {
+      "path": "vendor/native-licenses/Botan.txt",
+      "sha256": "4a598e641373a50050666c36f3c43759f87081f1e0057a32663b87835cc53657"
+    },
+    {
+      "path": "vendor/native-licenses/RNP.txt",
+      "sha256": "bae916e72d2c73396a2cc77f0b2d0b0d553d7c1ee6a0f9426d6c63b6ed820bbe"
+    },
+    {
+      "path": "vendor/native-licenses/bzip2.txt",
+      "sha256": "6bc9ca512ad035cf8e5331c766846a1fb0413db795c691b6ac2744067657657e"
+    },
+    {
+      "path": "vendor/native-licenses/json-c.txt",
+      "sha256": "e8fadda4bf346503a2e05203b89f1bcaa34478e3fd127d994b4fd5f81dcda7c6"
+    },
+    {
+      "path": "vendor/native-licenses/libsexpp.txt",
+      "sha256": "f833f9f1564fcc3b10ff4dd6007121fe878ab19239c25ec0e4b375724e564205"
+    },
+    {
+      "path": "vendor/native-licenses/zlib.txt",
+      "sha256": "aa72c0a1e2ebe9ba6c61dc78c2571439a839a169a889989db9237a3ecbb47aeb"
+    },
+    {
+      "path": "vendor/rnp-rs/.cargo_vcs_info.json",
+      "sha256": "b8103af948ed95edb588f9c49c890678cc053a09326b4a8db6602f8f76ad0007"
+    },
+    {
+      "path": "vendor/rnp-rs/Cargo.lock",
+      "sha256": "869b062f6472456481ba7e647bbccea77f6d9d9c07e4d947003ee46c1a05a306"
+    },
+    {
+      "path": "vendor/rnp-rs/Cargo.toml",
+      "sha256": "6a7344c317c5cfd259dfd8f353c65a59d1c42535a29fed3ad63b43177e6c820c"
+    },
+    {
+      "path": "vendor/rnp-rs/Cargo.toml.orig",
+      "sha256": "426cd46a96bc14b6bca1c758ba45bad345bcf65ab6c19e018f8953e65c3b283e"
+    },
+    {
+      "path": "vendor/rnp-rs/LICENSE.md",
+      "sha256": "7a89b5377394637a06864b81cd6276b67e672237509f8366afc21e997b4064d2"
+    },
+    {
+      "path": "vendor/rnp-rs/README.md",
+      "sha256": "350171db57ee7ed25eab8e61c5235abc3345ea7a9261da79995c1dd3daeb561d"
+    },
+    {
+      "path": "vendor/rnp-rs/benches/encrypt_decrypt.rs",
+      "sha256": "f077ffab9bfc8be767923ed550d74c260882e12aa9ae35a47823fbb50898ee6d"
+    },
+    {
+      "path": "vendor/rnp-rs/benches/keygen.rs",
+      "sha256": "6fc5c0e0862f9169d2ec843d3855ea1acaadb1208ad679fd622391217fc65448"
+    },
+    {
+      "path": "vendor/rnp-rs/benches/sign_verify.rs",
+      "sha256": "e92bbeda34a50d635a63b537080809fedf78f104b26eddd6383c4027557c07d5"
+    },
+    {
+      "path": "vendor/rnp-rs/examples/encrypt_decrypt.rs",
+      "sha256": "a9992d287de98dc1665e58ae85ad3382ddb23cd0a8ba587b13cfc203486dc84a"
+    },
+    {
+      "path": "vendor/rnp-rs/examples/keygen.rs",
+      "sha256": "bc99f39c008e8073fc5e050dbb5c167422801c502978ab5039dfb5dc94f5f7dc"
+    },
+    {
+      "path": "vendor/rnp-rs/examples/multi_signer.rs",
+      "sha256": "fa952c9a18270b344b65f2dd7f5a6d9e748903176e13e042e646176d06109f99"
+    },
+    {
+      "path": "vendor/rnp-rs/examples/sign_verify.rs",
+      "sha256": "de5a49d2f4d14df94f722586f50f711db1665b84cdfbe989e86474c583ac5702"
+    },
+    {
+      "path": "vendor/rnp-rs/src/algorithm.rs",
+      "sha256": "f652dfc520bf44c839891d0585f93102c5f7e354dd423feea9ee7b4e303f9dd4"
+    },
+    {
+      "path": "vendor/rnp-rs/src/armor.rs",
+      "sha256": "f37c95694c8e6fe51d3179495ca6186eceb7b990e9c09524d78d33b714e234bf"
+    },
+    {
+      "path": "vendor/rnp-rs/src/callbacks/logging.rs",
+      "sha256": "845e592f99d3706467a720ffae31c2dc8d14b80201d094b03da940474bda2732"
+    },
+    {
+      "path": "vendor/rnp-rs/src/callbacks/mod.rs",
+      "sha256": "c847763d61f8282e92bf86d284384576e48c57d964ddb385ae930849e07d187e"
+    },
+    {
+      "path": "vendor/rnp-rs/src/callbacks/registry.rs",
+      "sha256": "bca377488aeed0bb758c18e3658a3472ae0740b23f1c7c1451c9938a4d442c3c"
+    },
+    {
+      "path": "vendor/rnp-rs/src/callbacks/thunks.rs",
+      "sha256": "e9082b96ca42ed86bd360dff3cbdb13823a1225634a7e0258aa86d1f3c6adf83"
+    },
+    {
+      "path": "vendor/rnp-rs/src/callbacks/traits.rs",
+      "sha256": "f36b79723ea2942f936f5d1730c1bccdb268cfc03e4bdb906a8c1474426691a2"
+    },
+    {
+      "path": "vendor/rnp-rs/src/callbacks/types.rs",
+      "sha256": "aeaf7a052a27e09a653c76fb666f7bec553edea1cd491051b798c36a971a7b9c"
+    },
+    {
+      "path": "vendor/rnp-rs/src/context.rs",
+      "sha256": "563478f6c655ac1be1fde4e41d9908d78467114d20249e1b6a5540a0be04ec89"
+    },
+    {
+      "path": "vendor/rnp-rs/src/dump.rs",
+      "sha256": "6ad5d14e67daa57b08e686b855422cb87cad03da55c40607ad147810d2b4eef6"
+    },
+    {
+      "path": "vendor/rnp-rs/src/encrypt/decryptor.rs",
+      "sha256": "5f5cd30b24dd71bf9f91dd08460666283ccc258f244a26d281aa2398f6a8fb2e"
+    },
+    {
+      "path": "vendor/rnp-rs/src/encrypt/encryptor.rs",
+      "sha256": "cc9698b9876dce1bc959d37bfd68436ac76ebd784d666ebe71946ea942f23db9"
+    },
+    {
+      "path": "vendor/rnp-rs/src/encrypt/mod.rs",
+      "sha256": "9e12898c55c25184b9d66154ce3f14db38f62a267ce25aadf8cb8fe91b01b6a4"
+    },
+    {
+      "path": "vendor/rnp-rs/src/error.rs",
+      "sha256": "87546db833d8f20f2c092a7264e09fd7530544b1794e38f429e94babdc526bfd"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ffi.rs",
+      "sha256": "11cb8cae7a017fb394b56f391209084df2d6e6e481868f4e2bb8fe2ec94f51e1"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ffi_safe.rs",
+      "sha256": "3ea36bc9a17252eff563d779a316b47474459e2e914227f5bd71bc92a0c491c9"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key/flags.rs",
+      "sha256": "058aa450802cf2e25e340dbf3aab08892f3009c5c39aaec4718531ae0465a434"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key/identifier.rs",
+      "sha256": "0f4d8bb4b852fcbe5fb59dcbe57928479c209575dddc2c1ec9578ce0b2c778a4"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key/inspection.rs",
+      "sha256": "fdde2ab1778aff6aef855857a8b561578680cba755a09fc61c2c9d073a7db70b"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key/lookup.rs",
+      "sha256": "6447f5c800ea31b3032f94fbd3f76d72dc27edbcbe366882aa5dbf53105e9fab"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key/mod.rs",
+      "sha256": "8af3b5ad2b65d13233c844e23b8071c4b14b7b5279c090e0c24f276dcf1e6def"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key/mutation.rs",
+      "sha256": "9611cc80a0a7964fbef63e64f3bdabfa22bcd8c43af5ff29fc57416e5bbf000c"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key_signature_builder/certification.rs",
+      "sha256": "040c69895faa28bacf7f69ab83660c76a6632c6debd10a0fd327a0937e0b6183"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key_signature_builder/configured.rs",
+      "sha256": "007c9f779b98ce8316cad0c818171bb7fe59b56cd8d0fb92954b5ba16d2f2d1c"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key_signature_builder/direct.rs",
+      "sha256": "805c8b0f7010f4d4d621ec9bf40b4751059aca97777ab89ec9f2eea68670d05c"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key_signature_builder/inner.rs",
+      "sha256": "4c27f53b30911dc57c04d8264e5a817b24377f9a524a24c2679708db6bce3a55"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key_signature_builder/mod.rs",
+      "sha256": "0268cd19bb0f667b46f655423aa7717f4be821cf6b03fdb9ca246419e141a9bd"
+    },
+    {
+      "path": "vendor/rnp-rs/src/key_signature_builder/revocation.rs",
+      "sha256": "9e93948106b63195be050161c8b9778e1f82fc953425543fea1392e8d740f63e"
+    },
+    {
+      "path": "vendor/rnp-rs/src/keygen/mod.rs",
+      "sha256": "4e47069cf1859bfce57cb32cbbb6277a5a976a79164dc3f97e8953647f644c45"
+    },
+    {
+      "path": "vendor/rnp-rs/src/keygen/primary.rs",
+      "sha256": "8ca3f59a924c6100b656ce7da21af4f6d64ec81a69e140f405efd085ee7353ee"
+    },
+    {
+      "path": "vendor/rnp-rs/src/keygen/shorthand.rs",
+      "sha256": "cba90387fde81aaacf005d478add22f6744b97c7be07d81466d1f3ed8eeae79e"
+    },
+    {
+      "path": "vendor/rnp-rs/src/keygen/subkey.rs",
+      "sha256": "058d60e1c644ed9bf47be96f704f04d147950fbbde5a05c9b1de5f600afa79cd"
+    },
+    {
+      "path": "vendor/rnp-rs/src/keyring.rs",
+      "sha256": "69ff83b20252f506ef12d68f5693c7270100a24771dc51918dec0feacbdc3b42"
+    },
+    {
+      "path": "vendor/rnp-rs/src/lib.rs",
+      "sha256": "e4a4a3cb89e4010a79284c4e64d3d25e9842d043a7c86f292107cb9cf85b7529"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ops/io/armor_type.rs",
+      "sha256": "296f88db284700e7ae91098523868e3713adb74c25d65a6b37b82ab2d8f4ef46"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ops/io/input.rs",
+      "sha256": "f2931e198423428a6a8b5bf0aa6f34ca040c8585f4237fcb14bd96c68e99973a"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ops/io/mod.rs",
+      "sha256": "869341ed00729bbabf7f1971527c0f7003bfcdc9dfb6951d825993c3519a8504"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ops/io/output.rs",
+      "sha256": "0183892022e9fe8dc1e295e8ab9537ca6d133d5722687771fda9b98ac3473a47"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ops/io/stream.rs",
+      "sha256": "30157d1b3f0d7304104c26364ac0ba6f895b4fb0c49c1a1fcb7e044cd7baadfb"
+    },
+    {
+      "path": "vendor/rnp-rs/src/ops/mod.rs",
+      "sha256": "6e133573311ad75600c8aa01866d00be3320c855f397ca1e1ebf4b33d1b68f40"
+    },
+    {
+      "path": "vendor/rnp-rs/src/secret.rs",
+      "sha256": "92cfce9aebceececa66bf7b25bba40d1c219a89505dfaacea1353e1ed311b07a"
+    },
+    {
+      "path": "vendor/rnp-rs/src/security.rs",
+      "sha256": "fad321249959d41204f35646fb1a23044418c8c7277fedb7f55a7ac0d2ce001c"
+    },
+    {
+      "path": "vendor/rnp-rs/src/signature.rs",
+      "sha256": "bbcf199c957b97ad9a629fa3ccd1ace2eed801bb6ca24aa9b9b344984ae7fc18"
+    },
+    {
+      "path": "vendor/rnp-rs/src/signature_handle/inspection.rs",
+      "sha256": "2fcd899869b61295ebbf6256244d0be287585e900343e38a08b1ad5de869a1f1"
+    },
+    {
+      "path": "vendor/rnp-rs/src/signature_handle/mod.rs",
+      "sha256": "d19d7ca043c7e0c00dfc5cf6cd30953f044ed27696b4a471c4fa6f81685db5b0"
+    },
+    {
+      "path": "vendor/rnp-rs/src/signature_handle/mutation.rs",
+      "sha256": "4dfedc655444736318676205890687eeae9f5220df414b3135715f2d31429dba"
+    },
+    {
+      "path": "vendor/rnp-rs/src/signature_handle/sig_type.rs",
+      "sha256": "11ed440126fe605f86dae710a73454272d61cb5df10b0c5c017b03b674465a12"
+    },
+    {
+      "path": "vendor/rnp-rs/src/signature_handle/subpacket.rs",
+      "sha256": "e9a7d9d922f0c4ef35b8ee4ade0cae2b248c2ab68c91c817e34b5a7199dac816"
+    },
+    {
+      "path": "vendor/rnp-rs/src/strconv.rs",
+      "sha256": "1709960ba18b4771f8f54006f2b6dc91aef1e49ac93d4dd27467cc6c3dcacd9d"
+    },
+    {
+      "path": "vendor/rnp-rs/src/subkey.rs",
+      "sha256": "27bf456902e48dc4cc2a3dfbae6e31022aaf2170a07f9ca00fb706aa7b534f75"
+    },
+    {
+      "path": "vendor/rnp-rs/src/uid.rs",
+      "sha256": "1c7a45eb0c19a63195841cf720f960dd9819c06ed216cb30a411f8c346f3a1dd"
+    },
+    {
+      "path": "vendor/rnp-rs/src/verify/file_info.rs",
+      "sha256": "9d3d89655bd0712559fc99f34b005c77593efa0f87d3cf2568759a02f8f02c7d"
+    },
+    {
+      "path": "vendor/rnp-rs/src/verify/mod.rs",
+      "sha256": "608515837f0bbf9e101c41762e8ec7b11a26f1374cad98d734bb08f80da0bc29"
+    },
+    {
+      "path": "vendor/rnp-rs/src/verify/op.rs",
+      "sha256": "457a8f2b27ccc23cb29487aed0597de3b2f985c7558eb4f95fbfd5b2540deda3"
+    },
+    {
+      "path": "vendor/rnp-rs/src/verify/recipient.rs",
+      "sha256": "6fcb12cb04608a8fc3e5cd7629d10b664d4893d0ce98fbd1e24c1818416b3b50"
+    },
+    {
+      "path": "vendor/rnp-rs/src/verify/result.rs",
+      "sha256": "11fc3ede3edc483b5a59bbcb18b48edbd510e79f88146c11ef0ef529aa7ef585"
+    },
+    {
+      "path": "vendor/rnp-rs/src/verify/signature.rs",
+      "sha256": "b89a1a37d3a2b63b9735e301f51f82f55dcdab010b3278de626df9faec1e0875"
+    },
+    {
+      "path": "vendor/rnp-rs/src/verify/symenc.rs",
+      "sha256": "8b16044de92485e83bd45e5c5abc81136793316270204083889f37ca223618c1"
+    },
+    {
+      "path": "vendor/rnp-rs/src/version.rs",
+      "sha256": "36158f40fe1abfc6c21c4b3fbc32f4cded09288adc176e09fe2cb4dda704c995"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/algorithm_helpers.rs",
+      "sha256": "4e65cd114e522aaff3c0d3d884da2c95b110df5dade4d86b2d9c3f9449710e76"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/api_parity.rs",
+      "sha256": "08d8a8d7f893eb6d98527c343d07d1080ccd90e71fece2d9d17cfb08ab5d611d"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/armor_dump.rs",
+      "sha256": "723f0dc03ba3885e638c8e578be76dbe910eb89243f6afa6e316594ee791feec"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/bugfixes.rs",
+      "sha256": "fc3691fd1e29df5453294245d9069eaaffe2abe5938872ab378cb49a2a734c2b"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/cleartext_and_sigtype.rs",
+      "sha256": "a80949799c3ae110e42e9800bc13a0c08477864d8ee8f9161515117fa82c7ca4"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/common/mod.rs",
+      "sha256": "8a54d327df12902c8f08d15b387661169b788ec33d885e3036d2fdf707eaf358"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/cross_validation.rs",
+      "sha256": "f3683f005cd7a9f40e36561c02cc69fba383531c9627aada5aff4d1da62edd54"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/decryptor.rs",
+      "sha256": "46ef5d14cb671a86dd268368c52b0733d77976026f470b5f8c631143fff993ff"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/encrypt.rs",
+      "sha256": "98e11b9a375b0da433b930c2c7bc5966c5513dd63595768d0db8b0d10c4c9cfa"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/error_kind.rs",
+      "sha256": "73f0d7d520fabdf98795e7635460c9b2235a18738b4f56df5a7e92d43bd1cfdc"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/extended.rs",
+      "sha256": "1d5a3ccd342270a03e34da1367b81d858be77d4115a33634631b29aba4e4abea"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/ffi_parity.rs",
+      "sha256": "db90d21683c5cd98aa9280e208b446346d86140891dfde25c6b5c0be33603cef"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/ffi_safe_specs.rs",
+      "sha256": "58e84ee04d14cfc139cf3b2164a9d69756dd76f50529d81effa12762d0ab0934"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/integration.rs",
+      "sha256": "5389ed16a5b4500e4e534367ca9ea06f7f675e837b2bfdb5a726510fdf2c904c"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/io.rs",
+      "sha256": "bacb25bd6f4a4685848ac0874aa8faada069da80f623973617991093653c6968"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/key_and_verify_helpers.rs",
+      "sha256": "9027bc375eb1f1e779a07f22c3ec33cff45682d6ab526ef7d5a5aa5bdb6bf88b"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/key_inspect.rs",
+      "sha256": "ad94f2e24e001fa203003799740f9059d9fb33ad9601c513e65858b2b4c23bcf"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/keygen.rs",
+      "sha256": "88c0675036b90dfc0b09fd814f985748b4304fe288f9cf6398e23e1b45910f3a"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/mutation_and_callbacks.rs",
+      "sha256": "82a211d11a292c97666ee06aac66c29aca8e6d7df085deea576ad7c56ccc0be0"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/parity_gaps.rs",
+      "sha256": "590cf5bc549a6dab3442b9d963f62fbbf7aa834204909d128bbb4e37af7d218d"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/parity_wrappers.rs",
+      "sha256": "d719fda66232de432f040c8f8522dc202c64ed80aad305b8203e0ef495398b8a"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/pqc.rs",
+      "sha256": "d9d17aa00797920bd41139d9a87cac3029025b339a436b04a884f360f577b934"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/property.rs",
+      "sha256": "6d1ceb2dc8e6aa970318ebd8fb5c19c939cc3c8e89b6cf2ce2d0a122fece1175"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/rnp_sexp_integration.rs",
+      "sha256": "1b57ea2fd4544a69e2abc8db25e4b68b835da08f7c83f8eb3e62a68d8885df1e"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/sign_verify.rs",
+      "sha256": "f296725e07f2eab9b04e3e32bc222ed94f37835c1ccf2c9d4132189d9e15cade"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/signer_builder.rs",
+      "sha256": "29b693000a63cffc10513e845264ecca0600dfc77e68ffea126c7f37e026884b"
+    },
+    {
+      "path": "vendor/rnp-rs/tests/streaming.rs",
+      "sha256": "72ee08559fe7253d217d9da394b74cecd11070d01023ce2fffe54c5c70321aa0"
+    },
+    {
+      "path": "vendor/rnp-rs/vendor/README.md",
+      "sha256": "8376249b81bf825b2478efc9874184b0927f127b2779a011f9750c1e8734a04d"
+    },
+    {
+      "path": "vendor/rnp-src/.cargo_vcs_info.json",
+      "sha256": "a7d8ba9b27fd2bbcd6c7dd320dbf059bbfff777374fe1be14516126912d3986f"
+    },
+    {
+      "path": "vendor/rnp-src/CHANGELOG.md",
+      "sha256": "08b9fa0bb9386eababe83a018f7a99015295e1210e71e06b3617d1a795eaae16"
+    },
+    {
+      "path": "vendor/rnp-src/Cargo.lock",
+      "sha256": "a79addb81a7e47bba383e5a9ea7f072d03f053764f8e6c829bfcc7624e6fcd15"
+    },
+    {
+      "path": "vendor/rnp-src/Cargo.toml",
+      "sha256": "0b3d700c7de03c4024e120f28a71ae8a94e83cd7a6166fa21e95271cdb6ea0f9"
+    },
+    {
+      "path": "vendor/rnp-src/Cargo.toml.orig",
+      "sha256": "37c71648cc432846740d45f35e8dcdcf4e49158d2bdeaaf4c022ade794cb8c2c"
+    },
+    {
+      "path": "vendor/rnp-src/LICENSE.md",
+      "sha256": "7a89b5377394637a06864b81cd6276b67e672237509f8366afc21e997b4064d2"
+    },
+    {
+      "path": "vendor/rnp-src/README.md",
+      "sha256": "e5acf5b8a118c37b0ab628273dc2b070ca1a6b1bf4bc55f3a6afdc6876eb681f"
+    },
+    {
+      "path": "vendor/rnp-src/botan/BotanConfig.cmake.in",
+      "sha256": "21c27a67cd24db81e4a6b0eb9a1c9eac2f4a94e8001b686ace6845c7e2e203c4"
+    },
+    {
+      "path": "vendor/rnp-src/compat/msvc/dirent.h",
+      "sha256": "de26601714921e855f45c3318ef01ae19a892db3d77d0c9b769a4f5c5f8478a7"
+    },
+    {
+      "path": "vendor/rnp-src/compat/msvc/getopt.h",
+      "sha256": "d3b61af1f1c2eb93a26acb48f2e17e31617561a717b5c01674bcbcf29d767bd5"
+    },
+    {
+      "path": "vendor/rnp-src/patches/rsa-short-mpi-botan-3.13.patch",
+      "sha256": "eec0898322ec15b326e735a0deefa08e57613817897880868b452e4c0f4b8c75"
+    },
+    {
+      "path": "vendor/rnp-src/src/config.rs",
+      "sha256": "d7e68f124960834ddc5312c930dfede99bb949311c039b1c0dd69a4a685fd7b7"
+    },
+    {
+      "path": "vendor/rnp-src/src/lib.rs",
+      "sha256": "f57ca83e8f833c1bec216369cd91afe98080e77daa79ff310517b7627e60daab"
+    },
+    {
+      "path": "vendor/rnp-src/src/links.rs",
+      "sha256": "24f9d69462268da82db052d4d51e07f261479a0f898edb7c5744b9c4143ee151"
+    },
+    {
+      "path": "vendor/rnp-src/vendor/bzip2-1.0.8.tar.gz",
+      "sha256": "ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269"
+    },
+    {
+      "path": "vendor/rnp-src/vendor/json-c-0.18.tar.gz",
+      "sha256": "876ab046479166b869afc6896d288183bbc0e5843f141200c677b3e8dfb11724"
+    },
+    {
+      "path": "vendor/rnp-src/vendor/rnp-v0.18.1.tar.gz",
+      "sha256": "423c8e32e1e591462f759adf8441b1c44bca96d9f5daff13b82e81a79f18ecfd"
+    },
+    {
+      "path": "vendor/rnp-src/vendor/zlib-1.3.2.tar.gz",
+      "sha256": "bb329a0a2cd0274d05519d61c667c062e06990d72e125ee2dfa8de64f0119d16"
+    },
+    {
+      "path": "vendor/rnp-sys/.cargo_vcs_info.json",
+      "sha256": "ea6bb1b665d2cda6a9dd1b0acaf6a510e5ed35e8d49aa1f7b38f3118fd3c6390"
+    },
+    {
+      "path": "vendor/rnp-sys/Cargo.lock",
+      "sha256": "551ad50e91728fd8fa21e77d45678aae8335522f88544fa954fc3ea25ae641aa"
+    },
+    {
+      "path": "vendor/rnp-sys/Cargo.toml",
+      "sha256": "0279214a0c3d1141eba086f2a2d15a921b0b0d52407561554fb81f83dda276ba"
+    },
+    {
+      "path": "vendor/rnp-sys/Cargo.toml.orig",
+      "sha256": "6ebe36151c5007cbb2e4f5f272a351fe5df96333915ac5cf2a6b2d0e9f33087a"
+    },
+    {
+      "path": "vendor/rnp-sys/LICENSE.md",
+      "sha256": "7a89b5377394637a06864b81cd6276b67e672237509f8366afc21e997b4064d2"
+    },
+    {
+      "path": "vendor/rnp-sys/README.md",
+      "sha256": "954288096697b25d74c92a6d9964cd8a55c6e19372cd155294681064aad5a24a"
+    },
+    {
+      "path": "vendor/rnp-sys/bindings/bindings-0.18.1.rs",
+      "sha256": "88dcd03f3392ac78fb5ed22ecb05a9471117cb8c56a90fde91293c1473654765"
+    },
+    {
+      "path": "vendor/rnp-sys/build.rs",
+      "sha256": "3255f71cd0bcd5c2adcac95d8dcf0407245dd7ecb9ea780bb042addbe021b234"
+    },
+    {
+      "path": "vendor/rnp-sys/src/lib.rs",
+      "sha256": "4b4398da3f004675484d6adea800ddeba2d8f377885cdff5ac2ff56784e997d5"
+    },
+    {
+      "path": "vendor/rnp-sys/wrapper.h",
+      "sha256": "72c3305b2433ea9cd16dafcc95538915dd42342bee0bf6e823ad222db54c3616"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/.cargo_vcs_info.json",
+      "sha256": "a9a17df9206bcc232791e8da1dde782a0492034d4e2a41f251e530b22728699c"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/CHANGELOG.md",
+      "sha256": "895657e1382ba2bd49ae77932eb8f9bda31f5068607164fb2bd72718cb3ea12f"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/Cargo.lock",
+      "sha256": "d5eb330f135e48196755ac6618d74d63a2f9732d7a51cc8a4346c89dd1ef8942"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/Cargo.toml",
+      "sha256": "a34ad73eb6ea8fdffb0fc43f8d5275c7ffcd9bf908e802895b8678f0a4867168"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/Cargo.toml.orig",
+      "sha256": "7e3a8117de5e638778137ca9ae643670b1c3733090a5dffd61f05b9ebcd926fc"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/LICENSE.spdx",
+      "sha256": "eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/LICENSE_APACHE-2.0",
+      "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/LICENSE_MIT",
+      "sha256": "89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/README.md",
+      "sha256": "bfca50dbf3054907e72ee085ce691b6c92236f3d9fbbca8db17869b981a2a061"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/SECURITY.md",
+      "sha256": "400507bc36e47e71f99199e78b4f9eb11aedc32f2bd8a0269247d693359a7078"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/.gitignore",
+      "sha256": "fdbd5cf7c75f19d686ef755ac21d20dd525ff9495eaca3acb40e81fd3d99c173"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/build.gradle.kts",
+      "sha256": "5ede85b3e95a05f2a87ae8a65abfbd33ce11972311a72ed5e9a9cbe52948184c"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/consumer-rules.pro",
+      "sha256": "56fd960cf225f6ca40f982b13a5dbb0d8bc3dfde13ff76422825c6070d0a1890"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/settings.gradle",
+      "sha256": "cdbf9332339f23671a3a52024f7485aaad2c9689e2561b07f4eee5d0718069ef"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/androidTest/java/ExampleInstrumentedTest.kt",
+      "sha256": "3bd3058e98fbe0f1bb296619a294c13f28549c718b366e7880d5459dea9fe434"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/AndroidManifest.xml",
+      "sha256": "39dd2fb0db9681ecd0a858d33294c892983acd4bc4569024320b56ced752f0e5"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/AssetUtils.kt",
+      "sha256": "095f39c684fa42554e8550609bfca3e3ae1d397ff5553eed6eff19009b0bd9be"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/ChannelManager.kt",
+      "sha256": "d6c239d649f31933b00cdd5d0595b55016524e71f63e4c90660be74fa1f2f761"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/Notification.kt",
+      "sha256": "6f3aeb6ef853996abe30555559b211014418604974c015eadda1e0fadf353f1f"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/NotificationAttachment.kt",
+      "sha256": "00a136e989266bf84dae24513c48e37abd43de193538a1aacef8a7620953b484"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/NotificationPlugin.kt",
+      "sha256": "608bd44f52df0f12fc62be375d6b6efd31430e99e7c51ce9bb7a7bf5eadae048"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/NotificationSchedule.kt",
+      "sha256": "3d29de030405df1d9e24ccee46837895d933e4e1a6c78851a28f2a7d9db5300e"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/NotificationStorage.kt",
+      "sha256": "05493552b273c4f0de5e27861a4c520abd63c0f1935ac1c61d50aac0fe9843d6"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/java/TauriNotificationManager.kt",
+      "sha256": "64bc7141f68c3601fca9d0885ea3438507fec53c4218665e65cd58bdcc196294"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/main/res/drawable/ic_transparent.xml",
+      "sha256": "cc0169aee645a3ea84331350078ef319e1b1e0da858bf710ea78cccb73b4a41d"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/android/src/test/java/ExampleUnitTest.kt",
+      "sha256": "4ba3746d4f1397f94f0964f9985bc0f8f038ea3281877437b8cf974601048afc"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/api-iife.js",
+      "sha256": "e49db3a890dd327934fb91c4c38d7d2c23f8ab6f489d9e32ee10311136de7652"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/build.rs",
+      "sha256": "25936ea8beaebb25616b6caad3002955a45d0a65b51ba71092fd94b738c9b7dc"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/.gitignore",
+      "sha256": "bc9466a4cd82cf38d2a4471c15c5c6b8153182f361a72c9926a9f422d966e3b0"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/Package.swift",
+      "sha256": "abbac0555772789fcc618005511e35abca800670eb43906635315fa1174410b8"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/README.md",
+      "sha256": "21306ceb647682737400a2dd93cfadb634706010db16ddbbc666b47295f9943d"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/Sources/Notification.swift",
+      "sha256": "923266e0698767d2531d593fe888da01648785e545f4edea45ce8f09e7c38d45"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/Sources/NotificationCategory.swift",
+      "sha256": "1e3f959c14ca25e3687efd727a52d02a777705a440fbe0ae233bece421629d97"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/Sources/NotificationHandler.swift",
+      "sha256": "b9541ff03456c1d3a852bf410b9566a8408c0e22f6be5f881e223cdc0e4432b0"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/Sources/NotificationManager.swift",
+      "sha256": "86c54af979ba5981d2db6418a4714b091c88c39f63133f4f3013e9482d33de03"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/Sources/NotificationPlugin.swift",
+      "sha256": "26d437be6c99fed91958fadb52bb88941dc5711267c0795ccbf3680474b9a103"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/ios/Tests/PluginTests/PluginTests.swift",
+      "sha256": "c7994598153916622bb4f87bbe4c137aee3d5facb7252ffd52eec67174103064"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/batch.toml",
+      "sha256": "d504c9c4d9bd6306db20f7b1627e7da106f1148919c388537a99587f9a3c39a9"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/cancel.toml",
+      "sha256": "29998cc49205d6a64aa60c3c78994304467e57faf2b0167cd7d7ccf0c125d703"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/check_permissions.toml",
+      "sha256": "3c617ea5a3f35a07f0e684992293ed8ae23df4f4cbaae6a48ec8713dc77cfaba"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/create_channel.toml",
+      "sha256": "a841e7d72a4d84f497f04cb2f22b47cbeb28836aae4710bc98e87bfda920b908"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/delete_channel.toml",
+      "sha256": "2f59bebc25b2001a057272c4fda4549c963c655554b3102c27e899cc203dea1b"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/get_active.toml",
+      "sha256": "4df6ee3a743d0c218f1437e0700afafc0f09b0db10493866489bea15b291da3c"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/get_pending.toml",
+      "sha256": "93e23be21ab42372fe13eebc5bdcef10043b3f101fde9dfda2ae5d05fc0e297f"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/is_permission_granted.toml",
+      "sha256": "2fed0eb6316b060f51fe84c7973a1482442b8df4fe619dbe0d8e0689f6fd2f0a"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/list_channels.toml",
+      "sha256": "cf64b6b1ab3cf4fa79c324ad00b1677348bb6390c023972941706c2332508290"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/notify.toml",
+      "sha256": "6be9cdcd2d4c6e45ad6bf2db65b2342ecd442c1bb7b35c42a809b73652985322"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/permission_state.toml",
+      "sha256": "0db9a97b661bafa8f70594808eb03779e8443190a8250b576940b4140ffc1fc3"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/register_action_types.toml",
+      "sha256": "37f457370a77e05b8239f9a538ca1a7782df20aa959a7176ee10ad6cc5706674"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/register_listener.toml",
+      "sha256": "053a018f95c410ef07d73f4dd64ca0320b8b08d06aeb4f3c0a572b3ce1c7896b"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/remove_active.toml",
+      "sha256": "241824aee998b2c4c9fbac780546a877c8ea525c68ac8085eb9dfad70d9fa1a9"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/remove_listener.toml",
+      "sha256": "224c63d27a1e13e6a84b76f9ea7e57c84f6a24380c60f295805ca545cb8043c1"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/request_permission.toml",
+      "sha256": "dc431482503c7709da73a930d9c21efd09dec721ce87eda0fb20ceb733f039ac"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/commands/show.toml",
+      "sha256": "ca3940ce9bf2b4329b8a88ea95728b3e3a429ac17050d0671a783c530e522647"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/autogenerated/reference.md",
+      "sha256": "1e2f9ed3c5faf052c10389a902e5b1b49151b629e4f644d707952603d29f60df"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/default.toml",
+      "sha256": "294cef1a8de85c503e376665c9bb49eecc2ac46180f095415e6484b6bd71fd5c"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/permissions/schemas/schema.json",
+      "sha256": "f88ed2ab5ec020c409840542537e37c642ec6ca1bb66140eb9726aeb4534df82"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/src/commands.rs",
+      "sha256": "0713539d6cf111c915b74ac0e826c52d43f2957d66c6d6fdfbbdf300df45da78"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/src/desktop.rs",
+      "sha256": "1a151b515b81a0f14ddab3a2d43777b8b242618417043379f56e10a1b4bb819c"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/src/error.rs",
+      "sha256": "3584dcb36d8f73dafc78137d09135c04b04875f923e6de222a62c8a29f4fe367"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/src/init-iife.js",
+      "sha256": "9867ce33aac437015504cd06030205eb119aeee9db94d2c3a90b09b8d1b69457"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/src/lib.rs",
+      "sha256": "d6b3a0b1bbaee50cc30b69db60bf640bbd5d4034d2bdc78a052695b999d76764"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/src/mobile.rs",
+      "sha256": "8a3ad1c48e8f07467cee4b8e50d7cf64453a770af4b24998b8c63705325fa58c"
+    },
+    {
+      "path": "vendor/tauri-plugin-notification/src/models.rs",
+      "sha256": "d8e16adb2e46147c3434bdc2bc138144fa3856753b34fe42ca17e5b69883fd83"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/.cargo_vcs_info.json",
+      "sha256": "8d7474cb2cc5311e6da505a8f93f222c68c40fa34f53954083256836539f9385"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/CHANGELOG.md",
+      "sha256": "bd242a9026c9f501203af34a49313d87259bffd7692ac60af56601b15a71d8e2"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/Cargo.lock",
+      "sha256": "d9978610849bb34c99d0cd9b1a94838af45d19cf9e533bc3c887073d0cdcef29"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/Cargo.toml",
+      "sha256": "e24718e474dcf0de7c9f7c7dd3cdad2e590857f609d7c20d76a5690ef2c7871d"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/Cargo.toml.orig",
+      "sha256": "2b513b25ffcc3fc0f51bb4820614f4fb1a23085e756b7f5784cf317b624097f0"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/LICENSE.spdx",
+      "sha256": "eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/LICENSE_APACHE-2.0",
+      "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/LICENSE_MIT",
+      "sha256": "89ff9689dcf9dd53968785d05a26f7898bb169dbfcada8d032b3e68cf0d55607"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/README.md",
+      "sha256": "c73a811ebd69ec7f80bca3f5075c393c4fc4b43fbcaa54c2e9afa3688eb2ad3d"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/SECURITY.md",
+      "sha256": "400507bc36e47e71f99199e78b4f9eb11aedc32f2bd8a0269247d693359a7078"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/android/.gitignore",
+      "sha256": "fdbd5cf7c75f19d686ef755ac21d20dd525ff9495eaca3acb40e81fd3d99c173"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/android/build.gradle.kts",
+      "sha256": "c65fd59cc9d3514462a568ff44d4fccd58f5c78c1e1e2ed32c0425613390a291"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/android/consumer-rules.pro",
+      "sha256": "56fd960cf225f6ca40f982b13a5dbb0d8bc3dfde13ff76422825c6070d0a1890"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/android/settings.gradle",
+      "sha256": "cdbf9332339f23671a3a52024f7485aaad2c9689e2561b07f4eee5d0718069ef"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/android/src/main/AndroidManifest.xml",
+      "sha256": "8ef94a6aec2218c5fd02408d018f6d52602c0ef4473dd1c115c5c6964f1e63e1"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/android/src/main/java/OpenerPlugin.kt",
+      "sha256": "cf073f319800e0fe949c77e8cd69e20ff9b5e4352e9b04ac4e9a877aace29d33"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/api-iife.js",
+      "sha256": "51ec09887edf6813c83d51df1c04aeb684fd4bed0043893c9afb35fb26a55997"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/build.rs",
+      "sha256": "e2fdcdfaef1c865d9fa55920bb684d8e50951440c1c82d0965a8f4da70efa41a"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/ios/Package.resolved",
+      "sha256": "daf0cdf825417e400e2898d47c1de6912a112265f0fb14c056f46735e728b9c8"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/ios/Package.swift",
+      "sha256": "75f5a66c9c6e9e66c562c809585205f8ddc85aa40948829b2e21b0b0515e0f82"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/ios/Sources/OpenerPlugin.swift",
+      "sha256": "7ff8ba29b7f6dd4c9af9ebcea7129f770f56a3a553b2b80ff18653038d5b8e5f"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/permissions/allow-default-urls.toml",
+      "sha256": "fed6894c6f5d727d262ac545105e698c877144e2b81635faafe3f8839c63b1b2"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/permissions/autogenerated/commands/open_path.toml",
+      "sha256": "fb2d0223841666b713d49f0258257b5a2c321222e1d30137bdfa67a5644b32f4"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/permissions/autogenerated/commands/open_url.toml",
+      "sha256": "1660539d08cdb2f444abc2e31a43f1b3e8a9c2aa96061c8de9ea628922df2b9f"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/permissions/autogenerated/commands/reveal_item_in_dir.toml",
+      "sha256": "97990e6115999b710c179b66483d13e3c81f7d017c5e26c90352b6c9f99528c2"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/permissions/autogenerated/reference.md",
+      "sha256": "751bf775ab238c1b6079ffb0d5be4877f2409faa6975c7ea1fbe282cf881433b"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/permissions/default.toml",
+      "sha256": "2ddd9009a1917794a87c2c12e81f9695f53ed99717835354f2855bc640c65b1e"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/permissions/schemas/schema.json",
+      "sha256": "82f3027a0d1153f33a160b452df29224a658167f8095d68dddb5fe8b781b7787"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/commands.rs",
+      "sha256": "8f1d5505a43f36a20358b76715d9e495e616e0857bb885d19b3c918e1375c2ad"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/config.rs",
+      "sha256": "2f2f33d88a5c4c8e5dedc1eca0bb91aa9b2a6276609751a0c673036bec69e072"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/error.rs",
+      "sha256": "879880f7da367463b5042e7dc58e610a367f6e41e60fb625e190329dbdea1a60"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/init-iife.js",
+      "sha256": "6bf0f218a6641dda71ef74d392cd08524c0979e40a5e770cf2600f73e1c7088f"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/lib.rs",
+      "sha256": "fe79f93c4a5f568433c524ebc40cb127429cb1eea77711b68430d764864ffca4"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/open.rs",
+      "sha256": "847426f99a3ca11c2bce458c3368f678ec05f41fb65331fc384067e0e978d939"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/reveal_item_in_dir.rs",
+      "sha256": "474a215b82954269495092d5a9fca81b48c0bd5effc83384c9058cdf478c4059"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/scope.rs",
+      "sha256": "1fe1e44bb139cbc78d5c84207f8291d799ac56add092c0533e35636efcf1b8d9"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/scope_entry.rs",
+      "sha256": "150440c114532243c0bc1fb88ca8bceafeb1a0dd51100b73f1246a8ac2d15ce6"
+    },
+    {
+      "path": "vendor/tauri-plugin-opener/src/windows_shell_path.rs",
+      "sha256": "251e04f91384282c792a0f307bdb51776f51bbf3f810dd2f5661c93ff7e5c329"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/.cargo_vcs_info.json",
+      "sha256": "05e72d628f351ba582485f522a72763aa4b70b53d6a84738227f97e44082cd3d"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/CHANGELOG.md",
+      "sha256": "475cc0021dd23224710ff2b9f9edc0da61f56494226c69bb43f213c6401bb5b3"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/Cargo.lock",
+      "sha256": "a8d6b602b42fdf4b56eaf011f29f895de5b6be5835235e91b48187a401e22d92"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/Cargo.toml",
+      "sha256": "e1247a75b6ac7546e3ae7c613c7b7c9aa83c2f0b4135436ba23af929378c33b5"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/Cargo.toml.orig",
+      "sha256": "3dcea83a5bc842cb27da367069ca5aaa6783ab41c7d845b590fd0b9882a2d7ef"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/LICENSE.spdx",
+      "sha256": "eb8a6c84630461b352badcab1dbe5d0168c56d377358b2b8c86b51003272d5ef"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/LICENSE_APACHE-2.0",
+      "sha256": "0cec06e0e55fbc3dc5cee4fca9b607f66cb8f4e4dbcf3b3c013594dd156732e9"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/LICENSE_MIT",
+      "sha256": "b7f455413bfe5f9d7da501a4468d4c5f866a432c325947e98cc9535e8b26cd6d"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/README.md",
+      "sha256": "4f42b3fd691c18b73c2c9327fd4e865467e63da1e51efbb49e66d558c5c838a5"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/SECURITY.md",
+      "sha256": "400507bc36e47e71f99199e78b4f9eb11aedc32f2bd8a0269247d693359a7078"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/src/lib.rs",
+      "sha256": "abb81c0e2c577e18012115aaa235c4579aec905ae338b879294c939665e96b72"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/src/platform_impl/linux.rs",
+      "sha256": "225caa8abbc4131c9945544ea62e91271827e95002613d67c54d36b36cf68428"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/src/platform_impl/macos.rs",
+      "sha256": "626c9cccda37882eb23e7b784b45e5f7bf5c34b921df7d25c28e8edc82414577"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/src/platform_impl/windows.rs",
+      "sha256": "3859d8ecebf8a4a88cb56221de4da188d0f29198142d2edd2f8a0c25cc6cf6c5"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/src/semver_compat.rs",
+      "sha256": "47db3f6de465b7a43faa1e92f90413feb6eb43dc6c227ef5b9b86c342392d600"
+    },
+    {
+      "path": "vendor/tauri-plugin-single-instance/tests/dbus_errors.rs",
+      "sha256": "e7bf4fe7ae2c4e94766e2fc74e85dd2e436e9220bac6a0d429f8dd228c95e912"
+    }
+  ]
+}

@@ -528,8 +528,54 @@ fn compose_starts_with_smime_where_it_fits() {
 
 // ---- Certificates made in the tests ----
 
+// Adapt Botan to the certificate builder's signing traits. The tests still generate
+// independent CA/leaf certificates with arbitrary dates, names and trust anchors.
+struct TestSigner(botan::Privkey);
+#[derive(Clone)]
+struct TestPublic(Vec<u8>);
+struct TestSignature(Vec<u8>);
+impl signature::Keypair for TestSigner {
+    type VerifyingKey = TestPublic;
+    fn verifying_key(&self) -> TestPublic {
+        TestPublic(self.0.pubkey().unwrap().der_encode().unwrap())
+    }
+}
+impl spki::EncodePublicKey for TestPublic {
+    fn to_public_key_der(&self) -> spki::Result<der::Document> {
+        der::Document::from_der(&self.0).map_err(Into::into)
+    }
+}
+impl spki::DynSignatureAlgorithmIdentifier for TestSigner {
+    fn signature_algorithm_identifier(&self) -> spki::Result<AlgorithmIdentifierOwned> {
+        Ok(AlgorithmIdentifierOwned {
+            oid: ObjectIdentifier::new_unwrap("1.2.840.10045.4.3.2"),
+            parameters: None,
+        })
+    }
+}
+impl signature::Signer<TestSignature> for TestSigner {
+    fn try_sign(&self, data: &[u8]) -> Result<TestSignature, signature::Error> {
+        let mut signer =
+            botan::Signer::new_with_der_formatted_signatures(&self.0, "EMSA1(SHA-256)")
+                .map_err(|_| signature::Error::new())?;
+        signer.update(data).map_err(|_| signature::Error::new())?;
+        signer
+            .finish(
+                &mut botan::RandomNumberGenerator::new_system()
+                    .map_err(|_| signature::Error::new())?,
+            )
+            .map(TestSignature)
+            .map_err(|_| signature::Error::new())
+    }
+}
+impl spki::SignatureBitStringEncoding for TestSignature {
+    fn to_bitstring(&self) -> der::Result<der::asn1::BitString> {
+        der::asn1::BitString::from_bytes(&self.0)
+    }
+}
+
 struct Authority {
-    key: p256::ecdsa::SigningKey,
+    key: TestSigner,
     name: x509_cert::name::Name,
     cert: Vec<u8>,
 }
@@ -543,9 +589,17 @@ fn time(secs: i64) -> x509_cert::time::Time {
 
 fn authority() -> Authority {
     use x509_cert::builder::{Builder, CertificateBuilder, Profile};
-    let key = p256::ecdsa::SigningKey::random(&mut rand::rngs::OsRng);
+    let key = TestSigner(
+        botan::Privkey::create(
+            "ECDSA",
+            "secp256r1",
+            &mut botan::RandomNumberGenerator::new_system().unwrap(),
+        )
+        .unwrap(),
+    );
     let name = x509_cert::name::Name::from_str("CN=Made In Test CA").unwrap();
-    let spki = SubjectPublicKeyInfoOwned::from_key(*key.verifying_key()).unwrap();
+    let spki = SubjectPublicKeyInfoOwned::from_der(&key.0.pubkey().unwrap().der_encode().unwrap())
+        .unwrap();
     let validity = x509_cert::time::Validity {
         not_before: time(now_secs() - 86_400 * 3650),
         not_after: time(now_secs() + 86_400 * 3650),
@@ -559,21 +613,17 @@ fn authority() -> Authority {
         &key,
     )
     .unwrap();
-    let cert = builder
-        .build::<p256::ecdsa::DerSignature>()
-        .unwrap()
-        .to_der()
-        .unwrap();
+    let cert = builder.build::<TestSignature>().unwrap().to_der().unwrap();
     Authority { key, name, cert }
 }
 
 /// A certificate for `email` with Alice's RSA key, valid from `from` to `to` (Unix seconds).
 fn leaf(ca: &Authority, email: &str, from: i64, to: i64, serial: u32) -> Vec<u8> {
-    use pkcs8::DecodePrivateKey;
     use x509_cert::builder::{Builder, CertificateBuilder, Profile};
     use x509_cert::ext::pkix::name::GeneralName;
-    let key = rsa::RsaPrivateKey::from_pkcs8_pem(ALICE_KEY).unwrap();
-    let spki = SubjectPublicKeyInfoOwned::from_key(key.to_public_key()).unwrap();
+    let key = botan::Privkey::load_pem(ALICE_KEY).unwrap();
+    let spki =
+        SubjectPublicKeyInfoOwned::from_der(&key.pubkey().unwrap().der_encode().unwrap()).unwrap();
     let mut builder = CertificateBuilder::new(
         Profile::Leaf {
             issuer: ca.name.clone(),
@@ -598,22 +648,15 @@ fn leaf(ca: &Authority, email: &str, from: i64, to: i64, serial: u32) -> Vec<u8>
     builder
         .add_extension(&x509_cert::ext::pkix::ExtendedKeyUsage(vec![EKU_EMAIL]))
         .unwrap();
-    builder
-        .build::<p256::ecdsa::DerSignature>()
-        .unwrap()
-        .to_der()
-        .unwrap()
+    builder.build::<TestSignature>().unwrap().to_der().unwrap()
 }
 
 fn own(cert: Vec<u8>, ca: &Authority) -> OwnCert {
-    use pkcs8::DecodePrivateKey;
     OwnCert {
         fingerprint: hex(&sha2::Sha256::digest(&cert)),
         cert,
         chain: vec![ca.cert.clone()],
-        key: PrivateKey::Rsa(Box::new(
-            rsa::RsaPrivateKey::from_pkcs8_pem(ALICE_KEY).unwrap(),
-        )),
+        key: PrivateKey::Rsa(Box::new(botan::Privkey::load_pem(ALICE_KEY).unwrap())),
     }
 }
 

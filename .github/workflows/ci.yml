@@ -15,6 +15,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  CARGO_BUILD_JOBS: 2
+  RUST_MIN_STACK: 33554432
+
 jobs:
   core:
     name: Core tests and UI checks
@@ -26,6 +30,8 @@ jobs:
           toolchain: stable # read from the ref when not pinned
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Native crypto build tools
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build g++
       # Every theme meets its WCAG 2.2 contrast level, every text has its Polish, and the help has every key.
       - run: node scripts/check-contrast.mjs
       - run: node scripts/check-i18n.mjs
@@ -34,7 +40,7 @@ jobs:
       - run: node scripts/third-party-notices.mjs --check
       - run: cargo fmt -p telex-core -p telex-i18n -p telex -p telex-security -- --check
       - run: cargo clippy -p telex-core -p telex-i18n --all-targets -- -D warnings
-      - run: cargo test -p telex-core
+      - run: cargo test -p telex-core --locked
 
   # The app itself on Linux, as the release builds it (ubuntu-22.04). Clippy only, no bundle.
   linux:
@@ -50,9 +56,10 @@ jobs:
       - name: Linux libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libdbus-1-dev cmake ninja-build g++
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: cargo clippy -p telex --all-targets -- -D warnings
+      - run: cargo test -p tauri-plugin-notification -p tauri-plugin-opener -p tauri-plugin-single-instance --lib --locked
 
   # The Windows-only code (Windows' spell checker, its languages, Outlook in the registry) is
   # checked and tested here; then the installer is built.
@@ -72,7 +79,8 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - run: npm ci
       - run: cargo clippy -p telex-core -p telex --all-targets -- -D warnings
-      - run: cargo test -p telex-core
+      - run: cargo test -p telex-core --locked
+      - run: cargo test -p telex --lib secrets::tests --locked
       - run: npm run build
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

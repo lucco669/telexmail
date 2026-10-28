@@ -34,11 +34,8 @@ fn make_fixture_key() {
         KeyKind::Ed25519,
     )
     .unwrap();
-    println!("{}", key.to_armored_string(None.into()).unwrap());
-    println!(
-        "{}",
-        key.to_public_key().to_armored_string(None.into()).unwrap()
-    );
+    println!("{}", key.to_armored_string(None).unwrap());
+    println!("{}", key.to_public_key().to_armored_string(None).unwrap());
 }
 
 /// Alice's mail base: one IMAP account with an Inbox and Spam.
@@ -325,21 +322,10 @@ fn damaged_ciphertext_fails_and_shows_nothing() {
 
 #[test]
 fn a_compression_bomb_stops_at_the_limit() {
-    use pgp::composed::MessageBuilder;
-    use pgp::crypto::sym::SymmetricKeyAlgorithm;
-    use pgp::types::CompressionAlgorithm;
     let mut s = alice();
     let alice_key = s.public_key(ALICE_FP).unwrap();
-    let mut rng = rand::thread_rng();
     let zeros = vec![b'0'; MAX_PLAIN * 3];
-    let mut builder =
-        MessageBuilder::from_bytes("", zeros).seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
-    builder.compression(CompressionAlgorithm::ZLIB);
-    match encryption_key(&alice_key).unwrap() {
-        EncryptTo::Sub(k) => builder.encrypt_to_key(&mut rng, k).unwrap(),
-        EncryptTo::Primary(k) => builder.encrypt_to_key(&mut rng, k).unwrap(),
-    };
-    let armored = builder.to_armored_string(&mut rng, None.into()).unwrap();
+    let armored = encrypt(&zeros, &[alice_key], None).unwrap();
     assert!(armored.len() < MAX_PLAIN / 10, "compressed small");
     let id = add(&mut s, &pgp_mime_encrypted("bob@gnupg.test", &armored));
     let v = view(&s, id).1;
@@ -578,7 +564,7 @@ fn a_generated_key_signs_encrypts_and_is_protected() {
     assert!(s.pgp_unlock(&made.fingerprint, "długie hasło").unwrap());
     // Its exported secret part stays protected by the passphrase.
     let exported = s.export_secret_key(&made.fingerprint).unwrap();
-    let (key, _) = SignedSecretKey::from_string(&exported).unwrap();
+    let key = SignedSecretKey::from_bytes(exported.as_bytes()).unwrap();
     assert!(is_protected(&key));
     assert!(generate("A", "not an address", "x", KeyKind::Ed25519).is_err());
     assert!(generate("A", "a@b.test", "", KeyKind::Ed25519).is_err());
@@ -587,8 +573,46 @@ fn a_generated_key_signs_encrypts_and_is_protected() {
 // ---- Autocrypt ----
 
 fn bob_keydata() -> String {
-    let (key, _) = SignedPublicKey::from_string(BOB_PUB).unwrap();
+    let key = SignedPublicKey::from_bytes(BOB_PUB.as_bytes()).unwrap();
     base64::engine::general_purpose::STANDARD.encode(key.to_bytes().unwrap())
+}
+
+#[test]
+fn native_rsa_keys_and_message_armor_round_trip_across_payload_lengths() {
+    let mut store = store();
+    let reference = store
+        .generate_key(
+            "RSA test",
+            "rsa@telex.test",
+            "synthetic test passphrase",
+            KeyKind::Rsa3072,
+            now(),
+        )
+        .unwrap();
+    let info = store.pgp_keys().unwrap().pop().unwrap();
+    assert_eq!(info.algorithm, "RSA 3072");
+    assert!(info.protected && info.can_encrypt);
+    let own = store.own_key_for("rsa@telex.test").unwrap();
+    let public = store.public_key(&reference.fingerprint).unwrap();
+    for length in 0..64 {
+        let data = (0..length).map(|i| (i * 13) as u8).collect::<Vec<_>>();
+        let ciphertext = encrypt(&data, std::slice::from_ref(&public), Some(&own)).unwrap();
+        assert!(!recipients_of(ciphertext.as_bytes()).unwrap().is_empty());
+        let plain =
+            backend::open(ciphertext.as_bytes(), &[(&own.key, &own.password)], true).unwrap();
+        assert_eq!(plain.data, data, "payload length {length}");
+        let signature = plain
+            .signatures
+            .iter()
+            .flat_map(|s| s.packet.iter().copied())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            store
+                .judge_detached(&signature, &data, "rsa@telex.test", &[])
+                .status,
+            SigStatus::Good
+        );
+    }
 }
 
 fn with_autocrypt(header: &str) -> Vec<u8> {
@@ -759,8 +783,10 @@ fn a_key_that_comes_by_itself_never_replaces_one_telex_has() {
     let mut s = store();
     import(&mut s, BOB_PUB);
     // Bob's certificate without its encryption subkey, as anyone could send it.
-    let (mut stripped, _) = SignedPublicKey::from_string(BOB_PUB).unwrap();
-    stripped.public_subkeys.clear();
+    let stripped = SignedPublicKey::from_bytes(BOB_PUB.as_bytes())
+        .unwrap()
+        .without_subkeys()
+        .unwrap();
     let mut db_tx = s.db.transaction().unwrap();
     let (_, saved) = save_key(
         &db_tx,

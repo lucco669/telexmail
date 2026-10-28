@@ -1,5 +1,7 @@
 # Backport verification hashes the exact published crate bytes, on every platform.
 vendor/glib/** -text
+# Preserve upstream whitespace as well as line endings in checksum-verified sources.
+vendor/** -text whitespace=-blank-at-eol,-blank-at-eof,cr-at-eol
 *.sh text eol=lf
 crates/telex-core/src/openpgp/fixtures/** -text
 crates/telex-core/src/smime/fixtures/** -text

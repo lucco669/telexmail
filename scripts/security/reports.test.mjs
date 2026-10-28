@@ -36,7 +36,7 @@ test('advisory exclusions cannot turn an incomplete Rust scan into a pass', () =
 test('maintenance advisories stay visible in a completed scan', () => {
   const advisory = { advisory: { id: 'fixture', informational: 'unmaintained' }, package: { name: 'fixture', version: '1' } };
   const result = rustResult(rustAudit({ unmaintained: [advisory] }), 0);
-  assert.equal(result.status, 'passed_with_warnings');
+  assert.equal(result.status, 'failed');
   assert.equal(result.warnings.unmaintained, 1);
 });
 

@@ -80,7 +80,14 @@ function check(id, command, program, args, cwd, classify, log = false) {
   console.log(`${id}: ${item.status}`);
 }
 
-check('rust-dependencies', 'cargo audit --deny unsound --json', localTool('cargo-audit'), ['audit', '--deny', 'unsound', '--json'], root, rustResult);
+check('vendor-sources', 'node scripts/security/verify-vendor.mjs --audit-lock', process.execPath, ['scripts/security/verify-vendor.mjs', '--audit-lock'], root,
+  (stdout, exitCode) => ({status: exitCode === 0 ? 'passed' : 'failed'}), true);
+check('rust-dependencies', 'cargo audit --deny unsound --deny unmaintained --json', localTool('cargo-audit'), ['audit', '--deny', 'unsound', '--deny', 'unmaintained', '--json'], root, rustResult);
+check('rust-fuzz-dependencies', 'cargo audit --file fuzz/Cargo.lock --deny unsound --deny unmaintained --json', localTool('cargo-audit'), ['audit', '--file', 'fuzz/Cargo.lock', '--deny', 'unsound', '--deny', 'unmaintained', '--json'], root, rustResult);
+if(report.checks.find(c=>c.id==='vendor-sources')?.status==='passed') {
+  check('rust-vendored-upstream', 'cargo audit --file .bench/security/vendor-reference.lock --deny unsound --deny unmaintained --json', localTool('cargo-audit'),
+    ['audit', '--file', '.bench/security/vendor-reference.lock', '--deny', 'unsound', '--deny', 'unmaintained', '--json'], root, rustResult);
+}
 for (const [id, directory] of [['npm-app', root], ['npm-site', join(root, 'site')]]) {
   if (!process.env.npm_execpath) throw new Error('Run this script with npm run security');
   check(id, `npm audit --json${id === 'npm-site' ? ' (in site/)' : ''}`, process.execPath,

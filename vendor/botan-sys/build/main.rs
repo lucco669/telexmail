@@ -1,0 +1,287 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+const KNOWN_FFI_VERSIONS: [(u32, u32); 11] = [
+    (3, 20260811), // 3.13
+    (3, 20260506), // 3.12
+    (3, 20260303), // 3.11
+    (3, 20250829), // 3.10
+    (3, 20250506), // 3.8
+    (3, 20240408), // 3.4
+    (3, 20231009), // 3.2
+    (3, 20230711), // 3.1
+    (3, 20230403), // 3.0
+    (2, 20210220), // 2.18
+    (2, 20191214), // 2.13
+];
+
+const LATEST_KNOWN_FFI: u32 = 20260811;
+
+#[cfg(feature = "vendored")]
+fn emit_dylibs() -> Vec<&'static str> {
+    // Windows doesn't need to dynamically link the C++ runtime
+    // but we do need to link to DLLs with needed functionality:
+    if cfg!(target_os = "windows") {
+        return vec!["user32", "crypt32"];
+    }
+
+    // On Linux we use libstdc++
+    if cfg!(any(target_os = "linux")) {
+        return vec!["stdc++"];
+    }
+
+    // For all other platforms, link to libc++ from LLVM/Clang
+    vec!["c++"]
+}
+
+fn sanity_check_ffi(major_version: u32, minor_version: u32, ffi_version: u32) -> u32 {
+    if ffi_version == 0 {
+        panic!("The libbotan found does not support the FFI feature");
+    }
+
+    if ffi_version < 20191214 {
+        panic!("This version of Botan is too old; at least 2.13.0 is required");
+    }
+
+    if major_version < 2 {
+        panic!("Major version 1 or lower not supported");
+    }
+
+    if major_version > 4 {
+        panic!("Major version unexpectedly high");
+    }
+
+    if major_version >= 3 && ffi_version > LATEST_KNOWN_FFI {
+        // Some future version; assume FFI is additive
+        return LATEST_KNOWN_FFI;
+    }
+
+    for (mv, fv) in &KNOWN_FFI_VERSIONS {
+        if ffi_version == *fv && major_version >= *mv {
+            return *fv;
+        }
+    }
+
+    panic!(
+        "Unexpected version settings major={major_version} minor={minor_version} ffi={ffi_version}"
+    );
+}
+
+#[allow(dead_code)]
+fn env_var(key: &str) -> Option<String> {
+    println!("cargo:rerun-if-env-changed={key}");
+    std::env::var(key).ok()
+}
+
+#[derive(Debug, Copy, Clone)]
+struct DetectedVersionInfo {
+    major_version: u32,
+    #[allow(dead_code)]
+    minor_version: u32,
+    ffi_version: u32,
+}
+
+impl DetectedVersionInfo {
+    fn library_link_name(&self) -> String {
+        if cfg!(target_os = "windows") && self.major_version == 2 {
+            // For some unknown reason, Botan 2.x does not include
+            // the major version in the name of the Windows library
+            "botan".to_string()
+        } else {
+            format!("botan-{}", self.major_version)
+        }
+    }
+
+    #[allow(dead_code)]
+    fn latest_for_docs_rs() -> Self {
+        Self {
+            major_version: 3,
+            minor_version: 13,
+            ffi_version: LATEST_KNOWN_FFI,
+        }
+    }
+
+    fn from_map(map: HashMap<String, u32>) -> Self {
+        let major_version = *map.get("MAJOR_VERSION").expect("Missing MAJOR_VERSION");
+        let minor_version = *map.get("MINOR_VERSION").expect("Missing MINOR_VERSION");
+        let ffi_version = *map.get("FFI_VERSION").expect("Missing FFI_VERSION");
+        let ffi_version = sanity_check_ffi(major_version, minor_version, ffi_version);
+        Self {
+            major_version,
+            minor_version,
+            ffi_version,
+        }
+    }
+
+    fn from_header(include_dir: &PathBuf) -> Self {
+        println!("cargo:rerun-if-changed=build/version.c");
+        let mut cc = cc::Build::new();
+        cc.include(include_dir);
+
+        match cc.file("build/version.c").try_expand() {
+            Ok(o) => {
+                let expanded = String::from_utf8(o).expect("Output is not valid UTF8");
+                let mut map = HashMap::new();
+
+                for line in expanded.split('\n') {
+                    if line.is_empty() || line.starts_with('#') {
+                        continue;
+                    }
+                    let line = line.replace('\r', "");
+
+                    let parts = line.split(' ').collect::<Vec<_>>();
+
+                    if parts.len() != 2 {
+                        continue;
+                    }
+
+                    if parts[0] == "MAJOR_VERSION"
+                        || parts[0] == "MINOR_VERSION"
+                        || parts[0] == "FFI_VERSION"
+                    {
+                        if let Ok(code) = parts[1].parse::<u32>() {
+                            map.insert(parts[0].to_owned(), code);
+                        } else {
+                            panic!("Unexpected line '{line}'");
+                        }
+                    }
+                }
+
+                DetectedVersionInfo::from_map(map)
+            }
+            Err(e) => {
+                panic!("Failed to expand header {e:?}");
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "vendored"))]
+fn find_botan_include_dir() -> std::path::PathBuf {
+    #[cfg(feature = "pkg-config")]
+    {
+        for major in [3, 2] {
+            let lib_name = format!("botan-{}", major);
+
+            let statik = cfg!(feature = "static");
+
+            if let Ok(config) = pkg_config::Config::new().statik(statik).probe(&lib_name) {
+                return config.include_paths[0].clone();
+            }
+        }
+
+        panic!("Unable to find the headers corresponding with any supported version of Botan");
+    }
+
+    #[cfg(not(feature = "pkg-config"))]
+    {
+        fn find_in_basedir(basedir: PathBuf) -> Option<PathBuf> {
+            for major_version in [3, 2] {
+                let dir = PathBuf::from(format!("botan-{major_version}"));
+                let inc_dir = basedir.join(dir.clone());
+                if inc_dir.exists() {
+                    return Some(inc_dir);
+                }
+            }
+            None
+        }
+
+        if let Some(dir) = env_var("BOTAN_INCLUDE_DIR") {
+            let Some(dir) = find_in_basedir(dir.into()) else {
+                panic!("BOTAN_INCLUDE_DIR does not point to a valid location");
+            };
+            return dir;
+        }
+
+        fn possible_header_locations() -> Vec<PathBuf> {
+            let dirs = [
+                "/opt/homebrew/include",
+                "/usr/local/include",
+                "/usr/include",
+                "/opt/include",
+            ];
+            let mut paths = vec![];
+
+            for dirname in dirs {
+                let path = PathBuf::from(dirname);
+                if path.exists() {
+                    paths.push(path);
+                }
+            }
+
+            paths
+        }
+
+        for basedir in possible_header_locations() {
+            if let Some(dir) = find_in_basedir(basedir) {
+                return dir;
+            }
+        }
+
+        panic!("Unable to find the headers corresponding with any supported version of Botan");
+    }
+}
+
+fn emit_version_info(version: &DetectedVersionInfo) {
+    // TODO(MSRV) cargo::metadata after 1.77
+    println!("cargo:ffi_version={}", version.ffi_version);
+    for (_, ffi) in &KNOWN_FFI_VERSIONS {
+        if *ffi <= version.ffi_version {
+            println!("cargo:rustc-cfg=botan_ffi_{ffi}");
+        }
+    }
+}
+
+fn main() {
+    for (_, v) in &KNOWN_FFI_VERSIONS {
+        println!("cargo:rustc-check-cfg=cfg(botan_ffi_{v})");
+    }
+
+    // With dynamic loading nothing is linked and no headers are needed; the
+    // library is located and loaded at runtime.
+    if cfg!(feature = "dynamic-loading") {
+        return;
+    }
+
+    #[cfg(feature = "vendored")]
+    {
+        let (lib_dir, inc_dir) = botan_src::build();
+
+        let version = DetectedVersionInfo::from_header(&inc_dir);
+        println!("cargo:vendored=1");
+        println!("cargo:lib_dir={lib_dir}");
+        println!("cargo:include_dir={}", inc_dir.display());
+        println!("cargo:rustc-link-search=native={}", &lib_dir);
+        println!(
+            "cargo:rustc-link-lib=static={}",
+            version.library_link_name()
+        );
+
+        for dylib in emit_dylibs() {
+            println!("cargo:rustc-flags=-l dylib={}", dylib);
+        }
+        emit_version_info(&version);
+    }
+    #[cfg(not(feature = "vendored"))]
+    {
+        let version = if std::env::var("DOCS_RS").is_ok() {
+            DetectedVersionInfo::latest_for_docs_rs()
+        } else {
+            DetectedVersionInfo::from_header(&find_botan_include_dir())
+        };
+
+        if let Some(dir) = env_var("BOTAN_LIB_DIR") {
+            println!("cargo:rustc-link-search=native={dir}");
+        }
+
+        if cfg!(feature = "static") {
+            println!(
+                "cargo:rustc-link-lib=static={}",
+                version.library_link_name()
+            );
+        } else {
+            println!("cargo:rustc-link-lib={}", version.library_link_name());
+        }
+        emit_version_info(&version);
+    }
+}

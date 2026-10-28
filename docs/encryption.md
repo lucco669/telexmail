@@ -9,18 +9,22 @@ servers.
 
 ## The library
 
-[rPGP](https://github.com/rpgp/rpgp) (the `pgp` crate, 0.21): OpenPGP in pure Rust, MIT or
-Apache-2.0, audited twice (2019, 2024 by Radically Open Security; the findings were fixed), and
-used in Delta Chat, which sends millions of encrypted messages. Telex is freeware with all rights
-reserved, so LGPL or GPL code can't be in it: that rules out Sequoia (LGPL-2.0) and GnuPG's GPGME.
-rPGP handles packets, keys, signatures and encryption (RFC 9580, and RFC 4880 for older mail);
-`crates/telex-core/src/openpgp.rs` decides what they mean: which key a signature is from and
-whether that key is the sender's, which subkey of a key may encrypt, which of the user's keys can
-decrypt a message.
+[RNP](https://github.com/rnpgp/rnp) 0.18.1 handles OpenPGP packets, key validation,
+signatures and encryption. [Botan](https://botan.randombit.net/) 3.13.0 handles private-key
+arithmetic for both OpenPGP and S/MIME. Both native libraries use BSD-2-Clause; the Botan
+Rust bindings use MIT. Bundled components and their full licenses are in THIRD-PARTY-NOTICES.txt.
 
-BZip2 compression (rare; GnuPG uses ZIP and ZLIB) is left out of the build; such a message says
-it is in a format Telex doesn't read. Every crate rPGP brings is MIT, Apache-2.0 or BSD
-(THIRD-PARTY-NOTICES.txt).
+The Rust adapter in `openpgp/backend.rs` keeps native handles within each operation. Only
+serialized keys cross threads; neither secret keys nor decrypted mail are passed to a process
+or temporary file. Existing version 4 keys and stored encrypted messages keep their original
+database representation. RNP's stable backend does not support version 6 OpenPGP keys or
+post-quantum algorithms; unsupported imports and messages are refused. ZIP, ZLIB and BZip2
+compression are supported, with a bounded plaintext writer.
+
+Native source archives are bundled and SHA-256 verified, so builds do not download native
+source. RNP and the S/MIME adapter share one statically linked Botan build. Building requires
+Python 3, CMake, Ninja and a C++ compiler (MSVC on Windows). See
+[the dependency migration](security-dependency-migration.md) for source provenance and checks.
 
 ## Reading
 
@@ -77,7 +81,7 @@ is the one the list shows and the signature check goes by.
 - **Keys live in the mail base** (`pgp_keys`, schema 15), so backups carry them, and a key's
   secret part is stored as the key came: protected by its passphrase (OpenPGP's own S2K
   encryption; keys made in Telex use iterated and salted SHA-256 with AES). Telex never stores a
-  secret key without the protection it came with, and never asks rPGP for an unprotected copy.
+  secret key without the protection it came with, and never exports an unprotected copy.
 - **Passphrases** are kept in memory until Telex closes (or the user clicks Forget passphrase).
   With "Remember it on this PC" one is also saved in the system's password store, like account
   passwords: Windows Credential Manager, the Secret Service on Linux (service "Telex", entry
@@ -87,9 +91,9 @@ is the one the list shows and the signature check goes by.
   passphrase; off, backups carry only public keys (the secret parts are cleared with SQLite's
   `secure_delete` and compacted away), and the user backs up their secret key themselves
   (Settings › Keys › Back up secret key, a file locked with the passphrase).
-- **Errors never carry key material or rPGP's own messages.** Each failure is a code (locked,
+- **Interface errors never carry key material or native diagnostic messages.** Each failure is a code (locked,
   not_for_you, failed, too_large, unsupported; no_own_key, locked, no_key_for) that the window
-  words; rPGP logs through the `log` crate, and Telex installs no logger.
+  words. Native diagnostics are not forwarded to the interface.
 
 ## Keys
 
@@ -148,14 +152,13 @@ checked with GnuPG: `gpg --verify` says "Good signature" for Telex's detached si
 
 ### The libraries
 
-RustCrypto's `cms` (CMS, RFC 5652, with its builder for signing and encrypting), `x509-cert`,
-`pkcs12` (PKCS #12's structures and key derivation), `pkcs5` and `pkcs8` (PBES2), and the
-ciphers `aes`, `des` (3DES) and `rc2` (old .p12 files), all MIT or Apache-2.0, of the same
-generation (`der` 0.7) as the `rsa` crate rPGP already brings, so RSA is one implementation for
-both. Chains off Windows: `rustls-webpki` (ISC) and `rustls-native-certs`, both in the build
-for TLS already. Nothing GPL or LGPL. `crates/telex-core/src/smime.rs` decides what the
-structures mean; `smime/ber.rs` makes BER into DER (below), `smime/p12.rs` reads .p12 and .pfx
-files, `smime/trust.rs` asks the system about chains.
+RustCrypto's `cms`, `x509-cert`, `pkcs12`, `pkcs5` and `pkcs8` handle ASN.1 structures,
+PKCS #12 derivation and PBES2. AES, 3DES and RC2 support existing mail and older .p12 files.
+RSA encryption/decryption and RSA/ECDSA signatures use Botan. The vulnerable Rust `rsa` and
+`crypto-bigint` implementations are no longer in the application or fuzz dependency graphs.
+Chains off Windows use `rustls-webpki` and `rustls-native-certs`; Windows uses CryptoAPI.
+`smime.rs` decides what the structures mean; `smime/ber.rs` makes BER into DER,
+`smime/p12.rs` reads .p12 and .pfx files, and `smime/trust.rs` checks chains.
 
 ### Reading
 

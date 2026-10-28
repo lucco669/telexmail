@@ -28,7 +28,7 @@ export function rustResult(text, exitCode) {
   const warnings = report.warnings ?? {};
   if (!Object.values(warnings).every(Array.isArray)) throw new Error('RustSec warning lists are malformed');
   const warningCount = Object.values(warnings).reduce((n, list) => n + list.length, 0);
-  const issueCount = vulnerabilities.count + (warnings.unsound?.length ?? 0);
+  const issueCount = vulnerabilities.count + (warnings.unsound?.length ?? 0) + (warnings.unmaintained?.length ?? 0);
   return {
     status: outcome(exitCode, issueCount, warningCount),
     vulnerabilities: vulnerabilities.count,

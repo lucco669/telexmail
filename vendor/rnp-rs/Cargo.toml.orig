@@ -1,0 +1,98 @@
+[package]
+name = "rnp-rs"
+version = "0.1.18"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Ribose Inc. <open.source@ribose.com>"]
+license = "BSD-2-Clause"
+description = "Idiomatic Rust binding to the RNP OpenPGP C FFI (librnp)"
+repository = "https://github.com/rnpgp/rnp-rs"
+homepage = "https://github.com/rnpgp/rnp-rs"
+documentation = "https://docs.rs/rnp-rs"
+readme = "README.md"
+keywords = ["openpgp", "pgp", "rnp", "crypto", "cryptography"]
+categories = ["api-bindings", "cryptography"]
+# Cargo.lock is deliberately not listed: it is gitignored, and an include
+# entry matching no file breaks `cargo package` in fresh checkouts (the
+# lock only existed in developer trees). Cargo attaches the resolved lock
+# to the package when needed.
+include = [
+    "src/**/*.rs",
+    "examples/*.rs",
+    "tests/*.rs",
+    "tests/common/*.rs",
+    "benches/*.rs",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE.md",
+]
+
+[workspace]
+members = [".", "rnp-src", "rnp-sys"]
+# The cargo-fuzz harness builds outside this workspace (libFuzzer needs its
+# own target triples and flags).
+exclude = ["fuzz"]
+resolver = "2"
+
+[package.metadata.docs.rs]
+# Build with all features so the PQC + crypto-refresh API surface appears
+# in the rendered docs. docs.rs ignores features whose build deps aren't
+# available, so this won't fail the doc build.
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+snafu = "0.9"
+# Raw FFI layer (botan-rs pattern: rnp-src : botan-src, rnp-sys : botan-sys,
+# this crate : botan). All build/link logic lives in rnp-sys.
+rnp-sys = { version = "0.1", path = "rnp-sys" }
+
+[dev-dependencies]
+proptest = "1"
+criterion = "0.8"
+sequoia-openpgp = { version = "2", default-features = false, features = ["crypto-rust", "compression-deflate", "allow-experimental-crypto", "allow-variable-time-crypto"] }
+rnp-sexp = "0.1"
+
+[[bench]]
+name = "sign_verify"
+harness = false
+
+[[bench]]
+name = "encrypt_decrypt"
+harness = false
+
+[[bench]]
+name = "keygen"
+harness = false
+
+[features]
+default = []
+# Compile librnp and all dependencies (Botan, json-c, zlib, bzip2) from
+# source at build time via the rnp-src crate. Fully self-contained — no
+# system librnp/Botan needed. First build takes ~10 min; cached in
+# OUT_DIR after that. Requires: C/C++ compiler, cmake, python3, curl, tar.
+vendored = ["rnp-sys/vendored"]
+# Implies `vendored`. (Future: pass module filtering to rnp-src.)
+vendored-minimal = ["vendored"]
+# Expose PQC algorithm constants in bindgen. When combined with
+# `vendored`, also builds librnp with ENABLE_PQC=ON (forwarded to rnp-src).
+pqc = ["rnp-sys/pqc"]
+# Expose v6 key / crypto-refresh features in bindgen.
+crypto-refresh = ["rnp-sys/crypto-refresh"]
+# Enable `Context::set_log_fd` / `set_log_file`.
+logging = []
+# Pull in sequoia-openpgp for cross-validation tests.
+cross-validation = []
+
+[lib]
+name = "rnp"
+# The bindgen-generated FFI bindings carry the upstream C API doc comments,
+# many of which contain fenced code blocks that the doctest harness tries to
+# compile as standalone programs. Those snippets are C/JSON, not Rust, so we
+# disable doctests on the crate.
+doctest = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

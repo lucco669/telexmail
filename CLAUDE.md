@@ -143,7 +143,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      Inbox mail sorted before the rules. Its tests are in src/spam/tests.rs.
   src/away.rs        The away reply, one per account: on the server as a Sieve vacation where
                      it takes one, else Telex answers new mail when it checks.
-  src/openpgp.rs     OpenPGP (rPGP, the `pgp` crate; docs/encryption.md): PGP/MIME and inline
+  src/openpgp.rs     OpenPGP (RNP/Botan, in-memory native adapter; docs/encryption.md): PGP/MIME and inline
                      mail verified and decrypted on open, in memory only (the last 8); keys in the
                      mail base (schema 23), Autocrypt Level 1 from incoming mail, keys made,
                      imported, exported; compose's Sign and Encrypt (`protect`, smtp.rs builds
@@ -1073,8 +1073,8 @@ Nothing yet.
       isn't fetched again. Outlook's POP3 accounts stay blocked: which mail it downloaded is in
       its .pst. Mail files can be dropped on a POP3 account's folders too.
   - OpenPGP (schema version 23: `pgp_keys`, `pgp_key_ids`, `autocrypt_peers`, `pgp_prefs`; one-way;
-    settings `backup_secret_keys`, `pgp_sign`, `pgp_autocrypt`; docs/encryption.md). rPGP (MIT or
-    Apache-2.0, pure Rust; Sequoia is LGPL). Reading: PGP/MIME (RFC 3156) and inline PGP, a line
+    settings `backup_secret_keys`, `pgp_sign`, `pgp_autocrypt`; docs/encryption.md). RNP/Botan
+    (BSD-2-Clause; MIT Rust Botan bindings), with version 4 keys. Reading: PGP/MIME (RFC 3156) and inline PGP, a line
     above the message: Signed by (a confirmed key of the From address), unconfirmed (a key from
     their mail: its fingerprint and Confirm key), another address's key, no key, bad, revoked,
     expired, partly signed; encrypted mail decrypted on open with the user's keys, the passphrase

@@ -1000,6 +1000,7 @@ export const versions: Version[] = [
       'With spam filtering enabled, new Inbox mail with scam risk of 70/100 or more goes to Spam immediately, before statistical training is ready. PKO and iPKO biznes matching includes the official business banking domain. Existing trusted-sender exceptions and Not spam corrections are respected.',
       'Today’s unread arrivals add a dot and highlight the existing folder count. Older unread messages stay quiet. The markers follow rules and moves, survive restarts and reset each day.',
       'A quick restart no longer freezes while the tray icon is being updated.',
+      'OpenPGP and S/MIME private-key operations now use RNP/Botan. Vulnerable Rust cryptography packages and unmaintained Linux dependencies are removed, with no audit exceptions. Existing version 4 keys, encrypted mail and saved credentials remain compatible.',
     ],
     upgrade: 'Version 0.9.23 upgrades the local mail base to remember today’s arrivals. Back up in Settings › Backups before updating; older Telex versions cannot reopen the upgraded mail base.',
     highlights: [

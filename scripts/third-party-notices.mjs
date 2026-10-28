@@ -71,6 +71,12 @@ for (const id of included) {
   const keys = files.filter((f) => existsSync(join(dir, f))).map((f) => remember(readFileSync(join(dir, f), 'utf8'), label));
   components.push({ label, license: p.license ?? 'see its license file', repository: p.repository ?? '', keys });
 }
+// Native libraries are compiled from pinned archives by our Rust build helpers; Cargo's
+// dependency graph cannot identify their separate copyrights and license texts.
+for (const native of JSON.parse(readFileSync(join(root, 'scripts/security/native-components.json'), 'utf8'))) {
+  components.push({label: native.label, license: native.license, repository: native.repository,
+    keys: [remember(readFileSync(join(root, native.file), 'utf8'), native.label)]});
+}
 components.sort((a, b) => a.label.localeCompare(b.label, 'en'));
 
 // The fonts in ui/fonts, each family with its OFL text.
