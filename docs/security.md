@@ -96,6 +96,20 @@ passwords are stored separately by the operating system's credential service. Wi
 code signing is not configured; updater signatures are a different mechanism. No independent
 security audit, installer antivirus assessment or reproducible-build evidence is included here.
 
+## Findings from 28 October 2026
+
+- RUSTSEC-2026-0381, RUSTSEC-2026-0382 and RUSTSEC-2026-0383 concern distrusted
+  certificate authorities/intermediates. The dependency updates use rustls-webpki 0.103.16,
+  webpki-roots 1.0.10 and webpki-root-certs 1.0.10, with both application and fuzz lockfiles
+  updated. Installed releases are not changed by a source update.
+- [RUSTSEC-2026-0387](https://rustsec.org/advisories/RUSTSEC-2026-0387.html) remains in
+  crypto-bigint 0.5.5, through pgp 0.21.0's cx448 and elliptic-curve dependencies and the
+  S/MIME elliptic-curve implementation. It reports timing/microarchitectural side channels
+  in operations intended to be constant-time. The patched line (>=0.7.6) is not compatible
+  with those dependencies' 0.5 requirements; there is no published 0.5.6 backport. Local
+  desktop execution does not establish that secret-key operations are unexploitable.
+  The finding remains subject to the release gate.
+
 ## Native webview and parser tests
 
 `scripts/security/prepare-webview.mjs` creates an isolated app identity and synthetic mailbox.

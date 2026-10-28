@@ -202,6 +202,10 @@ export default function SecurityPage() {
               <li><b>The spam filter combines learned and heuristic checks.</b> It learns from your own mail and checks new arrivals for high scam risk. It can file good mail as spam or let junk through.
                 It only moves new Inbox mail to Spam, never deletes it, leaves people you have written to alone, and explains each move; Not spam puts a message back.
                 <span className={s.inlineEvidence}> <a href={source('crates/telex-core/src/spam.rs')}>Spam filter code</a></span></li>
+              <li><b>A cryptography dependency has an open timing advisory.</b> OpenPGP and S/MIME currently depend on crypto-bigint 0.5.5,
+                affected by <a href="https://rustsec.org/advisories/RUSTSEC-2026-0387.html">RUSTSEC-2026-0387</a>.
+                Its patched 0.7.6+ line is incompatible with the current OpenPGP dependency chain. Local desktop use does not prove that secret-key timing leaks are unexploitable.
+                <span className={s.inlineEvidence}> <a href={source('docs/security.md')}>Current dependency findings</a></span></li>
               <li><b>Local mail is not encrypted by Telex.</b> The mail database and its backups are ordinary SQLite files.
                 Settings, exported mail and saved attachments also need protection from your operating system and storage.
                 <span className={s.inlineEvidence}> <a href={source('crates/telex-core/src/store.rs')}>Storage code</a> · <a href={source('crates/telex-core/src/backup.rs')}>Backup code</a></span></li>
@@ -217,7 +221,7 @@ export default function SecurityPage() {
               <li><b>No independent security audit is published here.</b> Automated scans and tests have a limited scope and can miss problems.
                 There is no antivirus certification, reproducible-build claim or guarantee of complete safety on this page.</li>
             </ul>
-            <p className={s.note}>The dependency findings above were identified on 12 October 2026. Use the newest run for the latest dependency results.</p>
+            <p className={s.note}>The initial findings were identified on 12 October 2026, with cryptography findings updated on 28 October 2026. Use the newest run for the latest dependency results.</p>
           </section>
 
           <section id="report" aria-labelledby="report-h">
