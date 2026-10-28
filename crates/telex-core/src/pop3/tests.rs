@@ -283,6 +283,14 @@ async fn mail_comes_down_once_by_its_uidl() {
     let first = check(addr, &store, &account).await;
     assert_eq!(first.new.len(), 3);
     assert!(first.arrived.is_empty(), "a first check brings old mail");
+    assert!(store
+        .lock()
+        .unwrap()
+        .folder_tree()
+        .unwrap()
+        .counts
+        .values()
+        .all(|c| c.new_unread == 0));
     let id = inbox(&store)
         .iter()
         .find(|m| m.subject == "Kropki")
@@ -308,6 +316,11 @@ async fn mail_comes_down_once_by_its_uidl() {
     let third = check(addr, &store, &account).await;
     assert_eq!(third.new.len(), 1);
     assert_eq!(third.arrived, third.new, "new mail arrived: rules see it");
+    assert_eq!(
+        store.lock().unwrap().folder_tree().unwrap().counts[&account.folder_key("inbox")]
+            .new_unread,
+        1
+    );
     assert_eq!(inbox(&store).len(), 4);
     let commands = server.lock().unwrap().commands.clone();
     assert!(

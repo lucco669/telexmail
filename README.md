@@ -12,6 +12,9 @@ Built with Rust and Tauri: small installer, fast start, no Electron, no account.
 > with remote images blocked until you allow them. Link destinations show on hover or keyboard
 > focus, with a list and copy actions even in Spam. An offline engine check shows an advisory
 > scam-risk score and the specific warning signs. Saved searches keep live queries in the folder list.
+> With spam filtering enabled, high-risk scams (70/100 or more) go straight to Spam, even before
+> statistical training is ready. Today's unread arrivals highlight the folder's existing count
+> and add a small dot to its account, so older unread mail can stay unread without looking new.
 > Rules match headers and attachments, sort, flag, copy and forward new mail, preview their matches and
 > leave a note saying why. Each account can have several identities, each with its own
 > signature and reply templates. You write in plain text or, when it helps, in HTML (which goes

@@ -236,6 +236,14 @@ const unreadAll = () => ACCOUNTS.reduce((n, a) => n + a.folders.filter(f => f.ki
 const countOf = key => !isEvery(key) ? COUNTS[key] ?? {total:0, unread:0}
   : key === UNREAD ? (n => ({total:n, unread:n}))(unreadAll())
   : servers().reduce((n, a) => { const c = COUNTS[keyOfKind(a.id, kindOf(key))]; return c ? {total:n.total + c.total, unread:n.unread + c.unread, stuck:n.stuck + (c.stuck ?? 0)} : n; }, {total:0, unread:0, stuck:0});
+// Keep the usual unread number; a dot and a highlighted badge distinguish today's arrivals.
+const freshOf = key => key === UNREAD ? ACCOUNTS.reduce((n, a) => n + freshAccount(a), 0)
+  : isEvery(key) ? servers().reduce((n, a) => n + (COUNTS[keyOfKind(a.id, kindOf(key))]?.new_unread ?? 0), 0)
+  : COUNTS[key]?.new_unread ?? 0;
+const freshAccount = a => a.folders.filter(f => !['spam', 'trash', 'sent', 'drafts', 'outbox'].includes(f.kind))
+  .reduce((n, f) => n + (COUNTS[a.id + '/' + f.id]?.new_unread ?? 0), 0);
+const freshTip = () => t('New unread mail arrived today. The number includes all unread mail.');
+const freshDot = () => `<i class="fresh-dot" aria-hidden="true"></i><span class="vh">${esc(freshTip())}</span>`;
 const num = n => n.toLocaleString(I18n.locale());
 // The folders on this PC ("On this PC"): mail kept only here. The core keeps them as an
 // account without servers, with this id, listed last.
@@ -738,14 +746,15 @@ function folderButton(a, f){
 }
 function foldButton(key, kind, own = '', twin = false){
   const c = countOf(key), all = COUNT_ALL.has(kind), on = key === state.folder && !state.savedSearch;
-  const n = all ? c.total : c.unread;
+  const n = all ? c.total : c.unread, fresh = !all && !['spam', 'trash', 'sent'].includes(kind) && freshOf(key) > 0;
   // The Outbox says what didn't go, in the warning colors, before what waits its turn.
   const cnt = c.stuck ? `<span class="qchip" data-level="full" title="${esc(tn(c.stuck, '{n} not sent', '{n} not sent', {n:num(c.stuck)}) + ' · ' + t('Not sent: open the message to see why.'))}">${num(c.stuck)}</span>`
-    : n ? `<span class="cnt${all ? ' dim' : ''}">${num(n)}</span>` : '';
+    : n ? `<span class="cnt${all ? ' dim' : ''}${fresh ? ' fresh-count' : ''}">${num(n)}</span>` : '';
   const tip = key === UNREAD ? t('Unread mail from every folder except Spam and Trash. O shows only the unread mail of a folder.')
     : isEvery(key) ? t('{folder} of every account', {folder:folderName(key)}) : own ? t('“{name}” on the server', {name:own}) : '';
   const name = esc(folderName(key)) + (twin ? `<i class="srv"> · ${esc(own)}</i>` : '');
-  return `<li><button type="button" class="fold${kind === 'sent' ? ' out' : ''}${on ? ' active' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}${tip ? ` title="${esc(tip)}"` : ''}>${I[KIND_ICON[kind] || 'folder']}<span>${name}</span>${cnt}</button></li>`;
+  const title = [tip, fresh && freshTip()].filter(Boolean).join(' · ');
+  return `<li><button type="button" class="fold${kind === 'sent' ? ' out' : ''}${on ? ' active' : ''}${fresh ? ' fresh-mail' : ''}" data-folder="${key}"${on ? ' aria-current="true"' : ''}${title ? ` title="${esc(title)}"` : ''}>${I[KIND_ICON[kind] || 'folder']}<span>${name}</span>${fresh ? freshDot() : ''}${cnt}</button></li>`;
 }
 // What isn't sent yet, at the end of the tree: every account's drafts, and the Outbox.
 const unsentKeys = () => UNSENT.map(kind => EVERY + '/' + kind).filter(key => countOf(key).total || key === state.folder);
@@ -775,7 +784,7 @@ function localGroup(a){
     items = '<ul>' + newFolderLine(LOCAL)
       + shown.map(f => folderButton(a, f)).join('') + '</ul>';
   }
-  return `<div class="pcrow"><button type="button" class="acct" data-acct="${LOCAL}" aria-expanded="${open}" title="${esc(t('Mail kept only on this PC, on no server. Right-click a folder for more.'))}">${I.caret}${adot(LOCAL)}<span class="acct-mail">${esc(t('On this PC'))}</span></button>`
+  return `<div class="pcrow"><button type="button" class="acct" data-acct="${LOCAL}" aria-expanded="${open}" title="${esc(t('Mail kept only on this PC, on no server. Right-click a folder for more.'))}">${I.caret}${adot(LOCAL)}<span class="acct-mail">${esc(t('On this PC'))}</span>${freshAccount(a) ? freshDot() : ''}</button>`
     + (backupNudge() ? `<button type="button" class="qchip bkchip" data-act="backups" title="${esc(t('This mail is only on this PC and has no recent backup. Click to back it up.'))}">${esc(t('No backup'))}</button>` : '')
     + `<button type="button" class="pcadd" data-act="new-folder" title="${esc(t('New folder on this PC'))}" aria-label="${esc(t('New folder on this PC'))}">${I.plus}</button></div>${items}`;
 }
@@ -798,7 +807,8 @@ function renderTree(){
       items = '<ul>' + newFolderLine(a.id) + (more ? own : main).map(f => folderButton(a, f)).join('');
       if (rest.length){
         const unread = more ? 0 : rest.reduce((n, f) => n + countOf(key(f)).unread, 0);
-        items += `<li><button type="button" class="fold more" data-more="${esc(a.id)}" aria-expanded="${more}">${I.caret}<span>${esc(more ? t('Fewer folders') : tn(rest.length, '{n} more', '{n} more'))}</span>${unread ? `<span class="cnt">${num(unread)}</span>` : ''}</button></li>`;
+        const fresh = !more && rest.some(f => !['spam', 'trash'].includes(f.kind) && freshOf(key(f)) > 0);
+        items += `<li><button type="button" class="fold more${fresh ? ' fresh-mail' : ''}" data-more="${esc(a.id)}" aria-expanded="${more}"${fresh ? ` title="${esc(freshTip())}"` : ''}>${I.caret}<span>${esc(more ? t('Fewer folders') : tn(rest.length, '{n} more', '{n} more'))}</span>${fresh ? freshDot() : ''}${unread ? `<span class="cnt${fresh ? ' fresh-count' : ''}">${num(unread)}</span>` : ''}</button></li>`;
       }
       items += '</ul>';
     }
@@ -808,7 +818,8 @@ function renderTree(){
     // An account whose last check failed says so until one works (the status bar can retry).
     const failed = PROBLEMS[a.id] ? t('The last check failed: {reason}', {reason:PROBLEMS[a.id]}) : '';
     const bad = failed ? `<span class="qchip" data-level="full" title="${esc(failed)}" aria-hidden="true">!</span><span class="vh">${esc(failed)}</span>` : '';
-    return `<div class="agrp ${acolor(a.id)}"><button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}${failed ? '\n' + esc(failed) : ''}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${full}${bad}</button>${items}</div>`;
+    const fresh = freshAccount(a) > 0;
+    return `<div class="agrp ${acolor(a.id)}"><button type="button" class="acct" data-acct="${esc(a.id)}" aria-expanded="${open}" title="${esc(a.name)} · ${esc(a.email)}${failed ? '\n' + esc(failed) : ''}${fresh ? '\n' + esc(freshTip()) : ''}">${I.caret}${adot(a.id)}<span class="acct-mail">${esc(a.email)}</span>${fresh ? freshDot() : ''}${full}${bad}</button>${items}</div>`;
   }).join('') + unsentGroup() + `<button type="button" class="add-acct" data-act="add-account">${I.plus}<span>${esc(servers().length ? t('Add account') : t('Add your account'))}</span></button>`;
   const input = $('nf-name');
   if (input){
@@ -1839,6 +1850,8 @@ function changed(m, fields){
   if ('unread' in fields && fields.unread !== m.unread){
     const c = COUNTS[m.f] ??= {total:0, unread:0};
     c.unread = Math.max(0, c.unread + (fields.unread ? 1 : -1));
+    // The database knows whether this message arrived today, including in another window.
+    if (c.new_unread || fields.unread) loadTree().then(() => { renderTree(); renderStatus(); }).catch(() => {});
   }
   patch(m.id, fields);
   renderTree(); renderStatus(); drawRows();
@@ -2457,6 +2470,7 @@ function headerHtml(m, controls){
   const book = m.from_email && !VIEWER && !isOut(m.folder)
     ? `<button type="button" class="pbtn ph-ab${known ? ' known' : ''}" data-act="contact" title="${esc(bookTip)}" aria-label="${esc(bookTip)}">${known ? I.person : I.personAdd}</button>` : '';
   return `<header class="ph">
+  ${previewActions(m)}
   <div class="ph-top"><h2 class="ph-subj">${esc(m.subject)}</h2><div class="ph-btns">${controls}</div></div>
   <div class="ph-tags">${tagChips(m.tags)}</div>
   <dl class="ph-grid">
@@ -2467,6 +2481,14 @@ function headerHtml(m, controls){
   </dl>
   ${attsHtml(m.attachments)}
 </header>`;
+}
+function previewActions(m){
+  if (['drafts', 'outbox'].includes(kindOf(m.folder))) return '';
+  return `<div class="ph-actions" role="toolbar" aria-label="${esc(t('Mail actions'))}">${[
+    ['reply', I.reply, t('Reply'), t('Reply (R)')],
+    ['replyall', I.replyall, t('Reply all'), t('Reply to all (Shift+R)')],
+    ['forward', I.forward, t('Forward'), t('Forward (Shift+F)')],
+  ].map(([act, icon, label, tip]) => `<button type="button" class="btn" data-act="${act}" title="${esc(tip)}">${icon}<span>${esc(label)}</span></button>`).join('')}</div>`;
 }
 // The envelope above a message marks it read or unread, like U; it shows what a click does.
 const readTip = m => m.unread ? t('Mark as read (U)') : t('Mark as unread (U)');
@@ -2846,6 +2868,7 @@ previewEl.addEventListener('click', async e => {
   if (off && state.compose){ state.compose.attachments.splice(Number(off.dataset.unattach), 1); renderComposeAtts(); return; }
   if (!act) return;
   const m = current();
+  if (['reply', 'replyall', 'forward'].includes(act.dataset.act) && m && !state.compose){ openCompose(act.dataset.act); return; }
   if (act.dataset.act === 'images' && m){
     state.images.add(m.id); say(t('Loading images…'), 0);
     await renderPreview(); say(t('Images loaded for this message only.'));
@@ -3274,7 +3297,7 @@ function renderCompose(){
 <span class="seg cfmt" role="group" aria-label="${esc(t('Format'))}"><button type="button" data-fmt="plain" aria-pressed="${!html}" title="${esc(t('Plain text'))}">${esc(t('Text|view'))}</button><button type="button" data-fmt="html" aria-pressed="${html}" title="${esc(t('HTML: bold, lists, links'))}">HTML</button></span></div>
 <div class="cf">
   <label for="c-to">${esc(t('To'))}</label><input id="c-to" value="${esc(c.to)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">
-  <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" title="${esc(t('Blind copy: they get it, the others don’t see them'))}">${esc(t('Bcc'))}</button>`}</div>
+  <label for="c-cc">${esc(t('Cc'))}</label><div class="crow"><input id="c-cc" value="${esc(c.cc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">${bcc ? '' : `<button type="button" class="linkbtn cbcc" data-act="bcc" aria-keyshortcuts="Alt+B" title="${esc(t('Blind copy: they get it, the others don’t see them'))} (Alt+B)">${esc(t('Bcc'))}</button>`}</div>
   <div class="cothers" id="c-others" hidden></div>
   ${bcc ? `<label for="c-bcc">${esc(t('Bcc'))}</label><input id="c-bcc" value="${esc(c.bcc)}" autocomplete="off" spellcheck="false" aria-autocomplete="list">` : ''}
   <label for="c-subj">${esc(t('Subject'))}</label><div class="spellfield"><input id="c-subj" value="${esc(c.subject)}" autocomplete="off" spellcheck="false"><div class="spellmarks" aria-hidden="true"></div></div>
@@ -3302,6 +3325,21 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
   $('cform').addEventListener('submit', e => { e.preventDefault(); send(); });
   // Enter in a header field doesn't send: Ctrl+Enter does.
   $('cform').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && e.target.tagName === 'INPUT') e.preventDefault(); });
+  // Typing follows the fields. Auxiliary links, recipient chips and the HTML toolbar
+  // remain clickable, without interrupting To → Cc → Bcc (if open) → Subject → body.
+  $('cform').addEventListener('keydown', e => {
+    if (e.defaultPrevented || e.key !== 'Tab' || e.altKey || e.ctrlKey || e.metaKey) return;
+    const fields = ['c-to', 'c-cc', 'c-bcc', 'c-subj', html ? 'c-html' : 'c-body'].map($).filter(Boolean);
+    const at = fields.indexOf(e.target), next = fields[at + (e.shiftKey ? -1 : 1)];
+    if (at >= 0 && next){ e.preventDefault(); next.focus(); }
+  });
+  $('cform').addEventListener('keydown', e => {
+    if (e.altKey && !e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'b'){
+      e.preventDefault();
+      if ($('c-bcc')) $('c-bcc').focus();
+      else previewEl.querySelector('[data-act="bcc"]')?.click();
+    }
+  });
   $('c-from').addEventListener('change', e => changeIdentity(Number(e.target.value)));
   // The picked time: Enter sends it then, Esc puts the line away (and doesn't close the message).
   $('c-when').addEventListener('keydown', e => {
@@ -4828,20 +4866,20 @@ function leaveThread(){
 // first: the download right after adding an account.
 // account: only that account's Inbox, because IDLE said something changed there.
 let checkAgain = null; // asked for while a check was running; runs when it ends
-async function getMail({quiet = false, first = false, account = null} = {}){
+async function getMail({quiet = false, first = false, account = null, priorityFolder = !quiet && !account ? state.folder : null} = {}){
   const n = servers().length;
   if (!n){ if (!quiet) openAccountDialog(); return; } // nothing to check yet
   const b = $('b-get');
   if (b.classList.contains('busy')){
     // A full check waiting covers an Inbox one.
-    if (first || !quiet || account) checkAgain = checkAgain && !checkAgain.account ? checkAgain : {quiet, first, account};
+    if (first || !quiet || account) checkAgain = !quiet || first || !checkAgain || checkAgain.account ? {quiet, first, account, priorityFolder} : checkAgain;
     return;
   }
   b.classList.add('busy');
   if (!quiet) say(tn(n, 'Checking {n} account…', 'Checking {n} accounts…'), 0);
   try {
-    const r = await invoke('check_mail', {account});
-    if (r.busy){ setTimeout(() => getMail({quiet, first, account}), 2000); return; } // changes are being sent
+    const r = await invoke('check_mail', {account, priorityFolder});
+    if (r.busy){ setTimeout(() => getMail({quiet, first, account, priorityFolder}), 2000); return; } // changes are being sent
     forgetRecipients();
     lastCheck = new Date();
     await refresh({arrived:r.new}); // the quota and how the check went come with the tree
@@ -6766,7 +6804,7 @@ async function renderSpamStatus(){
   let s;
   try { s = await invoke('spam_status'); } catch { el.textContent = ''; return; }
   el.textContent = [t('Learned so far: spam {spam}, good mail {ham}.', {spam:num(s.spam), ham:num(s.ham)}),
-    s.spam < s.needed || s.ham < s.needed ? t('It starts moving mail once it has {n} of each.', {n:num(s.needed)}) : ''].filter(Boolean).join(' ');
+    s.spam < s.needed || s.ham < s.needed ? t('Statistical filtering starts once it has {n} of each.', {n:num(s.needed)}) : ''].filter(Boolean).join(' ');
 }
 // When Telex looks for a newer version by itself.
 const UPDATE_CHOICES = ['start', 'daily', 'off'];
@@ -8728,6 +8766,7 @@ async function boot(){
   try { await loadTree(); } catch (e){ previewEl.innerHTML = `<div class="pempty">${esc(t('Couldn’t load mail: {error}', {error:tr(e)}))}</div>`; return; }
   paintScope();
   await setFolder(homeOf(ACCOUNTS[0]?.id));
+  refreshArrivalDay();
   listEl.focus({preventScroll:true});
   sayRestored();
   loadBackups(); // whether the folders on this PC are backed up
@@ -8738,6 +8777,14 @@ async function boot(){
   else openAccountDialog(); // first start: straight to adding an account
   tellHelp();
   tellTray();
+}
+// Also roll the highlight over when automatic mail checks are off or the PC wakes up.
+function refreshArrivalDay(){
+  const now = new Date(), next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  setTimeout(() => {
+    loadTree().then(() => { renderTree(); renderStatus(); }).catch(() => {});
+    refreshArrivalDay();
+  }, next - now + 100);
 }
 boot();
 })();

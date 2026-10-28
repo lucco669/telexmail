@@ -4,7 +4,7 @@ How a new version gets from `main` to the **Update** button in everyone's Telex.
 
 ```
 npm run set-version -- 0.2.0
-git add package.json package-lock.json src-tauri/tauri.conf.json Cargo.toml Cargo.lock
+git add package.json package-lock.json src-tauri/tauri.conf.json Cargo.toml Cargo.lock fuzz/Cargo.lock
 git commit -m "Release 0.2.0"
 git push
 git tag -a v0.2.0 -m "What's new in 0.2.0"
@@ -136,10 +136,11 @@ and install a signed update from GitHub.
 
    It writes the version into `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`
    (the version the app reports and the updater compares), the workspace `Cargo.toml` and
-   `Cargo.lock`. Versions are MAJOR.MINOR.PATCH only (the MSI installer allows no text
+   `Cargo.lock` and `fuzz/Cargo.lock` (including the translation macro crate). Versions are
+   MAJOR.MINOR.PATCH only (the MSI installer allows no text
    pre-releases, at most 255.255.65535), and only upwards: the updater never installs an older
    version. Use MINOR for new features (a roadmap step), PATCH for fixes.
-2. Commit those five files ("Release 0.2.0") and push.
+2. Commit those six files ("Release 0.2.0") and push.
 3. Tag that commit with the release notes and push the tag:
 
    ```

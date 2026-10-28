@@ -1,4 +1,5 @@
 {
+  "The scam check moved it to Spam (scam risk {score} of 100). If it isn't spam, choose Not spam in its menu.": "Die Betrugsprüfung hat die Nachricht nach Spam verschoben (Betrugsrisiko {score} von 100). Falls sie kein Spam ist, wähle Kein Spam in ihrem Menü.",
   "\"{email}\" doesn't look like an email address.": "„{email}“ sieht nicht wie eine E-Mail-Adresse aus.",
   "\"{host}\" isn't a server name. Enter just the name, e.g. mail.example.com.": "„{host}“ ist kein Servername. Nur den Namen eingeben, z. B. mail.example.com.",
   "\"{part}\" in {field} isn't a valid address.": "„{part}“ im Feld {field} ist keine gültige Adresse.",

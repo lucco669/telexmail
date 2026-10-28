@@ -1,8 +1,15 @@
 # Offline mail risk checks
 
 The opened-message preview asks `MailStore::inspect_message` for the normal message plus
-`risk::analyse`'s advisory report. Listing, searching, syncing and filtering do not run the
-scanner. The score is computed locally when a message is opened, and the UI caches the last
+`risk::analyse`'s report. The spam filter also runs the same bounded scanner on new Inbox
+arrivals before rules and away replies. With the filter enabled, a risk score of 70 or more
+moves the message to Spam immediately, even before the statistical filter has enough training.
+Off disables both filtering paths. People the user has written to, trusted senders, answers
+to the user's own mail and messages restored with Not spam are left alone. Automatically
+filtered messages do not train the filter. A note explains the move; the preview lists the
+individual warning signs. The preview warning setting is independent of incoming filtering.
+
+Listing and searching do not scan mail. Opening computes its score locally, and the UI caches the last
 30 opened messages. Nothing is uploaded, looked up in DNS, fetched, moved, deleted or marked
 read by the risk checker. The existing reading policy still controls read flags.
 
@@ -54,6 +61,7 @@ Source references for the starting catalogue:
 - [Netflix's guidance](https://help.netflix.com/en/node/65674)
 - [mBank's official login guidance](https://www.mbank.pl/bezpieczenstwo/bezpieczny-bank/)
 - [PKO's guidance](https://www.pkobp.pl/aktualnosci/bezpieczenstwo/uwaga-na-falszywe-wiadomosci-podszywajace-sie-pod-bank-19-09)
+- [PKO's iPKO biznes guidance and official domain](https://www.pkobp.pl/korporacje/bankowosc-elektroniczna-ipko-biznes/bezpieczenstwo)
 
 Run `cargo test -p telex-core risk` for the scanner regressions, `cargo test -p telex-core
 opened_message_risk` for the store boundary, and the ignored `risk::tests::timing` test to

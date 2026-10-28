@@ -1173,12 +1173,41 @@ fn mail_survives_reopening_the_file() {
             })
             .unwrap();
         assert_eq!(account.id, "twojastudio");
+        store
+            .set_folders(
+                &account.id,
+                &[Folder {
+                    id: "inbox".into(),
+                    name: "Inbox".into(),
+                    kind: FolderKind::Inbox,
+                    remote: Some("INBOX".into()),
+                }],
+            )
+            .unwrap();
+        let raw = b"From: Anna <anna@example.com>\r\nSubject: New today\r\n\r\nHello";
+        let ids = store
+            .add_synced(
+                &account.folder_key("inbox"),
+                &[SyncedMessage {
+                    uid: 1,
+                    message: crate::mime::parse_message(raw, "", None),
+                    raw: raw.to_vec(),
+                }],
+            )
+            .unwrap();
+        store
+            .note_arrivals(&ids, chrono::Local::now().date_naive())
+            .unwrap();
     }
     let store = MailStore::open(&path).unwrap();
     assert!(!store.is_sample());
     assert!(!store.is_in_memory());
     assert!(MailStore::in_memory().unwrap().is_in_memory());
     assert_eq!(store.accounts()[0].email, "biuro@twojastudio.pl");
+    assert_eq!(
+        store.folder_tree().unwrap().counts["twojastudio/inbox"].new_unread,
+        1
+    );
     drop(store);
     for ext in ["", "-wal", "-shm"] {
         let _ = std::fs::remove_file(format!("{}{ext}", path.display()));

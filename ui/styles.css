@@ -178,6 +178,9 @@ input[type="checkbox"],input[type="radio"]{accent-color:var(--accent)}
 .fold>span:not(.cnt,.qchip){min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fold .cnt,.fold .qchip{margin-left:auto}
 .fold .cnt{font:600 11px var(--font-data);font-variant-numeric:tabular-nums;color:var(--accent)}
+.fresh-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.fresh-mail>svg{color:var(--accent)}
+.fold .cnt.fresh-count{min-width:19px;padding:1px 5px;border-radius:9px;background:var(--accent);color:var(--accent-fg);text-align:center}
 /* Sent is quieter than the Inbox: mail that went out, not mail to read. */
 .fold.out:not(.active)>span:not(.cnt){color:var(--muted)}
 .fold .srv{font-style:normal;color:var(--muted)}
@@ -341,6 +344,13 @@ tr.empty:hover td{background:none}
 /* Preview */
 .preview{overflow:auto;background:var(--surface);min-height:0;min-width:0}
 .ph{padding:var(--ph-pad);background:var(--panel);border-bottom:1px solid var(--line-soft)}
+.ph-actions{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 8px}
+.ph-actions .btn{display:inline-flex;align-items:center;gap:5px;height:25px;padding:0 8px;font-size:12px}
+.ph-actions svg{width:14px;height:14px}
+@media (forced-colors: active){
+  .fresh-dot{forced-color-adjust:none;background:Highlight;border:1px solid CanvasText}
+  .fold .cnt.fresh-count{background:Highlight;color:HighlightText;forced-color-adjust:none}
+}
 .ph-top{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 10px}
 /* The buttons go under the subject when the pane is narrow (the message pane on the right). */
 .ph-btns{display:flex;flex-wrap:wrap;align-items:flex-start;gap:6px 10px;margin-left:auto}

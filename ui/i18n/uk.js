@@ -3,6 +3,10 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["uk"] = {
 T: {
+  "Statistical filtering starts once it has {n} of each.": "Статистична фільтрація почнеться після вивчення {n} листів кожного типу.",
+  "New unread mail arrived today. The number includes all unread mail.": "Сьогодні надійшли нові непрочитані листи. Число включає всі непрочитані листи.",
+  "Check all accounts for new mail, starting with the selected mailbox": "Перевірити нову пошту в усіх облікових записах, починаючи з вибраної скриньки",
+  "High scam risk (70/100 or more) goes to Spam immediately when the filter is on.": "Коли фільтр увімкнено, листи з високим ризиком шахрайства (70/100 і більше) одразу потрапляють до Спаму.",
   "Sepia": "Сепія",
   "Solar light": "Solar світла",
   "Classic grey": "Класична сіра",
@@ -294,7 +298,6 @@ T: {
   "Settings": "Налаштування",
   "Compact": "Компактні",
   "Comfortable": "Просторі",
-  "Check all accounts for new mail": "Перевірити нову пошту в усіх облікових записах",
   "New message (N)": "Нове повідомлення (N)",
   "Reply (R)": "Відповісти (R)",
   "Reply to all (Shift+R)": "Відповісти всім (Shift+R)",
@@ -544,7 +547,6 @@ T: {
   "Strict: catches more, and now and then a good message": "Суворий: ловить більше, а часом і добре повідомлення",
   "Off: it learns, but moves nothing": "Вимкнений: навчається, але нічого не переміщує",
   "Learned so far: spam {spam}, good mail {ham}.": "Навчився досі на: спам {spam}, добра пошта {ham}.",
-  "It starts moving mail once it has {n} of each.": "Почне переміщувати пошту, коли матиме по {n} кожного виду.",
   "Mark as spam": "Позначити як спам",
   "Not spam": "Не спам",
   "Moved to Spam; the spam filter learns from it. Press Z to undo.": "Переміщено до Спаму; фільтр спаму на цьому навчається. Z скасовує.",

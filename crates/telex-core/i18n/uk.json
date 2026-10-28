@@ -1,4 +1,5 @@
 {
+  "The scam check moved it to Spam (scam risk {score} of 100). If it isn't spam, choose Not spam in its menu.": "Перевірка шахрайства перемістила лист до Спаму (ризик шахрайства {score} зі 100). Якщо це не спам, виберіть Не спам у його меню.",
   "\"{email}\" doesn't look like an email address.": "«{email}» не схоже на адресу електронної пошти.",
   "\"{host}\" isn't a server name. Enter just the name, e.g. mail.example.com.": "«{host}» — не назва сервера. Введіть лише назву, напр. mail.example.com.",
   "\"{part}\" in {field} isn't a valid address.": "«{part}» у полі «{field}» — неправильна адреса.",

@@ -8,6 +8,10 @@
 'use strict';
 
 const PL = {
+  'Statistical filtering starts once it has {n} of each.':'Filtrowanie statystyczne zaczyna działać po poznaniu {n} wiadomości każdego rodzaju.',
+  'New unread mail arrived today. The number includes all unread mail.':'Dziś przyszła nowa nieprzeczytana poczta. Liczba obejmuje wszystkie nieprzeczytane wiadomości.',
+  'Check all accounts for new mail, starting with the selected mailbox':'Sprawdź nową pocztę na wszystkich kontach, zaczynając od wybranej skrzynki',
+  'High scam risk (70/100 or more) goes to Spam immediately when the filter is on.':'Wiadomości o wysokim ryzyku oszustwa (co najmniej 70/100) od razu trafiają do Spamu, gdy filtr jest włączony.',
   // Settings › Appearance: themes, accent colors, spacing, the message pane, reading, message zoom
   'Sepia':'Sepia',
   'Solar light':'Solar jasny',
@@ -494,7 +498,6 @@ const PL = {
   'Settings': 'Ustawienia',
   'Compact': 'Kompaktowe',
   'Comfortable': 'Wygodne',
-  'Check all accounts for new mail': 'Sprawdź nową pocztę na wszystkich kontach',
   'New message (N)': 'Nowa wiadomość (N)',
   'Reply (R)': 'Odpowiedz (R)',
   'Reply to all (Shift+R)': 'Odpowiedz wszystkim (Shift+R)',
@@ -798,7 +801,6 @@ const PL = {
   'Strict: catches more, and now and then a good message': 'Surowy: łapie więcej, a czasem i dobrą wiadomość',
   'Off: it learns, but moves nothing': 'Wyłączony: uczy się, ale niczego nie przenosi',
   'Learned so far: spam {spam}, good mail {ham}.': 'Dotąd nauczył się na: spam {spam}, dobra poczta {ham}.',
-  'It starts moving mail once it has {n} of each.': 'Zacznie przenosić pocztę, gdy będzie miał po {n} z każdego rodzaju.',
   'Mark as spam': 'Oznacz jako spam',
   'Not spam': 'To nie spam',
   'Moved to Spam; the spam filter learns from it. Press Z to undo.': 'Przeniesiono do Spamu; filtr spamu się na niej uczy. Z cofa.',

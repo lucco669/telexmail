@@ -44,7 +44,7 @@ export default async function PerformancePage() {
           <div><h3>An index without extra body copies</h3><p>The search index stores tokens and message IDs. It does not keep another full copy of each message’s text.</p></div>
         </div>
         <p className={s.note}>Saved searches reuse the same local query engine; they store queries and list options rather than another copy of the mailbox.
-          The local scam check runs when a message is opened, with recent opened messages cached. Listing, searching and syncing do not run that scanner.
+          The local scam check runs when a message is opened, with recent opened messages cached. Enabled spam filtering also scans new Inbox arrivals during sync. Listing and searching do not run that scanner.
           {' '}<Link href={`${pages.features.path}#saved-searches`}>Saved searches</Link> · <Link href={`${pages.features.path}#link-inspection`}>Local mail inspection</Link>.</p>
         {performance.coreBuild && <p className={s.note}>In the core benchmark, generating and storing 100,000 synthetic messages, including their search index,
           took {performance.coreBuild.seconds.toFixed(1)} seconds, in batches of {performance.coreBuild.batchMessages.toLocaleString('en-GB')}.

@@ -2,61 +2,61 @@
   "version": 2,
   "id": "inbox",
   "sourceHashes": {
-    "light": "7abcc7a7b0c32f481f66b2fffd91d1b249a06a1b90dc9eee7c0bcd5caac1a7a8",
-    "dark": "ade53e0415e850646b582f94be84f255745c25be20859f18dd1d8583e8710f9e"
+    "light": "1196f5310a4934a981bea4e423d8a650abc81eefa0bb340f07064f7b57aff5f6",
+    "dark": "8d4b18f91542226fdba46917f01acfb5b3e2a3b7f9637206514ac461fc70af44"
   },
   "light": [
     {
       "width": 480,
-      "src": "/posters/inbox-light-480.eeca8f30f64f.webp",
-      "avifSrc": "/posters/inbox-light-480.1a10356e5128.avif"
+      "src": "/posters/inbox-light-480.f5ea7d14f48c.webp",
+      "avifSrc": "/posters/inbox-light-480.adaadf466701.avif"
     },
     {
       "width": 800,
-      "src": "/posters/inbox-light-800.f15ebfe30197.webp",
-      "avifSrc": "/posters/inbox-light-800.9cdb56a5aa67.avif"
+      "src": "/posters/inbox-light-800.9184be5901f0.webp",
+      "avifSrc": "/posters/inbox-light-800.8cb70901a39e.avif"
     },
     {
       "width": 1280,
-      "src": "/posters/inbox-light-1280.5e725e6b1ed4.webp",
-      "avifSrc": "/posters/inbox-light-1280.755276a7193f.avif"
+      "src": "/posters/inbox-light-1280.dee89c1366cb.webp",
+      "avifSrc": "/posters/inbox-light-1280.aa2cd48db3cf.avif"
     },
     {
       "width": 1920,
-      "src": "/posters/inbox-light-1920.922484e6d69e.webp",
-      "avifSrc": "/posters/inbox-light-1920.9f663bea3720.avif"
+      "src": "/posters/inbox-light-1920.dee89c1366cb.webp",
+      "avifSrc": "/posters/inbox-light-1920.aa2cd48db3cf.avif"
     },
     {
       "width": 2560,
-      "src": "/posters/inbox-light-2560.e1c1f0b79d12.webp",
-      "avifSrc": "/posters/inbox-light-2560.e91a6f78caf6.avif"
+      "src": "/posters/inbox-light-2560.dee89c1366cb.webp",
+      "avifSrc": "/posters/inbox-light-2560.aa2cd48db3cf.avif"
     }
   ],
   "dark": [
     {
       "width": 480,
-      "src": "/posters/inbox-dark-480.b0ff3ad0aa5e.webp",
-      "avifSrc": "/posters/inbox-dark-480.0104e859c0f4.avif"
+      "src": "/posters/inbox-dark-480.302fdc0cae51.webp",
+      "avifSrc": "/posters/inbox-dark-480.aa263e2d79e4.avif"
     },
     {
       "width": 800,
-      "src": "/posters/inbox-dark-800.3b15f65a0da1.webp",
-      "avifSrc": "/posters/inbox-dark-800.683ad8ae26c6.avif"
+      "src": "/posters/inbox-dark-800.a1353e40e0f8.webp",
+      "avifSrc": "/posters/inbox-dark-800.d22004ce2f2f.avif"
     },
     {
       "width": 1280,
-      "src": "/posters/inbox-dark-1280.05f15b78f879.webp",
-      "avifSrc": "/posters/inbox-dark-1280.a6d0f25f3b85.avif"
+      "src": "/posters/inbox-dark-1280.de7a3004e34f.webp",
+      "avifSrc": "/posters/inbox-dark-1280.157a986b2b2b.avif"
     },
     {
       "width": 1920,
-      "src": "/posters/inbox-dark-1920.3b2670c363e3.webp",
-      "avifSrc": "/posters/inbox-dark-1920.4bc0c5d7398e.avif"
+      "src": "/posters/inbox-dark-1920.de7a3004e34f.webp",
+      "avifSrc": "/posters/inbox-dark-1920.157a986b2b2b.avif"
     },
     {
       "width": 2560,
-      "src": "/posters/inbox-dark-2560.3c4691c499d5.webp",
-      "avifSrc": "/posters/inbox-dark-2560.7055c89f2675.avif"
+      "src": "/posters/inbox-dark-2560.de7a3004e34f.webp",
+      "avifSrc": "/posters/inbox-dark-2560.157a986b2b2b.avif"
     }
   ]
 }

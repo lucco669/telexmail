@@ -11,6 +11,7 @@ const V0910 = '0.9.10';
 const V0911 = '0.9.11';
 const V0920 = '0.9.20';
 const V0922 = '0.9.22';
+const V0923 = '0.9.23';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -395,7 +396,8 @@ export const featureRows: FeatureRow[] = [
       'The note on a message it moved gives the score and the words that told, and how to send it back',
       'Never moves mail from people you have written to, senders whose images you trust, or answers to your own mail',
       'Mark as spam and Not spam in the message menu teach it; moving mail into or out of Spam does too, and Z undoes both',
-      'Careful, normal or strict in Settings › Mail, or off; it waits until it has seen 50 of each kind',
+      'Careful, normal or strict in Settings › Mail, or off; statistical filtering waits until it has seen 50 of each kind',
+      { text: 'High scam risk (70/100 or more) goes to Spam immediately while filtering is on, even before statistical training is ready', since: V0923 },
       'It runs before your rules, and mail it files away brings no notification',
       { text: 'Spam you throw in the Trash is marked read on the way, so it never counts as unread', since: V0911 },
       { text: 'Unsubscribe from a newsletter in one click where the list allows it, else by a mail or on its page; never from Spam, where it would tell the sender your address is read', since: V0920 },
@@ -412,7 +414,7 @@ export const featureRows: FeatureRow[] = [
       'Right-click a link to copy its address; in Spam links stay blocked, copying still works',
       'Warning reasons include sender and brand lookalikes, disguised destinations and hidden characters; mail without warning signs shows nothing',
       'The score is advisory points out of 100, not a probability; no warning does not establish that mail is safe',
-      'The check runs when you open a message; it does not move mail, follow redirects or verify attachments, reputation, SPF, DKIM or DMARC',
+      'The preview checks mail when you open it; enabled filtering also checks new Inbox arrivals and moves high-risk scams to Spam. The scanner does not follow redirects or verify attachments, reputation, SPF, DKIM or DMARC',
     ],
   },
   {
@@ -986,6 +988,28 @@ export type Version = {
 };
 
 export const versions: Version[] = [
+  {
+    version: V0923,
+    title: 'Quicker mail checks, preview actions and stronger scam filtering',
+    date: '2026-10-28',
+    summary: 'Get mail starts with the mailbox and folder you are using. Reply and forward from the preview, tab through compose without detours, and see which folders have new unread arrivals today. High-risk scams now go to Spam as they arrive.',
+    points: [
+      'Get mail checks the selected account and folder first, then checks the remaining accounts in parallel.',
+      'Reply, Reply all and Forward buttons sit above the subject in the message preview.',
+      'Tab follows To, Cc, visible Bcc, Subject and message text, skipping the Bcc toggle and formatting toolbar. Alt+B opens Bcc.',
+      'With spam filtering enabled, new Inbox mail with scam risk of 70/100 or more goes to Spam immediately, before statistical training is ready. PKO and iPKO biznes matching includes the official business banking domain. Existing trusted-sender exceptions and Not spam corrections are respected.',
+      'Today’s unread arrivals add a dot and highlight the existing folder count. Older unread messages stay quiet. The markers follow rules and moves, survive restarts and reset each day.',
+      'A quick restart no longer freezes while the tray icon is being updated.',
+    ],
+    upgrade: 'Version 0.9.23 upgrades the local mail base to remember today’s arrivals. Back up in Settings › Backups before updating; older Telex versions cannot reopen the upgraded mail base.',
+    highlights: [
+      { title: 'Your mailbox first', text: 'Get mail starts where you are working.', href: '/features#sync' },
+      { title: 'Preview actions', text: 'Reply, Reply all and Forward beside the message.', keys: 'R · Shift+R · Shift+F', href: '/features#read' },
+      { title: 'Straight through compose', text: 'Tab moves between fields and into the message.', keys: 'Tab · Alt+B', href: '/features#writing' },
+      { title: 'High-risk scams to Spam', text: 'Local scam checks now help filter new arrivals.', href: '/features#spam-filter' },
+      { title: 'New unread at a glance', text: 'A highlight for today’s arrivals, with one count.', href: '/features#sync' },
+    ],
+  },
   {
     version: V0922,
     title: 'Fourteen themes, a tray icon, replied marks, and pictures that fit',
@@ -1621,7 +1645,7 @@ export const faqGroups: { title: string; items: Question[] }[] = [
       },
       {
         q: 'Does the scam check upload mail or open links?',
-        a: 'No. The Rust mail engine checks warning signs locally when you open a message. It explains sender and brand lookalikes, misleading links and other supported signals without visiting websites, following redirects or uploading content. The score is advisory points out of 100, not a probability. Its brand catalogue and scan size are limited; no warning does not mean a message is safe. It does not verify attachments, link reputation, SPF, DKIM or DMARC, and does not move messages for you.',
+        a: 'No. The Rust mail engine checks warning signs locally when you open a message and when the enabled spam filter checks new Inbox arrivals. It explains sender and brand lookalikes, misleading links and other supported signals without visiting websites, following redirects or uploading content. The score is heuristic points out of 100, not a probability. With filtering on, high-risk arrivals (70/100 or more) go to Spam, subject to the existing trusted-sender exceptions. Its brand catalogue and scan size are limited; no warning does not mean a message is safe. It does not verify attachments, link reputation, SPF, DKIM or DMARC.',
       },
       {
         q: 'Can I inspect links in Spam?',

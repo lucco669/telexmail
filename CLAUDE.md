@@ -136,7 +136,8 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
                      built in, the user's own keyed from their names as Thunderbird keys them),
                      `messages.keywords`, queued 'keyword' changes, merging the server's keywords.
   src/risk.rs        Scam warning signs of an opened message, offline (docs/mail-risk.md): brand
-                     lookalikes, disguised links, hidden characters. Advisory points, not a filter.
+                     lookalikes, disguised links, hidden characters. The spam filter also uses
+                     these points on new arrivals: high risk (70+) goes to Spam when enabled.
   src/spam.rs        Telex's own spam filter, offline: tokens, Robinson/Fisher scores (as SpamBayes),
                      learning from Spam and read mail and from moves into and out of Spam, new
                      Inbox mail sorted before the rules. Its tests are in src/spam/tests.rs.

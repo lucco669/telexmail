@@ -68,9 +68,11 @@ export default function PrivacyPage() {
           </p>
           <p>
             Link inspection displays addresses already present in a message. Hovering, focusing or copying them does
-            not visit the destination. The scam checker also runs locally, when you open a message, with recent reports
+            not visit the destination. The scam checker also runs locally, when you open a message and when enabled
+            filtering checks new Inbox arrivals, with recent preview reports
             cached in memory. It uploads nothing, performs no DNS or reputation lookup, fetches no images and follows
-            no redirects. It does not move, delete or mark mail read; your reading setting still controls read flags.
+            no redirects. Enabled filtering moves high-risk new Inbox mail (70/100 or more) to Spam, subject to trusted-sender
+            exceptions. It never deletes mail; your reading setting still controls read flags.
             Its limited, advisory score is explained on the <Link href={`${pages.security.path}#limits`}>security page</Link>.
           </p>
           <p>

@@ -848,7 +848,8 @@ pub(crate) fn server_accounts(state: &AppState) -> CmdResult<Vec<Account>> {
 /// Full sync of every account: send queued changes, download new mail and flag changes,
 /// send what changed meanwhile. The accounts sync at the same time, each on its own
 /// connection: a sync mostly waits on its server, so one after another a check took as long
-/// as all of them added up. Progress reaches the UI as "sync-progress" events. One account
+/// as all of them added up. A selected folder's account goes first, then the others together.
+/// Progress reaches the UI as "sync-progress" events. One account
 /// failing doesn't stop the others. With `account`, only that account's Inbox: what IDLE
 /// said changed.
 #[tauri::command]
@@ -856,6 +857,7 @@ async fn check_mail(
     app: AppHandle,
     state: State<'_, AppState>,
     account: Option<String>,
+    priority_folder: Option<String>,
 ) -> CmdResult<SyncOutcome> {
     let Some(_busy) = BusyGuard::take(&state.busy) else {
         return Ok(SyncOutcome::busy());
@@ -863,54 +865,72 @@ async fn check_mail(
     let progress = |p: SyncProgress| {
         let _ = app.emit("sync-progress", p);
     };
-    let scope = if account.is_some() {
-        Scope::Inbox
-    } else {
-        Scope::All
-    };
     let mut outcome = SyncOutcome::default();
     let mut arrived = Vec::new();
-    let accounts: Vec<Account> = server_accounts(&state)?
+    let mut accounts: Vec<Account> = server_accounts(&state)?
         .into_iter()
         .filter(|a| account.as_ref().is_none_or(|only| &a.id == only))
         .collect();
-    // Send first, so the copies for Sent go to the server in this same sync. One Outbox at a
-    // time: only one sender may run (an empty Outbox costs nothing).
-    for account in &accounts {
-        send_account_outbox(&state, account, &mut outcome.sent, &mut outcome.errors).await;
+    let preferred = priority_folder
+        .as_deref()
+        .and_then(|key| key.split_once('/'));
+    let first = preferred.and_then(|(id, _)| accounts.iter().position(|a| a.id == id));
+    if let Some(index) = first {
+        let selected = accounts.remove(index);
+        accounts.insert(0, selected);
     }
-    let results = join_all(accounts.iter().map(|account| async {
-        let result = match secrets::load_password(&account.email) {
-            Ok(password) => imap::sync_account(account, &password, &state.store, &progress, scope)
-                .await
-                .map_err(|e| e.to_string()),
-            Err(e) => Err(e),
-        };
-        let error = result.as_ref().err().map(String::as_str);
-        let _ = with_store(&state, |s| {
-            s.record_sync(&account.id, Local::now().naive_local(), error)
-        });
-        result
-    }))
-    .await;
-    for (account, result) in accounts.iter().zip(results) {
-        match result {
-            Ok(report) => {
-                outcome.new.extend(report.new);
-                arrived.extend(report.arrived);
-                outcome.sorted += report.sorted;
-                outcome.spam += report.spam;
-                let refused = report.refused.iter();
-                outcome
-                    .errors
-                    .extend(refused.map(|r| format!("{}: {r}", account.name)));
-                // Rules may have queued automatic replies: send them now, not next time.
-                if report.answered > 0 {
-                    send_account_outbox(&state, account, &mut outcome.sent, &mut outcome.errors)
+    let (selected, rest) = accounts.split_at(usize::from(first.is_some()));
+    for batch in [selected, rest] {
+        // Send first, so the copies for Sent go to the server in this same sync. One Outbox at a
+        // time: only one sender may run (an empty Outbox costs nothing).
+        for account in batch {
+            send_account_outbox(&state, account, &mut outcome.sent, &mut outcome.errors).await;
+        }
+        let results = join_all(batch.iter().map(|a| async {
+            let scope = if account.is_some() {
+                Scope::Inbox
+            } else if let Some((_, folder)) = preferred.filter(|(id, _)| *id == a.id) {
+                Scope::AllFirst(folder.to_owned())
+            } else {
+                Scope::All
+            };
+            let result = match secrets::load_password(&a.email) {
+                Ok(password) => imap::sync_account(a, &password, &state.store, &progress, scope)
+                    .await
+                    .map_err(|e| e.to_string()),
+                Err(e) => Err(e),
+            };
+            let error = result.as_ref().err().map(String::as_str);
+            let _ = with_store(&state, |s| {
+                s.record_sync(&a.id, Local::now().naive_local(), error)
+            });
+            result
+        }))
+        .await;
+        for (account, result) in batch.iter().zip(results) {
+            match result {
+                Ok(report) => {
+                    outcome.new.extend(report.new);
+                    arrived.extend(report.arrived);
+                    outcome.sorted += report.sorted;
+                    outcome.spam += report.spam;
+                    let refused = report.refused.iter();
+                    outcome
+                        .errors
+                        .extend(refused.map(|r| format!("{}: {r}", account.name)));
+                    // Rules may have queued automatic replies: send them now, not next time.
+                    if report.answered > 0 {
+                        send_account_outbox(
+                            &state,
+                            account,
+                            &mut outcome.sent,
+                            &mut outcome.errors,
+                        )
                         .await;
+                    }
                 }
+                Err(e) => outcome.errors.push(format!("{}: {e}", account.name)),
             }
-            Err(e) => outcome.errors.push(format!("{}: {e}", account.name)),
         }
     }
     if let Some(&newest) = outcome.new.last() {

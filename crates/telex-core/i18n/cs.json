@@ -1,4 +1,5 @@
 {
+  "The scam check moved it to Spam (scam risk {score} of 100). If it isn't spam, choose Not spam in its menu.": "Kontrola podvodů přesunula zprávu do Spamu (riziko podvodu {score} ze 100). Pokud nejde o spam, vyberte v její nabídce Není spam.",
   "\"{email}\" doesn't look like an email address.": "„{email}“ nevypadá jako e-mailová adresa.",
   "\"{host}\" isn't a server name. Enter just the name, e.g. mail.example.com.": "„{host}“ není název serveru. Zadejte jen název, např. mail.example.com.",
   "\"{part}\" in {field} isn't a valid address.": "„{part}“ v poli {field} není platná adresa.",

@@ -5,8 +5,8 @@
 //   node scripts/set-version.mjs --check v0.2.0   ... and that it is this one (the release workflow)
 //
 // The files: package.json and package-lock.json, src-tauri/tauri.conf.json (the version the app
-// reports and the updater compares), the workspace Cargo.toml and Cargo.lock. Only the version
-// text changes; formatting and line endings stay as they are.
+// reports and the updater compares), the workspace Cargo.toml and both Cargo.lock files,
+// including the translation macro crate. Only version text changes; formatting stays as it is.
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -23,7 +23,9 @@ const places = [
   { file: 'Cargo.toml', re: /(\[workspace\.package\][^[]*?^version\s*=\s*")([^"]*)(")/m },
   { file: 'Cargo.lock', re: /(^name = "telex"\r?\nversion = ")([^"]*)(")/m },
   { file: 'Cargo.lock', re: /(^name = "telex-core"\r?\nversion = ")([^"]*)(")/m },
+  { file: 'Cargo.lock', re: /(^name = "telex-i18n"\r?\nversion = ")([^"]*)(")/m },
   { file: 'fuzz/Cargo.lock', re: /(^name = "telex-core"\r?\nversion = ")([^"]*)(")/m },
+  { file: 'fuzz/Cargo.lock', re: /(^name = "telex-i18n"\r?\nversion = ")([^"]*)(")/m },
 ];
 
 const read = (file) => readFileSync(join(root, file), 'utf8');

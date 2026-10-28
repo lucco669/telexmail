@@ -3,6 +3,10 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["it"] = {
 T: {
+  "Statistical filtering starts once it has {n} of each.": "Il filtro statistico inizia dopo aver appreso da {n} messaggi di ogni tipo.",
+  "New unread mail arrived today. The number includes all unread mail.": "Oggi sono arrivati nuovi messaggi non letti. Il numero include tutti i messaggi non letti.",
+  "Check all accounts for new mail, starting with the selected mailbox": "Controlla la nuova posta di tutti gli account, iniziando dalla casella selezionata",
+  "High scam risk (70/100 or more) goes to Spam immediately when the filter is on.": "Quando il filtro è attivo, i messaggi con alto rischio di truffa (70/100 o più) vanno subito in Spam.",
   "Sepia": "Seppia",
   "Solar light": "Solar chiaro",
   "Classic grey": "Grigio classico",
@@ -294,7 +298,6 @@ T: {
   "Settings": "Impostazioni",
   "Compact": "Compatta",
   "Comfortable": "Comoda",
-  "Check all accounts for new mail": "Controlla la nuova posta in tutti gli account",
   "New message (N)": "Nuovo messaggio (N)",
   "Reply (R)": "Rispondi (R)",
   "Reply to all (Shift+R)": "Rispondi a tutti (Shift+R)",
@@ -544,7 +547,6 @@ T: {
   "Strict: catches more, and now and then a good message": "Rigido: ne prende di più, e ogni tanto un messaggio buono",
   "Off: it learns, but moves nothing": "Disattivato: impara, ma non sposta nulla",
   "Learned so far: spam {spam}, good mail {ham}.": "Imparato finora: spam {spam}, posta buona {ham}.",
-  "It starts moving mail once it has {n} of each.": "Inizia a spostare la posta quando ne ha {n} di ciascun tipo.",
   "Mark as spam": "Segna come spam",
   "Not spam": "Non è spam",
   "Moved to Spam; the spam filter learns from it. Press Z to undo.": "Spostato in Spam; il filtro spam ne tiene conto. Premi Z per annullare.",

@@ -15,7 +15,8 @@
 //! What it does: new Inbox mail scoring above the chosen [`Level`] goes to the account's Spam
 //! folder with a note saying why ([`sort_arrivals`], before the rules). It never touches mail
 //! from people the user has written to, from trusted senders, or answering the user's own
-//! mail, and does nothing until it has learned from [`MIN_LEARNED`] messages of each kind.
+//! mail. High scam risk is checked immediately; statistical filtering starts after
+//! [`MIN_LEARNED`] messages of each kind have been learned.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -700,8 +701,9 @@ fn note(verdict: &Verdict) -> String {
 
 /// Judge new Inbox mail and move what scores above `level`'s cutoff to its account's Spam
 /// folder, with a note. Leaves alone mail from people the user wrote to, trusted senders,
-/// mail answering the user's own, and everything while too little has been learned. Returns
-/// the messages it moved.
+/// mail answering the user's own, and messages explicitly restored with Not spam. High-risk
+/// scams (70/100 or more) are caught even before statistical training is ready. Returns the
+/// messages it moved. Off disables both paths; the preview warning setting is independent.
 pub fn sort_arrivals(
     store: &mut MailStore,
     ids: &[MessageId],
@@ -711,9 +713,10 @@ pub fn sort_arrivals(
         return Ok(Vec::new());
     };
     let (nspam, nham) = totals(&store.db)?;
-    if ids.is_empty() || nspam < MIN_LEARNED || nham < MIN_LEARNED {
+    if ids.is_empty() {
         return Ok(Vec::new());
     }
+    let trained = nspam >= MIN_LEARNED && nham >= MIN_LEARNED;
     let known = store.correspondence()?;
     let trusted: HashSet<String> = store
         .trusted_senders()?
@@ -733,6 +736,7 @@ pub fn sort_arrivals(
         if known.addresses.contains(&from)
             || trusted.contains(&from)
             || m.refs.iter().any(|r| known.message_ids.contains(r))
+            || class_of(&store.db, id)? == Some(Class::Ham)
         {
             continue;
         }
@@ -745,11 +749,29 @@ pub fn sort_arrivals(
         }) else {
             continue;
         };
-        let verdict = judge(&store.db, &message_tokens(store, id, &own)?)?;
-        if verdict.score < cutoff {
+        // Load no more MIME than the preview scanner accepts. Large attachments must not
+        // turn filtering into an unbounded read/parse of every incoming message.
+        let raw: Option<Vec<u8>> = store.db.query_row(
+            "SELECT CASE WHEN length(raw) <= ?2 THEN raw END FROM message_content WHERE id = ?1",
+            params![id as i64, crate::risk::MAX_RAW as i64], |r| r.get(0),
+        ).optional()?.flatten();
+        let risk = crate::risk::analyse(&m, raw.as_deref());
+        let reason = if risk.score >= 70 {
+            let score = risk.score;
+            tr!(
+                "The scam check moved it to Spam (scam risk {score} of 100). If it isn't spam, choose Not spam in its menu.",
+                "Kontrola oszustw przeniosła ją do Spamu (ryzyko oszustwa {score} na 100). Jeśli to nie spam, wybierz „To nie spam” z jej menu."
+            )
+        } else if trained {
+            let verdict = judge(&store.db, &message_tokens(store, id, &own)?)?;
+            if verdict.score < cutoff {
+                continue;
+            }
+            note(&verdict)
+        } else {
             continue;
-        }
-        store.add_note(id, &note(&verdict))?;
+        };
+        store.add_note(id, &reason)?;
         store.move_unlearned(&[id], &spam)?;
         store.db.execute(
             "INSERT OR REPLACE INTO spam_trained (message, class) VALUES (?1, ?2)",

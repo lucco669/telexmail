@@ -3,6 +3,10 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["sk"] = {
 T: {
+  "Statistical filtering starts once it has {n} of each.": "Štatistické filtrovanie začne po naučení {n} správ každého druhu.",
+  "New unread mail arrived today. The number includes all unread mail.": "Dnes prišli nové neprečítané správy. Číslo zahŕňa všetky neprečítané správy.",
+  "Check all accounts for new mail, starting with the selected mailbox": "Skontrolovať novú poštu vo všetkých účtoch, počnúc vybranou schránkou",
+  "High scam risk (70/100 or more) goes to Spam immediately when the filter is on.": "Pri zapnutom filtri sa správy s vysokým rizikom podvodu (70/100 a viac) ihneď presunú do Spamu.",
   "Sepia": "Sépia",
   "Solar light": "Solar svetlý",
   "Classic grey": "Klasický sivý",
@@ -294,7 +298,6 @@ T: {
   "Settings": "Nastavenia",
   "Compact": "Kompaktné",
   "Comfortable": "Pohodlné",
-  "Check all accounts for new mail": "Skontrolovať novú poštu vo všetkých účtoch",
   "New message (N)": "Nová správa (N)",
   "Reply (R)": "Odpovedať (R)",
   "Reply to all (Shift+R)": "Odpovedať všetkým (Shift+R)",
@@ -544,7 +547,6 @@ T: {
   "Strict: catches more, and now and then a good message": "Prísny: zachytí viac, občas aj dobrú správu",
   "Off: it learns, but moves nothing": "Vypnutý: učí sa, ale nič nepresúva",
   "Learned so far: spam {spam}, good mail {ham}.": "Doteraz sa naučil: spam {spam}, dobrá pošta {ham}.",
-  "It starts moving mail once it has {n} of each.": "Poštu začne presúvať, keď bude mať od každého druhu {n}.",
   "Mark as spam": "Označiť ako spam",
   "Not spam": "Nie je spam",
   "Moved to Spam; the spam filter learns from it. Press Z to undo.": "Presunuté do Spamu; filter spamu sa z toho učí. Z vráti späť.",

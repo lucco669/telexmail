@@ -64,7 +64,7 @@ const protections = [
   },
   {
     title: 'Scam warning signs checked offline',
-    text: 'When you open a message, the Rust engine checks supported sender, brand and link warning signs and explains each contributing reason. It uploads no mail, follows no links and does not change message flags. Scores are advisory points, not probabilities or a safety verdict.',
+    text: 'The Rust engine checks supported sender, brand and link warning signs when you open mail and when enabled filtering checks new Inbox arrivals. High-risk arrivals (70/100 or more) go to Spam, subject to trusted-sender exceptions. It uploads no mail, follows no links and explains each contributing reason. Scores are heuristic points, not probabilities or a safety verdict.',
     evidence: [
       { label: 'Risk engine and regression tests', path: 'crates/telex-core/src/risk.rs' },
       { label: 'Scanner scope and limits', path: 'docs/mail-risk.md' },
@@ -199,7 +199,7 @@ export default function SecurityPage() {
                 The checker does not verify attachments, remote images, final redirects, site reputation, SPF, DKIM or DMARC.
                 An incomplete check is reported; no warning does not establish safety. Scores are heuristic points out of 100, capped at 99.
                 <span className={s.inlineEvidence}> <a href={source('docs/mail-risk.md')}>Scope, scoring and limits</a></span></li>
-              <li><b>The spam filter is statistical.</b> It learns from your own mail and can file good mail as spam or let junk through.
+              <li><b>The spam filter combines learned and heuristic checks.</b> It learns from your own mail and checks new arrivals for high scam risk. It can file good mail as spam or let junk through.
                 It only moves new Inbox mail to Spam, never deletes it, leaves people you have written to alone, and explains each move; Not spam puts a message back.
                 <span className={s.inlineEvidence}> <a href={source('crates/telex-core/src/spam.rs')}>Spam filter code</a></span></li>
               <li><b>Local mail is not encrypted by Telex.</b> The mail database and its backups are ordinary SQLite files.

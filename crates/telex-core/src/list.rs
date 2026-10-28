@@ -303,6 +303,9 @@ pub struct Page {
 pub struct FolderCount {
     pub total: usize,
     pub unread: usize,
+    /// Still-unread mail that actually arrived today, rather than older unread mail.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub new_unread: usize,
     /// Older messages on the server that weren't downloaded (the first download takes the
     /// newest 300), as of the last sync.
     #[serde(skip_serializing_if = "is_zero")]
@@ -799,6 +802,25 @@ fn beyond(order: &[(String, bool)], keys: &[Value]) -> (String, Vec<Value>) {
 }
 
 impl MailStore {
+    /// Remember actual arrivals, without treating first downloads or imports as new mail.
+    pub(crate) fn note_arrivals(
+        &self,
+        ids: &[MessageId],
+        day: chrono::NaiveDate,
+    ) -> Result<(), StoreError> {
+        let tx = self.db.unchecked_transaction()?;
+        tx.execute("DELETE FROM message_arrivals WHERE day < ?1", [day])?;
+        let mut insert = tx.prepare_cached(
+            "INSERT OR IGNORE INTO message_arrivals (message, day) VALUES (?1, ?2)",
+        )?;
+        for &id in ids {
+            insert.execute(params![id as i64, day])?;
+        }
+        drop(insert);
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Accounts with their folders, and how many messages, and unread ones, each folder holds.
     pub fn folder_tree(&self) -> Result<FolderTree, StoreError> {
         let mut stmt = self
@@ -817,6 +839,18 @@ impl MailStore {
                 ))
             })?
             .collect::<Result<_, _>>()?;
+        let mut stmt = self.db.prepare_cached(
+            "SELECT m.folder, COUNT(*) FROM message_arrivals a
+             JOIN messages m ON m.id = a.message
+             WHERE a.day = ?1 AND m.unread = 1 GROUP BY m.folder",
+        )?;
+        let fresh = stmt.query_map([chrono::Local::now().date_naive()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in fresh {
+            let (key, n) = row?;
+            counts.entry(key).or_default().new_unread = usize::try_from(n).unwrap_or_default();
+        }
         let mut stmt = self.db.prepare_cached(
             "SELECT account || '/' || id, missing FROM folders WHERE missing > 0",
         )?;
@@ -2514,6 +2548,56 @@ mod tests {
         store.set_unread(unread, false).unwrap();
         let after = store.folder_tree().unwrap().counts["studio/inbox"];
         assert_eq!(after.unread, c.unread - 1);
+    }
+
+    #[test]
+    fn todays_unread_arrivals_follow_reads_moves_and_day_changes() {
+        let mut store = store(9);
+        let mut folders = store.account("studio").unwrap().folders.clone();
+        folders.push(Folder {
+            id: "archive".into(),
+            name: "Archive".into(),
+            kind: FolderKind::Archive,
+            remote: Some("Archive".into()),
+        });
+        store.set_folders("studio", &folders).unwrap();
+        let today = chrono::Local::now().date_naive();
+        let inbox = store.list("studio/inbox").unwrap();
+        let unread: Vec<_> = inbox.iter().filter(|m| m.unread).map(|m| m.id).collect();
+        let old = unread[0];
+        let fresh = unread[1];
+        assert_eq!(
+            store.folder_tree().unwrap().counts["studio/inbox"].new_unread,
+            0
+        );
+        store
+            .note_arrivals(&[old], today.pred_opt().unwrap())
+            .unwrap();
+        store.note_arrivals(&[fresh], today).unwrap();
+        // Repeated notices don't increase the count; old unread mail stays quiet.
+        store.note_arrivals(&[fresh], today).unwrap();
+        let count = store.folder_tree().unwrap().counts["studio/inbox"];
+        assert_eq!(count.new_unread, 1);
+        assert_eq!(count.unread, unread.len());
+        store.set_unread(fresh, false).unwrap();
+        assert_eq!(
+            store.folder_tree().unwrap().counts["studio/inbox"].new_unread,
+            0
+        );
+        store.set_unread(fresh, true).unwrap();
+        store.move_many(&[fresh], "studio/archive").unwrap();
+        let counts = store.folder_tree().unwrap().counts;
+        assert_eq!(counts["studio/inbox"].new_unread, 0);
+        assert_eq!(counts["studio/archive"].new_unread, 1);
+        store.note_arrivals(&[], today.succ_opt().unwrap()).unwrap();
+        assert!(store
+            .folder_tree()
+            .unwrap()
+            .counts
+            .values()
+            .all(|c| c.new_unread == 0));
+        assert!(store.get(old).unwrap().unread);
+        assert!(store.get(fresh).unwrap().unread);
     }
 
     #[test]

@@ -437,6 +437,108 @@ fn people_written_to_trusted_senders_and_answers_are_left_alone() {
     assert_eq!(moved, [stranger_id]);
 }
 
+fn bank_scam(n: usize) -> Vec<u8> {
+    raw(
+        "iPKObiznes <notice@account-update.example>",
+        "Potwierdz konto",
+        "Zaloguj sie: https://account-check.example/login",
+        "",
+        n,
+    )
+}
+
+#[test]
+fn high_scam_risk_is_sorted_without_training_and_not_self_learned() {
+    for level in [Level::Careful, Level::Normal, Level::Strict] {
+        let (mut store, account) = store();
+        let id = add(&mut store, &account, "inbox", bank_scam(8100), false);
+        assert_eq!(store.inspect_message(id).unwrap().risk.score, 75);
+        assert_eq!(sort_arrivals(&mut store, &[id], level).unwrap(), [id]);
+        assert_eq!(folder(&store, id), account.folder_key("spam"));
+        assert!(store.get(id).unwrap().note.unwrap().contains("scam risk"));
+        assert_eq!(class_of(&store.db, id).unwrap(), Some(Class::Judged));
+        assert_eq!(learn_pending(&mut store, LEARN_BATCH).unwrap(), 0);
+        assert_eq!(totals(&store.db).unwrap(), (0, 0));
+
+        store.mark_spam(&[id], false).unwrap();
+        assert!(sort_arrivals(&mut store, &[id], level).unwrap().is_empty());
+        assert_eq!(folder(&store, id), account.folder_key("inbox"));
+    }
+}
+
+#[test]
+fn scam_sorting_respects_off_trusted_senders_and_lower_risk() {
+    let (mut store, account) = store();
+    let id = add(&mut store, &account, "inbox", bank_scam(8101), false);
+    assert!(sort_arrivals(&mut store, &[id], Level::Off)
+        .unwrap()
+        .is_empty());
+    store
+        .set_sender_trusted("notice@account-update.example", true)
+        .unwrap();
+    assert!(sort_arrivals(&mut store, &[id], Level::Careful)
+        .unwrap()
+        .is_empty());
+    store
+        .set_sender_trusted("notice@account-update.example", false)
+        .unwrap();
+    let mild = raw(
+        "PKO <news@unrelated.example>",
+        "News",
+        "Our newsletter",
+        "",
+        8102,
+    );
+    let mild = add(&mut store, &account, "inbox", mild, false);
+    let score = store.inspect_message(mild).unwrap().risk.score;
+    assert!(score > 0 && score < 70);
+    assert!(sort_arrivals(&mut store, &[mild], Level::Strict)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        sort_arrivals(&mut store, &[id], Level::Careful).unwrap(),
+        [id]
+    );
+}
+
+#[test]
+fn genuine_ipko_biznes_mail_stays_in_the_inbox() {
+    let (mut store, account) = store();
+    let mail = raw(
+        "iPKObiznes <info@pkobp.pl>",
+        "Potwierdz konto",
+        "Zaloguj sie: https://www.ipkobiznes.pl/",
+        "",
+        8103,
+    );
+    let id = add(&mut store, &account, "inbox", mail, false);
+    assert_eq!(store.inspect_message(id).unwrap().risk.score, 0);
+    assert!(sort_arrivals(&mut store, &[id], Level::Strict)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn html_only_credential_lure_is_filtered_from_its_actual_destination() {
+    let (mut store, account) = store();
+    let mail = raw(
+        "PKO Bank Polski <info@pkobp.pl>",
+        "Wiadomosc",
+        "<a href='https://account-check.example/login'>Zaloguj sie</a>",
+        "",
+        8104,
+    );
+    let mail = String::from_utf8(mail)
+        .unwrap()
+        .replace("text/plain", "text/html")
+        .into_bytes();
+    let id = add(&mut store, &account, "inbox", mail, false);
+    assert_eq!(
+        sort_arrivals(&mut store, &[id], Level::Careful).unwrap(),
+        [id]
+    );
+}
+
 #[test]
 fn moving_into_spam_and_back_learns_again() {
     let (mut store, account, mut dice) = trained(60, 60);

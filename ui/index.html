@@ -17,7 +17,7 @@
   <div class="toolbar" role="toolbar" aria-label="Mail actions" data-i18n>
     <div class="toolbar-actions" id="toolbar-actions">
     <select id="folder-select" aria-label="Folder" data-i18n></select>
-    <button class="tb key" id="b-get" type="button" title="Check all accounts for new mail" data-i18n></button>
+    <button class="tb key" id="b-get" type="button" title="Check all accounts for new mail, starting with the selected mailbox" data-i18n></button>
     <span class="sep"></span>
     <button class="tb" id="b-new" type="button" title="New message (N)" data-i18n></button>
     <button class="tb" id="b-reply" type="button" title="Reply (R)" data-i18n></button>
@@ -353,6 +353,7 @@
           <legend data-i18n>Spam filter</legend>
           <div class="sopts" id="s-spam"></div>
           <p class="dnote snote" id="s-spam-learned" aria-live="polite"></p>
+          <p class="dnote snote" data-i18n>High scam risk (70/100 or more) goes to Spam immediately when the filter is on.</p>
           <p class="dnote snote" data-i18n>It learns on this PC from your mail: what is in Spam is spam, mail you have read is not. Mail from people you have written to is never moved. Mark as spam and Not spam in a message’s menu teach it.</p>
         </fieldset>
       </section>

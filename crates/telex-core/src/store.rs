@@ -49,6 +49,7 @@ pub(crate) const MIGRATIONS: &[&str] = &[
     include_str!("migrations/025_upkeep.sql"),
     include_str!("migrations/026_answered.sql"),
     include_str!("migrations/027_smtp_size.sql"),
+    include_str!("migrations/028_arrivals.sql"),
 ];
 
 /// How far the schema upgrade of a mail base being opened is: `done` of `steps` steps.

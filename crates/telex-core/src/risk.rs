@@ -151,8 +151,14 @@ const BRANDS: &[Brand] = &[
     },
     Brand {
         name: "PKO Bank Polski",
-        words: &["pko", "ipko"],
-        domains: &["pkobp.pl", "ipko.pl", "inteligo.pl", "ipko.net.pl"],
+        words: &["pko", "ipko", "ipkobiznes", "pkobp"],
+        domains: &[
+            "pkobp.pl",
+            "ipko.pl",
+            "ipkobiznes.pl",
+            "inteligo.pl",
+            "ipko.net.pl",
+        ],
     },
 ];
 

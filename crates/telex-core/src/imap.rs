@@ -253,11 +253,13 @@ pub async fn check_account(
 }
 
 /// Which folders a sync downloads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Scope {
     /// Every folder, after asking the server for its folder list.
     #[default]
     All,
+    /// Every folder, starting with the one selected in the window (its local id).
+    AllFirst(String),
     /// Only the Inbox: when IDLE says something changed there.
     Inbox,
 }
@@ -437,6 +439,7 @@ pub(crate) fn sort_arrived(
     // it learns from the mail sorted since the last check.
     let caught = {
         let mut s = lock(store)?;
+        s.note_arrivals(&arrived, Local::now().date_naive())?;
         let caught = crate::spam::sort_arrivals(&mut s, &arrived, crate::spam::level())?;
         crate::spam::learn_pending(&mut s, crate::spam::LEARN_BATCH)?;
         caught
@@ -470,8 +473,12 @@ pub async fn sync_session<T: ImapStream>(
     progress: &(dyn Fn(SyncProgress) + Send + Sync),
     scope: Scope,
 ) -> Result<Downloaded, SyncError> {
-    let (folders, remote) = match scope {
-        Scope::All => {
+    let first = match &scope {
+        Scope::AllFirst(id) => Some(id.clone()),
+        _ => None,
+    };
+    let (mut folders, remote) = match scope {
+        Scope::All | Scope::AllFirst(_) => {
             let remote = list_folders(session).await?;
             let folders = {
                 let mut s = lock(store)?;
@@ -491,6 +498,14 @@ pub async fn sync_session<T: ImapStream>(
             (inbox, None)
         }
     };
+
+    if let Some(id) = first {
+        // Keep the normal order of all other folders, and the stored tree order.
+        if let Some(index) = folders.iter().position(|f| f.id == id) {
+            let folder = folders.remove(index);
+            folders.insert(0, folder);
+        }
+    }
 
     let mut downloaded = Downloaded::default();
     for folder in &folders {
@@ -545,6 +560,12 @@ pub async fn sync_session<T: ImapStream>(
             let ids = {
                 let mut s = lock(store)?;
                 let ids = s.add_synced(&key, &batch)?;
+                if state.last_uid.is_some()
+                    && !folder.kind.is_outgoing()
+                    && !matches!(folder.kind, FolderKind::Spam | FolderKind::Trash)
+                {
+                    s.note_arrivals(&ids, Local::now().date_naive())?;
+                }
                 s.refresh_flags(&key, &answered)?;
                 ids
             };
@@ -561,7 +582,7 @@ pub async fn sync_session<T: ImapStream>(
     if let Some(remote) = remote {
         let mut s = lock(store)?;
         let settled = plan_folders(&remote, &s.folder_hints(&account.id)?);
-        if settled != folders {
+        if settled != s.account(&account.id)?.folders {
             s.set_folders(&account.id, &settled)?;
         }
     }
@@ -2655,6 +2676,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn selected_folder_is_checked_first_without_reordering_the_tree() {
+        let (addr, server) = start_fake_server("IMAP4rev1 MOVE UIDPLUS").await;
+        let (store, account) = store_with_account();
+        let mut session = login(addr, "secret").await.unwrap();
+        sync_session(&mut session, &account, &store, &no_progress, Scope::All)
+            .await
+            .unwrap();
+        let folders = store
+            .lock()
+            .unwrap()
+            .account(&account.id)
+            .unwrap()
+            .folders
+            .clone();
+        server.lock().unwrap().commands.clear();
+        sync_session(
+            &mut session,
+            &account,
+            &store,
+            &no_progress,
+            Scope::AllFirst("projekty-klinika".into()),
+        )
+        .await
+        .unwrap();
+        let commands = server.lock().unwrap().commands.clone();
+        let examined: Vec<_> = commands
+            .iter()
+            .filter(|c| c.starts_with("EXAMINE"))
+            .collect();
+        assert!(examined[0].contains("Projekty"), "{examined:?}");
+        assert!(examined.iter().any(|c| c.contains("INBOX")));
+        assert_eq!(
+            store.lock().unwrap().account(&account.id).unwrap().folders,
+            folders
+        );
+        // A folder removed on the server falls back to the ordinary order.
+        server.lock().unwrap().commands.clear();
+        sync_session(
+            &mut session,
+            &account,
+            &store,
+            &no_progress,
+            Scope::AllFirst("gone".into()),
+        )
+        .await
+        .unwrap();
+        let commands = server.lock().unwrap().commands.clone();
+        assert!(commands
+            .iter()
+            .find(|c| c.starts_with("EXAMINE"))
+            .unwrap()
+            .contains("INBOX"));
+        logout(&mut session).await;
+    }
+
+    #[tokio::test]
     async fn downloading_never_changes_the_server() {
         let (addr, server) = start_fake_server("IMAP4rev1 MOVE UIDPLUS").await;
         let (store, account) = store_with_account();
@@ -2667,6 +2744,14 @@ mod tests {
             .unwrap()
             .new;
         assert_eq!(new.len(), 3);
+        assert!(store
+            .lock()
+            .unwrap()
+            .folder_tree()
+            .unwrap()
+            .counts
+            .values()
+            .all(|c| c.new_unread == 0));
         {
             let s = store.lock().unwrap();
             let folders: Vec<_> = s
@@ -2732,6 +2817,11 @@ mod tests {
             .unwrap()
             .new;
         assert_eq!(new.len(), 1);
+        assert_eq!(
+            store.lock().unwrap().folder_tree().unwrap().counts[&account.folder_key("inbox")]
+                .new_unread,
+            1
+        );
         {
             let s = store.lock().unwrap();
             let mut subjects: Vec<_> = s
