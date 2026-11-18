@@ -3,6 +3,13 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["uk"] = {
 T: {
+  "No message is set aside.": "Немає відкладеного листа.",
+  "The message you were writing, set aside. Click or press W to go back to it.": "Лист, який ви писали, відкладено. Клацніть або натисніть W, щоб повернутися до нього.",
+  "Read other mail meanwhile: the status bar keeps it, and W brings it back. Choosing another message or folder does the same.": "Тим часом читайте іншу пошту: рядок стану зберігає лист, а W повертає його. Вибір іншого листа чи теки робить те саме.",
+  "Set aside": "Відкласти",
+  "Set aside. Press W or click it in the status bar to go back to it.": "Відкладено. Натисніть W або клацніть його в рядку стану, щоб повернутися до нього.",
+  "back to the message set aside while you read other mail": "назад до листа, відкладеного на час читання іншої пошти",
+  "While writing, click another message or folder to read it: the message waits in the status bar, and W brings it back.": "Під час написання клацніть інший лист або теку, щоб прочитати: лист чекає в рядку стану, а W повертає його.",
   "Statistical filtering starts once it has {n} of each.": "Статистична фільтрація почнеться після вивчення {n} листів кожного типу.",
   "New unread mail arrived today. The number includes all unread mail.": "Сьогодні надійшли нові непрочитані листи. Число включає всі непрочитані листи.",
   "Check all accounts for new mail, starting with the selected mailbox": "Перевірити нову пошту в усіх облікових записах, починаючи з вибраної скриньки",

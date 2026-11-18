@@ -3,6 +3,13 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["sk"] = {
 T: {
+  "No message is set aside.": "Žiadna správa nie je odložená.",
+  "The message you were writing, set aside. Click or press W to go back to it.": "Správa, ktorú ste písali, je odložená. Kliknite alebo stlačte W a vrátite sa k nej.",
+  "Read other mail meanwhile: the status bar keeps it, and W brings it back. Choosing another message or folder does the same.": "Medzitým si prečítajte inú poštu: stavový riadok ju drží a W ju vráti. Výber inej správy alebo priečinka urobí to isté.",
+  "Set aside": "Odložiť",
+  "Set aside. Press W or click it in the status bar to go back to it.": "Odložené. Stlačte W alebo na ňu kliknite v stavovom riadku a vrátite sa k nej.",
+  "back to the message set aside while you read other mail": "späť k správe odloženej pri čítaní inej pošty",
+  "While writing, click another message or folder to read it: the message waits in the status bar, and W brings it back.": "Pri písaní kliknite na inú správu alebo priečinok a prečítajte si ho: správa počká v stavovom riadku a W ju vráti.",
   "Statistical filtering starts once it has {n} of each.": "Štatistické filtrovanie začne po naučení {n} správ každého druhu.",
   "New unread mail arrived today. The number includes all unread mail.": "Dnes prišli nové neprečítané správy. Číslo zahŕňa všetky neprečítané správy.",
   "Check all accounts for new mail, starting with the selected mailbox": "Skontrolovať novú poštu vo všetkých účtoch, počnúc vybranou schránkou",
