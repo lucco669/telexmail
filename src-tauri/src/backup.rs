@@ -5,12 +5,10 @@
 //! Restoring and compacting need the mail base to themselves: they wait until no check, push
 //! or send is running and hold those off meanwhile, as installing an update does.
 
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::mpsc;
-
-use chrono::Local;
-use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -96,19 +94,14 @@ fn back_up(app: &AppHandle) -> CmdResult<BackupFile> {
     };
     let (dir, _) = backup_dir(app);
     let secret_keys = app.state::<SettingsState>().get().backup_secret_keys;
-    let made = backup::write_keys(
-        &state.db_path,
-        &dir,
-        Local::now().naive_local(),
-        secret_keys,
-    )
-    .map_err(|e| {
-        let shown = dir.display();
-        tr!(
-            "Couldn't back up to {shown}: {e}.",
-            "Nie udało się zrobić kopii w {shown}: {e}."
-        )
-    })?;
+    let made = backup::write_keys(&state.db_path, &dir, telex_core::dates::now(), secret_keys)
+        .map_err(|e| {
+            let shown = dir.display();
+            tr!(
+                "Couldn't back up to {shown}: {e}.",
+                "Nie udało się zrobić kopii w {shown}: {e}."
+            )
+        })?;
     backup::prune(
         &dir,
         usize::from(app.state::<SettingsState>().get().backup_keep),
@@ -129,7 +122,7 @@ pub async fn backup_now(app: AppHandle) -> CmdResult<BackupFile> {
 pub async fn auto_backup(app: AppHandle) -> CmdResult<Option<BackupFile>> {
     let settings = app.state::<SettingsState>().get();
     let (dir, _) = backup_dir(&app);
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     let empty = with_store(&app.state::<AppState>(), |s| Ok(s.is_in_memory()))?;
     if empty || !backup::due(&dir, settings.backup_every.period(), now) {
         return Ok(None);
@@ -256,7 +249,7 @@ pub async fn restore_backup(app: AppHandle, path: String) -> CmdResult<String> {
         let mut store = state.store.lock().map_err(|_| failed("lock"))?;
         // Let go of the file: an empty store in memory meanwhile.
         *store = MailStore::in_memory().map_err(|e| e.to_string())?;
-        let result = backup::restore(&state.db_path, &from, Local::now().naive_local());
+        let result = backup::restore(&state.db_path, &from, telex_core::dates::now());
         // Whatever happened, open what is there now: the restored mail, or the old one.
         let (opened, problem) = open_store(&state.db_path, |_| {});
         *store = opened;

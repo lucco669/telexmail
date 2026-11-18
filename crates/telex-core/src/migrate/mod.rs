@@ -574,7 +574,7 @@ fn pop3_seen(store: &Mutex<MailStore>, source: &Source, keys: &[String]) -> Resu
         }
         let mut s = store.lock().map_err(|_| StoreError::poisoned())?;
         if let Some(account) = pop3_account_of(&s, found) {
-            s.pop3_mark_known(&account, &found.seen, chrono::Local::now().date_naive())?;
+            s.pop3_mark_known(&account, &found.seen, crate::dates::today())?;
         }
     }
     Ok(())
@@ -731,9 +731,7 @@ pub(crate) mod tests {
         let dir = std::env::temp_dir().join(format!(
             "telex-migrate-{name}-{}-{}",
             std::process::id(),
-            chrono::Local::now()
-                .timestamp_nanos_opt()
-                .unwrap_or_default()
+            jiff::Timestamp::now().as_nanosecond()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir

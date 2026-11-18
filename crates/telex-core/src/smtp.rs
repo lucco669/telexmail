@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, Local};
+use jiff::Timestamp;
 use lettre::address::Envelope;
 use lettre::message::header::{ContentType, HeaderName, HeaderValue};
 use lettre::message::{Attachment as MimeAttachment, Mailbox, MultiPart, SinglePart};
@@ -75,7 +75,7 @@ pub fn compose(
     account: &Account,
     draft: &OutgoingDraft,
     originals: &Originals,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<Composed, String> {
     build(
         account,
@@ -95,7 +95,7 @@ pub fn compose_invite_reply(
     draft: &OutgoingDraft,
     originals: &Originals,
     ics: &str,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<Composed, String> {
     build(
         account,
@@ -114,7 +114,7 @@ pub fn compose_auto_reply(
     account: &Account,
     draft: &OutgoingDraft,
     originals: &Originals,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<Composed, String> {
     build(
         account,
@@ -149,7 +149,7 @@ pub fn compose_auto_forward(
     account: &Account,
     draft: &OutgoingDraft,
     originals: &Originals,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<Composed, String> {
     build(
         account,
@@ -170,7 +170,7 @@ pub fn compose_draft(
     account: &Account,
     draft: &OutgoingDraft,
     originals: &Originals,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<Vec<u8>, String> {
     build(
         account,
@@ -192,7 +192,7 @@ pub fn compose_protected(
     account: &Account,
     draft: &OutgoingDraft,
     originals: &Originals,
-    now: DateTime<Local>,
+    now: Timestamp,
     protect: &openpgp::Protect,
 ) -> Result<Composed, String> {
     let extras = Extras {
@@ -207,7 +207,7 @@ pub fn compose_protected(
         None => openpgp::protect(&composed.raw, protect),
     }
     .map_err(|e| e.to_string())?;
-    composed.message = parse_message(&composed.raw, "", Some(now.naive_local()));
+    composed.message = parse_message(&composed.raw, "", Some(crate::dates::local(now)));
     composed.message.subject = subject;
     composed.message.unread = false;
     Ok(composed)
@@ -218,7 +218,7 @@ pub fn compose_draft_protected(
     account: &Account,
     draft: &OutgoingDraft,
     originals: &Originals,
-    now: DateTime<Local>,
+    now: Timestamp,
     protect: &openpgp::Protect,
 ) -> Result<Vec<u8>, String> {
     let raw = build(
@@ -268,7 +268,7 @@ fn build(
     account: &Account,
     draft: &OutgoingDraft,
     originals: &Originals,
-    now: DateTime<Local>,
+    now: Timestamp,
     purpose: Purpose,
     calendar: Option<&str>,
     extras: &Extras,
@@ -338,7 +338,7 @@ fn build(
             from_address.clone(),
         ))
         .subject(draft.subject.clone())
-        .date(SystemTime::from(now))
+        .date(SystemTime::try_from(now).unwrap_or_else(|_| SystemTime::now()))
         .message_id(Some(format!("<{message_id}>")))
         .keep_bcc();
     if purpose == Purpose::Draft {
@@ -466,7 +466,7 @@ fn build(
 
     let raw = email.formatted();
     let envelope = email.envelope();
-    let mut message = parse_message(&raw, "", Some(now.naive_local()));
+    let mut message = parse_message(&raw, "", Some(crate::dates::local(now)));
     message.unread = false;
     Ok(Composed {
         message,
@@ -690,7 +690,7 @@ pub async fn send_outbox(
     // logs in again.
     let mut session: Option<Session> = None;
     loop {
-        let now = Local::now().naive_local();
+        let now = crate::dates::now();
         let next = lock(store)?.next_outgoing(&account.id, after, now)?;
         let Some(mail) = next else { break };
         after = mail.message;
@@ -727,7 +727,7 @@ pub async fn send_outbox(
         log_send(account, started, &sent);
         match sent {
             Ok(()) => {
-                let at = Local::now().naive_local();
+                let at = crate::dates::now();
                 lock(store)?.outgoing_sent(mail.message, at)?;
                 report.sent.push(match mail.send_after {
                     // Telex was closed (or the PC asleep) when it was due.
@@ -945,7 +945,6 @@ mod tests {
     use super::*;
     use crate::model::{AccountSetup, Attachment, FolderKind};
     use crate::store::ChangeKind;
-    use chrono::TimeZone;
     use mail_parser::MessageParser;
     use std::sync::Arc;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -975,8 +974,8 @@ mod tests {
         }
     }
 
-    fn now() -> DateTime<Local> {
-        Local.with_ymd_and_hms(2026, 10, 10, 9, 30, 0).unwrap()
+    fn now() -> Timestamp {
+        crate::dates::instant(jiff::civil::date(2026, 10, 10).at(9, 30, 0, 0)).unwrap()
     }
 
     #[test]
@@ -1480,8 +1479,8 @@ JVBERi0xLjQK\r\n\
     }
 
     /// The moment the Outbox is looked at.
-    fn due() -> chrono::NaiveDateTime {
-        Local::now().naive_local()
+    fn due() -> jiff::civil::DateTime {
+        crate::dates::now()
     }
 
     #[tokio::test]
@@ -1578,7 +1577,7 @@ JVBERi0xLjQK\r\n\
                     &c.env_from,
                     &c.env_to,
                     None,
-                    Some(due() + chrono::TimeDelta::hours(1)),
+                    Some(due() + jiff::SignedDuration::from_hours(1)),
                 )
                 .unwrap();
             s.note_answering(later, None, Some(originals[2])).unwrap();
@@ -1922,7 +1921,7 @@ BCC: d@x.pl\r\n\r\nBcc: in the body stays\r\n";
                     &c.env_from,
                     &c.env_to,
                     None,
-                    Some(due() + chrono::TimeDelta::seconds(wait)),
+                    Some(due() + jiff::SignedDuration::from_secs(wait)),
                 )
                 .unwrap()
         };
@@ -1951,7 +1950,7 @@ BCC: d@x.pl\r\n\r\nBcc: in the body stays\r\n";
             assert!(held.note.unwrap().contains("Press E"));
             assert!(s.hold_outgoing(taken_back, due()).is_err(), "only once");
             // A minute later the other one is due, and too late to take back.
-            let a_minute_on = due() + chrono::TimeDelta::seconds(61);
+            let a_minute_on = due() + jiff::SignedDuration::from_secs(61);
             assert!(s.has_outgoing(&account.id, a_minute_on).unwrap());
             assert!(s.hold_outgoing(later, a_minute_on).is_err());
             assert_eq!(
@@ -1989,7 +1988,7 @@ BCC: d@x.pl\r\n\r\nBcc: in the body stays\r\n";
         let monday = later::when(Later::Monday, due()).unwrap();
         let on_monday = queue("anna@kowalska-architekci.pl", monday);
         // Due an hour ago: Telex was closed then.
-        let missed_at = due() - chrono::TimeDelta::hours(1);
+        let missed_at = due() - jiff::SignedDuration::from_hours(1);
         let missed = queue("piotr@nowak-meble.pl", missed_at);
         {
             let s = store.lock().unwrap();
@@ -2045,7 +2044,7 @@ BCC: d@x.pl\r\n\r\nBcc: in the body stays\r\n";
     fn held_mail_can_be_sent_now_but_refused_mail_cannot() {
         let (store, account, ids) = store_with_queued(&["anna@x.pl", "piotr@y.pl"]);
         let mut s = store.into_inner().unwrap();
-        let later = due() + chrono::TimeDelta::hours(2);
+        let later = due() + jiff::SignedDuration::from_hours(2);
         let c = compose(&account, &draft("ewa@z.pl"), &Originals::default(), now()).unwrap();
         let scheduled = s
             .queue_outgoing(

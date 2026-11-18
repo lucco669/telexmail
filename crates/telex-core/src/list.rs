@@ -244,7 +244,12 @@ fn parse_day(value: &str) -> Option<String> {
         [d, m, y] if y.len() == 4 => (num(y)?, num(m)?, num(d)?),
         _ => return None,
     };
-    let day = chrono::NaiveDate::from_ymd_opt(i32::try_from(y).ok()?, m, d)?;
+    let day = jiff::civil::Date::new(
+        i16::try_from(y).ok()?,
+        i8::try_from(m).ok()?,
+        i8::try_from(d).ok()?,
+    )
+    .ok()?;
     Some(format!("{day} 00:00:00"))
 }
 
@@ -333,7 +338,7 @@ pub struct FolderTree {
     /// Each account's storage on its server, when the server says, and its last good check:
     /// for the status bar and Settings › Accounts, without working out the whole Usage tab.
     pub quota: HashMap<String, crate::usage::Quota>,
-    pub synced: HashMap<String, chrono::NaiveDateTime>,
+    pub synced: HashMap<String, jiff::civil::DateTime>,
     /// Every tag, in order, with how many messages carry it.
     pub tags: Vec<crate::tags::Tag>,
     /// Accounts whose server can't keep tags: they stay on this PC.
@@ -806,15 +811,18 @@ impl MailStore {
     pub(crate) fn note_arrivals(
         &self,
         ids: &[MessageId],
-        day: chrono::NaiveDate,
+        day: jiff::civil::Date,
     ) -> Result<(), StoreError> {
         let tx = self.db.unchecked_transaction()?;
-        tx.execute("DELETE FROM message_arrivals WHERE day < ?1", [day])?;
+        tx.execute(
+            "DELETE FROM message_arrivals WHERE day < ?1",
+            [crate::dates::SqlDate(day)],
+        )?;
         let mut insert = tx.prepare_cached(
             "INSERT OR IGNORE INTO message_arrivals (message, day) VALUES (?1, ?2)",
         )?;
         for &id in ids {
-            insert.execute(params![id as i64, day])?;
+            insert.execute(params![id as i64, crate::dates::SqlDate(day)])?;
         }
         drop(insert);
         tx.commit()?;
@@ -844,7 +852,7 @@ impl MailStore {
              JOIN messages m ON m.id = a.message
              WHERE a.day = ?1 AND m.unread = 1 GROUP BY m.folder",
         )?;
-        let fresh = stmt.query_map([chrono::Local::now().date_naive()], |r| {
+        let fresh = stmt.query_map([crate::dates::SqlDate(crate::dates::today())], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
         })?;
         for row in fresh {
@@ -885,7 +893,7 @@ impl MailStore {
                 r.get::<_, String>(0)?,
                 r.get::<_, Option<i64>>(1)?,
                 r.get::<_, Option<i64>>(2)?,
-                r.get::<_, Option<chrono::NaiveDateTime>>(3)?,
+                crate::dates::get_opt(r, 3)?,
             ))
         })?;
         for row in rows {
@@ -1584,7 +1592,8 @@ mod tests {
     use super::*;
     use crate::model::{AccountSetup, Attachment, Folder, FolderKind, Message, OutgoingDraft};
     use crate::store::SyncedMessage;
-    use chrono::{NaiveDate, TimeDelta};
+
+    use jiff::SignedDuration;
     use std::cmp::Ordering;
 
     const SENDERS: &[&str] = &[
@@ -1645,10 +1654,7 @@ mod tests {
             })
             .collect();
         store.set_folders(&account.id, &list).unwrap();
-        let day = NaiveDate::from_ymd_opt(2026, 10, 1)
-            .unwrap()
-            .and_hms_opt(9, 0, 0)
-            .unwrap();
+        let day = jiff::civil::date(2026, 10, 1).at(9, 0, 0, 0);
         for (f, (folder, _)) in folders.iter().enumerate() {
             let batch: Vec<SyncedMessage> = (0..n)
                 .map(|i| {
@@ -1664,7 +1670,7 @@ mod tests {
                             cc: String::new(),
                             subject: SUBJECTS[k % SUBJECTS.len()].into(),
                             // Every three messages share a date.
-                            date: day + TimeDelta::hours((i / 3) as i64),
+                            date: day + SignedDuration::from_hours((i / 3) as i64),
                             size_kb: (k % 4) as u32 + 1,
                             unread: k % 3 == 0,
                             flagged: k % 5 == 0,
@@ -2561,7 +2567,7 @@ mod tests {
             remote: Some("Archive".into()),
         });
         store.set_folders("studio", &folders).unwrap();
-        let today = chrono::Local::now().date_naive();
+        let today = crate::dates::today();
         let inbox = store.list("studio/inbox").unwrap();
         let unread: Vec<_> = inbox.iter().filter(|m| m.unread).map(|m| m.id).collect();
         let old = unread[0];
@@ -2571,7 +2577,7 @@ mod tests {
             0
         );
         store
-            .note_arrivals(&[old], today.pred_opt().unwrap())
+            .note_arrivals(&[old], today.yesterday().ok().unwrap())
             .unwrap();
         store.note_arrivals(&[fresh], today).unwrap();
         // Repeated notices don't increase the count; old unread mail stays quiet.
@@ -2589,7 +2595,9 @@ mod tests {
         let counts = store.folder_tree().unwrap().counts;
         assert_eq!(counts["studio/inbox"].new_unread, 0);
         assert_eq!(counts["studio/archive"].new_unread, 1);
-        store.note_arrivals(&[], today.succ_opt().unwrap()).unwrap();
+        store
+            .note_arrivals(&[], today.tomorrow().ok().unwrap())
+            .unwrap();
         assert!(store
             .folder_tree()
             .unwrap()
@@ -2603,7 +2611,7 @@ mod tests {
     #[test]
     fn the_tree_says_which_accounts_failed_their_last_check() {
         let mut store = store(1);
-        let at = chrono::Local::now().naive_local();
+        let at = crate::dates::now();
         assert!(store.folder_tree().unwrap().problems.is_empty());
         store
             .record_sync("studio", at, Some("can't reach mail.x.pl"))
@@ -2681,10 +2689,7 @@ mod tests {
         studio.push(drafts("drafts"));
         store.set_folders("studio", &studio).unwrap();
         store.set_folders(&other.id, &[drafts("Robocze")]).unwrap();
-        let day = NaiveDate::from_ymd_opt(2026, 10, 2)
-            .unwrap()
-            .and_hms_opt(8, 0, 0)
-            .unwrap();
+        let day = jiff::civil::date(2026, 10, 2).at(8, 0, 0, 0);
         let mut outbox = Vec::new();
         for account in ["studio", other.id.as_str()] {
             let draft = OutgoingDraft {

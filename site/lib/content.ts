@@ -12,6 +12,7 @@ const V0911 = '0.9.11';
 const V0920 = '0.9.20';
 const V0922 = '0.9.22';
 const V0923 = '0.9.23';
+const V0924 = '0.9.24';
 
 /** The points on the home page: short, the features page has the detail. */
 export const features = [
@@ -224,6 +225,7 @@ export const featureRows: FeatureRow[] = [
     points: [
       'Reply, reply to all and forward, each one key',
       { text: 'Tab follows To, Cc, visible Bcc, Subject and the message, skipping the Bcc toggle and formatting buttons; Alt+B opens Bcc', since: V0923 },
+      { text: 'Check other mail while you write: pick another message or folder and your message waits in the status bar, saved; W or a click brings it back as you left it', since: V0924 },
       { text: 'Reply | Reply all at the top of every reply: switch any time, your text stays; with Reply, a line names who else was on the original, one click from being added', since: V0910 },
       { text: 'A reply to all that goes to 8 people or more asks once before Send', since: V0910 },
       { text: 'Mention an attachment without attaching one, and Send asks first: “attached”, “enclosed”, “w załączniku”; quotes and your signature don’t count', since: V0910 },
@@ -544,6 +546,7 @@ export const shortcuts: Shortcut[] = [
   { id: 'replyall', group: 'Write', keys: [['Shift', 'R']], action: 'Reply to all', match: [{ key: 'R', shift: true }] },
   { id: 'forward', group: 'Write', keys: [['Shift', 'F']], action: 'Forward', match: [{ key: 'F', shift: true }] },
   { id: 'edit', group: 'Write', keys: [['E']], action: 'Edit a draft or an unsent message', match: [{ key: 'e' }] },
+  { id: 'aside', group: 'Write', keys: [['W']], action: 'Back to the message you set aside to read other mail', match: [{ key: 'w' }], since: V0924 },
   { id: 'send', group: 'Write', keys: [['Ctrl', 'Enter']], action: 'Send from compose', match: [{ key: 'Enter', ctrl: true }] },
   { id: 'sendlater', group: 'Write', keys: [['Ctrl', 'Shift', 'Enter']], action: 'Send later: in an hour, tomorrow, Monday or when you pick', match: [{ key: 'Enter', ctrl: true, shift: true }], since: V0920 },
   { id: 'quotes', group: 'View', keys: [['Q']], action: 'Open or fold the quoted mail of a message', match: [{ key: 'q' }], since: V0910 },
@@ -572,6 +575,11 @@ export const shortcuts: Shortcut[] = [
 export type Tip = { title: string; text: string; since?: string };
 
 export const keyboardTips: Tip[] = [
+  {
+    title: 'Read other mail mid-reply',
+    text: 'While you write, click another message or folder: what you were writing waits in the status bar, already saved. W, or a click on it, brings it back with your text and caret where you left them. Set aside in compose does the same.',
+    since: V0924,
+  },
   {
     title: 'Tab straight through compose',
     text: 'After R, Tab moves through To, Cc, visible Bcc, Subject and the message. The Bcc toggle and formatting buttons stay out of that path; Alt+B opens Bcc. Reply, Reply all and Forward are also above the preview.',
@@ -1021,6 +1029,24 @@ export type Version = {
 };
 
 export const versions: Version[] = [
+  {
+    version: V0924,
+    title: 'Read other mail while you write, and security updates',
+    date: '2026-11-18',
+    summary: 'A message you are writing no longer holds the reading pane. Pick another message or folder and it waits in the status bar, saved; W brings it back as you left it. The release also brings security fixes for sending mail and cleaning HTML, and replaces unmaintained date libraries, with no audit exceptions.',
+    points: [
+      'Choosing another message or folder while writing sets the message aside instead of keeping the pane. It is saved at once and waits in the status bar under its subject.',
+      'W, or a click on it in the status bar, brings it back as you left it: the text, the Reply | Reply all switch, the original’s files and where you were typing. Set aside in compose does the same.',
+      'Starting another message, installing an update or closing Telex keeps the message set aside in Drafts. Files dropped on the window go into it.',
+      'Security updates: the mail-sending library fixes six advisories, among them a forged STARTTLS reply and SMTP command injection; the HTML cleaner fixes an XSS through SVG and MathML; SQLite is updated for a reported CVE.',
+      'Dates and time zones use jiff instead of the unmaintained chrono and chrono-tz. Dates already in your mail base keep their format.',
+    ],
+    highlights: [
+      { title: 'Read while you write', text: 'Another message or folder sets your message aside.', href: '/features#writing' },
+      { title: 'Back with one key', text: 'W brings it back with your text and caret where they were.', keys: 'W', href: '/features#writing' },
+      { title: 'Nothing lost', text: 'Saved the moment it is set aside, and kept in Drafts when Telex closes.', href: '/features#writing' },
+    ],
+  },
   {
     version: V0923,
     title: 'Quicker mail checks, preview actions and stronger scam filtering',

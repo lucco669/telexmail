@@ -3,6 +3,13 @@
 // N: texts with a count, one form per plural category of Intl.PluralRules (other is the fallback).
 (window.TelexLangs ||= {})["it"] = {
 T: {
+  "No message is set aside.": "Nessun messaggio è messo da parte.",
+  "The message you were writing, set aside. Click or press W to go back to it.": "Il messaggio che stavi scrivendo, messo da parte. Fai clic o premi W per tornarci.",
+  "Read other mail meanwhile: the status bar keeps it, and W brings it back. Choosing another message or folder does the same.": "Leggi altra posta nel frattempo: la barra di stato lo conserva e W lo riporta. Scegliere un altro messaggio o cartella fa lo stesso.",
+  "Set aside": "Metti da parte",
+  "Set aside. Press W or click it in the status bar to go back to it.": "Messo da parte. Premi W o fai clic su di esso nella barra di stato per tornarci.",
+  "back to the message set aside while you read other mail": "torna al messaggio messo da parte mentre leggi altra posta",
+  "While writing, click another message or folder to read it: the message waits in the status bar, and W brings it back.": "Mentre scrivi, fai clic su un altro messaggio o cartella per leggerlo: il messaggio aspetta nella barra di stato e W lo riporta.",
   "Statistical filtering starts once it has {n} of each.": "Il filtro statistico inizia dopo aver appreso da {n} messaggi di ogni tipo.",
   "New unread mail arrived today. The number includes all unread mail.": "Oggi sono arrivati nuovi messaggi non letti. Il numero include tutti i messaggi non letti.",
   "Check all accounts for new mail, starting with the selected mailbox": "Controlla la nuova posta di tutti gli account, iniziando dalla casella selezionata",

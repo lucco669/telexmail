@@ -1,12 +1,8 @@
 use super::*;
 use crate::sample::sample_store;
-use chrono::NaiveDate;
 
-fn now() -> NaiveDateTime {
-    NaiveDate::from_ymd_opt(2026, 10, 10)
-        .unwrap()
-        .and_hms_opt(7, 0, 0)
-        .unwrap()
+fn now() -> DateTime {
+    jiff::civil::date(2026, 10, 10).at(7, 0, 0, 0)
 }
 
 #[test]
@@ -1156,9 +1152,7 @@ fn mail_survives_reopening_the_file() {
     let path = std::env::temp_dir().join(format!(
         "telex-test-{}-{}.db",
         std::process::id(),
-        chrono::Local::now()
-            .timestamp_nanos_opt()
-            .unwrap_or_default()
+        jiff::Timestamp::now().as_nanosecond()
     ));
     {
         let mut store = MailStore::open(&path).unwrap();
@@ -1195,9 +1189,7 @@ fn mail_survives_reopening_the_file() {
                 }],
             )
             .unwrap();
-        store
-            .note_arrivals(&ids, chrono::Local::now().date_naive())
-            .unwrap();
+        store.note_arrivals(&ids, crate::dates::today()).unwrap();
     }
     let store = MailStore::open(&path).unwrap();
     assert!(!store.is_sample());
@@ -1727,7 +1719,7 @@ fn save_draft(store: &mut MailStore, account: &Account, d: OutgoingDraft) -> Mes
         edited,
         ..Default::default()
     };
-    let raw = crate::smtp::compose_draft(account, &d, &originals, chrono::Local::now()).unwrap();
+    let raw = crate::smtp::compose_draft(account, &d, &originals, jiff::Timestamp::now()).unwrap();
     store
         .save_outgoing(d, Some(&raw), FolderKind::Drafts, now())
         .unwrap()
@@ -2187,7 +2179,13 @@ fn rules_find_tags_and_add_or_take_them_off_saying_so() {
     store.save_rule(&done).unwrap();
     store.save_rule(&untagged).unwrap();
     let report = crate::i18n::with(crate::i18n::Lang::En, || {
-        run(&mut store, &[a, b], Trigger::OnDemand, chrono::Local::now()).unwrap()
+        run(
+            &mut store,
+            &[a, b],
+            Trigger::OnDemand,
+            jiff::Timestamp::now(),
+        )
+        .unwrap()
     });
     assert_eq!(report.matched, 2);
     let a = store.get(a).unwrap();
@@ -2202,7 +2200,7 @@ fn rules_find_tags_and_add_or_take_them_off_saying_so() {
     // In Polish.
     let c = one_in_inbox(&mut store, &account, 3);
     crate::i18n::with(crate::i18n::Lang::Pl, || {
-        run(&mut store, &[c], Trigger::OnDemand, chrono::Local::now()).unwrap()
+        run(&mut store, &[c], Trigger::OnDemand, jiff::Timestamp::now()).unwrap()
     });
     assert_eq!(
         store.get(c).unwrap().note.as_deref(),
@@ -2211,7 +2209,7 @@ fn rules_find_tags_and_add_or_take_them_off_saying_so() {
     // A rule whose tag was deleted says so when it runs.
     store.delete_tag("$label2").unwrap();
     let d = one_in_inbox(&mut store, &account, 4);
-    let report = run(&mut store, &[d], Trigger::OnDemand, chrono::Local::now()).unwrap();
+    let report = run(&mut store, &[d], Trigger::OnDemand, jiff::Timestamp::now()).unwrap();
     assert_eq!(report.problems.len(), 1, "{:?}", report.problems);
 }
 
@@ -2269,7 +2267,7 @@ fn reply_in(
     folder: &str,
     uid: u32,
     refs: &[&str],
-    at: NaiveDateTime,
+    at: DateTime,
 ) -> MessageId {
     let mut m = synced(uid, "Re");
     m.message.refs = refs.iter().map(|r| (*r).to_owned()).collect();
@@ -2288,7 +2286,7 @@ fn a_reply_in_sent_says_when_the_user_replied() {
     // A reply to a later message names it in References only: not a reply to this one.
     reply_in(&mut store, &sent, 10, &["later@x.pl", mid], now());
     assert_eq!(store.replied(original, Some(mid)).unwrap(), None);
-    let hour = chrono::TimeDelta::hours(1);
+    let hour = jiff::SignedDuration::from_hours(1);
     let first = reply_in(&mut store, &sent, 11, &[mid], now() + hour);
     let second = reply_in(&mut store, &sent, 12, &[mid, "root@x.pl"], now() + hour * 2);
     let replied = store.replied(original, Some(mid)).unwrap().unwrap();

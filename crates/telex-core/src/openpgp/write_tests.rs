@@ -26,7 +26,7 @@ fn composed(s: &MailStore, draft: &crate::model::OutgoingDraft, choice: Choice) 
         &account,
         draft,
         &Default::default(),
-        chrono::Local::now(),
+        jiff::Timestamp::now(),
         &p,
     )
     .unwrap()
@@ -184,7 +184,7 @@ fn a_draft_is_encrypted_to_its_writer_only() {
         &account,
         &draft_to("bob@gnupg.test", ""),
         &Default::default(),
-        chrono::Local::now(),
+        jiff::Timestamp::now(),
         &p,
     )
     .unwrap();
@@ -295,17 +295,12 @@ fn an_encrypted_draft_keeps_no_text_in_the_mail_base() {
         &account,
         &draft,
         &Default::default(),
-        chrono::Local::now(),
+        jiff::Timestamp::now(),
         &p,
     )
     .unwrap();
     let id = s
-        .save_outgoing(
-            draft,
-            Some(&raw),
-            FolderKind::Drafts,
-            chrono::Local::now().naive_local(),
-        )
+        .save_outgoing(draft, Some(&raw), FolderKind::Drafts, crate::dates::now())
         .unwrap();
     assert_eq!(s.get(id).unwrap().body, "");
     assert!(s.search("poprawki").unwrap().is_empty());

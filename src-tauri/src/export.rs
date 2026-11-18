@@ -189,7 +189,8 @@ pub async fn drag_out(
     if all.is_empty() {
         return Ok(false);
     }
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%3f").to_string();
+    let now = telex_core::dates::now();
+    let stamp = format!("{}{:03}", now.strftime("%Y%m%d-%H%M%S"), now.millisecond());
     let dir: PathBuf = std::env::temp_dir().join("Telex").join("drag").join(stamp);
     let paths = export::write_emls(&dir, &all).map_err(|e| {
         tr!(

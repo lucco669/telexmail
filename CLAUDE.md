@@ -87,6 +87,10 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/colors.rs      CSS colors read and turned around for dark paper (OKLab), for html.rs.
   src/count.rs       The daily count, only after a yes: what it sends (no ID; first this week /
                      month flags), when it is due (UTC days), count.json; docs/counting.md.
+  src/dates.rs       Dates and times (jiff; chrono until 0.9.24): this PC's wall clock (`now`,
+                     `today`, `local`, `instant`), and the mail base's own text for them
+                     ("2026-10-10 06:12:00", as chrono wrote it) through `Sql` and `SqlDate`, so
+                     old and new rows sort alike; never pass a jiff date to SQL directly.
   src/desktop.rs     How Telex lives on the desktop: unread Inbox mail per account for the tray,
                      its tooltip (127 characters, as Windows cuts it), the taskbar badge drawn as
                      a picture (a 3 × 5 font in whole pixels on a smoothed red shape), how long a
@@ -176,7 +180,7 @@ crates/telex-core/   All mail logic. Unit-tested. No UI, no Tauri.
   src/calendar.rs    Calendar invitations: iCalendar (RFC 5545) read with limits (size, line
                      length, components, depth), events in local time, RRULEs in words, the iTIP
                      REPLY (RFC 5546/6047). calendar/zones.rs: TZIDs by IANA or Windows name
-                     (chrono-tz, CLDR's table), else the VTIMEZONE's rules. calendar/invites.rs:
+                     (jiff's bundled database, CLDR's table), else the VTIMEZONE's rules. calendar/invites.rs:
                      the `invites` table (schema 18), outdated and cancelled ones, the user's
                      answer, answering. Its tests (Outlook, Google, Apple) are in calendar/tests.rs.
   src/autoconfig.rs  Finding an address's servers for the add-account wizard: provider list,
@@ -610,6 +614,7 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 | Shift+F      | forward                        |
 | N            | new message                    |
 | E            | edit a draft or an unsent message in the Outbox |
+| W            | back to the message being written, set aside when another message or folder was chosen (or Set aside in compose); also its chip in the status bar |
 | F            | flag / unflag (the selection: flag all, or unflag all when all are flagged) |
 | 1 2 3 4 5    | the first five tags on / off (the selection: on for all, or off when all have it); every tag in the message menu's Tags… and the tag button above a message |
 | U            | toggle unread (the selection: all read, or all unread when all are read) |
@@ -652,7 +657,27 @@ libxdo-dev libdbus-1-dev` (+ `patchelf` to bundle).
 
 Nothing yet.
 
-## Current state (v0.9.22: fourteen themes with accent colors, spacing and message zoom, a tray icon, replied and forwarded marks, pictures sized as you like, size limits before Send, no frozen start after an upgrade, and all earlier features below)
+## Current state (v0.9.24: a message set aside while other mail is read; v0.9.22: fourteen themes with accent colors, spacing and message zoom, a tray icon, replied and forwarded marks, pictures sized as you like, size limits before Send, no frozen start after an upgrade, and all earlier features below)
+
+- New in 0.9.24 (no schema change):
+  - Security updates: lettre 0.11.24 (six advisories: STARTTLS reply injection, SMTP command
+    injection through bare CR/LF, a quoted local part sent elsewhere, panics, unbounded replies),
+    ammonia 4.2.5 (mutation XSS through SVG and MathML), rusqlite 0.43 with SQLite's fixed
+    libsqlite3-sys 0.40, rustix 1.1.6, and the site's Next.js 16.4.6.
+  - chrono, chrono-tz and pin-utils are unmaintained (RUSTSEC-2026-0543, -0555, -0441), and the
+    release gate allows no exceptions: dates are jiff 1.0 now (`dates.rs`, the time zone database
+    bundled), and two verified overrides drop what pulled them in: `vendor/async-imap` (0.11.3:
+    INTERNALDATE through jiff, safe pin projections) and `vendor/serde_with` (3.24.0: its unused
+    optional chrono, which weak `chrono_0_4?/` features kept in Cargo.lock). The mail base keeps
+    its date text as before.
+  - A message being written can wait while other mail is read (app.js only):
+    choosing another message (a click, the arrows, Space) or folder (the tree, G) while writing, or
+    compose's Set aside, puts it aside instead of keeping the pane. It is autosaved at once and kept
+    as it was in the window (`state.parked`: the Reply | Reply all switch, the original's files, the
+    field and caret it was left in); the status bar shows its subject (`#st-parked`), and a click
+    there or W brings it back. Starting another message (N, R, E, Z after Discard), installing an
+    update or closing Telex puts it in Drafts first (`saveWriting`); files dropped on the window go
+    to it; E on its draft brings it back. Message windows have no Set aside.
 
 - New in 0.9.22 (schema versions 25–27, each a one-way upgrade: `upkeep`, replied and forwarded
   marks, the server's message size; settings `accent`, `preview_pane`, `line_spacing`,
@@ -940,8 +965,8 @@ Nothing yet.
     arrow saves it. The parser is Telex's own (`calendar.rs`): 1 MiB, 32 KiB lines, 500 components, 6
     levels, 200 attendees listed; folded lines joined before decoding (Google folds inside UTF-8
     characters), the part's charset, else Windows-1250. Time zones (`calendar/zones.rs`): IANA names
-    (also behind a path), Windows names through CLDR's table, both with chrono-tz's compiled database
-    (new dependency, MIT/Apache-2.0); other TZIDs from the VTIMEZONE's yearly rules and RDATEs. Wall
+    (also behind a path), Windows names through CLDR's table, both with a compiled-in database
+    (chrono-tz then; jiff's since 0.9.24); other TZIDs from the VTIMEZONE's yearly rules and RDATEs. Wall
     times in a spring-forward gap move past it, ones that come twice are the first (RFC 5545). A
     nameless text/calendar part is listed as "invite.ics".
   - The address book (schema version 19: `contacts`, `contact_emails`, `contact_groups`,

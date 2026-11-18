@@ -31,7 +31,10 @@ pub fn count_copy(app: AppHandle, settings: State<'_, SettingsState>) -> CmdResu
             .map_err(|e| e.to_string())?
             .join("count.json");
         let mut sent = Sent::load(&path);
-        let today = chrono::Utc::now().date_naive();
+        // The site counts UTC days.
+        let today = jiff::Timestamp::now()
+            .to_zoned_datetime(jiff::tz::TimeZone::UTC)
+            .date();
         let version = app.package_info().version.to_string();
         let lang = chosen.effective_language(settings.locale());
         let Some(ping) = count::due(&sent, today, &version, count::os(), lang) else {

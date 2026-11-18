@@ -3,11 +3,9 @@
 //! in `telex_core::openpgp`. A passphrase is kept in the store's memory for the session, and
 //! in the system's password store only when the user ticks Remember (secrets.rs).
 
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::{mpsc, Mutex};
-
-use chrono::Local;
-use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use telex_core::openpgp::{
@@ -136,14 +134,14 @@ pub async fn pgp_import(
             "Nie udało się odczytać {shown}: {e}."
         )
     })?;
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     with_store(&state, |s| s.import_keys(&data, Source::File, now)).map(Some)
 }
 
 /// Import keys pasted as text (an armored block).
 #[tauri::command(async)]
 pub fn pgp_import_text(state: State<'_, AppState>, text: String) -> CmdResult<ImportReport> {
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     with_store(&state, |s| {
         s.import_keys(text.as_bytes(), Source::File, now)
     })
@@ -152,7 +150,7 @@ pub fn pgp_import_text(state: State<'_, AppState>, text: String) -> CmdResult<Im
 /// Import the keys the open message carries (its Autocrypt header, an attached key).
 #[tauri::command(async)]
 pub fn pgp_import_offered(state: State<'_, AppState>, id: MessageId) -> CmdResult<ImportReport> {
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     with_store(&state, |s| s.import_offered_keys(id, now))
 }
 
@@ -166,7 +164,7 @@ pub fn pgp_generate(
     kind: KeyKind,
     remember: bool,
 ) -> CmdResult<KeyRef> {
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     let made = with_store(&state, |s| {
         s.generate_key(&name, &email, &passphrase, kind, now)
     })?;
@@ -424,7 +422,7 @@ pub async fn smime_pick(
         }
         return Ok(Some(Picked::Password { name }));
     }
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     let report = with_store(&state, |s| s.import_certificates(&data, now))?;
     Ok(Some(Picked::Imported { report }))
 }
@@ -450,7 +448,7 @@ pub fn smime_import_p12(
                 "Wybierz plik .p12 lub .pfx ponownie."
             )
         })?;
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     let Some(report) = with_store(&state, |s| s.import_p12(&data, &password, now))? else {
         return Ok(None);
     };

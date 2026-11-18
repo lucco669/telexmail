@@ -7,7 +7,8 @@
 //! server, and how the last sync went. All of it comes from the local mail base, so it
 //! shows offline; the counts cover the mail Telex has downloaded.
 
-use chrono::{Duration, NaiveDate, NaiveDateTime};
+use jiff::civil::{Date, DateTime};
+
 use rusqlite::params_from_iter;
 use rusqlite::types::Value;
 use serde::Serialize;
@@ -28,7 +29,7 @@ pub struct Usage {
     pub base_bytes: u64,
     pub free_bytes: u64,
     /// The first day of every account's `flow`.
-    pub since: NaiveDate,
+    pub since: Date,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,7 +38,7 @@ pub struct AccountUsage {
     /// The server's storage quota, when it reports one.
     pub quota: Option<Quota>,
     /// When a sync last worked, and why the last one failed (`None` when it worked).
-    pub synced_at: Option<NaiveDateTime>,
+    pub synced_at: Option<DateTime>,
     pub sync_error: Option<String>,
     /// Folders that hold mail, largest first.
     pub folders: Vec<FolderUsage>,
@@ -92,8 +93,8 @@ fn marks(n: usize) -> String {
 
 impl MailStore {
     /// Everything the Usage page shows, for the days up to `today`.
-    pub fn usage(&self, today: NaiveDate) -> Result<Usage, StoreError> {
-        let since = today - Duration::days(FLOW_DAYS as i64 - 1);
+    pub fn usage(&self, today: Date) -> Result<Usage, StoreError> {
+        let since = today - crate::dates::days(FLOW_DAYS as i64 - 1);
         let accounts = self
             .accounts()
             .iter()
@@ -112,16 +113,19 @@ impl MailStore {
         })
     }
 
-    fn account_usage(
-        &self,
-        account: &Account,
-        since: NaiveDate,
-    ) -> Result<AccountUsage, StoreError> {
+    fn account_usage(&self, account: &Account, since: Date) -> Result<AccountUsage, StoreError> {
         let (used, limit, synced_at, sync_error): (Option<i64>, Option<i64>, _, _) =
             self.db.query_row(
                 "SELECT quota_used_kb, quota_limit_kb, synced_at, sync_error FROM accounts WHERE id = ?1",
                 [&account.id],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        crate::dates::get_opt(r, 2)?,
+                        r.get(3)?,
+                    ))
+                },
             )?;
         let quota = match (used, limit) {
             (Some(used), Some(limit)) if limit > 0 => Some(Quota {
@@ -196,7 +200,7 @@ impl MailStore {
             .sort_by(|a, b| b.size_kb.cmp(&a.size_kb).then(a.folder.cmp(&b.folder)));
 
         // Dates are stored as "2026-10-10 06:12:00", so the day is the first ten characters.
-        let first_day = since.format("%Y-%m-%d").to_string();
+        let first_day = since.strftime("%Y-%m-%d").to_string();
         let mut args = all.clone();
         args.push(Value::Text(first_day.clone()));
         let mut stmt = self.db.prepare(&format!(
@@ -214,10 +218,10 @@ impl MailStore {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         for (day, folder, count) in rows {
-            let Ok(day) = NaiveDate::parse_from_str(&day, "%Y-%m-%d") else {
+            let Ok(day) = day.parse::<Date>() else {
                 continue;
             };
-            let Some(slot) = usize::try_from((day - since).num_days())
+            let Some(slot) = usize::try_from(day.duration_since(since).as_hours() / 24)
                 .ok()
                 .and_then(|i| usage.flow.get_mut(i))
             else {
@@ -281,13 +285,13 @@ impl MailStore {
     pub fn record_sync(
         &mut self,
         account: &str,
-        at: NaiveDateTime,
+        at: DateTime,
         error: Option<&str>,
     ) -> Result<(), StoreError> {
         match error {
             None => self.db.execute(
                 "UPDATE accounts SET synced_at = ?2, sync_error = NULL WHERE id = ?1",
-                rusqlite::params![account, at],
+                rusqlite::params![account, crate::dates::Sql(at)],
             )?,
             Some(e) => self.db.execute(
                 "UPDATE accounts SET sync_error = ?2 WHERE id = ?1",
@@ -303,8 +307,8 @@ mod tests {
     use super::*;
     use crate::sample::sample_store;
 
-    fn day(y: i32, m: u32, d: u32) -> NaiveDate {
-        NaiveDate::from_ymd_opt(y, m, d).unwrap()
+    fn day(y: i16, m: i8, d: i8) -> Date {
+        jiff::civil::date(y, m, d)
     }
 
     #[test]
@@ -369,7 +373,7 @@ mod tests {
     #[test]
     fn quota_and_the_last_sync_are_kept() {
         let mut store = sample_store();
-        let at = day(2026, 10, 10).and_hms_opt(9, 30, 0).unwrap();
+        let at = day(2026, 10, 10).at(9, 30, 0, 0);
         store
             .set_quota(
                 "firma",
@@ -383,7 +387,7 @@ mod tests {
         store
             .record_sync(
                 "firma",
-                at + Duration::minutes(10),
+                at + jiff::SignedDuration::from_mins(10),
                 Some("can't reach mail.x.pl"),
             )
             .unwrap();

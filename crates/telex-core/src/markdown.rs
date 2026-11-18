@@ -29,7 +29,7 @@ pub fn message(m: &Message, raw: Option<&[u8]>) -> String {
         (tr!("Bcc", "UDW"), m.bcc.clone()),
         (
             tr!("Date", "Data"),
-            m.date.format("%Y-%m-%d %H:%M").to_string(),
+            m.date.strftime("%Y-%m-%d %H:%M").to_string(),
         ),
         (tr!("Attachments", "Załączniki"), files(&m.attachments)),
         (tr!("Tags", "Etykiety"), m.tags.join(", ")),
@@ -87,7 +87,6 @@ pub(crate) fn size(kb: u32) -> String {
 mod tests {
     use super::*;
     use crate::i18n::{self, Lang};
-    use chrono::NaiveDate;
 
     fn sample() -> Message {
         Message {
@@ -99,10 +98,7 @@ mod tests {
             cc: String::new(),
             bcc: String::new(),
             subject: "Poprawki na stronie\r\n głównej".into(),
-            date: NaiveDate::from_ymd_opt(2026, 10, 10)
-                .unwrap()
-                .and_hms_opt(6, 12, 0)
-                .unwrap(),
+            date: jiff::civil::date(2026, 10, 10).at(6, 12, 0, 0),
             size_kb: 40,
             unread: true,
             flagged: false,

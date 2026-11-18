@@ -12,7 +12,9 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use chrono::{NaiveDate, NaiveDateTime, TimeDelta};
+use jiff::civil::DateTime;
+
+use jiff::SignedDuration;
 use telex_core::filters::{self, Action, Condition, Field, Op, Rule};
 use telex_core::{
     AccountSetup, Attachment, Folder, FolderKind, ListView, MailStore, Message, MessageId, PageAt,
@@ -348,7 +350,7 @@ fn message(
     owner: (&str, &str),
     kind: FolderKind,
     uid: u32,
-    date: NaiveDateTime,
+    date: DateTime,
     id_part: &str,
 ) -> SyncedMessage {
     let (contact_name, contact_email) = person(rng);
@@ -410,7 +412,7 @@ fn message(
          --b1\r\nContent-Type: multipart/alternative; boundary=\"b2\"\r\n\r\n\
          --b2\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{body}\r\n\
          --b2\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<html><body>{html}</body></html>\r\n--b2--\r\n",
-        date.format("%a, %d %b %Y %H:%M:%S +0200"),
+        date.strftime("%a, %d %b %Y %H:%M:%S +0200"),
     );
     for a in &attachments {
         raw.push_str(&format!(
@@ -452,10 +454,7 @@ fn message(
 /// Fill an empty mail base the way sync does, in batches of 1000.
 fn build(store: &mut MailStore) {
     let mut rng = Rng(0x7e1e_c0de_2026_1010);
-    let start = NaiveDate::from_ymd_opt(2021, 10, 10)
-        .unwrap()
-        .and_hms_opt(8, 0, 0)
-        .unwrap();
+    let start = jiff::civil::date(2021, 10, 10).at(8, 0, 0, 0);
     let span = 5 * 365 * 24 * 3600_i64;
     for (name, email, folders) in LAYOUT {
         let account = store
@@ -485,7 +484,7 @@ fn build(store: &mut MailStore) {
             for i in 0..*count {
                 // Dates rise with the UID, as on a server, over five years.
                 let secs = span * i as i64 / *count as i64 + rng.below(3600) as i64;
-                let date = start + TimeDelta::seconds(secs);
+                let date = start + SignedDuration::from_secs(secs);
                 let uid = i as u32 + 1;
                 batch.push(message(&mut rng, (name, email), *kind, uid, date, &id_part));
                 if batch.len() == 1000 || i + 1 == *count {

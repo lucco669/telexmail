@@ -388,9 +388,7 @@ fn with_book<T>(
     let dir = std::env::temp_dir().join(format!(
         "telex-abook-{}-{}",
         std::process::id(),
-        chrono::Local::now()
-            .timestamp_nanos_opt()
-            .unwrap_or_default()
+        jiff::Timestamp::now().as_nanosecond()
     ));
     std::fs::create_dir_all(&dir).map_err(|e| StoreError::Database(e.to_string()))?;
     let copy = dir.join("abook.sqlite");
@@ -714,8 +712,7 @@ fn popstate(file: &Path, setup: &AccountSetup) -> Vec<Seen> {
         let when = words
             .next()
             .and_then(|t| t.parse::<i64>().ok())
-            .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
-            .map(|t| t.with_timezone(&chrono::Local).naive_local());
+            .and_then(crate::dates::from_unix);
         if sections.is_empty() {
             sections.push((String::new(), String::new(), Vec::new()));
         }

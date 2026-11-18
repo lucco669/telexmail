@@ -65,7 +65,8 @@ async fn watch(app: AppHandle, account: Account) {
                 Err(SyncError::Login(_)) => return,
                 // The server is resting: try once its rest is over, not before.
                 Err(SyncError::Resting(until)) => {
-                    let left = (until - chrono::Local::now()).to_std().unwrap_or_default();
+                    let left = Duration::try_from(until.duration_since(jiff::Timestamp::now()))
+                        .unwrap_or_default();
                     pause = pause.max(left + Duration::from_secs(5));
                 }
                 // A connection that held for a while was fine: start over with short pauses.

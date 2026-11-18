@@ -21,7 +21,8 @@ use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use chrono::{DateTime, Local, NaiveDateTime};
+use jiff::civil::DateTime;
+
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
@@ -46,7 +47,7 @@ pub struct FileMessage {
     pub seen: bool,
     pub flagged: bool,
     /// The date of mbox's "From " line, or the file's, for a message without a Date header.
-    pub date: Option<NaiveDateTime>,
+    pub date: Option<DateTime>,
     /// IMAP keywords its headers carry (`X-Mozilla-Keys`, `X-Keywords`), lowercase: the ones
     /// that are tags here become its tags.
     pub keywords: Vec<String>,
@@ -195,7 +196,7 @@ fn file_error(e: std::io::Error) -> StoreError {
 
 /// The messages of `folder`, oldest first, as mbox.
 fn write_mbox(db: &Connection, folder: &str, out: &mut dyn Write) -> Result<usize, StoreError> {
-    type Row = (i64, String, NaiveDateTime, bool, bool, String);
+    type Row = (i64, String, DateTime, bool, bool, String);
     let messages: Vec<Row> = {
         let mut stmt = db.prepare(
             "SELECT id, from_email, date, unread, flagged, keywords FROM messages
@@ -206,7 +207,7 @@ fn write_mbox(db: &Connection, folder: &str, out: &mut dyn Write) -> Result<usiz
                 Ok((
                     r.get(0)?,
                     r.get(1)?,
-                    r.get(2)?,
+                    crate::dates::get(r, 2)?,
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
@@ -226,7 +227,7 @@ fn write_mbox(db: &Connection, folder: &str, out: &mut dyn Write) -> Result<usiz
             from.trim()
         };
         let mut text =
-            format!("From {sender} {}\n", date.format("%a %b %e %H:%M:%S %Y")).into_bytes();
+            format!("From {sender} {}\n", date.strftime("%a %b %e %H:%M:%S %Y")).into_bytes();
         text.extend_from_slice(if unread {
             b"Status: O\n"
         } else {
@@ -365,17 +366,17 @@ fn header_flags(raw: &[u8]) -> HeaderFlags {
 }
 
 /// The date of an mbox "From " line: "From anna@x.pl Sat Oct 10 22:35:00 2026".
-fn from_line_date(line: &[u8]) -> Option<NaiveDateTime> {
+fn from_line_date(line: &[u8]) -> Option<DateTime> {
     let text = String::from_utf8_lossy(line);
     let words: Vec<&str> = text.split_whitespace().collect();
     let tail = words.get(words.len().checked_sub(5)?..)?.join(" ");
-    NaiveDateTime::parse_from_str(&tail, "%a %b %e %H:%M:%S %Y").ok()
+    DateTime::strptime("%a %b %e %H:%M:%S %Y", &tail).ok()
 }
 
 /// One finished message: the blank lines before the next "From " left out, its flags read.
 /// Without any, mail from a file counts as read: it is usually an archive. `None` for an
 /// empty one, and for one Thunderbird deleted.
-fn finish(mut raw: Vec<u8>, date: Option<NaiveDateTime>) -> Option<FileMessage> {
+fn finish(mut raw: Vec<u8>, date: Option<DateTime>) -> Option<FileMessage> {
     while raw.ends_with(b"\r\n\r\n") {
         raw.truncate(raw.len() - 2);
     }
@@ -403,9 +404,11 @@ pub(crate) fn crlf_lines(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// When a file was last changed, for a message without a Date header.
-fn file_date(path: &Path) -> Option<NaiveDateTime> {
+fn file_date(path: &Path) -> Option<DateTime> {
     let modified = std::fs::metadata(path).ok()?.modified().ok()?;
-    Some(DateTime::<Local>::from(modified).naive_local())
+    jiff::Timestamp::try_from(modified)
+        .ok()
+        .map(crate::dates::local)
 }
 
 fn unreadable(e: std::io::Error) -> StoreError {
@@ -450,7 +453,7 @@ fn read_file(
         };
     }
     let mut count = 0;
-    let mut current: Option<(Vec<u8>, Option<NaiveDateTime>)> = None;
+    let mut current: Option<(Vec<u8>, Option<DateTime>)> = None;
     let mut blank = true;
     let mut line = Vec::new();
     loop {
@@ -807,9 +810,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "telex-mailbox-{}-{}",
             std::process::id(),
-            chrono::Local::now()
-                .timestamp_nanos_opt()
-                .unwrap_or_default()
+            jiff::Timestamp::now().as_nanosecond()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join(name)
@@ -907,7 +908,7 @@ mod tests {
         assert_eq!(archived.len(), 2);
         let wycena = archived.iter().find(|m| m.subject == "Wycena").unwrap();
         assert!(!wycena.unread && wycena.flagged);
-        assert_eq!(wycena.date.format("%Y-%m-%d").to_string(), "2026-10-09");
+        assert_eq!(wycena.date.strftime("%Y-%m-%d").to_string(), "2026-10-09");
         assert_eq!(
             s.search("wtorek").unwrap().len(),
             2,
@@ -1046,7 +1047,7 @@ mod tests {
         let undated = all.iter().find(|m| m.subject == "Bez daty").unwrap();
         assert!(undated.unread);
         assert_eq!(
-            undated.date.format("%Y-%m-%d %H:%M").to_string(),
+            undated.date.strftime("%Y-%m-%d %H:%M").to_string(),
             "2026-10-11 09:00",
             "the From line's date"
         );

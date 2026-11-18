@@ -4,19 +4,18 @@ use crate::i18n::{with, Lang};
 use crate::model::{AccountSetup, Folder, FolderKind, MessageId, SmtpSecurity};
 use crate::store::{MailStore, SyncedMessage};
 use base64::Engine as _;
-use chrono::{Local, NaiveDate};
-use chrono_tz::{America, Europe};
 use std::time::Duration;
 
 fn crlf(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\n', "\r\n")
 }
 
-fn at(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
-    NaiveDate::from_ymd_opt(y, mo, d)
-        .unwrap()
-        .and_hms_opt(h, mi, 0)
-        .unwrap()
+fn at(y: i16, mo: i8, d: i8, h: i8, mi: i8) -> DateTime {
+    jiff::civil::date(y, mo, d).at(h, mi, 0, 0)
+}
+
+fn tz(name: &str) -> jiff::tz::TimeZone {
+    jiff::tz::TimeZone::get(name).unwrap()
 }
 
 fn b64(bytes: &[u8]) -> String {
@@ -365,13 +364,13 @@ fn outlook_invitation_in_local_time_and_elsewhere() {
         "the same link from the property and the description, once"
     );
 
-    let here = view(&cal, e, &Europe::Warsaw);
+    let here = view(&cal, e, &tz("Europe/Warsaw"));
     assert_eq!(here.start, Some(at(2026, 10, 20, 10, 0)));
     assert_eq!(here.end, Some(at(2026, 10, 20, 11, 0)));
     assert!(!here.all_day);
     assert_eq!(here.zone, None, "written in this PC's zone");
 
-    let away = view(&cal, e, &America::New_York);
+    let away = view(&cal, e, &tz("America/New_York"));
     assert_eq!(away.start, Some(at(2026, 10, 20, 4, 0)));
     let zone = away.zone.unwrap();
     assert_eq!(zone.name, "Central European Standard Time");
@@ -427,7 +426,7 @@ fn google_invitation_folded_inside_a_character() {
         }]
     );
     // 3 November: New York has left summer time (1 Nov), Warsaw too (25 Oct).
-    let v = with(Lang::En, || view(&cal, e, &Europe::Warsaw));
+    let v = with(Lang::En, || view(&cal, e, &tz("Europe/Warsaw")));
     assert_eq!(v.start, Some(at(2026, 11, 3, 15, 0)));
     assert_eq!(v.end, Some(at(2026, 11, 3, 16, 0)));
     let zone = v.zone.unwrap();
@@ -436,7 +435,7 @@ fn google_invitation_folded_inside_a_character() {
         ("America/New York", -300, at(2026, 11, 3, 9, 0))
     );
     assert_eq!(v.repeats.as_deref(), Some("Every week on Tuesday"));
-    let pl = with(Lang::Pl, || view(&cal, e, &Europe::Warsaw));
+    let pl = with(Lang::Pl, || view(&cal, e, &tz("Europe/Warsaw")));
     assert_eq!(pl.repeats.as_deref(), Some("Co tydzień we wtorek"));
 }
 
@@ -452,7 +451,7 @@ fn apple_all_day_invitation_quoted_printable() {
     assert_eq!(e.attendees[0].role, Role::Chair);
     assert_eq!(e.attendees[1].person.email, "biuro@twojastudio.pl");
     assert!(e.links.is_empty(), "an empty URL is no link");
-    let v = with(Lang::Pl, || view(&cal, e, &America::New_York));
+    let v = with(Lang::Pl, || view(&cal, e, &tz("America/New_York")));
     assert!(v.all_day);
     assert_eq!(v.start, Some(at(2026, 12, 24, 0, 0)));
     assert_eq!(
@@ -496,11 +495,11 @@ fn content_lines() {
     assert_eq!(content_line("no colon here"), None);
     assert_eq!(content_line("X;CN=\"unterminated:mailto:a@x.pl"), None);
     assert_eq!(text("a\\, b\\; c\\\\d\\ne\\N"), "a, b; c\\d\ne\n");
-    assert_eq!(duration("PT1H30M"), Some(TimeDelta::minutes(90)));
-    assert_eq!(duration("-P1W"), Some(TimeDelta::weeks(-1)));
-    assert_eq!(duration("P1DT2H"), Some(TimeDelta::hours(26)));
+    assert_eq!(duration("PT1H30M"), Some(SignedDuration::from_mins(90)));
+    assert_eq!(duration("-P1W"), Some(crate::dates::days(-7)));
+    assert_eq!(duration("P1DT2H"), Some(SignedDuration::from_hours(26)));
     assert_eq!(duration("P99999999999999999999D"), None);
-    assert_eq!(duration("PT"), Some(TimeDelta::zero()));
+    assert_eq!(duration("PT"), Some(SignedDuration::ZERO));
     assert_eq!(duration("1H"), None);
 }
 
@@ -508,27 +507,27 @@ fn content_lines() {
 
 #[test]
 fn names_iana_windows_and_paths() {
-    assert_eq!(zones::iana("Europe/Warsaw"), Some(Europe::Warsaw));
-    assert_eq!(zones::iana("\"Europe/Warsaw\""), Some(Europe::Warsaw));
+    assert_eq!(zones::iana("Europe/Warsaw"), Some(tz("Europe/Warsaw")));
+    assert_eq!(zones::iana("\"Europe/Warsaw\""), Some(tz("Europe/Warsaw")));
     assert_eq!(
         zones::iana("/mozilla.org/20050126_1/America/New_York"),
-        Some(America::New_York)
+        Some(tz("America/New_York"))
     );
     assert_eq!(
         zones::iana("/freeassociation.sourceforge.net/Tzfile/America/Argentina/Buenos_Aires"),
-        Some(America::Argentina::Buenos_Aires)
+        Some(tz("America/Argentina/Buenos_Aires"))
     );
     assert_eq!(
         zones::iana("central european standard time"),
-        Some(Europe::Warsaw)
+        Some(tz("Europe/Warsaw"))
     );
     assert_eq!(
         zones::iana("Pacific Standard Time"),
-        Some(America::Los_Angeles)
+        Some(tz("America/Los_Angeles"))
     );
     assert_eq!(zones::iana("Customized Time Zone"), None);
     for (windows, iana) in zones::windows_names() {
-        assert!(iana.parse::<chrono_tz::Tz>().is_ok(), "{windows} → {iana}");
+        assert!(jiff::tz::TimeZone::get(iana).is_ok(), "{windows} → {iana}");
     }
     // Summer in Los Angeles is UTC−7 though Windows calls it "Standard".
     let pacific = zones::find("Pacific Standard Time", &[]).unwrap();
@@ -562,10 +561,10 @@ fn summer_time_edges_by_name_and_by_vtimezone() {
     while t < at(2028, 1, 1, 0, 0) {
         assert_eq!(rules.to_utc(t), iana.to_utc(t), "{t}");
         assert_eq!(rules.offset_at(t), iana.offset_at(t), "{t}");
-        t += TimeDelta::hours(1);
+        t += SignedDuration::from_hours(1);
     }
     // The event in the gap shows at 03:30 here, 03:30–04:30... its end is 03:30 written.
-    let v = view(&cal, &cal.events[0], &Europe::Warsaw);
+    let v = view(&cal, &cal.events[0], &tz("Europe/Warsaw"));
     assert_eq!(v.start, Some(at(2026, 3, 29, 3, 30)));
     assert_eq!(v.end, Some(at(2026, 3, 29, 3, 30)));
     assert_eq!(v.zone, None);
@@ -649,7 +648,7 @@ END:VEVENT
 END:VCALENDAR
 ";
     let cal = parse(text).unwrap();
-    let a = view(&cal, &cal.events[0], &Europe::Warsaw);
+    let a = view(&cal, &cal.events[0], &tz("Europe/Warsaw"));
     assert_eq!(
         (a.start, a.end),
         (
@@ -658,12 +657,12 @@ END:VCALENDAR
         )
     );
     assert_eq!(a.zone, None, "UTC is nobody's zone to name");
-    let b = view(&cal, &cal.events[1], &America::New_York);
+    let b = view(&cal, &cal.events[1], &tz("America/New_York"));
     assert_eq!(
         (b.start, b.end),
         (Some(at(2026, 10, 20, 8, 0)), Some(at(2026, 10, 20, 9, 0)))
     );
-    let c = view(&cal, &cal.events[2], &America::New_York);
+    let c = view(&cal, &cal.events[2], &tz("America/New_York"));
     assert_eq!(
         (c.start, c.end),
         (Some(at(2026, 10, 20, 8, 0)), Some(at(2026, 10, 20, 8, 30)))
@@ -674,7 +673,7 @@ END:VCALENDAR
 
 #[test]
 fn repeating_rules_in_words() {
-    let wed = NaiveDate::from_ymd_opt(2026, 10, 21).unwrap();
+    let wed = jiff::civil::date(2026, 10, 21);
     let say = |lang, rule: &str| with(lang, || describe(rule, Some(wed), |m| m.date()));
     let cases = [
         (
@@ -804,7 +803,7 @@ fn hostile_calendars_stay_within_limits() {
     assert_eq!(first.attendees.len(), MAX_ATTENDEES);
     assert_eq!(first.attendee_count, 1000);
     assert_eq!(
-        view(&cal, first, &Europe::Warsaw).more_attendees,
+        view(&cal, first, &tz("Europe/Warsaw")).more_attendees,
         1000 - MAX_ATTENDEES
     );
 
@@ -849,7 +848,7 @@ fn reply_is_folded_and_keeps_the_event() {
     };
     let comment =
         "Będę, ale spóźnię się 10 minut; proszę zacząć beze mnie, a potem omówimy wycenę.";
-    let now = Utc.with_ymd_and_hms(2026, 10, 17, 12, 2, 0).unwrap();
+    let now = crate::dates::utc_instant(jiff::civil::date(2026, 10, 17).at(12, 2, 0, 0));
     let ics = reply_ics(&cal, e, &me, Answer::Accepted, comment, now);
     for line in ics.split("\r\n") {
         assert!(line.len() <= 75, "{line:?}");
@@ -951,8 +950,8 @@ fn deliver(
         .unwrap()[0]
 }
 
-fn now() -> chrono::DateTime<Local> {
-    Local.with_ymd_and_hms(2026, 10, 17, 14, 2, 0).unwrap()
+fn now() -> jiff::Timestamp {
+    crate::dates::instant(jiff::civil::date(2026, 10, 17).at(14, 2, 0, 0)).unwrap()
 }
 
 #[test]
@@ -975,7 +974,7 @@ fn answering_an_invitation_then_its_update_and_cancellation() {
     assert_eq!(store.invite(plain).unwrap(), None);
 
     let invite = store
-        .invite_in(first, &Europe::Warsaw)
+        .invite_in(first, &tz("Europe/Warsaw"))
         .unwrap()
         .expect("an invitation");
     assert_eq!(invite.method, Method::Request);
@@ -1014,7 +1013,10 @@ fn answering_an_invitation_then_its_update_and_cancellation() {
     assert_eq!(cal.events[0].attendees[0].answer, Answer::Accepted);
     assert_eq!(cal.events[0].comment, "Będę.");
 
-    let invite = store.invite_in(first, &Europe::Warsaw).unwrap().unwrap();
+    let invite = store
+        .invite_in(first, &tz("Europe/Warsaw"))
+        .unwrap()
+        .unwrap();
     let answered = invite.answered.expect("answered");
     assert_eq!(
         (answered.answer, answered.earlier),
@@ -1031,7 +1033,10 @@ fn answering_an_invitation_then_its_update_and_cancellation() {
         .replace("SEQUENCE:0", "SEQUENCE:1")
         .replace("20261020T100000", "20261020T120000");
     let second = deliver(&mut store, &account, "inbox", 3, outlook_mail(&moved, "o2"));
-    let old = store.invite_in(first, &Europe::Warsaw).unwrap().unwrap();
+    let old = store
+        .invite_in(first, &tz("Europe/Warsaw"))
+        .unwrap()
+        .unwrap();
     assert_eq!(
         (old.state, old.blocked),
         (State::Outdated, Some(Blocked::Outdated))
@@ -1039,7 +1044,10 @@ fn answering_an_invitation_then_its_update_and_cancellation() {
     assert!(store
         .answer_invite(first, Answer::Declined, "", now())
         .is_err());
-    let new = store.invite_in(second, &Europe::Warsaw).unwrap().unwrap();
+    let new = store
+        .invite_in(second, &tz("Europe/Warsaw"))
+        .unwrap()
+        .unwrap();
     assert_eq!(new.state, State::Current);
     assert_eq!(new.event.start, Some(at(2026, 10, 20, 12, 0)));
     assert!(new.answered.unwrap().earlier);
@@ -1051,7 +1059,7 @@ fn answering_an_invitation_then_its_update_and_cancellation() {
         .replace("STATUS:CONFIRMED", "STATUS:CANCELLED");
     let cancel = deliver(&mut store, &account, "inbox", 4, outlook_mail(&off, "o3"));
     for id in [first, second, cancel] {
-        let i = store.invite_in(id, &Europe::Warsaw).unwrap().unwrap();
+        let i = store.invite_in(id, &tz("Europe/Warsaw")).unwrap().unwrap();
         assert_eq!(i.state, State::Cancelled, "{id}");
     }
     assert_eq!(
@@ -1142,7 +1150,7 @@ fn the_upkeep_goes_on_where_it_stopped() {
     let path = std::env::temp_dir().join(format!(
         "telex-upkeep-{}-{}.db",
         std::process::id(),
-        Local::now().timestamp_nanos_opt().unwrap_or_default()
+        Timestamp::now().as_nanosecond()
     ));
     let (mut store, account) = with_account(MailStore::open(&path).unwrap());
     let oldest = deliver(&mut store, &account, "inbox", 1, apple_mail());

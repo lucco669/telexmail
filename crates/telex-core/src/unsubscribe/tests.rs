@@ -319,10 +319,7 @@ fn offered_outside_spam_and_remembered_for_the_whole_list() {
     );
     assert!(draft(&from, None, &Method::Link("https://x.pl".into())).is_none());
 
-    let at = chrono::NaiveDate::from_ymd_opt(2026, 10, 17)
-        .unwrap()
-        .and_hms_opt(9, 30, 0)
-        .unwrap();
+    let at = jiff::civil::date(2026, 10, 17).at(9, 30, 0, 0);
     i18n::with(Lang::Pl, || store.record_unsubscribe(&plan, at)).unwrap();
     assert_eq!(
         store.get(first).unwrap().note.as_deref(),

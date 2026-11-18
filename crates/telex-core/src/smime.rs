@@ -26,7 +26,6 @@ pub mod trust;
 use std::collections::HashMap;
 
 use base64::Engine;
-use chrono::NaiveDateTime;
 use cms::cert::{CertificateChoices, IssuerAndSerialNumber};
 use cms::content_info::ContentInfo;
 use cms::enveloped_data::{EnvelopedData, RecipientIdentifier, RecipientInfo};
@@ -34,6 +33,7 @@ use cms::signed_data::{SignedData, SignerIdentifier, SignerInfo};
 use const_oid::ObjectIdentifier;
 use der::asn1::OctetString;
 use der::{Decode, Encode};
+use jiff::civil::DateTime;
 use mail_parser::{MessageParser, MessagePart, MimeHeaders, PartType};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
@@ -124,13 +124,11 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn now_secs() -> i64 {
-    chrono::Utc::now().timestamp()
+    jiff::Timestamp::now().as_second()
 }
 
-fn local(secs: i64) -> NaiveDateTime {
-    chrono::DateTime::from_timestamp(secs, 0)
-        .map(|utc| utc.with_timezone(&chrono::Local).naive_local())
-        .unwrap_or_default()
+fn local(secs: i64) -> DateTime {
+    crate::dates::from_unix(secs).unwrap_or_default()
 }
 
 /// The text of a directory string (UTF8String, PrintableString, IA5String, BMPString…).
@@ -519,8 +517,8 @@ pub struct CertInfo {
     pub emails: Vec<String>,
     pub issuer: String,
     pub serial: String,
-    pub not_before: NaiveDateTime,
-    pub not_after: NaiveDateTime,
+    pub not_before: DateTime,
+    pub not_after: DateTime,
     /// "RSA 2048", "ECDSA P-256"
     pub algorithm: String,
     /// The user's own: Telex has its private key.
@@ -536,7 +534,7 @@ pub struct CertInfo {
     pub expired: bool,
     pub can_sign: bool,
     pub can_encrypt: bool,
-    pub added: NaiveDateTime,
+    pub added: DateTime,
 }
 
 fn save_cert(
@@ -545,7 +543,7 @@ fn save_cert(
     chain: &[Vec<u8>],
     secret: Option<(&[u8], bool)>,
     source: Source,
-    now: NaiveDateTime,
+    now: DateTime,
 ) -> Result<(KeyRef, Saved), StoreError> {
     let f = facts(der).ok_or_else(unreadable)?;
     let reference = KeyRef {
@@ -608,11 +606,11 @@ fn save_cert(
             f.serial,
             f.issuer_serial,
             f.ski,
-            local(f.not_before),
-            local(f.not_after),
+            crate::dates::Sql(local(f.not_before)),
+            crate::dates::Sql(local(f.not_after)),
             source.as_str(),
             source != Source::Message,
-            now,
+            crate::dates::Sql(now),
         ],
     )?;
     Ok((reference, saved))
@@ -1113,7 +1111,7 @@ impl MailStore {
 /// way of learning whom mail can be encrypted to. A certificate Telex has stays as it is.
 fn learn(db: &Connection, checked: &[Checked], from: &str, now: i64) {
     let from = from.trim().to_lowercase();
-    let when = chrono::Local::now().naive_local();
+    let when = crate::dates::now();
     for c in checked {
         let Checked::Made {
             valid: true,
@@ -1504,7 +1502,7 @@ impl MailStore {
                     r.get::<_, bool>(3)?,
                     r.get::<_, String>(4)?,
                     r.get::<_, bool>(5)?,
-                    r.get::<_, NaiveDateTime>(6)?,
+                    crate::dates::get(r, 6)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -1547,7 +1545,7 @@ impl MailStore {
         &mut self,
         data: &[u8],
         password: &str,
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<Option<ImportReport>, StoreError> {
         let file = match p12::read(data, password) {
             Ok(f) => f,
@@ -1605,7 +1603,7 @@ impl MailStore {
     pub fn import_certificates(
         &mut self,
         data: &[u8],
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<ImportReport, StoreError> {
         let certs = read_certificates(data);
         if certs.is_empty() {

@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::NaiveDateTime;
+use jiff::civil::DateTime;
 use serde::Serialize;
 
 use crate::model::FolderKind;
@@ -44,7 +44,7 @@ struct Tally {
     email: String,
     sent: usize,
     received: usize,
-    last: Option<NaiveDateTime>,
+    last: Option<DateTime>,
 }
 
 impl Tally {
@@ -53,7 +53,7 @@ impl Tally {
         self.sent * 5 + self.received
     }
 
-    fn seen(&mut self, name: &str, at: NaiveDateTime) {
+    fn seen(&mut self, name: &str, at: DateTime) {
         if self.last.is_none_or(|last| at >= last) {
             self.last = Some(at);
             if !name.is_empty() {
@@ -150,7 +150,7 @@ impl MailStore {
             .collect();
         let mut people: HashMap<String, Tally> = HashMap::new();
         // `count` messages with this person, the last at `at`; `sent`: written by the user.
-        let mut note = |name: &str, email: &str, at: NaiveDateTime, count: usize, sent: bool| {
+        let mut note = |name: &str, email: &str, at: DateTime, count: usize, sent: bool| {
             let email = email.trim();
             let key = email.to_lowercase();
             if !email.contains('@')
@@ -182,7 +182,7 @@ impl MailStore {
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
-                    r.get::<_, NaiveDateTime>(3)?,
+                    crate::dates::get(r, 3)?,
                 ))
             })?;
             for row in rows {
@@ -212,7 +212,7 @@ impl MailStore {
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, i64>(2)?,
-                r.get::<_, NaiveDateTime>(3)?,
+                crate::dates::get(r, 3)?,
             ))
         })?;
         for row in rows {

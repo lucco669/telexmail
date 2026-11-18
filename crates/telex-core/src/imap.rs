@@ -18,8 +18,8 @@ use async_imap::types::{
     Capability, Fetch, Flag, Name, NameAttribute, QuotaResourceName, UnsolicitedResponse,
 };
 use async_imap::{Client, Session};
-use chrono::{DateTime, Local, TimeDelta};
 use futures_util::TryStreamExt;
+use jiff::{SignedDuration, Timestamp};
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
@@ -74,7 +74,7 @@ pub enum SyncError {
     Login(String),
     Timeout,
     /// The server stopped answering a moment ago; nothing connects to it until then.
-    Resting(DateTime<Local>),
+    Resting(Timestamp),
     /// The server answered with an error or closed the connection.
     Server(String),
     Store(StoreError),
@@ -99,7 +99,7 @@ impl fmt::Display for SyncError {
             ),
             Self::Timeout => tr!("the server stopped answering", "serwer przestał odpowiadać"),
             Self::Resting(until) => {
-                let time = until.format("%H:%M");
+                let time = crate::dates::local(*until).strftime("%H:%M");
                 tr!(
                     "the server stopped answering; Telex tries again after {time}",
                     "serwer przestał odpowiadać; Telex spróbuje ponownie po {time}"
@@ -439,7 +439,7 @@ pub(crate) fn sort_arrived(
     // it learns from the mail sorted since the last check.
     let caught = {
         let mut s = lock(store)?;
-        s.note_arrivals(&arrived, Local::now().date_naive())?;
+        s.note_arrivals(&arrived, crate::dates::today())?;
         let caught = crate::spam::sort_arrivals(&mut s, &arrived, crate::spam::level())?;
         crate::spam::learn_pending(&mut s, crate::spam::LEARN_BATCH)?;
         caught
@@ -450,13 +450,13 @@ pub(crate) fn sort_arrived(
     if !arrived.is_empty() {
         let run = {
             let mut s = lock(store)?;
-            filters::run(&mut s, &arrived, Trigger::Arrival, Local::now())?
+            filters::run(&mut s, &arrived, Trigger::Arrival, Timestamp::now())?
         };
         report.sorted = run.matched;
         report.answered = run.replied;
         report.refused.extend(run.problems);
         // The away reply, where Telex sends it, after the rules have filed the mail.
-        let away = crate::away::answer(&mut *lock(store)?, account, &arrived, Local::now());
+        let away = crate::away::answer(&mut *lock(store)?, account, &arrived, Timestamp::now());
         report.answered += away.replied;
         report.refused.extend(away.problems);
     }
@@ -564,7 +564,7 @@ pub async fn sync_session<T: ImapStream>(
                     && !folder.kind.is_outgoing()
                     && !matches!(folder.kind, FolderKind::Spam | FolderKind::Trash)
                 {
-                    s.note_arrivals(&ids, Local::now().date_naive())?;
+                    s.note_arrivals(&ids, crate::dates::today())?;
                 }
                 s.refresh_flags(&key, &answered)?;
                 ids
@@ -1026,7 +1026,7 @@ async fn sent_copy_needed<T: ImapStream>(
         s.server_filed_sent(change.op, id, to, Some(uid))?;
         return Ok(false);
     }
-    if s.sent_just_now(id, Local::now().naive_local())? {
+    if s.sent_just_now(id, crate::dates::now())? {
         return Ok(false);
     }
     s.found_sent_copy(&account.id, false)?;
@@ -1097,7 +1097,7 @@ async fn connect_and_login(
     let mut turn = match SERVERS.turn(&key, host, purpose.places()).await {
         Ok(turn) => turn,
         Err(left) => {
-            let until = Local::now() + TimeDelta::from_std(left).unwrap_or_default();
+            let until = Timestamp::now() + SignedDuration::try_from(left).unwrap_or_default();
             return Err(failed(trace, SyncError::Resting(until)));
         }
     };
@@ -1374,9 +1374,7 @@ async fn fetch_batch<T: ImapStream>(
             // Servers may add FETCH lines for other messages; keep only what was asked for.
             let uid = f.uid.filter(|u| wanted.contains(u))?;
             let raw = f.body()?;
-            let received = f
-                .internal_date()
-                .map(|d| d.with_timezone(&Local).naive_local());
+            let received = f.internal_date().map(crate::dates::local);
             let mut message = parse_message(raw, folder_key, received);
             let state = flag_state(f, uid);
             message.unread = !state.seen;
@@ -2865,7 +2863,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_storage_quota_comes_with_the_sync() {
-        let today = chrono::NaiveDate::from_ymd_opt(2026, 10, 10).unwrap();
+        let today = jiff::civil::date(2026, 10, 10);
         let (_, store, ..) = synced_once("IMAP4rev1 QUOTA").await;
         let usage = store.lock().unwrap().usage(today).unwrap();
         assert_eq!(
@@ -3201,8 +3199,7 @@ To: anna@kowalska-architekci.pl\r\nSubject: Oferta\r\n\r\nW za\xc5\x82\xc4\x85cz
                     None,
                 )
                 .unwrap();
-            s.outgoing_sent(id, chrono::Local::now().naive_local())
-                .unwrap();
+            s.outgoing_sent(id, crate::dates::now()).unwrap();
             id
         };
         let report = sync_all(&mut session, &account, &store, &no_progress, Scope::All)
@@ -3633,7 +3630,7 @@ Subject: {subject}
             (Some(original), None)
         };
         s.note_answering(id, reply, forwarded).unwrap();
-        s.outgoing_sent(id, Local::now().naive_local()).unwrap();
+        s.outgoing_sent(id, crate::dates::now()).unwrap();
     }
 
     fn answered(store: &Mutex<MailStore>, id: MessageId) -> (bool, bool) {
@@ -4033,12 +4030,7 @@ Subject: {subject}
 
     #[test]
     fn a_resting_server_says_when_telex_tries_again() {
-        let until = Local::now()
-            .date_naive()
-            .and_hms_opt(17, 42, 0)
-            .unwrap()
-            .and_local_timezone(Local)
-            .unwrap();
+        let until = crate::dates::instant(crate::dates::today().at(17, 42, 0, 0)).unwrap();
         crate::i18n::with(crate::i18n::Lang::En, || {
             assert_eq!(
                 SyncError::Resting(until).to_string(),
@@ -4127,14 +4119,9 @@ Started on the phone.\r\n";
             edited,
             ..Default::default()
         };
-        let raw = crate::smtp::compose_draft(account, &d, &originals, Local::now()).unwrap();
-        s.save_outgoing(
-            d,
-            Some(&raw),
-            FolderKind::Drafts,
-            Local::now().naive_local(),
-        )
-        .unwrap()
+        let raw = crate::smtp::compose_draft(account, &d, &originals, Timestamp::now()).unwrap();
+        s.save_outgoing(d, Some(&raw), FolderKind::Drafts, crate::dates::now())
+            .unwrap()
     }
 
     fn written(account: &Account, subject: &str, body: &str) -> OutgoingDraft {
@@ -4266,7 +4253,8 @@ Started on the phone.\r\n";
                 edited: s.raw_of(finished).unwrap(),
                 ..Default::default()
             };
-            let composed = crate::smtp::compose(&account, &d, &originals, Local::now()).unwrap();
+            let composed =
+                crate::smtp::compose(&account, &d, &originals, Timestamp::now()).unwrap();
             assert!(
                 String::from_utf8_lossy(&composed.raw)
                     .contains("In-Reply-To: <m1@kowalska-architekci.pl>"),
@@ -4359,7 +4347,7 @@ Started on the phone.\r\n";
                 None,
             )
             .unwrap();
-        s.outgoing_sent(id, Local::now().naive_local()).unwrap();
+        s.outgoing_sent(id, crate::dates::now()).unwrap();
         (id, raw)
     }
 
@@ -4446,10 +4434,10 @@ Started on the phone.\r\n";
         // A minute later it still isn't there: Telex uploads it and remembers.
         {
             let s = store.lock().unwrap();
-            let earlier = Local::now().naive_local() - chrono::TimeDelta::minutes(1);
+            let earlier = crate::dates::now() - SignedDuration::from_mins(1);
             s.db.execute(
                 "UPDATE messages SET date = ?1 WHERE id = ?2",
-                rusqlite::params![earlier, id as i64],
+                rusqlite::params![crate::dates::Sql(earlier), id as i64],
             )
             .unwrap();
         }

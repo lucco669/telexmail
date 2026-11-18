@@ -11,7 +11,9 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{NaiveDateTime, TimeDelta};
+use jiff::civil::DateTime;
+
+use jiff::SignedDuration;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use serde::Serialize;
 
@@ -30,7 +32,7 @@ const STAMP: &str = "%Y-%m-%d-%H%M%S";
 pub struct BackupFile {
     pub path: String,
     /// When it was made, from its name.
-    pub made: NaiveDateTime,
+    pub made: DateTime,
     pub bytes: u64,
 }
 
@@ -39,7 +41,7 @@ pub struct BackupFile {
 pub struct BackupInfo {
     pub path: String,
     /// When it was made: from its name, else the file's own date.
-    pub made: Option<NaiveDateTime>,
+    pub made: Option<DateTime>,
     pub bytes: u64,
     /// The server accounts' addresses.
     pub accounts: Vec<String>,
@@ -56,9 +58,9 @@ fn file_error(e: std::io::Error) -> StoreError {
 }
 
 /// When a backup file of this name was made, or `None` when the name isn't a backup's.
-fn made_of(name: &str) -> Option<NaiveDateTime> {
+fn made_of(name: &str) -> Option<DateTime> {
     let stamp = name.strip_prefix(PREFIX)?.strip_suffix(EXTENSION)?;
-    NaiveDateTime::parse_from_str(stamp, STAMP).ok()
+    DateTime::strptime(STAMP, stamp).ok()
 }
 
 /// The backups in `dir`, newest first. Nothing but Telex's own backup files.
@@ -84,17 +86,17 @@ pub fn list(dir: &Path) -> Vec<BackupFile> {
 
 /// A backup is due when `every` is set and the newest in `dir` is older than that, or there
 /// is none. A few minutes' slack, so a daily backup at the same time of day isn't skipped.
-pub fn due(dir: &Path, every: Option<TimeDelta>, now: NaiveDateTime) -> bool {
+pub fn due(dir: &Path, every: Option<SignedDuration>, now: DateTime) -> bool {
     let Some(every) = every else { return false };
     match list(dir).first() {
-        Some(newest) => now - newest.made >= every - TimeDelta::minutes(10),
+        Some(newest) => now.duration_since(newest.made) >= every - SignedDuration::from_mins(10),
         None => true,
     }
 }
 
 /// Write a backup of the mail base at `db` into `dir`, made now (`at`). It appears under its
 /// name only when it is complete and opens. Returns it.
-pub fn write(db: &Path, dir: &Path, at: NaiveDateTime) -> Result<BackupFile, StoreError> {
+pub fn write(db: &Path, dir: &Path, at: DateTime) -> Result<BackupFile, StoreError> {
     write_keys(db, dir, at, true)
 }
 
@@ -104,17 +106,17 @@ pub fn write(db: &Path, dir: &Path, at: NaiveDateTime) -> Result<BackupFile, Sto
 pub fn write_keys(
     db: &Path,
     dir: &Path,
-    at: NaiveDateTime,
+    at: DateTime,
     secret_keys: bool,
 ) -> Result<BackupFile, StoreError> {
     std::fs::create_dir_all(dir).map_err(file_error)?;
     let mut at = at;
-    let mut dest = dir.join(format!("{PREFIX}{}{EXTENSION}", at.format(STAMP)));
+    let mut dest = dir.join(format!("{PREFIX}{}{EXTENSION}", at.strftime(STAMP)));
     while dest.exists() {
-        at += TimeDelta::seconds(1);
-        dest = dir.join(format!("{PREFIX}{}{EXTENSION}", at.format(STAMP)));
+        at += SignedDuration::from_secs(1);
+        dest = dir.join(format!("{PREFIX}{}{EXTENSION}", at.strftime(STAMP)));
     }
-    let part = dir.join(format!("{PREFIX}{}{EXTENSION}.part", at.format(STAMP)));
+    let part = dir.join(format!("{PREFIX}{}{EXTENSION}.part", at.strftime(STAMP)));
     let _ = std::fs::remove_file(&part);
     let made = (|| {
         let source = Connection::open_with_flags(
@@ -213,7 +215,8 @@ pub fn inspect(path: &Path) -> Result<BackupInfo, StoreError> {
     let made = made_of(&name).or_else(|| {
         meta.modified()
             .ok()
-            .map(|t| chrono::DateTime::<chrono::Local>::from(t).naive_local())
+            .and_then(|t| jiff::Timestamp::try_from(t).ok())
+            .map(crate::dates::local)
     });
     Ok(BackupInfo {
         path: path.display().to_string(),
@@ -236,7 +239,7 @@ fn sidecar(db: &Path, suffix: &str) -> PathBuf {
 /// connection to it open). The mail base as it was is kept next to it as
 /// "telex-before-restore-<time>.db"; the copy goes in only once it opens, is brought up to
 /// this Telex's schema and is made safe to sync. Returns where the old one went.
-pub fn restore(db: &Path, from: &Path, at: NaiveDateTime) -> Result<PathBuf, StoreError> {
+pub fn restore(db: &Path, from: &Path, at: DateTime) -> Result<PathBuf, StoreError> {
     inspect(from)?;
     let dir = db.parent().unwrap_or(Path::new("."));
     let incoming = dir.join("telex-restoring.db");
@@ -257,7 +260,7 @@ pub fn restore(db: &Path, from: &Path, at: NaiveDateTime) -> Result<PathBuf, Sto
         let _ = std::fs::remove_file(&incoming);
         return Err(e);
     }
-    let aside = dir.join(format!("telex-before-restore-{}.db", at.format(STAMP)));
+    let aside = dir.join(format!("telex-before-restore-{}.db", at.strftime(STAMP)));
     if db.exists() {
         std::fs::rename(db, &aside).map_err(file_error)?;
         for suffix in ["-wal", "-shm"] {
@@ -373,22 +376,15 @@ mod tests {
     use super::*;
     use crate::model::{AccountSetup, Folder, OutgoingDraft};
     use crate::store::SyncedMessage;
-    use chrono::NaiveDate;
-
-    fn at(day: u32, hour: u32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 10, day)
-            .unwrap()
-            .and_hms_opt(hour, 30, 0)
-            .unwrap()
+    fn at(day: i8, hour: i8) -> DateTime {
+        jiff::civil::date(2026, 10, day).at(hour, 30, 0, 0)
     }
 
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "telex-backup-test-{}-{}",
             std::process::id(),
-            chrono::Local::now()
-                .timestamp_nanos_opt()
-                .unwrap_or_default()
+            jiff::Timestamp::now().as_nanosecond()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -448,7 +444,7 @@ mod tests {
         store.move_to(id, "local/archive").unwrap(); // mail only this PC has
         let backups = dir.join("Kopie");
         assert!(
-            due(&backups, Some(TimeDelta::days(1)), at(1, 9)),
+            due(&backups, Some(crate::dates::days(1)), at(1, 9)),
             "none yet"
         );
         assert!(!due(&backups, None, at(1, 9)), "off");
@@ -468,11 +464,11 @@ mod tests {
         let again = write(&db, &backups, at(1, 9)).unwrap();
         assert!(again.path.ends_with("093001.db"));
         assert!(
-            !due(&backups, Some(TimeDelta::days(1)), at(1, 23)),
+            !due(&backups, Some(crate::dates::days(1)), at(1, 23)),
             "not yet a day"
         );
         assert!(
-            due(&backups, Some(TimeDelta::days(1)), at(2, 9)),
+            due(&backups, Some(crate::dates::days(1)), at(2, 9)),
             "a day later"
         );
         for day in 2..=7 {
@@ -562,9 +558,13 @@ mod tests {
             ..Default::default()
         };
         let account = store.account("twojastudio").unwrap().clone();
-        let composed =
-            crate::smtp::compose(&account, &draft, &Default::default(), chrono::Local::now())
-                .unwrap();
+        let composed = crate::smtp::compose(
+            &account,
+            &draft,
+            &Default::default(),
+            jiff::Timestamp::now(),
+        )
+        .unwrap();
         store
             .queue_outgoing(
                 "twojastudio",

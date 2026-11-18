@@ -17,10 +17,10 @@
 
 use std::fmt::Write as _;
 
-use chrono::{
-    DateTime, Datelike, Duration as TimeDelta, NaiveDate, NaiveDateTime, Offset, TimeZone, Utc,
-    Weekday,
-};
+use jiff::civil::{Date, DateTime, Weekday};
+
+use jiff::tz::TimeZone;
+use jiff::{SignedDuration, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::{self, Lang, Plural};
@@ -364,13 +364,13 @@ fn capped(s: String, max: usize) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Moment {
     /// All day: `VALUE=DATE:20261020`.
-    Date(NaiveDate),
+    Date(Date),
     /// `20261020T120000Z`
-    Utc(NaiveDateTime),
+    Utc(DateTime),
     /// `TZID=Europe/Warsaw:20261020T140000`: a wall time in that zone.
-    Zoned(NaiveDateTime, String),
+    Zoned(DateTime, String),
     /// `20261020T140000`: the same wall time wherever one is.
-    Floating(NaiveDateTime),
+    Floating(DateTime),
 }
 
 impl Moment {
@@ -386,16 +386,14 @@ impl Moment {
             .is_some_and(|x| x.eq_ignore_ascii_case("DATE"))
             || v.len() == 8;
         if date_only {
-            return NaiveDate::parse_from_str(v.get(..8)?, "%Y%m%d")
-                .ok()
-                .map(Self::Date);
+            return Date::strptime("%Y%m%d", v.get(..8)?).ok().map(Self::Date);
         }
         let (v, utc) = match v.strip_suffix(['Z', 'z']) {
             Some(v) => (v, true),
             None => (v, false),
         };
-        let at = NaiveDateTime::parse_from_str(v, "%Y%m%dT%H%M%S")
-            .or_else(|_| NaiveDateTime::parse_from_str(v, "%Y%m%dT%H%M"))
+        let at = DateTime::strptime("%Y%m%dT%H%M%S", v)
+            .or_else(|_| DateTime::strptime("%Y%m%dT%H%M", v))
             .ok()?;
         Some(if utc {
             Self::Utc(at)
@@ -406,7 +404,7 @@ impl Moment {
         })
     }
 
-    fn date(&self) -> NaiveDate {
+    fn date(&self) -> Date {
         match self {
             Self::Date(d) => *d,
             Self::Utc(at) | Self::Zoned(at, _) | Self::Floating(at) => at.date(),
@@ -415,7 +413,7 @@ impl Moment {
 }
 
 /// `PT1H30M`, `P1D`, `-PT15M`, `P1W`.
-pub fn duration(v: &str) -> Option<TimeDelta> {
+pub fn duration(v: &str) -> Option<SignedDuration> {
     let v = v.trim();
     let (negative, v) = match v.as_bytes().first()? {
         b'-' => (true, &v[1..]),
@@ -450,7 +448,11 @@ pub fn duration(v: &str) -> Option<TimeDelta> {
     if number.is_some() || total > 10 * 366 * 86_400 {
         return None;
     }
-    Some(TimeDelta::seconds(if negative { -total } else { total }))
+    Some(SignedDuration::from_secs(if negative {
+        -total
+    } else {
+        total
+    }))
 }
 
 /// `mailto:Anna@X.pl` → "anna@x.pl"; other URIs (a phone, a room's id) → None.
@@ -549,7 +551,7 @@ impl Answer {
     }
 
     /// "You accepted on 17.10.2026, 14:02."
-    pub fn note(self, at: NaiveDateTime) -> String {
+    pub fn note(self, at: DateTime) -> String {
         let at = when(at);
         match self {
             Self::Accepted => tr!("You accepted on {at}.", "Zaakceptowano {at}."),
@@ -563,21 +565,21 @@ impl Answer {
 }
 
 /// The date and time in a note: "17 Oct 2026, 14:02" / "17.10.2026, 14:02".
-fn when(at: NaiveDateTime) -> String {
+fn when(at: DateTime) -> String {
     match i18n::current() {
-        Lang::En => at.format("%-d %b %Y, %H:%M").to_string(),
-        Lang::Es | Lang::Fr | Lang::It => at.format("%d/%m/%Y, %H:%M").to_string(),
-        _ => at.format("%d.%m.%Y, %H:%M").to_string(),
+        Lang::En => at.strftime("%-d %b %Y, %H:%M").to_string(),
+        Lang::Es | Lang::Fr | Lang::It => at.strftime("%d/%m/%Y, %H:%M").to_string(),
+        _ => at.strftime("%d.%m.%Y, %H:%M").to_string(),
     }
 }
 
 /// A day in a sentence: "31 Dec 2026" / "31.12.2026" (31/12/2026 in Spanish, French and
 /// Italian).
-fn day(d: NaiveDate) -> String {
+fn day(d: Date) -> String {
     match i18n::current() {
-        Lang::En => d.format("%-d %b %Y").to_string(),
-        Lang::Es | Lang::Fr | Lang::It => d.format("%d/%m/%Y").to_string(),
-        _ => d.format("%d.%m.%Y").to_string(),
+        Lang::En => d.strftime("%-d %b %Y").to_string(),
+        Lang::Es | Lang::Fr | Lang::It => d.strftime("%d/%m/%Y").to_string(),
+        _ => d.strftime("%d.%m.%Y").to_string(),
     }
 }
 
@@ -681,7 +683,7 @@ pub struct Event {
     pub comment: String,
     pub start: Option<Moment>,
     pub end: Option<Moment>,
-    pub duration: Option<TimeDelta>,
+    pub duration: Option<SignedDuration>,
     /// The RRULE as written.
     pub rule: Option<String>,
     /// STATUS:CANCELLED
@@ -767,7 +769,7 @@ impl Calendar {
 
     /// When a moment is, in UTC, with the zone it was written in; `None` for all-day dates
     /// and floating times, which are the same wall time everywhere.
-    pub fn instant(&self, m: &Moment) -> Option<(NaiveDateTime, Option<zones::Zone>)> {
+    pub fn instant(&self, m: &Moment) -> Option<(DateTime, Option<zones::Zone>)> {
         match m {
             Moment::Utc(at) => Some((*at, None)),
             Moment::Zoned(at, tzid) => {
@@ -919,13 +921,13 @@ pub struct Rule {
 
 fn weekday(code: &str) -> Option<Weekday> {
     Some(match code {
-        "MO" => Weekday::Mon,
-        "TU" => Weekday::Tue,
-        "WE" => Weekday::Wed,
-        "TH" => Weekday::Thu,
-        "FR" => Weekday::Fri,
-        "SA" => Weekday::Sat,
-        "SU" => Weekday::Sun,
+        "MO" => Weekday::Monday,
+        "TU" => Weekday::Tuesday,
+        "WE" => Weekday::Wednesday,
+        "TH" => Weekday::Thursday,
+        "FR" => Weekday::Friday,
+        "SA" => Weekday::Saturday,
+        "SU" => Weekday::Sunday,
         _ => return None,
     })
 }
@@ -1012,19 +1014,19 @@ impl Rule {
 }
 
 const WEEK: [Weekday; 7] = [
-    Weekday::Mon,
-    Weekday::Tue,
-    Weekday::Wed,
-    Weekday::Thu,
-    Weekday::Fri,
-    Weekday::Sat,
-    Weekday::Sun,
+    Weekday::Monday,
+    Weekday::Tuesday,
+    Weekday::Wednesday,
+    Weekday::Thursday,
+    Weekday::Friday,
+    Weekday::Saturday,
+    Weekday::Sunday,
 ];
 
 /// "Monday" / "poniedziałek": a day as a list after "on" says it (in Polish, Czech, Slovak and
 /// Ukrainian the accusative: środę; in Spanish the plural: los sábados).
 fn day_name(d: Weekday) -> &'static str {
-    let i = d.num_days_from_monday() as usize;
+    let i = usize::try_from(d.to_monday_zero_offset()).unwrap_or_default();
     let names: [&str; 7] = match i18n::current() {
         Lang::En => [
             "Monday",
@@ -1118,17 +1120,19 @@ fn on_days(days: &[Weekday]) -> String {
     let first = days.first();
     match i18n::current() {
         Lang::En => format!("on {list}"),
-        Lang::Pl if first == Some(&Weekday::Tue) => format!("we {list}"),
+        Lang::Pl if first == Some(&Weekday::Tuesday) => format!("we {list}"),
         Lang::Pl => format!("w {list}"),
         Lang::De => format!("am {list}"),
-        Lang::Cs if matches!(first, Some(Weekday::Wed | Weekday::Thu)) => format!("ve {list}"),
+        Lang::Cs if matches!(first, Some(Weekday::Wednesday | Weekday::Thursday)) => {
+            format!("ve {list}")
+        }
         Lang::Cs => format!("v {list}"),
-        Lang::Sk if first == Some(&Weekday::Thu) => format!("vo {list}"),
+        Lang::Sk if first == Some(&Weekday::Thursday) => format!("vo {list}"),
         Lang::Sk => format!("v {list}"),
         Lang::Uk => format!("у {list}"),
         Lang::Es => format!("los {list}"),
         Lang::Fr => format!("le {list}"),
-        Lang::It if first == Some(&Weekday::Sun) => format!("la {list}"),
+        Lang::It if first == Some(&Weekday::Sunday) => format!("la {list}"),
         Lang::It => format!("il {list}"),
     }
 }
@@ -1146,7 +1150,7 @@ fn on_nth_day(n: i16, d: Weekday) -> Option<String> {
     let name = day_name(d);
     // Feminine days: in Polish, Slovak and Ukrainian Wednesday, Saturday and Sunday (Ukrainian
     // also Friday); in Czech those three, with Monday and Tuesday neuter; in Italian Sunday.
-    let fem = matches!(d, Weekday::Wed | Weekday::Sat | Weekday::Sun);
+    let fem = matches!(d, Weekday::Wednesday | Weekday::Saturday | Weekday::Sunday);
     Some(match i18n::current() {
         Lang::En => {
             let nth = [
@@ -1207,7 +1211,7 @@ fn on_nth_day(n: i16, d: Weekday) -> Option<String> {
                     "poslední",
                     "předposlední",
                 ]
-            } else if matches!(d, Weekday::Mon | Weekday::Tue) {
+            } else if matches!(d, Weekday::Monday | Weekday::Tuesday) {
                 [
                     "první",
                     "druhé",
@@ -1257,7 +1261,7 @@ fn on_nth_day(n: i16, d: Weekday) -> Option<String> {
             format!("{v} {nth} {name}")
         }
         Lang::Uk => {
-            let nth = if fem || d == Weekday::Fri {
+            let nth = if fem || d == Weekday::Friday {
                 [
                     "першу",
                     "другу",
@@ -1292,8 +1296,8 @@ fn on_nth_day(n: i16, d: Weekday) -> Option<String> {
             ][at];
             // One day, so the singular: el sábado, el domingo.
             let one = match d {
-                Weekday::Sat => "sábado",
-                Weekday::Sun => "domingo",
+                Weekday::Saturday => "sábado",
+                Weekday::Sunday => "domingo",
                 _ => name,
             };
             format!(", el {nth} {one}")
@@ -1311,7 +1315,7 @@ fn on_nth_day(n: i16, d: Weekday) -> Option<String> {
             format!("le {nth} {name}")
         }
         Lang::It => {
-            if d == Weekday::Sun {
+            if d == Weekday::Sunday {
                 let nth = [
                     "prima",
                     "seconda",
@@ -1595,11 +1599,7 @@ fn times(n: u32) -> String {
 /// Thursday, until 31 Dec 2026", "Every month on the second Tuesday", "Every year". A rule a
 /// sentence can't say well is "Repeats". `start` is the first date, which a rule without
 /// BYDAY or BYMONTHDAY repeats; `until` turns an UNTIL into a local date.
-pub fn describe(
-    rule: &str,
-    start: Option<NaiveDate>,
-    until: impl Fn(&Moment) -> NaiveDate,
-) -> String {
+pub fn describe(rule: &str, start: Option<Date>, until: impl Fn(&Moment) -> Date) -> String {
     let repeats = || tr!("Repeats", "Powtarza się");
     let Some(r) = Rule::read(rule) else {
         return repeats();
@@ -1645,7 +1645,7 @@ pub fn describe(
                     None => return repeats(),
                 }
             }
-            days.sort_by_key(|d| d.num_days_from_monday());
+            days.sort_by_key(|d| d.to_monday_zero_offset());
             days.dedup();
             let every = every(r.interval, Unit::Week);
             if days.len() == 7 {
@@ -1680,7 +1680,7 @@ pub fn describe(
             } else if r.by_day.is_empty() {
                 let day = match r.by_month_day.as_slice() {
                     [] => match start {
-                        Some(s) => s.day() as i8,
+                        Some(s) => s.day(),
                         None => return repeats(),
                     },
                     [d] => *d,
@@ -1728,9 +1728,9 @@ pub struct EventView {
     /// What the attendee wrote along with a reply.
     pub comment: String,
     /// Local time; for an all-day event midnight of its first day.
-    pub start: Option<NaiveDateTime>,
+    pub start: Option<DateTime>,
     /// Local time; for an all-day event midnight of its last day (inclusive).
-    pub end: Option<NaiveDateTime>,
+    pub end: Option<DateTime>,
     pub all_day: bool,
     /// The zone the event was written in, when its clock differs from this PC's.
     pub zone: Option<ZoneView>,
@@ -1752,18 +1752,18 @@ pub struct ZoneView {
     /// Minutes east of UTC at the start.
     pub offset: i32,
     /// Wall times there.
-    pub start: NaiveDateTime,
-    pub end: Option<NaiveDateTime>,
+    pub start: DateTime,
+    pub end: Option<DateTime>,
 }
 
 /// The local wall time of a UTC instant in `local`, and that zone's offset then (seconds).
-fn local_of<L: TimeZone>(local: &L, utc: NaiveDateTime) -> (NaiveDateTime, i32) {
-    let at = local.from_utc_datetime(&utc);
-    (at.naive_local(), at.offset().fix().local_minus_utc())
+fn local_of(local: &TimeZone, utc: DateTime) -> (DateTime, i32) {
+    let offset = local.to_offset(crate::dates::utc_instant(utc)).seconds();
+    (utc + SignedDuration::from_secs(i64::from(offset)), offset)
 }
 
-/// The event `e` of `cal` in the time zone `local` (chrono's `Local` in the app).
-pub fn view<L: TimeZone>(cal: &Calendar, e: &Event, local: &L) -> EventView {
+/// The event `e` of `cal` in the time zone `local` (this PC's, `TimeZone::system()`, in the app).
+pub fn view(cal: &Calendar, e: &Event, local: &TimeZone) -> EventView {
     let all_day = matches!(e.start, Some(Moment::Date(_)));
     let mut start = None;
     let mut end = None;
@@ -1771,14 +1771,16 @@ pub fn view<L: TimeZone>(cal: &Calendar, e: &Event, local: &L) -> EventView {
     match &e.start {
         Some(Moment::Date(d)) => {
             let last = match &e.end {
-                Some(Moment::Date(end)) if *end > *d => *end - TimeDelta::days(1),
+                Some(Moment::Date(end)) if *end > *d => *end - crate::dates::days(1),
                 _ => match e.duration {
-                    Some(len) if len.num_days() > 1 => *d + TimeDelta::days(len.num_days() - 1),
+                    Some(len) if len.as_hours() / 24 > 1 => {
+                        *d + crate::dates::days(len.as_hours() / 24 - 1)
+                    }
                     _ => *d,
                 },
             };
-            start = d.and_hms_opt(0, 0, 0);
-            end = last.and_hms_opt(0, 0, 0);
+            start = Some(d.at(0, 0, 0, 0));
+            end = Some(last.at(0, 0, 0, 0));
         }
         Some(m) => match cal.instant(m) {
             Some((utc, written_in)) => {
@@ -1799,8 +1801,9 @@ pub fn view<L: TimeZone>(cal: &Calendar, e: &Event, local: &L) -> EventView {
                         zone = Some(ZoneView {
                             name: z.name().to_owned(),
                             offset: theirs / 60,
-                            start: utc + TimeDelta::seconds(i64::from(theirs)),
-                            end: end_utc.map(|u| u + TimeDelta::seconds(i64::from(z.offset_at(u)))),
+                            start: utc + SignedDuration::from_secs(i64::from(theirs)),
+                            end: end_utc
+                                .map(|u| u + SignedDuration::from_secs(i64::from(z.offset_at(u)))),
                         });
                     }
                 }
@@ -1886,12 +1889,12 @@ fn prop_line(p: &Prop) -> String {
 /// needs no VTIMEZONE of its own.
 fn moment_line(name: &str, cal: &Calendar, m: &Moment) -> String {
     match m {
-        Moment::Date(d) => format!("{name};VALUE=DATE:{}", d.format("%Y%m%d")),
-        Moment::Floating(at) => format!("{name}:{}", at.format("%Y%m%dT%H%M%S")),
+        Moment::Date(d) => format!("{name};VALUE=DATE:{}", d.strftime("%Y%m%d")),
+        Moment::Floating(at) => format!("{name}:{}", at.strftime("%Y%m%dT%H%M%S")),
         _ => match cal.instant(m) {
-            Some((utc, _)) => format!("{name}:{}", utc.format("%Y%m%dT%H%M%SZ")),
+            Some((utc, _)) => format!("{name}:{}", utc.strftime("%Y%m%dT%H%M%SZ")),
             None => match m {
-                Moment::Zoned(at, _) => format!("{name}:{}", at.format("%Y%m%dT%H%M%S")),
+                Moment::Zoned(at, _) => format!("{name}:{}", at.strftime("%Y%m%dT%H%M%S")),
                 _ => String::new(),
             },
         },
@@ -1907,7 +1910,7 @@ pub fn reply_ics(
     me: &Person,
     answer: Answer,
     comment: &str,
-    now: DateTime<Utc>,
+    now: Timestamp,
 ) -> String {
     let mut out = String::new();
     let mut line = |l: &str| fold_line(&mut out, l);
@@ -1924,7 +1927,7 @@ pub fn reply_ics(
         }
     }
     line(&format!("SEQUENCE:{}", e.sequence));
-    line(&format!("DTSTAMP:{}", now.format("%Y%m%dT%H%M%SZ")));
+    line(&format!("DTSTAMP:{}", now.strftime("%Y%m%dT%H%M%SZ")));
     if let Some(start) = &e.start {
         let l = moment_line("DTSTART", cal, start);
         if !l.is_empty() {

@@ -79,6 +79,22 @@
       "directory": "vendor/tauri-plugin-notification",
       "archiveSha256": "b939d7b19c8af1381a72ef8474b3aba2b56c1ddac2c23f0c8e96abbcf86b198b",
       "revision": "44293a5722efcaf27060504e63b17aeba721b40f"
+    },
+    {
+      "name": "async-imap",
+      "version": "0.11.3",
+      "changes": "Drop unmaintained chrono and pin-utils (RUSTSEC-2026-0543, RUSTSEC-2026-0441): INTERNALDATE is parsed with jiff and returned as a jiff Timestamp; the unsafe_pinned! projections become safe Pin::new on Unpin fields.",
+      "directory": "vendor/async-imap",
+      "archiveSha256": "9a6728e0f7931b36d725ac234fcb02539e9f7888dbeaaa8a18d9ea5792181570",
+      "revision": "24b5aa39d4865f10e6665267f56113bab94ee257"
+    },
+    {
+      "name": "serde_with",
+      "version": "3.24.0",
+      "changes": "Remove the optional chrono dependency (RUSTSEC-2026-0543), which weak chrono_0_4?/ features made Cargo lock although nothing enables it; its feature names stay, empty. Tests and dev-dependencies are not vendored.",
+      "directory": "vendor/serde_with",
+      "archiveSha256": "df9adc193c780ef8f159aee8b61e2d5801aaa555e6eb0947fe45530ec506296f",
+      "revision": "35ac84c8faf34d6822991bbf2397056994c9208b"
     }
   ],
   "nativeArchives": [
@@ -104,6 +120,118 @@
     }
   ],
   "files": [
+    {
+      "path": "vendor/async-imap/.cargo_vcs_info.json",
+      "sha256": "100f26aef266fbf6ef67501b22fb615012ee21bedf6fa9d0414f6518cc80f98b"
+    },
+    {
+      "path": "vendor/async-imap/CHANGELOG.md",
+      "sha256": "d332e18c91a216f5197cb63042e7e8a789ce042e724f0a2d099339991906ec6a"
+    },
+    {
+      "path": "vendor/async-imap/Cargo.toml",
+      "sha256": "bec36f25a6372a712097d16b13d4a38442f767f8eef35c533a3a750c7e8a32a8"
+    },
+    {
+      "path": "vendor/async-imap/Cargo.toml.orig",
+      "sha256": "952952f0c3b35732c8b2cc80c03d68809cd7f1843ed5ec09003a02153c073f3e"
+    },
+    {
+      "path": "vendor/async-imap/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+    },
+    {
+      "path": "vendor/async-imap/LICENSE-MIT",
+      "sha256": "4e0ec88980aac272d80e61a33cb695cf40dbb8768a5973e6c077be73912bd9f0"
+    },
+    {
+      "path": "vendor/async-imap/README.md",
+      "sha256": "6489fa9570288b089b93e39f6f0c04503666946a4a0bcd5d2aeb905bb66cdba7"
+    },
+    {
+      "path": "vendor/async-imap/src/authenticator.rs",
+      "sha256": "a6540a0be55e5b6f4f3b04e1d31d797300a13d71933ea31a39735a3fd47bafb7"
+    },
+    {
+      "path": "vendor/async-imap/src/client.rs",
+      "sha256": "30e1e8cee549db150e7e6d8e8f9014bf7ce632f8e89c52949c8fd2ea0e181098"
+    },
+    {
+      "path": "vendor/async-imap/src/error.rs",
+      "sha256": "4ebc263484b6fbde4d43c850ef67b2b5bc71e38a5fdbd83524d054eda8b284bb"
+    },
+    {
+      "path": "vendor/async-imap/src/extensions/compress.rs",
+      "sha256": "3a6942700ac5b703350932175c3a7b1b21f57be5437ab8fd542c08999c39a218"
+    },
+    {
+      "path": "vendor/async-imap/src/extensions/id.rs",
+      "sha256": "94420b945ac16bbd4f51d998577fddf9eb5a6b234a79d09e9b42bac5eb2ca5e4"
+    },
+    {
+      "path": "vendor/async-imap/src/extensions/idle.rs",
+      "sha256": "351ed48c8adfee3488f18d58afbf4477b2b5d7de8a535dc2a4c3feb59cbe6d90"
+    },
+    {
+      "path": "vendor/async-imap/src/extensions/mod.rs",
+      "sha256": "d54634d301471034856943b5fbabaedc890d823460f8e09ee9f8ddb5a1b2862f"
+    },
+    {
+      "path": "vendor/async-imap/src/extensions/quota.rs",
+      "sha256": "571bdc1b839e9971bbf9521448482f779ebceb37f607a1a8585dc9f8db131e05"
+    },
+    {
+      "path": "vendor/async-imap/src/imap_stream.rs",
+      "sha256": "28a4170042ac9d4e2daa2521fd6a7aa06e2a8a426b31fc9dc11ed3b0e8f36a72"
+    },
+    {
+      "path": "vendor/async-imap/src/lib.rs",
+      "sha256": "ab6be61b016022e8b5dbf22b07607075adbe38cd054306690f633868bb21c70a"
+    },
+    {
+      "path": "vendor/async-imap/src/mock_stream.rs",
+      "sha256": "82c3f8afbb5830c31c77162623074903dba3d6e99cd2afc13c46a47c1f8c76e3"
+    },
+    {
+      "path": "vendor/async-imap/src/parse.rs",
+      "sha256": "8a8860ab248a4ffe8bf4fc95e236321e8e804d6f44d1c865fdaf54d0d7b3fcd7"
+    },
+    {
+      "path": "vendor/async-imap/src/types/capabilities.rs",
+      "sha256": "232a6df0647583179c881b39d66b2ab0aa0497f9454744c8f87031b73e06d80d"
+    },
+    {
+      "path": "vendor/async-imap/src/types/fetch.rs",
+      "sha256": "ccd1e2fc5d9c7da8e63d452ab0938bb50e7848ed5f006562b16d85d3d6bc5d7a"
+    },
+    {
+      "path": "vendor/async-imap/src/types/id_generator.rs",
+      "sha256": "9eb550aac518559c5cb91162545c95e256a72bf71a13b102d4643b17a9e82d08"
+    },
+    {
+      "path": "vendor/async-imap/src/types/mailbox.rs",
+      "sha256": "e28348c7cbf648d7c711c3ea410dc25d203b7344d129d3d32f3629d8b5dc7baa"
+    },
+    {
+      "path": "vendor/async-imap/src/types/mod.rs",
+      "sha256": "af44b8e85fef23672fd9957b9012619d15ac8854e59b09c6f5fe9f73eb66a979"
+    },
+    {
+      "path": "vendor/async-imap/src/types/name.rs",
+      "sha256": "213554edf392355d0af6ae66a410e12c9c4e7d4956ae85f25291031b52d160b6"
+    },
+    {
+      "path": "vendor/async-imap/src/types/quota.rs",
+      "sha256": "698c976ec69b3949a0432ddf12dc19e1149a3392008740622ec6bcd6cfc1e437"
+    },
+    {
+      "path": "vendor/async-imap/src/types/request.rs",
+      "sha256": "c0a38dcb0e15e35a2dac9f94f5a489d99bd34d0484b67a1c02fbc1a55a7bf594"
+    },
+    {
+      "path": "vendor/async-imap/src/types/response_data.rs",
+      "sha256": "7a4f69ec09003f46b072c30460a983db5859ce2dfe35af1d66e8654240ca341e"
+    },
     {
       "path": "vendor/botan-src/.cargo_vcs_info.json",
       "sha256": "d36dfc7cf24f9cc9097664872ba35ef47b081bf363ae7ebef1d3b5806263d972"
@@ -979,6 +1107,186 @@
     {
       "path": "vendor/rnp-sys/wrapper.h",
       "sha256": "72c3305b2433ea9cd16dafcc95538915dd42342bee0bf6e823ad222db54c3616"
+    },
+    {
+      "path": "vendor/serde_with/.cargo_vcs_info.json",
+      "sha256": "17c7b3835d09f44cd9a4b262e983eaec6e448639421366880ebe168ae7ef9716"
+    },
+    {
+      "path": "vendor/serde_with/Cargo.toml",
+      "sha256": "7b30c48ae4e8cb3ef3a12d79aae26667fd00f696512a509e1ba739d60fe9614b"
+    },
+    {
+      "path": "vendor/serde_with/LICENSE-APACHE",
+      "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+    },
+    {
+      "path": "vendor/serde_with/LICENSE-MIT",
+      "sha256": "7576269ea71f767b99297934c0b2367532690f8c4badc695edf8e04ab6a1e545"
+    },
+    {
+      "path": "vendor/serde_with/README.md",
+      "sha256": "74b3eb13458961c0de8a11c83a7f5a51a502ea8f9bb9a04bed0865be9fa1d86e"
+    },
+    {
+      "path": "vendor/serde_with/src/base58.rs",
+      "sha256": "00f2141dc4f7dfa5b75e162388441c52999de8e54dda646349b57d809773e867"
+    },
+    {
+      "path": "vendor/serde_with/src/base64.rs",
+      "sha256": "b1c17ed7517bfe4e79cfdd621dd543b661f53ac84d692c952a9380efe9261194"
+    },
+    {
+      "path": "vendor/serde_with/src/chrono_0_4.rs",
+      "sha256": "b93cfa70eb4d10c8f611d031eae6f61debeeacba15720651477babf5bbb3a79d"
+    },
+    {
+      "path": "vendor/serde_with/src/content/de.rs",
+      "sha256": "30c4011ad0fdf1be707cc6aab0c6800377d87a13a78b2e81627a2565c17cf118"
+    },
+    {
+      "path": "vendor/serde_with/src/content/mod.rs",
+      "sha256": "3b59e68ce424b82432d8e72b74227c74de0a944485a828f20620b5e10427532b"
+    },
+    {
+      "path": "vendor/serde_with/src/content/ser.rs",
+      "sha256": "f7ae6c9c090fb00f16b6ab3f2d992e92d75b7bb604f0d5774df5820c0584e20c"
+    },
+    {
+      "path": "vendor/serde_with/src/de/duplicates.rs",
+      "sha256": "3759417649846b4f4c94b5e711b3dd3b8d5ae2948f18740001b8ac9cc4ceb86c"
+    },
+    {
+      "path": "vendor/serde_with/src/de/impls.rs",
+      "sha256": "25a405638a60f64d36ec69b48799df196c9c8cb0490fbe6236447e836cafb823"
+    },
+    {
+      "path": "vendor/serde_with/src/de/mod.rs",
+      "sha256": "4f159908016cdacdf6449ae19f2ae5be4652804501da013c3ddd092fe87cdaa2"
+    },
+    {
+      "path": "vendor/serde_with/src/de/skip_error.rs",
+      "sha256": "748e3770df07f003b3999aad4faa7ef67bcc7645c82e90551a98fc5a501b248d"
+    },
+    {
+      "path": "vendor/serde_with/src/duplicate_key_impls/error_on_duplicate.rs",
+      "sha256": "4968370e589bc6675c1096991f4f4ed212f9b81cb11864a4dd87e508a4efeaee"
+    },
+    {
+      "path": "vendor/serde_with/src/duplicate_key_impls/first_value_wins.rs",
+      "sha256": "45d7fadb6749fe18ae920b12fe96034c416b560b2f44c5b3ec9e9c96a108793f"
+    },
+    {
+      "path": "vendor/serde_with/src/duplicate_key_impls/last_value_wins.rs",
+      "sha256": "528db664120a6d9e702640641c4c61b35b1fbd1bd91ef188eea704c1a95584f3"
+    },
+    {
+      "path": "vendor/serde_with/src/duplicate_key_impls/mod.rs",
+      "sha256": "6b162013a3cbf6c09d2285fac14dc71930834e97065a2319aa56864838613449"
+    },
+    {
+      "path": "vendor/serde_with/src/enum_map.rs",
+      "sha256": "e54e96ba703cd073edf3c3369c8f27b6ad5b1ed96e5866834aaefb338ed1e334"
+    },
+    {
+      "path": "vendor/serde_with/src/flatten_maybe.rs",
+      "sha256": "4f3d488d44299c782d44ff0f8001947bafdcb8e26504fda5e5c9ed237973cede"
+    },
+    {
+      "path": "vendor/serde_with/src/formats.rs",
+      "sha256": "e3cf084cb2bf9f8649e1cc923a920767b4baf957c491fe87fbfbec2abe0f0507"
+    },
+    {
+      "path": "vendor/serde_with/src/guide.md",
+      "sha256": "67b999e2aee4c6453a080cbfd28554f4ae0028a6c5bf73f2ae9f2d77bf3735f2"
+    },
+    {
+      "path": "vendor/serde_with/src/guide/feature_flags.rs",
+      "sha256": "45545ab64923990bdc6a3f9bf5cf43b636638e8a4f4b57740916b199d5935793"
+    },
+    {
+      "path": "vendor/serde_with/src/guide/serde_as.md",
+      "sha256": "f5afe407820b5d4a25d9bf15e73d0ab6870cde94ca24035af7da17f9fc4f5603"
+    },
+    {
+      "path": "vendor/serde_with/src/guide/serde_as_transformations.md",
+      "sha256": "5199dcfcc17f0fa139a1cae71a6dce23b47deffa08184101fc4f11c1d7d2fcc8"
+    },
+    {
+      "path": "vendor/serde_with/src/hex.rs",
+      "sha256": "003ee2988e3f1c37d173bc5f9c065dfa6c58bf5833afa3740d0090fe07eaabe2"
+    },
+    {
+      "path": "vendor/serde_with/src/jiff_0_2.rs",
+      "sha256": "26b7d3b4376c98c14fb68792a0a4b6157f0c25309cde5ad8b6280eea1f51b3db"
+    },
+    {
+      "path": "vendor/serde_with/src/json.rs",
+      "sha256": "3221fa36ee62ee6716a16961acf6fd5138f73a9ead66ae9e30c2ae957e769547"
+    },
+    {
+      "path": "vendor/serde_with/src/key_value_map.rs",
+      "sha256": "5f8e839c64081b473342f0158f243c5a0aec4a3b57c02043988ab652a520c794"
+    },
+    {
+      "path": "vendor/serde_with/src/lib.rs",
+      "sha256": "9d0b7aaad3594797b8dbef5f601f3455d373a803ef900e710b6d1971bdc707a0"
+    },
+    {
+      "path": "vendor/serde_with/src/rust.rs",
+      "sha256": "f0e8d8f753d1ba4a98d92bc236b2ca611f24818fb6eb0db6e6b360bd9f85ff50"
+    },
+    {
+      "path": "vendor/serde_with/src/schemars_0_8.rs",
+      "sha256": "351727c88ac0bd9a62b18b71fda5fd38a0ef07ae9cc1cb68876cec68880036bc"
+    },
+    {
+      "path": "vendor/serde_with/src/schemars_0_9.rs",
+      "sha256": "fa188be3719e511dd074db966b3c585c6cedbb04027337e36e34f3cb7fa306db"
+    },
+    {
+      "path": "vendor/serde_with/src/schemars_1.rs",
+      "sha256": "dd81725d6cf95dc64c99cbe3e2124d9ff53ca01c51be75aae0ab4d9cbe382429"
+    },
+    {
+      "path": "vendor/serde_with/src/ser/duplicates.rs",
+      "sha256": "fdca05efa0648c99222741e2680fd12bd8a3a92fa9fedbda7e8ab998cd411c93"
+    },
+    {
+      "path": "vendor/serde_with/src/ser/impls.rs",
+      "sha256": "7670e7c73b10aaf4d0972f6255b2d5058d33a57888cd9b70d0303fb33a745a7f"
+    },
+    {
+      "path": "vendor/serde_with/src/ser/mod.rs",
+      "sha256": "af7f921311a1acd75aface918f0e472de9621b2d67aff98065480264fffb86bb"
+    },
+    {
+      "path": "vendor/serde_with/src/ser/skip_error.rs",
+      "sha256": "eb6289f6d82656df64ef8fbb44d54c68a6d894708691073e5467d1375303d95c"
+    },
+    {
+      "path": "vendor/serde_with/src/serde_conv.rs",
+      "sha256": "0d3c5548ccf36424e56a614eb9bb0748ad125afc7cdfbc8a8d4ddc57836385e5"
+    },
+    {
+      "path": "vendor/serde_with/src/time_0_3.rs",
+      "sha256": "ced8526dfe78931accdc9bdeaa271fadf09d3caedd5e4703770dfddcf94f4f8e"
+    },
+    {
+      "path": "vendor/serde_with/src/utils.rs",
+      "sha256": "cb11bc2d2e0a16bb1e58f69f71a025f41f3694d097c173d94eb5b2546ed968fb"
+    },
+    {
+      "path": "vendor/serde_with/src/utils/duration.rs",
+      "sha256": "c0997976c65eb31e6709e0854f8aa4fdc9c31ead416255d47ef372790ef83b9c"
+    },
+    {
+      "path": "vendor/serde_with/src/with_prefix.rs",
+      "sha256": "57e2ab9e89070e57223cdcf8df729f1ad77d0c5a224307dc1cf5e09e76414929"
+    },
+    {
+      "path": "vendor/serde_with/src/with_suffix.rs",
+      "sha256": "e03c01033e846a57633b406ae70031b4be9ab2daee2321de63c789e71e3ea867"
     },
     {
       "path": "vendor/tauri-plugin-notification/.cargo_vcs_info.json",

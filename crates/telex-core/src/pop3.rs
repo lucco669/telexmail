@@ -22,7 +22,8 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use base64::Engine;
-use chrono::{Local, NaiveDate, NaiveDateTime, TimeDelta};
+use jiff::civil::{Date, DateTime};
+
 use rusqlite::{params, OptionalExtension};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -379,7 +380,8 @@ async fn connect_and_login(
     let mut turn = match SERVERS.turn(&key, host, purpose.places()).await {
         Ok(turn) => turn,
         Err(left) => {
-            let until = Local::now() + TimeDelta::from_std(left).unwrap_or_default();
+            let until =
+                jiff::Timestamp::now() + jiff::SignedDuration::try_from(left).unwrap_or_default();
             return Err(failed(trace, SyncError::Resting(until)));
         }
     };
@@ -484,7 +486,7 @@ async fn connect(
 
 /// A message another program downloaded from a POP3 server: its UIDL, when it came, and
 /// whether it was deleted there (to be removed from the server).
-pub type Seen = (String, Option<NaiveDateTime>, bool);
+pub type Seen = (String, Option<DateTime>, bool);
 
 /// What Telex knows about one UIDL of an account.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -492,7 +494,7 @@ pub struct Known {
     pub state: State,
     /// The message here, while it is here.
     pub message: Option<MessageId>,
-    pub downloaded: Option<NaiveDateTime>,
+    pub downloaded: Option<DateTime>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -574,7 +576,7 @@ pub fn to_remove(
     listing: &[(u32, String)],
     known: &HashMap<String, Known>,
     keep: &Pop3Keep,
-    now: NaiveDateTime,
+    now: DateTime,
 ) -> Vec<u32> {
     listing
         .iter()
@@ -590,7 +592,7 @@ pub fn to_remove(
             }
             let aged = keep.days.is_some_and(|days| {
                 k.downloaded
-                    .is_some_and(|at| at + TimeDelta::days(i64::from(days)) <= now)
+                    .is_some_and(|at| at + crate::dates::days(i64::from(days)) <= now)
             });
             let deleted_here = keep.until_deleted && k.state == State::Here && k.message.is_none();
             aged || deleted_here
@@ -613,7 +615,7 @@ impl MailStore {
                 Known {
                     state: State::from_name(&r.get::<_, String>(1)?),
                     message: r.get::<_, Option<i64>>(2)?.map(|id| id as MessageId),
-                    downloaded: r.get(3)?,
+                    downloaded: crate::dates::get_opt(r, 3)?,
                 },
             ))
         })?;
@@ -625,7 +627,7 @@ impl MailStore {
         &mut self,
         account: &str,
         listing: &[(u32, String)],
-        today: NaiveDate,
+        today: Date,
     ) -> Result<(), StoreError> {
         let tx = self.db.transaction()?;
         {
@@ -633,7 +635,7 @@ impl MailStore {
                 "UPDATE pop3_uidls SET listed = ?3 WHERE account = ?1 AND uidl = ?2 AND listed <> ?3",
             )?;
             for (_, uidl) in listing {
-                update.execute(params![account, uidl, today])?;
+                update.execute(params![account, uidl, crate::dates::SqlDate(today)])?;
             }
         }
         tx.commit()?;
@@ -646,7 +648,7 @@ impl MailStore {
         account: &str,
         uidls: &[&str],
         state: State,
-        today: NaiveDate,
+        today: Date,
     ) -> Result<(), StoreError> {
         let tx = self.db.transaction()?;
         {
@@ -654,7 +656,12 @@ impl MailStore {
                 "INSERT OR IGNORE INTO pop3_uidls (account, uidl, state, listed) VALUES (?1, ?2, ?3, ?4)",
             )?;
             for uidl in uidls {
-                insert.execute(params![account, uidl, state.as_str(), today])?;
+                insert.execute(params![
+                    account,
+                    uidl,
+                    state.as_str(),
+                    crate::dates::SqlDate(today)
+                ])?;
             }
         }
         tx.commit()?;
@@ -667,7 +674,7 @@ impl MailStore {
         &mut self,
         account: &str,
         batch: &[(String, Message, Vec<u8>)],
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<Vec<MessageId>, StoreError> {
         let inbox = self
             .account(account)?
@@ -695,7 +702,13 @@ impl MailStore {
                  ON CONFLICT (account, uidl) DO UPDATE SET state = 'here',
                      message = excluded.message, downloaded = excluded.downloaded,
                      listed = excluded.listed",
-                params![account, uidl, id as i64, now, now.date()],
+                params![
+                    account,
+                    uidl,
+                    id as i64,
+                    crate::dates::Sql(now),
+                    crate::dates::SqlDate(now.date())
+                ],
             )?;
             ids.push(id);
         }
@@ -731,7 +744,7 @@ impl MailStore {
         &mut self,
         account: &str,
         listing: &[(u32, String)],
-        today: NaiveDate,
+        today: Date,
     ) -> Result<(), StoreError> {
         let older: HashSet<String> = self
             .pop3_known(account)?
@@ -747,7 +760,10 @@ impl MailStore {
         )?;
         tx.execute(
             "DELETE FROM pop3_uidls WHERE account = ?1 AND listed < ?2",
-            params![account, today - TimeDelta::days(FORGET_AFTER_DAYS)],
+            params![
+                account,
+                crate::dates::SqlDate(today - crate::dates::days(FORGET_AFTER_DAYS))
+            ],
         )?;
         tx.commit()?;
         Ok(())
@@ -761,7 +777,7 @@ impl MailStore {
         &mut self,
         account: &str,
         seen: &[Seen],
-        today: NaiveDate,
+        today: Date,
     ) -> Result<usize, StoreError> {
         let linked = self.pop3_x_uidls(account)?;
         let tx = self.db.transaction()?;
@@ -779,8 +795,14 @@ impl MailStore {
                     State::Known
                 };
                 let message = message.filter(|_| !deleted).map(|id| id as i64);
-                added +=
-                    insert.execute(params![account, uidl, state.as_str(), message, at, today])?;
+                added += insert.execute(params![
+                    account,
+                    uidl,
+                    state.as_str(),
+                    message,
+                    at.map(crate::dates::Sql),
+                    crate::dates::SqlDate(today)
+                ])?;
             }
         }
         tx.commit()?;
@@ -905,7 +927,7 @@ async fn download<S: AsyncRead + AsyncWrite + Unpin + Send>(
     }
     let listing = go!(session.uidls().await);
     let sizes = go!(session.sizes().await);
-    let now = Local::now().naive_local();
+    let now = crate::dates::now();
     let today = now.date();
     let (first, plan) = {
         let mut s = go!(lock(store));
@@ -1002,10 +1024,10 @@ async fn fetch<S: AsyncRead + AsyncWrite + Unpin + Send>(
         let mut batch = Vec::with_capacity(chunk.len());
         for (n, uidl) in chunk {
             let raw = session.retr(*n).await?;
-            let message = parse_message(&raw, inbox_key, Some(Local::now().naive_local()));
+            let message = parse_message(&raw, inbox_key, Some(crate::dates::now()));
             batch.push((uidl.clone(), message, raw));
         }
-        let ids = lock(store)?.pop3_add(&account.id, &batch, Local::now().naive_local())?;
+        let ids = lock(store)?.pop3_add(&account.id, &batch, crate::dates::now())?;
         if !old {
             downloaded.arrived.extend(&ids);
         }
@@ -1070,7 +1092,7 @@ pub async fn download_older_in<S: AsyncRead + AsyncWrite + Unpin + Send>(
     .await;
     let _ = session.quit().await;
     fetched?;
-    lock(store)?.pop3_tidy(&account.id, &listing, Local::now().date_naive())?;
+    lock(store)?.pop3_tidy(&account.id, &listing, crate::dates::today())?;
     Ok(downloaded.new)
 }
 

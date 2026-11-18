@@ -5,7 +5,9 @@
 //! answers: new Inbox mail, when it checks, with the safeguards rules' auto-replies have (not to
 //! lists, robots, Spam or the account's own addresses, and the same sender once in `days`).
 
-use chrono::{DateTime, Local, NaiveDate, TimeDelta};
+use jiff::civil::Date;
+
+use jiff::Timestamp;
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -41,9 +43,9 @@ pub struct Away {
     pub enabled: bool,
     /// First and last day; none: from now on, until it is turned off.
     #[serde(default)]
-    pub starts: Option<NaiveDate>,
+    pub starts: Option<Date>,
     #[serde(default)]
-    pub ends: Option<NaiveDate>,
+    pub ends: Option<Date>,
     /// Empty: "Re: " and the subject of the message answered.
     #[serde(default)]
     pub subject: String,
@@ -82,7 +84,7 @@ impl Away {
     }
 
     /// On, and today is within its days.
-    pub fn answers_on(&self, day: NaiveDate) -> bool {
+    pub fn answers_on(&self, day: Date) -> bool {
         self.enabled && self.starts.is_none_or(|s| s <= day) && self.ends.is_none_or(|e| day <= e)
     }
 
@@ -126,8 +128,8 @@ impl MailStore {
                     Ok(Away {
                         account: account.to_owned(),
                         enabled: r.get(0)?,
-                        starts: r.get(1)?,
-                        ends: r.get(2)?,
+                        starts: crate::dates::get_date_opt(r, 1)?,
+                        ends: crate::dates::get_date_opt(r, 2)?,
                         subject: r.get(3)?,
                         body: r.get(4)?,
                         days: r.get(5)?,
@@ -157,8 +159,8 @@ impl MailStore {
             params![
                 away.account,
                 away.enabled,
-                away.starts,
-                away.ends,
+                away.starts.map(crate::dates::SqlDate),
+                away.ends.map(crate::dates::SqlDate),
                 away.subject,
                 away.body,
                 away.days,
@@ -184,8 +186,8 @@ impl MailStore {
                     } else {
                         Place::Telex
                     },
-                    starts: r.get(2)?,
-                    ends: r.get(3)?,
+                    starts: crate::dates::get_date_opt(r, 2)?,
+                    ends: crate::dates::get_date_opt(r, 3)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -196,13 +198,13 @@ impl MailStore {
         &self,
         account: &str,
         sender: &str,
-    ) -> Result<Option<chrono::NaiveDateTime>, StoreError> {
+    ) -> Result<Option<jiff::civil::DateTime>, StoreError> {
         Ok(self
             .db
             .query_row(
                 "SELECT sent_at FROM away_replies WHERE account = ?1 AND sender = ?2",
                 params![account, sender],
-                |r| r.get(0),
+                |r| crate::dates::get(r, 0),
             )
             .optional()?)
     }
@@ -211,12 +213,12 @@ impl MailStore {
         &mut self,
         account: &str,
         sender: &str,
-        at: chrono::NaiveDateTime,
+        at: jiff::civil::DateTime,
     ) -> Result<(), StoreError> {
         self.db.execute(
             "INSERT INTO away_replies (account, sender, sent_at) VALUES (?1, ?2, ?3)
              ON CONFLICT (account, sender) DO UPDATE SET sent_at = excluded.sent_at",
-            params![account, sender, at],
+            params![account, sender, crate::dates::Sql(at)],
         )?;
         Ok(())
     }
@@ -227,8 +229,8 @@ impl MailStore {
 pub struct AwayOn {
     pub account: String,
     pub place: Place,
-    pub starts: Option<NaiveDate>,
-    pub ends: Option<NaiveDate>,
+    pub starts: Option<Date>,
+    pub ends: Option<Date>,
 }
 
 /// What answering did: how many replies wait in the Outboxes, and what went wrong.
@@ -241,17 +243,12 @@ pub struct Answered {
 /// Answer the mail that just arrived for `account`, when its away reply is one Telex sends.
 /// Mail the rules moved out of the Inbox is answered too (to a folder on this PC as well),
 /// except in Spam and Trash.
-pub fn answer(
-    store: &mut MailStore,
-    account: &str,
-    ids: &[MessageId],
-    now: DateTime<Local>,
-) -> Answered {
+pub fn answer(store: &mut MailStore, account: &str, ids: &[MessageId], now: Timestamp) -> Answered {
     let mut done = Answered::default();
     let Ok(away) = store.away(account) else {
         return done;
     };
-    if away.place != Place::Telex || !away.answers_on(now.date_naive()) {
+    if away.place != Place::Telex || !away.answers_on(crate::dates::local(now).date()) {
         return done;
     }
     for &id in ids {
@@ -262,7 +259,7 @@ pub fn answer(
         ) {
             continue;
         }
-        let every = TimeDelta::days(i64::from(away.days));
+        let every = crate::dates::days(i64::from(away.days));
         let replier = Replier::Away(&away.account);
         match filters::auto_reply(store, replier, &m, &away.subject, &away.body, every, now) {
             Ok(true) => done.replied += 1,
@@ -368,10 +365,9 @@ mod tests {
     use super::*;
     use crate::model::{AccountSetup, Folder, SmtpSecurity};
     use crate::store::SyncedMessage;
-    use chrono::TimeZone;
 
-    fn when(day: u32) -> DateTime<Local> {
-        Local.with_ymd_and_hms(2026, 10, day, 9, 0, 0).unwrap()
+    fn when(day: i8) -> Timestamp {
+        crate::dates::instant(jiff::civil::date(2026, 10, day).at(9, 0, 0, 0)).unwrap()
     }
 
     fn store() -> (MailStore, Account) {
@@ -436,8 +432,8 @@ mod tests {
         );
         let away = Away {
             enabled: true,
-            starts: NaiveDate::from_ymd_opt(2026, 10, 12),
-            ends: NaiveDate::from_ymd_opt(2026, 10, 20),
+            starts: Date::new(2026, 10, 12).ok(),
+            ends: Date::new(2026, 10, 20).ok(),
             subject: "Urlop".into(),
             body: "Wracam 21 października.".into(),
             ..Away::new(&account.id)
@@ -507,8 +503,8 @@ mod tests {
         };
         assert!(away.check().is_err(), "no text");
         away.body = "Wracam".into();
-        away.starts = NaiveDate::from_ymd_opt(2026, 10, 20);
-        away.ends = NaiveDate::from_ymd_opt(2026, 10, 12);
+        away.starts = Date::new(2026, 10, 20).ok();
+        away.ends = Date::new(2026, 10, 12).ok();
         assert!(away.check().is_err(), "the end before the start");
         away.ends = None;
         away.days = 0;

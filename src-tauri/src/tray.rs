@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use chrono::{Local, NaiveDateTime};
+use jiff::civil::DateTime;
 use serde::Serialize;
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -37,7 +37,7 @@ pub struct TrayState {
     /// What the icon shows now.
     unread: Mutex<Vec<InboxUnread>>,
     /// Notifications paused: `Some(None)` until turned back on, `Some(Some(t))` until `t`.
-    paused: Mutex<Option<Option<NaiveDateTime>>>,
+    paused: Mutex<Option<Option<DateTime>>>,
     /// Quit was chosen: the window's close request closes it, whatever the settings say.
     quitting: AtomicBool,
     /// The count on the taskbar button now (`None`: no badge).
@@ -211,7 +211,7 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         Some(until) => {
             let line = match until {
                 Some(at) => {
-                    let time = at.format("%H:%M").to_string();
+                    let time = at.strftime("%H:%M").to_string();
                     tr!(
                         "Notifications paused until {time}",
                         "Powiadomienia wstrzymane do {time}"
@@ -428,16 +428,15 @@ fn on_menu(app: &AppHandle, id: &str) {
 }
 
 fn pause(app: &AppHandle, how: Pause) {
-    let until = desktop::pause_until(how, Local::now().naive_local());
+    let until = desktop::pause_until(how, telex_core::dates::now());
     *lock(&app.state::<TrayState>().paused) = Some(until);
     redraw(app);
     // The menu says when they come back; once they have, it offers the pause again.
     if let Some(at) = until {
         let app = app.clone();
         tauri::async_runtime::spawn(async move {
-            let left = (at - Local::now().naive_local())
-                .to_std()
-                .unwrap_or_default();
+            let left =
+                Duration::try_from(at.duration_since(telex_core::dates::now())).unwrap_or_default();
             tokio::time::sleep(left + Duration::from_secs(1)).await;
             if paused_until(&app).is_none() {
                 redraw(&app);
@@ -448,11 +447,11 @@ fn pause(app: &AppHandle, how: Pause) {
 
 /// Until when notifications are paused, if they are: `Some(None)` until turned back on.
 /// A pause that is over ends here.
-fn paused_until(app: &AppHandle) -> Option<Option<NaiveDateTime>> {
+fn paused_until(app: &AppHandle) -> Option<Option<DateTime>> {
     let state = app.state::<TrayState>();
     let mut paused = lock(&state.paused);
     if let Some(Some(at)) = *paused {
-        if at <= Local::now().naive_local() {
+        if at <= telex_core::dates::now() {
             *paused = None;
         }
     }

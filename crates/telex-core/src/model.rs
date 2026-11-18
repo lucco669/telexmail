@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::Lang;
@@ -738,7 +738,7 @@ pub struct Message {
     pub bcc: String,
     pub subject: String,
     /// Local time the message was received (or written, for outgoing mail).
-    pub date: NaiveDateTime,
+    pub date: DateTime,
     pub size_kb: u32,
     #[serde(default)]
     pub unread: bool,
@@ -774,14 +774,14 @@ pub struct MessageSummary {
     pub from_email: String,
     pub to: String,
     pub subject: String,
-    pub date: NaiveDateTime,
+    pub date: DateTime,
     pub size_kb: u32,
     pub unread: bool,
     pub flagged: bool,
     pub has_attachments: bool,
     /// In an Outbox: when it goes (sent later, or waiting out its moment to undo).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub goes: Option<NaiveDateTime>,
+    pub goes: Option<DateTime>,
     /// Keywords of its tags; left out when it has none.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/telex-core", "crates/telex-i18n", "crates/telex-security", "src-tauri",
     "vendor/tauri-plugin-notification", "vendor/tauri-plugin-opener", "vendor/tauri-plugin-single-instance"]
 exclude = ["vendor/glib", "vendor/glib-macros", "vendor/gtk3-macros", "vendor/rnp-rs",
-    "vendor/rnp-src", "vendor/rnp-sys", "vendor/botan-src", "vendor/botan-sys", "fuzz"]
+    "vendor/rnp-src", "vendor/rnp-sys", "vendor/botan-src", "vendor/botan-sys", "vendor/async-imap", "vendor/serde_with", "fuzz"]
 
 # GTK 0.18 requires GLib 0.18. Keep its API and backport the upstream iterator fix.
 [patch.crates-io]
@@ -18,9 +18,11 @@ gtk3-macros = { path = "vendor/gtk3-macros" }
 tauri-plugin-opener = { path = "vendor/tauri-plugin-opener" }
 tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
 tauri-plugin-notification = { path = "vendor/tauri-plugin-notification" }
+async-imap = { path = "vendor/async-imap" }
+serde_with = { path = "vendor/serde_with" }
 
 [workspace.package]
-version = "0.9.23"
+version = "0.9.24"
 edition = "2021"
 rust-version = "1.90"
 # Not open source: all rights reserved (LICENSE); the app is free to use (EULA.txt).
@@ -29,7 +31,9 @@ license = "LicenseRef-Proprietary"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+# Dates and times (chrono is unmaintained: RUSTSEC-2026-0543). Its own copy of the time zone
+# database, as chrono-tz had, so a zone means the same on every system and in the tests.
+jiff = { version = "1", features = ["serde", "tzdb-bundle-always"] }
 
 # Making a picture smaller takes seconds unoptimized; optimized even in dev builds and tests.
 [profile.dev.package.image]

@@ -1192,6 +1192,12 @@ button.chip:hover{background:var(--sel)}
 .chip.bad,button.chip.bad:hover{background:var(--note-bg);color:var(--note-fg)}
 button.chip.bad:hover{text-decoration:underline}
 #st-undo{flex:none;font-variant-numeric:tabular-nums}
+/* The message set aside while other mail is read: its subject, a click (or W) brings it back */
+.status:has(#st-parked:not([hidden])) .hint .more{display:none}
+#st-parked{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;min-width:60px;max-width:260px;text-transform:none;letter-spacing:0;font-size:11px}
+#st-parked[hidden]{display:none}
+#st-parked svg{width:12px;height:12px;flex:none}
+#st-parked span{overflow:hidden;text-overflow:ellipsis}
 /* The version number, which opens the update dialog, and the one-time question about checking */
 .ver{flex:none;border:0;background:none;padding:0;font:11px var(--font-data);color:var(--muted);cursor:pointer}
 .ver:hover,.ver:focus-visible{color:var(--fg)}

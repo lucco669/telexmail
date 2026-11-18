@@ -14,7 +14,7 @@
 use std::fmt;
 use std::path::Path;
 
-use chrono::NaiveDateTime;
+use jiff::civil::DateTime;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -296,11 +296,11 @@ pub enum BackupEvery {
 
 impl BackupEvery {
     /// How old the newest backup may be before the next one is due.
-    pub fn period(self) -> Option<chrono::TimeDelta> {
+    pub fn period(self) -> Option<jiff::SignedDuration> {
         match self {
             Self::Off => None,
-            Self::Daily => Some(chrono::TimeDelta::days(1)),
-            Self::Weekly => Some(chrono::TimeDelta::days(7)),
+            Self::Daily => Some(crate::dates::days(1)),
+            Self::Weekly => Some(crate::dates::days(7)),
         }
     }
 }
@@ -1160,7 +1160,7 @@ pub fn export(
     settings: &Settings,
     choice: ExportChoice,
     app_version: &str,
-    now: NaiveDateTime,
+    now: DateTime,
 ) -> Result<String, StoreError> {
     let accounts = store.accounts();
     let entries = if choice.servers || choice.identities {
@@ -1227,7 +1227,7 @@ pub fn export(
     let bundle = Bundle {
         format: FORMAT,
         version: FORMAT_VERSION,
-        exported: now.format("%Y-%m-%dT%H:%M:%S").to_string(),
+        exported: now.strftime("%Y-%m-%dT%H:%M:%S").to_string(),
         app: app_version,
         settings: choice.settings.then_some(&portable),
         accounts: entries,
@@ -1918,13 +1918,9 @@ mod tests {
     use super::*;
     use crate::filters::{Field, Op};
     use crate::model::{Folder, FolderKind, SmtpSecurity};
-    use chrono::NaiveDate;
 
-    fn now() -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 10, 10)
-            .unwrap()
-            .and_hms_opt(9, 30, 0)
-            .unwrap()
+    fn now() -> DateTime {
+        jiff::civil::date(2026, 10, 10).at(9, 30, 0, 0)
     }
 
     fn locale(languages: &[&str], region: &str) -> SystemLocale {

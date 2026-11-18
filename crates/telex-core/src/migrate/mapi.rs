@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine;
-use chrono::{DateTime, Local, Utc};
+use jiff::Timestamp;
 
 use crate::mailbox::{crlf_lines, FileMessage};
 
@@ -64,10 +64,10 @@ impl Props {
         }
     }
 
-    pub fn time(&self, id: u16) -> Option<DateTime<Utc>> {
+    pub fn time(&self, id: u16) -> Option<Timestamp> {
         match self.values.get(&id)? {
             Value::Time(ft) if *ft > 0 => {
-                DateTime::from_timestamp(ft / 10_000_000 - 11_644_473_600, 0)
+                Timestamp::from_second(ft / 10_000_000 - 11_644_473_600).ok()
             }
             _ => None,
         }
@@ -163,7 +163,7 @@ pub fn file_message(m: &MapiMessage) -> FileMessage {
         .time(DELIVERY_TIME)
         .or_else(|| m.props.time(CLIENT_SUBMIT_TIME))
         .or_else(|| m.props.time(CREATION_TIME))
-        .map(|d| d.with_timezone(&Local).naive_local());
+        .map(crate::dates::local);
     FileMessage {
         raw: to_rfc822(m),
         seen: m.props.int(MESSAGE_FLAGS).is_some_and(|f| f & 1 != 0),
@@ -290,7 +290,12 @@ fn made_headers(m: &MapiMessage) -> String {
         .time(CLIENT_SUBMIT_TIME)
         .or_else(|| p.time(DELIVERY_TIME))
         .or_else(|| p.time(CREATION_TIME));
-    add("Date", date.map(|d| d.to_rfc2822()));
+    add(
+        "Date",
+        date.and_then(|d| {
+            jiff::fmt::rfc2822::to_string(&d.to_zoned_datetime(jiff::tz::TimeZone::UTC)).ok()
+        }),
+    );
     let from = address(
         p.text(SENT_REPRESENTING_NAME)
             .or_else(|| p.text(SENDER_NAME)),

@@ -245,7 +245,7 @@ pub async fn move_in(
             .err(),
             Err(e) => {
                 let _ = with_store(&state, |s| {
-                    s.record_sync(&account.id, chrono::Local::now().naive_local(), Some(&e))
+                    s.record_sync(&account.id, telex_core::dates::now(), Some(&e))
                 });
                 Some(e)
             }

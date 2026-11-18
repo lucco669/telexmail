@@ -5,16 +5,17 @@
 //! when the next one is due, and the app sends it then (or at the next start, when Telex was
 //! closed: [`late`] tells the user it went late). Times are local, as on the user's clock.
 
-use chrono::{Datelike, Duration, NaiveDateTime, NaiveTime, Timelike, Weekday};
+use jiff::civil::{DateTime, Weekday};
+use jiff::{SignedDuration, ToSpan};
 use serde::{Deserialize, Serialize};
 
 use crate::tr;
 
 /// "Morning" is 08:00.
-pub const MORNING: u32 = 8;
+pub const MORNING: i8 = 8;
 
 /// A message that goes this long after its time went late: Telex was closed, or asleep.
-pub const LATE_AFTER: Duration = Duration::minutes(2);
+pub const LATE_AFTER: SignedDuration = SignedDuration::from_mins(2);
 
 /// The choices of the Send later menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,7 +28,7 @@ pub enum Later {
     /// The coming Monday at 08:00 (a week from today on a Monday).
     Monday,
     /// A time the user picked.
-    At(NaiveDateTime),
+    At(DateTime),
 }
 
 /// One line of the menu: what it is and when that is now.
@@ -35,25 +36,22 @@ pub enum Later {
 pub struct Choice {
     #[serde(flatten)]
     pub later: Later,
-    pub when: NaiveDateTime,
+    pub when: DateTime,
 }
 
 /// When `later` is, seen from `now`. A picked time must be at least a minute ahead.
-pub fn when(later: Later, now: NaiveDateTime) -> Result<NaiveDateTime, String> {
-    let morning = |days: i64| {
-        (now.date() + Duration::days(days))
-            .and_time(NaiveTime::from_hms_opt(MORNING, 0, 0).unwrap_or_default())
-    };
+pub fn when(later: Later, now: DateTime) -> Result<DateTime, String> {
+    let morning = |days: i64| (now.date() + days.days()).at(MORNING, 0, 0, 0);
     Ok(match later {
-        Later::Hour => to_minute(now + Duration::hours(1)),
+        Later::Hour => to_minute(now + SignedDuration::from_hours(1)),
         Later::Tomorrow => morning(1),
         Later::Monday => {
-            let ahead = 7 - i64::from(now.weekday().num_days_from_monday());
+            let ahead = 7 - i64::from(now.weekday().to_monday_zero_offset());
             morning(ahead)
         }
         Later::At(at) => {
             let at = to_minute(at);
-            if at < now + Duration::minutes(1) {
+            if at < now + SignedDuration::from_mins(1) {
                 return Err(tr!(
                     "Pick a time later than now.",
                     "Wybierz godzinę późniejszą niż teraz."
@@ -65,11 +63,11 @@ pub fn when(later: Later, now: NaiveDateTime) -> Result<NaiveDateTime, String> {
 }
 
 /// The menu's choices as they are now. Monday is left out when it is tomorrow.
-pub fn choices(now: NaiveDateTime) -> Vec<Choice> {
+pub fn choices(now: DateTime) -> Vec<Choice> {
     let mut out = Vec::new();
     for later in [Later::Hour, Later::Tomorrow, Later::Monday] {
         let Ok(at) = when(later, now) else { continue };
-        if later == Later::Monday && now.weekday() == Weekday::Sun {
+        if later == Later::Monday && now.weekday() == Weekday::Sunday {
             continue;
         }
         out.push(Choice { later, when: at });
@@ -78,37 +76,34 @@ pub fn choices(now: NaiveDateTime) -> Vec<Choice> {
 }
 
 /// True when a message due at `due` and sent at `sent` went late.
-pub fn late(due: NaiveDateTime, sent: NaiveDateTime) -> bool {
-    sent - due > LATE_AFTER
+pub fn late(due: DateTime, sent: DateTime) -> bool {
+    sent.duration_since(due) > LATE_AFTER
 }
 
 /// "19.10 08:00": the time a message was due, for a sentence.
-pub fn short(at: NaiveDateTime) -> String {
-    at.format("%d.%m %H:%M").to_string()
+pub fn short(at: DateTime) -> String {
+    at.strftime("%d.%m %H:%M").to_string()
 }
 
-fn to_minute(at: NaiveDateTime) -> NaiveDateTime {
-    at.with_second(0)
-        .and_then(|a| a.with_nanosecond(0))
+fn to_minute(at: DateTime) -> DateTime {
+    at.with()
+        .second(0)
+        .subsec_nanosecond(0)
+        .build()
         .unwrap_or(at)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
-
-    fn at(d: u32, h: u32, m: u32) -> NaiveDateTime {
+    fn at(d: i8, h: i8, m: i8) -> DateTime {
         // October 2026: the 17th is a Saturday, the 18th a Sunday, the 19th a Monday.
-        NaiveDate::from_ymd_opt(2026, 10, d)
-            .unwrap()
-            .and_hms_opt(h, m, 0)
-            .unwrap()
+        jiff::civil::date(2026, 10, d).at(h, m, 0, 0)
     }
 
     #[test]
     fn an_hour_tomorrow_and_monday() {
-        let now = at(17, 14, 5) + Duration::seconds(42);
+        let now = at(17, 14, 5) + SignedDuration::from_secs(42);
         assert_eq!(when(Later::Hour, now).unwrap(), at(17, 15, 5));
         assert_eq!(when(Later::Tomorrow, now).unwrap(), at(18, 8, 0));
         assert_eq!(when(Later::Monday, now).unwrap(), at(19, 8, 0));
@@ -126,7 +121,11 @@ mod tests {
     fn a_picked_time_must_be_ahead() {
         let now = at(17, 14, 0);
         assert_eq!(
-            when(Later::At(at(20, 9, 30) + Duration::seconds(15)), now).unwrap(),
+            when(
+                Later::At(at(20, 9, 30) + SignedDuration::from_secs(15)),
+                now
+            )
+            .unwrap(),
             at(20, 9, 30)
         );
         assert!(when(Later::At(at(17, 13, 0)), now).is_err());
@@ -159,8 +158,8 @@ mod tests {
     #[test]
     fn late_is_more_than_two_minutes() {
         let due = at(19, 8, 0);
-        assert!(!late(due, due + Duration::seconds(90)));
-        assert!(late(due, due + Duration::minutes(3)));
+        assert!(!late(due, due + SignedDuration::from_secs(90)));
+        assert!(late(due, due + SignedDuration::from_mins(3)));
         assert!(late(due, at(20, 7, 0)));
         assert_eq!(short(due), "19.10 08:00");
     }

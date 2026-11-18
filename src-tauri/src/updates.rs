@@ -11,7 +11,7 @@
 use std::sync::Mutex;
 use std::time::Duration;
 
-use chrono::{DateTime, Local};
+use jiff::Timestamp;
 use serde::Serialize;
 use tauri::plugin::TauriPlugin;
 use tauri::{AppHandle, Context, Emitter, State, Url, Wry};
@@ -126,10 +126,10 @@ impl Available {
     fn of(update: &Update) -> Self {
         let date = update
             .date
-            .and_then(|d| DateTime::from_timestamp(d.unix_timestamp(), 0))
+            .and_then(|d| Timestamp::from_second(d.unix_timestamp()).ok())
             .map(|d| {
-                d.with_timezone(&Local)
-                    .format("%Y-%m-%dT%H:%M:%S")
+                telex_core::dates::local(d)
+                    .strftime("%Y-%m-%dT%H:%M:%S")
                     .to_string()
             });
         Self {

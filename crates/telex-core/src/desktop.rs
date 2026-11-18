@@ -5,7 +5,8 @@
 
 use std::path::{Path, PathBuf};
 
-use chrono::{Duration, NaiveDateTime, NaiveTime};
+use jiff::civil::DateTime;
+use jiff::SignedDuration;
 
 use crate::list::FolderTree;
 use crate::{trn, FolderKind, LOCAL_ID};
@@ -116,16 +117,15 @@ pub enum Pause {
 }
 
 /// When notifications paused now come back; `None`: not by themselves.
-pub fn pause_until(pause: Pause, now: NaiveDateTime) -> Option<NaiveDateTime> {
+pub fn pause_until(pause: Pause, now: DateTime) -> Option<DateTime> {
     match pause {
-        Pause::Hour => Some(now + Duration::hours(1)),
+        Pause::Hour => Some(now + SignedDuration::from_hours(1)),
         Pause::Morning => {
-            let morning = NaiveTime::from_hms_opt(crate::later::MORNING, 0, 0)?;
-            let today = now.date().and_time(morning);
+            let today = now.date().at(crate::later::MORNING, 0, 0, 0);
             Some(if today > now {
                 today
             } else {
-                today + Duration::days(1)
+                today + crate::dates::days(1)
             })
         }
         Pause::Off => None,
@@ -467,13 +467,8 @@ mod win {
 mod tests {
     use super::*;
     use crate::i18n::{self, Lang};
-    use chrono::NaiveDate;
-
-    fn at(h: u32, m: u32) -> NaiveDateTime {
-        NaiveDate::from_ymd_opt(2026, 10, 18)
-            .unwrap()
-            .and_hms_opt(h, m, 0)
-            .unwrap()
+    fn at(h: i8, m: i8) -> DateTime {
+        jiff::civil::date(2026, 10, 18).at(h, m, 0, 0)
     }
 
     fn u(email: &str, unread: usize) -> InboxUnread {
@@ -542,13 +537,13 @@ mod tests {
         assert_eq!(pause_until(Pause::Hour, at(14, 30)), Some(at(15, 30)));
         assert_eq!(
             pause_until(Pause::Morning, at(14, 30)),
-            Some(at(8, 0) + Duration::days(1))
+            Some(at(8, 0) + crate::dates::days(1))
         );
         // Before eight, the morning is today's.
         assert_eq!(pause_until(Pause::Morning, at(1, 15)), Some(at(8, 0)));
         assert_eq!(
             pause_until(Pause::Morning, at(8, 0)),
-            Some(at(8, 0) + Duration::days(1))
+            Some(at(8, 0) + crate::dates::days(1))
         );
         assert_eq!(pause_until(Pause::Off, at(9, 0)), None);
     }

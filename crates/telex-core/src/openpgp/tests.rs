@@ -1,7 +1,6 @@
 use super::*;
 use crate::model::{AccountSetup, Folder, FolderKind};
 use crate::store::SyncedMessage;
-use chrono::NaiveDate;
 
 // Known vectors made with GnuPG 2.4.9 (fixtures/): Bob's key is GnuPG's, Alice's was made
 // by Telex (`make_fixture_key`), passphrase "alice pass". Bob signs, and encrypts to Alice.
@@ -15,11 +14,8 @@ const GNUPG_INLINE: &str = include_str!("fixtures/gnupg-inline-encrypted.asc");
 pub(super) const ALICE_FP: &str = "797602095C0061C9BE60579E731B4FA16994A65D";
 pub(super) const BOB_FP: &str = "53DA690420621651DD27594E6B84029E1A9EE8CA";
 
-fn now() -> NaiveDateTime {
-    NaiveDate::from_ymd_opt(2026, 10, 17)
-        .unwrap()
-        .and_hms_opt(9, 0, 0)
-        .unwrap()
+fn now() -> DateTime {
+    jiff::civil::date(2026, 10, 17).at(9, 0, 0, 0)
 }
 
 /// Not a test: prints a fresh key for the fixtures (`cargo test -p telex-core make_fixture_key

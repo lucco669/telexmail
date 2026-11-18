@@ -7,7 +7,9 @@
 //! and the user's own REPLY (in the Outbox or Sent, also one written by another program)
 //! is their answer.
 
-use chrono::{DateTime, Local, NaiveDateTime, TimeZone, Utc};
+use jiff::civil::DateTime;
+
+use jiff::Timestamp;
 use mail_parser::{Encoding, MessageParser, MessagePart, MimeHeaders};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Serialize;
@@ -59,7 +61,7 @@ pub enum State {
 pub struct Answered {
     pub answer: Answer,
     /// When (the reply's date, local time).
-    pub at: NaiveDateTime,
+    pub at: DateTime,
     /// It answered an earlier version of the invitation.
     pub earlier: bool,
 }
@@ -198,22 +200,22 @@ fn recurrence_key(cal: &Calendar, e: &super::Event) -> String {
         return String::new();
     };
     match Moment::read(prop) {
-        Some(Moment::Date(d)) => d.format("%Y%m%d").to_string(),
-        Some(Moment::Floating(at)) => at.format("%Y%m%dT%H%M%S").to_string(),
+        Some(Moment::Date(d)) => d.strftime("%Y%m%d").to_string(),
+        Some(Moment::Floating(at)) => at.strftime("%Y%m%dT%H%M%S").to_string(),
         Some(m) => match cal.instant(&m) {
-            Some((utc, _)) => utc.format("%Y%m%dT%H%M%SZ").to_string(),
+            Some((utc, _)) => utc.strftime("%Y%m%dT%H%M%SZ").to_string(),
             None => prop.value.trim().to_owned(),
         },
         None => prop.value.trim().to_owned(),
     }
 }
 
-fn stamp_of(cal: &Calendar, e: &super::Event) -> Option<NaiveDateTime> {
+fn stamp_of(cal: &Calendar, e: &super::Event) -> Option<DateTime> {
     let m = e.stamp.as_ref()?;
     match m {
         Moment::Utc(at) | Moment::Floating(at) => Some(*at),
         Moment::Zoned(..) => cal.instant(m).map(|(u, _)| u),
-        Moment::Date(d) => d.and_hms_opt(0, 0, 0),
+        Moment::Date(d) => Some(d.at(0, 0, 0, 0)),
     }
 }
 
@@ -239,7 +241,7 @@ pub(crate) fn index(db: &Connection, id: MessageId, raw: Option<&[u8]>) -> Resul
         recurrence_key(&cal, e),
         e.sequence,
         cal.method.code(),
-        stamp_of(&cal, e),
+        stamp_of(&cal, e).map(crate::dates::Sql),
         answer,
     ])?;
     Ok(())
@@ -249,35 +251,42 @@ pub(crate) fn index(db: &Connection, id: MessageId, raw: Option<&[u8]>) -> Resul
 struct Other {
     sequence: i64,
     method: Method,
-    stamp: Option<NaiveDateTime>,
+    stamp: Option<DateTime>,
     answer: Option<Answer>,
     folder: String,
-    date: NaiveDateTime,
+    date: DateTime,
     recurrence: String,
 }
 
 impl MailStore {
     /// The invitation in a message, or `None` when it holds none; times in this PC's zone.
     pub fn invite(&self, id: MessageId) -> Result<Option<Invite>, StoreError> {
-        self.invite_in(id, &Local)
+        self.invite_in(id, &jiff::tz::TimeZone::system())
     }
 
     /// The invitation in a message, with times in `local`.
-    pub fn invite_in<L: TimeZone>(
+    pub fn invite_in(
         &self,
         id: MessageId,
-        local: &L,
+        local: &jiff::tz::TimeZone,
     ) -> Result<Option<Invite>, StoreError> {
         let noted = || {
             self.db
                 .query_row(
                     "SELECT uid, recurrence, sequence, stamp FROM invites WHERE message = ?1",
                     [id as i64],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+                    |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            crate::dates::get_opt(r, 3)?,
+                        ))
+                    },
                 )
                 .optional()
         };
-        let mut row: Option<(String, String, i64, Option<NaiveDateTime>)> = noted()?;
+        let mut row: Option<(String, String, i64, Option<DateTime>)> = noted()?;
         // Mail stored before schema 18 that the upkeep hasn't reached yet: noted now.
         if row.is_none() && upkeep::waiting(&self.db, upkeep::INVITES, id)? {
             index(&self.db, id, self.raw_of(id)?.as_deref())?;
@@ -321,12 +330,12 @@ impl MailStore {
                     Ok(Other {
                         sequence: r.get(0)?,
                         method: Method::from_code(&r.get::<_, String>(1)?),
-                        stamp: r.get(2)?,
+                        stamp: crate::dates::get_opt(r, 2)?,
                         answer: r
                             .get::<_, Option<String>>(3)?
                             .map(|a| Answer::read(Some(&a))),
                         folder: r.get(4)?,
-                        date: r.get(5)?,
+                        date: crate::dates::get(r, 5)?,
                         recurrence: r.get(6)?,
                     })
                 })?
@@ -420,7 +429,7 @@ impl MailStore {
         id: MessageId,
         answer: Answer,
         comment: &str,
-        now: DateTime<Local>,
+        now: Timestamp,
     ) -> Result<Replied, String> {
         if !matches!(
             answer,
@@ -478,7 +487,7 @@ impl MailStore {
                 |a| a.person.email.clone(),
             ),
         };
-        let ics = reply_ics(&cal, e, &me, answer, comment, now.with_timezone(&Utc));
+        let ics = reply_ics(&cal, e, &me, answer, comment, now);
         let who = if me.name.is_empty() {
             &me.email
         } else {
@@ -512,7 +521,7 @@ impl MailStore {
             .map_err(err)?;
         // An answer is a reply: the invitation is answered once it went.
         self.note_answering(queued, Some(id), None).map_err(err)?;
-        self.add_note(id, &answer.note(now.naive_local()))
+        self.add_note(id, &answer.note(crate::dates::local(now)))
             .map_err(err)?;
         Ok(Replied {
             queued,

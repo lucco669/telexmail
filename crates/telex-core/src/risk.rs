@@ -26,7 +26,7 @@ pub struct InspectedMessage {
     pub message: Message,
     pub risk: Report,
     /// In an Outbox: when it goes (sent later, or waiting out its moment to undo).
-    pub goes: Option<chrono::NaiveDateTime>,
+    pub goes: Option<jiff::civil::DateTime>,
     /// From a mailing list: how to leave it (`unsubscribe.rs`).
     pub unsubscribe: Option<crate::unsubscribe::Offer>,
     /// A calendar invitation in it, for the card above the text.

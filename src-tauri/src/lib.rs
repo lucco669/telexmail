@@ -25,8 +25,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use chrono::{Local, NaiveDateTime, TimeDelta};
+use jiff::civil::DateTime;
+
 use futures_util::future::join_all;
+use jiff::SignedDuration;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
@@ -374,9 +376,17 @@ async fn save_outgoing(
     // The attached files are read with the store free: the window goes on meanwhile.
     let composing = draft.clone();
     let raw = tauri::async_runtime::spawn_blocking(move || match &protect {
-        Some(p) => smtp::compose_draft_protected(&account, &composing, &originals, Local::now(), p)
-            .map(Some),
-        None => Ok(smtp::compose_draft(&account, &composing, &originals, Local::now()).ok()),
+        Some(p) => smtp::compose_draft_protected(
+            &account,
+            &composing,
+            &originals,
+            jiff::Timestamp::now(),
+            p,
+        )
+        .map(Some),
+        None => {
+            Ok(smtp::compose_draft(&account, &composing, &originals, jiff::Timestamp::now()).ok())
+        }
     })
     .await
     .map_err(failed)??;
@@ -385,7 +395,7 @@ async fn save_outgoing(
             draft,
             raw.as_deref(),
             FolderKind::Drafts,
-            Local::now().naive_local(),
+            telex_core::dates::now(),
         )
     })
 }
@@ -435,7 +445,7 @@ fn clean_html(html: String) -> String {
 /// What the mail takes and how it moves, for the Usage page and the status-bar meter.
 #[tauri::command(async)]
 fn usage(state: State<'_, AppState>) -> CmdResult<Usage> {
-    with_store(&state, |s| s.usage(Local::now().date_naive()))
+    with_store(&state, |s| s.usage(telex_core::dates::today()))
 }
 
 #[derive(Debug, Serialize)]
@@ -629,7 +639,7 @@ fn move_account(state: State<'_, AppState>, id: String, delta: i64) -> CmdResult
 fn run_rules(state: State<'_, AppState>, folder: String) -> CmdResult<RunReport> {
     with_store(&state, |s| {
         let ids: Vec<MessageId> = s.list(&folder)?.iter().map(|m| m.id).collect();
-        filters::run(s, &ids, Trigger::OnDemand, Local::now())
+        filters::run(s, &ids, Trigger::OnDemand, jiff::Timestamp::now())
     })
 }
 
@@ -637,7 +647,9 @@ fn run_rules(state: State<'_, AppState>, folder: String) -> CmdResult<RunReport>
 /// Run now, no auto-replies or forwards; the window pushes the changes as after any other.
 #[tauri::command(async)]
 fn run_scheduled_rules(state: State<'_, AppState>) -> CmdResult<Vec<filters::ScheduledRun>> {
-    with_store(&state, |s| filters::run_scheduled(s, Local::now()))
+    with_store(&state, |s| {
+        filters::run_scheduled(s, jiff::Timestamp::now())
+    })
 }
 
 /// What Telex's provider list knows about an address, without going online: for tips
@@ -902,7 +914,7 @@ async fn check_mail(
             };
             let error = result.as_ref().err().map(String::as_str);
             let _ = with_store(&state, |s| {
-                s.record_sync(&a.id, Local::now().naive_local(), error)
+                s.record_sync(&a.id, telex_core::dates::now(), error)
             });
             result
         }))
@@ -992,7 +1004,7 @@ struct SendOutcome {
     /// Seconds it waits before it goes, so it can be taken back; 0: it was sent right away.
     wait: u16,
     /// Sent later: when it goes. It waits in the Outbox until then.
-    goes: Option<NaiveDateTime>,
+    goes: Option<DateTime>,
     /// One line per message the SMTP server accepted, this one and any that waited.
     sent: Vec<String>,
     errors: Vec<String>,
@@ -1019,7 +1031,7 @@ async fn send_message(
     files.check(&draft.attachments)?;
     let current = settings.get();
     let goes = later
-        .map(|l| later::when(l, Local::now().naive_local()))
+        .map(|l| later::when(l, telex_core::dates::now()))
         .transpose()?;
     // Mail sent later needs no moment to undo: it waits anyway, and can be held or edited.
     let wait = if goes.is_some() { 0 } else { current.undo_send };
@@ -1036,9 +1048,15 @@ async fn send_message(
         false,
     )?;
     let composed = if protect.is_empty() {
-        smtp::compose(&account, &draft, &originals, Local::now())?
+        smtp::compose(&account, &draft, &originals, jiff::Timestamp::now())?
     } else {
-        smtp::compose_protected(&account, &draft, &originals, Local::now(), &protect)?
+        smtp::compose_protected(
+            &account,
+            &draft,
+            &originals,
+            jiff::Timestamp::now(),
+            &protect,
+        )?
     };
     // Larger than the account's server takes: refused here, in words, before it is queued.
     sizes::check(composed.raw.len() as u64, &sizes::limit(&account))?;
@@ -1046,7 +1064,7 @@ async fn send_message(
         keys::remember(&state, &draft, choice);
     }
     let send_after = goes.or_else(|| {
-        (wait > 0).then(|| Local::now().naive_local() + TimeDelta::seconds(i64::from(wait)))
+        (wait > 0).then(|| telex_core::dates::now() + SignedDuration::from_secs(i64::from(wait)))
     });
     let queued = with_store(&state, |s| {
         let queued = s.queue_outgoing(
@@ -1096,13 +1114,13 @@ async fn send_message(
 /// for the user to edit (E) or drop.
 #[tauri::command(async)]
 fn hold_message(state: State<'_, AppState>, id: MessageId) -> CmdResult<()> {
-    with_store(&state, |s| s.hold_outgoing(id, Local::now().naive_local()))
+    with_store(&state, |s| s.hold_outgoing(id, telex_core::dates::now()))
 }
 
 /// The Send later menu as it is now: in an hour, tomorrow morning, Monday morning.
 #[tauri::command(async)]
 fn send_later_choices() -> Vec<later::Choice> {
-    later::choices(Local::now().naive_local())
+    later::choices(telex_core::dates::now())
 }
 
 /// A message waiting in the Outbox (sent later, held, or whose last try failed) goes now.
@@ -1127,14 +1145,14 @@ async fn send_now(state: State<'_, AppState>, id: MessageId) -> CmdResult<SendOu
 /// password) is left alone for a while instead of being asked every second.
 fn send_timer(app: AppHandle) {
     const MOST: Duration = Duration::from_secs(30);
-    const REST: TimeDelta = TimeDelta::minutes(10);
+    const REST: SignedDuration = SignedDuration::from_mins(10);
     tauri::async_runtime::spawn(async move {
         // A moment after the start, so the window listens and the first check may go first.
         tokio::time::sleep(Duration::from_secs(5)).await;
-        let mut resting: HashMap<String, NaiveDateTime> = HashMap::new();
+        let mut resting: HashMap<String, DateTime> = HashMap::new();
         loop {
             let state = app.state::<AppState>();
-            let now = Local::now().naive_local();
+            let now = telex_core::dates::now();
             resting.retain(|_, until| *until > now);
             let due = with_store(&state, |s| s.scheduled_due(now)).unwrap_or_default();
             let mut done = SendOutcome::default();
@@ -1148,13 +1166,13 @@ fn send_timer(app: AppHandle) {
                 let _ = app.emit("outbox-sent", done);
             }
             // Still due and never tried: the account couldn't send at all.
-            let now = Local::now().naive_local();
+            let now = telex_core::dates::now();
             for id in with_store(&state, |s| s.scheduled_due(now)).unwrap_or_default() {
                 resting.entry(id).or_insert(now + REST);
             }
             let next = with_store(&state, |s| s.next_scheduled()).ok().flatten();
             let wait = next
-                .and_then(|at| (at - Local::now().naive_local()).to_std().ok())
+                .and_then(|at| Duration::try_from(at.duration_since(telex_core::dates::now())).ok())
                 .map_or(MOST, |left| left.min(MOST))
                 .max(Duration::from_millis(500));
             tokio::time::sleep(wait).await;
@@ -1210,7 +1228,7 @@ async fn unsubscribe(
             let draft = telex_core::unsubscribe::draft(&account, Some(identity), &plan.method)
                 .unwrap_or_default();
             let (account, originals) = with_store(&state, |s| draft_context(s, &draft))?;
-            let composed = smtp::compose(&account, &draft, &originals, Local::now())?;
+            let composed = smtp::compose(&account, &draft, &originals, jiff::Timestamp::now())?;
             let queued = with_store(&state, |s| {
                 s.queue_outgoing(
                     &account.id,
@@ -1230,7 +1248,7 @@ async fn unsubscribe(
         }
     }
     with_store(&state, |s| {
-        s.record_unsubscribe(&plan, Local::now().naive_local())
+        s.record_unsubscribe(&plan, telex_core::dates::now())
     })?;
     outcome.done = true;
     Ok(outcome)
@@ -1254,7 +1272,7 @@ async fn answer_invite(
     comment: String,
 ) -> CmdResult<InviteAnswer> {
     let replied = with_store(&state, |s| {
-        Ok(s.answer_invite(id, answer, &comment, Local::now()))
+        Ok(s.answer_invite(id, answer, &comment, jiff::Timestamp::now()))
     })??;
     let account = with_store(&state, |s| s.account(&replied.account).cloned())?;
     let mut outcome = InviteAnswer::default();
@@ -1272,7 +1290,7 @@ async fn send_account_outbox(
 ) {
     let _sending = state.sending.lock().await;
     let has_mail = with_store(state, |s| {
-        s.has_outgoing(&account.id, Local::now().naive_local())
+        s.has_outgoing(&account.id, telex_core::dates::now())
     })
     .unwrap_or(false);
     if !has_mail {

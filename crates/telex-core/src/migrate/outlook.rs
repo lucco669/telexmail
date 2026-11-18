@@ -1051,7 +1051,7 @@ mod tests {
         assert!(parsed.to.contains("piotr@nowak-meble.pl"), "{}", parsed.to);
         assert!(parsed.body.contains("w załączniku wycena"));
         assert_eq!(parsed.attachments[0].name, "wycena.pdf");
-        assert_eq!(parsed.date.format("%Y-%m-%d").to_string(), "2025-10-06");
+        assert_eq!(parsed.date.strftime("%Y-%m-%d").to_string(), "2025-10-06");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

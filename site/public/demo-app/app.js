@@ -280,7 +280,7 @@ const state = {
   folder:'', sel:{}, sort:{key:'date', dir:-1}, q:'', inText:false,
   scope: saved.scope === 'all' ? 'all' : 'folder', // the quick filter looks in this folder or in all mail
   more: saved.more && typeof saved.more === 'object' ? saved.more : {}, // accounts showing all their folders
-  collapsed:{}, compose:null, images:new Set(), white:new Set(), // white: HTML shown on white
+  collapsed:{}, compose:null, parked:null, images:new Set(), white:new Set(), // white: HTML shown on white
   undo:null, // what Z takes back (set with setUndo): {kind:'move', items:[{id, from}]} after a delete or move; {kind:'send', id, until}; {kind:'discard', compose}
   picked:new Set(), anchor:null, span:0, // more than one selected message; the Shift selection's start and length
   thread:null, // {id, subject}: the list shows this message's conversation
@@ -660,6 +660,7 @@ $('st-unsent').addEventListener('click', () => setFolder(EVERY + '/outbox'));
 // How many older messages the "download" button in the status bar asks for at a time.
 const OLDER_BATCH = 1000;
 function renderStatus(){
+  paintParked();
   const {total, unread, older = 0} = countOf(state.folder), found = list.total;
   const picked = state.picked.size > 1 ? ' · ' + esc(tn(state.picked.size, '{n} selected', '{n} selected', {n:num(state.picked.size)})) : '';
   const more = older && !allMail() && !state.q.trim()
@@ -1062,6 +1063,7 @@ document.addEventListener('pointerdown', e => { if (!menuEl.hidden && !menuEl.co
 addEventListener('blur', () => closeMenu(false));
 
 function setFolder(key){
+  parkCompose(); // another folder while writing: the message waits aside (W brings it back)
   state.savedSearch = null;
   if (key === UNREAD && state.folder !== UNREAD) state.unreadFrom = state.folder; // where O goes back to
   state.folder = key; state.q = ''; qEl.value = ''; state.inText = false; state.thread = null;
@@ -1821,7 +1823,6 @@ function openInFolder(){
 
 // Open a message by id in its folder, e.g. from Settings › Usage.
 function openMessage(id, folder){
-  if (state.compose) return;
   state.sel[folder] = id;
   setFolder(folder).then(() => listEl.focus({preventScroll:true}));
 }
@@ -1842,6 +1843,7 @@ function select(id, silent){
     }, how === 'at_once' ? 0 : pref().read_delay ?? 600);
   }
   paintSelection();
+  if (!silent) parkCompose(); // a message chosen while writing: the one being written waits aside
   if (!state.compose) renderPreview();
 }
 // A message's read or flag state changed here: its row, the counts, the envelope above it.
@@ -1914,7 +1916,7 @@ async function space(back){
     if (!back && p.scrollTop + p.clientHeight < p.scrollHeight - 4){ p.scrollTop += step; return; }
     if (back && p.scrollTop > 4){ p.scrollTop -= step; return; }
   }
-  if (VIEWER || state.compose) return;
+  if (VIEWER || state.compose && !parkCompose()) return;
   if (unpick()) paintSelection();
   let u;
   try { u = await invoke('next_unread', {view:viewArgs(), after:current()?.id ?? null, back}); } catch (e){ say(tr(e), 8000); return; }
@@ -2922,6 +2924,7 @@ previewEl.addEventListener('click', async e => {
   if (act.dataset.act === 'ask-one' && state.compose){ switchReply(false); say(t('Only to the sender now. Send when ready.'), 4000); }
   if (act.dataset.act === 'spell' && state.compose) spellLanguageMenu(act);
   if (act.dataset.act === 'discard') discardCompose();
+  if (act.dataset.act === 'aside' && state.compose){ parkCompose(); renderPreview(); listEl.focus({preventScroll:true}); say(t('Set aside. Press W or click it in the status bar to go back to it.'), 5000); return; }
   if (act.dataset.act === 'draft') closeCompose().then(ok => ok && say(t('Saved to Drafts.')));
   if (act.dataset.act === 'add-account') openAccountDialog();
   if (act.dataset.act === 'help') openHelp();
@@ -2939,8 +2942,11 @@ async function openCompose(kind, preset = {}, of = null){
   const s = of != null ? {id:of, f:(await full(of).catch(() => null))?.folder} : current();
   if (kind !== 'new' && !s?.f){ say(t('Select a message first.')); return; }
   if (kind === 'edit' && !['drafts', 'outbox'].includes(kindOf(s.f))){ say(t('Only drafts and unsent messages in the Outbox can be edited.')); return; }
-  const open = state.compose;
-  if (kind === 'edit' && open && [open.replaces, open.autosaved].includes(s.id)){ say(t('You are writing that message already.')); focusCompose(); return; }
+  const open = state.compose ?? state.parked;
+  if (kind === 'edit' && open && [open.replaces, open.autosaved].includes(s.id)){
+    if (open === state.parked){ resumeCompose(); return; }
+    say(t('You are writing that message already.')); focusCompose(); return;
+  }
   if (kind !== 'new' && state.picked.size > 1){ unpick(); paintSelection(); }
   loadRecipients();
   let c;
@@ -2982,8 +2988,8 @@ async function openCompose(kind, preset = {}, of = null){
     }
   } catch (e){ say(tr(e), 8000); return; }
   Object.assign(c, preset); // e.g. {to} from a mailto: link
-  const kept = state.compose;
-  if (kept && !await saveCompose()) return; // the message being written goes to Drafts first
+  const kept = await saveWriting(); // the message being written (or set aside) goes to Drafts first
+  if (kept === false) return;
   state.compose = c;
   renderCompose();
   c.saved = shapeOf(readCompose()); // as it opened: nothing to autosave yet
@@ -3315,6 +3321,7 @@ ${esc(c.body)}</textarea><div class="spellmarks" aria-hidden="true"></div></div>
 <div class="cbar">
   <button class="btn primary csend" type="submit"><span>${esc(laterLabel(c))}</span> <kbd>Ctrl+Enter</kbd></button><button class="btn primary cwhen" id="c-when-btn" type="button" data-act="later" aria-haspopup="menu" title="${esc(t('Send later (Ctrl+Shift+Enter)'))}" aria-label="${esc(t('Send later (Ctrl+Shift+Enter)'))}">${I.clock}</button>
   <button class="btn" type="button" data-act="draft">${esc(t('Save draft'))} <kbd>Esc</kbd></button>
+  ${VIEWER ? '' : `<button class="btn" type="button" data-act="aside" title="${esc(t('Read other mail meanwhile: the status bar keeps it, and W brings it back. Choosing another message or folder does the same.'))}">${esc(t('Set aside'))}</button>`}
   <button class="btn" type="button" data-act="attach" title="${esc(t('Attach files from this PC. You can also drop them on the window.'))}">${I.clip}<span>${esc(t('Attach…'))}</span></button>
   <button class="btn" type="button" data-act="discard">${esc(t('Discard'))}</button>
   <span class="cnote">${esc(note)}</span>
@@ -3710,11 +3717,11 @@ async function shrinkPictures(){
   say(saved ? t('Pictures made smaller: {size} less.', {size:mbText(saved)}) : t('The pictures are no larger than Medium already.'), 6000);
 }
 // Files chosen in the Open dialog or dropped on the window. Dropped with no message open, they
-// start a new one.
+// go to the one set aside, else start a new one.
 async function addFiles(files){
   if (!files?.length) return;
   if (!state.compose){
-    await openCompose('new');
+    if (state.parked) resumeCompose(); else await openCompose('new');
     if (!state.compose) return;
   }
   const c = state.compose, have = new Set(c.attachments.map(a => a.path).filter(Boolean));
@@ -4256,12 +4263,13 @@ function inTurn(fn){ const p = draftSaves.then(fn); draftSaves = p.catch(() => {
 // this PC; what the user saves goes to the server's Drafts too (the core keeps the draft's
 // Message-ID and thread from the one it was opened from).
 const AUTOSAVE_MS = 15000;
-async function autosave(){
-  const c = state.compose;
-  if (!c || !$('cform') || shapeOf(readCompose()) === c.saved) return;
+async function autosave(c = state.compose){
+  if (!c) return;
+  if (c === state.compose){ if (!$('cform')) return; readCompose(); }
+  if (shapeOf(c) === c.saved) return;
   try {
     await inTurn(async () => {
-      if (state.compose !== c || c.done) return; // closed meanwhile, and saved or discarded
+      if ((state.compose !== c && state.parked !== c) || c.done) return; // closed meanwhile, and saved or discarded
       const shape = shapeOf(c);
       c.autosaved = await invoke('save_outgoing', {draft:{...draftOf(c), autosave:true}, pgp:pgpChoice(c)});
       c.saved = shape;
@@ -4271,11 +4279,10 @@ async function autosave(){
   } catch { return; } // quietly: the next change tries again, and Esc still saves
   draftsChanged();
 }
-setInterval(autosave, AUTOSAVE_MS);
-// Saves the message being written as a draft, in place of the draft it was edited from and its
-// last autosave. Resolves to true when it worked; the message stays on screen.
-function saveCompose(){
-  const c = readCompose();
+setInterval(() => autosave(), AUTOSAVE_MS);
+// Saves the message being written (or `c`, one set aside) as a draft, in place of the draft it
+// was edited from and its last autosave. Resolves to true when it worked; the message stays on screen.
+function saveCompose(c = readCompose()){
   return inTurn(async () => {
     await call('save_outgoing', {draft:draftOf(c), pgp:pgpChoice(c)});
     c.done = true;
@@ -4302,8 +4309,8 @@ async function discardCompose(){
 // Z after Discard: the message comes back as it was (one being written meanwhile goes to Drafts).
 async function restoreCompose(c){
   setUndo(null);
-  const kept = state.compose;
-  if (kept && !await saveCompose()) return;
+  const kept = await saveWriting();
+  if (kept === false) return;
   Object.assign(c, {done:false, autosaved:null, saved:null}); // its autosave went: the next one makes it again
   state.compose = c;
   renderCompose();
@@ -4318,6 +4325,58 @@ function readCompose(){
   if (c.html != null) c.html = unfolded($('c-html').innerHTML); else c.body = $('c-body').value;
   return c;
 }
+/* ---------- a message set aside ---------- */
+// Choosing another message or folder while writing sets the message aside instead of keeping it
+// in the pane: it is autosaved at once (a draft of its own, as every 15 s), stays as it was here,
+// and the chip in the status bar or W brings it back. Send, Esc and Discard end it as before;
+// another message started meanwhile (or Telex closing) puts it in Drafts first.
+function parkCompose(){
+  const c = state.compose;
+  if (!c || VIEWER || !$('cform')) return false;
+  readCompose();
+  const f = document.activeElement;
+  c.focusAt = f?.closest?.('#cform') && f.id ? {id:f.id, start:f.selectionStart ?? null, end:f.selectionEnd ?? null} : null;
+  deselectPicture();
+  closeMenu(false);
+  state.compose = null;
+  state.parked = c;
+  leftCompose();
+  autosave(c);
+  paintParked();
+  return true;
+}
+function resumeCompose(){
+  const c = state.parked;
+  if (VIEWER || state.compose) return;
+  if (!c){ say(t('No message is set aside.')); return; }
+  state.parked = null;
+  state.compose = c;
+  renderCompose();
+  paintParked();
+  const at = c.focusAt, el = at && $(at.id);
+  if (el){
+    el.focus();
+    if (at.start != null && el.setSelectionRange) try { el.setSelectionRange(at.start, at.end ?? at.start); } catch {}
+  }
+}
+// Before another message takes the place of the one being written or set aside: it goes to
+// Drafts. Resolves to the message kept (null: there was none), or false when saving failed.
+async function saveWriting(){
+  const kept = state.compose ?? state.parked;
+  if (!kept) return null;
+  if (!await (kept === state.compose ? saveCompose() : saveCompose(kept))) return false;
+  if (state.parked === kept){ state.parked = null; paintParked(); }
+  return kept;
+}
+function paintParked(){
+  const b = $('st-parked'), c = state.parked;
+  if (!b) return;
+  b.hidden = !c;
+  if (!c) return;
+  b.innerHTML = `${I.neu}<span>${esc(c.subject || t('(no subject)'))}</span>`;
+  b.title = t('The message you were writing, set aside. Click or press W to go back to it.');
+}
+$('st-parked')?.addEventListener('click', () => resumeCompose());
 // Saves the compose content as a draft and closes it. Resolves to true when it worked.
 async function closeCompose(){
   if (!await saveCompose()) return false;
@@ -8216,6 +8275,7 @@ async function checkUpdate({quiet = false} = {}){
 async function installUpdate(){
   if (!upd.found || upd.installing) return;
   if (state.compose && !await closeCompose()) return;
+  if (await saveWriting() === false) return; // one set aside
   Object.assign(upd, {installing:true, downloading:true, progress:null, text:t('Downloading Telex {version}…', {version:upd.found.version}), error:''});
   renderUpdates();
   let r;
@@ -8398,6 +8458,7 @@ const KEYS = [
   {g:'write', k:'Shift+R', d:N_('reply to all'), doc:'Shift+R', run:true},
   {g:'write', k:'Shift+F', d:N_('forward'), doc:'Shift+F', run:true},
   {g:'write', k:'E', d:N_('edit a draft or a message in the Outbox'), doc:'E', run:true},
+  {g:'write', k:'W', d:N_('back to the message set aside while you read other mail'), doc:'W', run:true},
   {g:'write', k:'Ctrl+Enter', d:N_('send'), doc:'Ctrl+Enter'},
   {g:'write', k:'Ctrl+Shift+Enter', d:N_('send later: in an hour, tomorrow, Monday or when you pick'), doc:'Ctrl+Shift+Enter'},
   {g:'write', k:'Esc', d:N_('save as a draft and close'), doc:'Esc'},
@@ -8429,6 +8490,7 @@ const HELP_TIPS = [
   N_('Drop .eml or mbox files on a folder on this PC to bring that mail in.'),
   N_('Click the sender above a message to see all their mail.'),
   N_('Drop files on the window to attach them, even with no message open.'),
+  N_('While writing, click another message or folder to read it: the message waits in the status bar, and W brings it back.'),
   N_('The clock next to Send sends a message later; it waits in the Outbox, which says when it goes. Telex sends it then, or at its next start if it was closed.'),
   N_('Mail from a mailing list has Unsubscribe above it: one click where the list takes it, else a mail or the list’s page, after saying where. Never in Spam.'),
   N_('In an HTML message, paste a picture or drop one where it should go; it goes in the text, not as a file. Settings › Writing says how large.'),
@@ -8637,6 +8699,7 @@ function onKey(e){
   else if (k === 'u') shift ? markAllRead() : toggleUnread();
   else if (k === 'n') openCompose('new');
   else if (k === 'e') openCompose('edit');
+  else if (k === 'w') resumeCompose();
   else if (k === 'h') setView(!pref().prefer_text);
   else if (k === 'q') toggleQuotes();
   else if (k === 'm') openPicker('move');
@@ -8727,6 +8790,7 @@ window.__TAURI__?.event?.listen('settings-changed', async ({payload: from}) => {
 window.__TAURI__?.window?.getCurrentWindow?.().onCloseRequested?.(async e => {
   if (!VIEWER && invoke){ try { if (await invoke('close_requested')){ e.preventDefault(); return; } } catch {} }
   if (state.compose) await closeCompose();
+  if (state.parked) await saveWriting();
 });
 
 // The core opens the mail base on a thread of its own at start (opening.rs). Commands that need

@@ -455,8 +455,8 @@ pub struct Vacation<'a> {
     pub days: u16,
     /// The account's addresses: mail to any of them is answered.
     pub addresses: &'a [String],
-    pub starts: Option<chrono::NaiveDate>,
-    pub ends: Option<chrono::NaiveDate>,
+    pub starts: Option<jiff::civil::Date>,
+    pub ends: Option<jiff::civil::Date>,
 }
 
 impl Vacation<'_> {
@@ -579,11 +579,11 @@ pub fn with_block(script: &str, block: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+    use jiff::civil::Date;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader as TokioBufReader};
     use tokio::net::TcpListener;
 
-    fn vacation(starts: Option<NaiveDate>) -> String {
+    fn vacation(starts: Option<Date>) -> String {
         let addresses = [
             "biuro@twojastudio.pl".to_owned(),
             "anna@twojastudio.pl".to_owned(),
@@ -594,14 +594,14 @@ mod tests {
             days: 4,
             addresses: &addresses,
             starts,
-            ends: NaiveDate::from_ymd_opt(2026, 10, 20),
+            ends: Date::new(2026, 10, 20).ok(),
         }
         .block()
     }
 
     #[test]
     fn the_reply_goes_into_a_script_and_comes_out_whole() {
-        let block = vacation(NaiveDate::from_ymd_opt(2026, 10, 12));
+        let block = vacation(Date::new(2026, 10, 12).ok());
         assert!(block.contains("require [\"vacation\", \"date\", \"relational\"];"));
         assert!(block.contains(
             "if allof (currentdate :value \"ge\" \"date\" \"2026-10-12\", currentdate :value \"le\" \"date\" \"2026-10-20\") {"

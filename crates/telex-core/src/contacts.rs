@@ -163,9 +163,8 @@ fn sort_key(c: &Contact) -> String {
 }
 
 fn now() -> String {
-    chrono::Local::now()
-        .naive_local()
-        .format("%Y-%m-%dT%H:%M:%S")
+    crate::dates::now()
+        .strftime("%Y-%m-%dT%H:%M:%S")
         .to_string()
 }
 

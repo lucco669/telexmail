@@ -20,6 +20,7 @@ rnp-src = { path = "../vendor/rnp-src" }
 rnp-sys = { path = "../vendor/rnp-sys" }
 botan-src = { path = "../vendor/botan-src" }
 botan-sys = { path = "../vendor/botan-sys" }
+async-imap = { path = "../vendor/async-imap" }
 
 [[bin]]
 name = "mime_html"

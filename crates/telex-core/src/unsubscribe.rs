@@ -10,7 +10,7 @@
 
 use std::time::Duration;
 
-use chrono::NaiveDateTime;
+use jiff::civil::DateTime;
 use mail_parser::MessageParser;
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
@@ -63,7 +63,7 @@ pub struct Offer {
     /// The web server's name or the mail address, for the confirmation.
     pub target: String,
     /// When the user left this list (from any of its messages), if they did.
-    pub done: Option<NaiveDateTime>,
+    pub done: Option<DateTime>,
     /// In Spam: shown, but never offered.
     pub spam: bool,
 }
@@ -378,8 +378,8 @@ impl MailStore {
 
     /// The user left the list: every message of it says so from now on, and this one gets a
     /// note saying how and when.
-    pub fn record_unsubscribe(&mut self, plan: &Plan, at: NaiveDateTime) -> Result<(), StoreError> {
-        let when = at.format("%d.%m.%Y");
+    pub fn record_unsubscribe(&mut self, plan: &Plan, at: DateTime) -> Result<(), StoreError> {
+        let when = at.strftime("%d.%m.%Y");
         let note = match &plan.method {
             Method::OneClick(_) => tr!(
                 "Unsubscribed with one click on {when}.",
@@ -400,16 +400,21 @@ impl MailStore {
         self.db.execute(
             "INSERT INTO unsubscribed (list, at, method, message) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (list) DO UPDATE SET at = ?2, method = ?3, message = ?4",
-            params![plan.list, at, plan.method.code(), plan.message as i64],
+            params![
+                plan.list,
+                crate::dates::Sql(at),
+                plan.method.code(),
+                plan.message as i64
+            ],
         )?;
         self.add_note(plan.message, &note)
     }
 
-    fn unsubscribed_at(&self, list: &str) -> Result<Option<NaiveDateTime>, StoreError> {
+    fn unsubscribed_at(&self, list: &str) -> Result<Option<DateTime>, StoreError> {
         Ok(self
             .db
             .prepare_cached("SELECT at FROM unsubscribed WHERE list = ?1")?
-            .query_row([list], |r| r.get(0))
+            .query_row([list], |r| crate::dates::get(r, 0))
             .optional()?)
     }
 }

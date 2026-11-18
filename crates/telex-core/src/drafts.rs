@@ -347,8 +347,8 @@ impl Vars {
                 .to_owned(),
             name,
             email: m.from_email.clone(),
-            date: m.date.format(date_format()).to_string(),
-            time: m.date.format("%H:%M").to_string(),
+            date: m.date.strftime(date_format()).to_string(),
+            time: m.date.strftime("%H:%M").to_string(),
             subject: m.subject.clone(),
         }
     }
@@ -357,14 +357,14 @@ impl Vars {
 impl Vars {
     /// A new message has no original: only today's date and time.
     fn today() -> Self {
-        let now = chrono::Local::now();
+        let now = crate::dates::now();
         Self {
             name: String::new(),
             first: String::new(),
             email: String::new(),
             from: String::new(),
-            date: now.format(date_format()).to_string(),
-            time: now.format("%H:%M").to_string(),
+            date: now.strftime(date_format()).to_string(),
+            time: now.strftime("%H:%M").to_string(),
             subject: String::new(),
         }
     }
@@ -562,8 +562,8 @@ mod tests {
         assert_eq!(d.reply_to, Some(m.id));
         let header = format!(
             "Dnia {} o {}, Anna Kowalska napisał(a):",
-            m.date.format("%d.%m.%Y"),
-            m.date.format("%H:%M")
+            m.date.strftime("%d.%m.%Y"),
+            m.date.strftime("%H:%M")
         );
         assert!(
             d.body

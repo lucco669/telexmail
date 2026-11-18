@@ -189,11 +189,11 @@ pub fn print_document(
         (name, email) => format!("{name} <{email}>"),
     };
     let date = match crate::i18n::current() {
-        crate::i18n::Lang::En => m.date.format("%Y-%m-%d %H:%M"),
+        crate::i18n::Lang::En => m.date.strftime("%Y-%m-%d %H:%M"),
         crate::i18n::Lang::Es | crate::i18n::Lang::Fr | crate::i18n::Lang::It => {
-            m.date.format("%d/%m/%Y, %H:%M")
+            m.date.strftime("%d/%m/%Y, %H:%M")
         }
-        _ => m.date.format("%d.%m.%Y, %H:%M"),
+        _ => m.date.strftime("%d.%m.%Y, %H:%M"),
     }
     .to_string();
     let files = m
@@ -292,16 +292,13 @@ mod tests {
     use super::*;
     use crate::i18n::{self, Lang};
     use crate::model::Attachment;
-    use chrono::NaiveDate;
     use std::fs;
 
     fn temp_dir(tag: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "telex-export-{tag}-{}-{}",
             std::process::id(),
-            chrono::Local::now()
-                .timestamp_nanos_opt()
-                .unwrap_or_default()
+            jiff::Timestamp::now().as_nanosecond()
         ))
     }
 
@@ -469,10 +466,7 @@ mod tests {
             cc: String::new(),
             bcc: String::new(),
             subject: "Poprawki <na> stronie".into(),
-            date: NaiveDate::from_ymd_opt(2026, 10, 10)
-                .unwrap()
-                .and_hms_opt(6, 12, 0)
-                .unwrap(),
+            date: jiff::civil::date(2026, 10, 10).at(6, 12, 0, 0),
             size_kb: 40,
             unread: false,
             flagged: false,

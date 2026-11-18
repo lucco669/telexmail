@@ -289,9 +289,7 @@ mod tests {
         std::env::temp_dir().join(format!(
             "telex-att-{tag}-{}-{}",
             std::process::id(),
-            chrono::Local::now()
-                .timestamp_nanos_opt()
-                .unwrap_or_default()
+            jiff::Timestamp::now().as_nanosecond()
         ))
     }
 

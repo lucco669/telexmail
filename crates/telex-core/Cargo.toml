@@ -11,8 +11,8 @@ publish = false
 serde.workspace = true
 serde_json.workspace = true
 telex-i18n = { path = "../telex-i18n" }
-chrono.workspace = true
-rusqlite = { version = "0.40.2", features = ["bundled", "chrono", "functions"] }
+jiff.workspace = true
+rusqlite = { version = "0.43.0", features = ["bundled", "functions"] }
 mail-parser = "0.11.9"
 # Fast byte searches (SIMD): looking for a calendar in every stored message after an upgrade.
 # Already here through regex and others.
@@ -47,7 +47,6 @@ regex = "1.13.1"
 regex-syntax = "0.8.11"
 # Calendar invitations: the IANA time zones (and Windows' names mapped to them), compiled in,
 # so an invite shows in local time without a system database.
-chrono-tz = "0.10.4"
 # Pictures put into a message being written: read, turned upright and made smaller. Only PNG,
 # JPEG, GIF and WebP are compiled in.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }

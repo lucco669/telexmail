@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 
-use chrono::NaiveDateTime;
+use jiff::civil::DateTime;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::Serialize;
 
@@ -80,7 +80,7 @@ const APPEND_DRAFT: i64 = 4;
 
 /// How long after a send Telex waits for a server it doesn't know yet to file its own copy
 /// in Sent, before it decides the server doesn't and uploads one.
-const SENT_COPY_WAIT: chrono::TimeDelta = chrono::TimeDelta::seconds(30);
+const SENT_COPY_WAIT: jiff::SignedDuration = jiff::SignedDuration::from_secs(30);
 
 /// The folders a POP3 account starts with besides the Outbox, by id (also their kind) and
 /// name. They are all here, like the folders on this PC; the user adds more.
@@ -276,7 +276,7 @@ pub struct OutgoingMail {
     pub to: String,
     pub attempts: u32,
     /// When it was to go: a message sent later, or one waiting out its moment to undo.
-    pub send_after: Option<NaiveDateTime>,
+    pub send_after: Option<DateTime>,
 }
 
 /// A change the user made that the server hasn't heard about yet.
@@ -311,7 +311,7 @@ pub struct Replied {
     pub answered: bool,
     pub forwarded: bool,
     pub reply: Option<MessageId>,
-    pub at: Option<NaiveDateTime>,
+    pub at: Option<DateTime>,
 }
 
 /// What `MailStore::image_trust` says about a message's remote images.
@@ -601,7 +601,7 @@ impl MailStore {
                 args.extend([mid, mid, mid]);
                 self.db
                     .query_row(&sql, rusqlite::params_from_iter(args), |r| {
-                        Ok((r.get::<_, i64>(0)? as MessageId, r.get(1)?))
+                        Ok((r.get::<_, i64>(0)? as MessageId, crate::dates::get(r, 1)?))
                     })
                     .optional()?
             }
@@ -901,7 +901,7 @@ impl MailStore {
         draft: OutgoingDraft,
         raw: Option<&[u8]>,
         kind: FolderKind,
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<MessageId, StoreError> {
         debug_assert!(kind.is_outgoing(), "outgoing mail goes to Sent or Drafts");
         let account = self.account(&draft.account)?.clone();
@@ -1002,7 +1002,7 @@ impl MailStore {
         env_from: &str,
         env_to: &[String],
         replaces: Option<MessageId>,
-        send_after: Option<NaiveDateTime>,
+        send_after: Option<DateTime>,
     ) -> Result<MessageId, StoreError> {
         let outbox = self.folder_key_of_kind(account, FolderKind::Outbox)?;
         let env_to =
@@ -1015,7 +1015,13 @@ impl MailStore {
         tx.execute(
             "INSERT INTO outbox (message, account, env_from, env_to, send_after)
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id as i64, account, env_from, env_to, send_after],
+            params![
+                id as i64,
+                account,
+                env_from,
+                env_to,
+                send_after.map(crate::dates::Sql)
+            ],
         )?;
         tx.commit()?;
         Ok(id)
@@ -1090,12 +1096,12 @@ impl MailStore {
 
     /// Take back a message that is still waiting out its moment in the Outbox: it stays
     /// there, held, until the user edits it (E) or drops it. Too late once it is due.
-    pub fn hold_outgoing(&mut self, id: MessageId, now: NaiveDateTime) -> Result<(), StoreError> {
+    pub fn hold_outgoing(&mut self, id: MessageId, now: DateTime) -> Result<(), StoreError> {
         let tx = self.db.transaction()?;
         let held = tx.execute(
             "UPDATE outbox SET refused = 1, send_after = NULL
              WHERE message = ?1 AND NOT refused AND send_after IS NOT NULL AND send_after > ?2",
-            params![id as i64, now],
+            params![id as i64, crate::dates::Sql(now)],
         )?;
         if held == 0 {
             return Err(StoreError::Invalid(tr!(
@@ -1123,7 +1129,7 @@ impl MailStore {
         &self,
         account: &str,
         after: MessageId,
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<Option<OutgoingMail>, StoreError> {
         let outbox = format!("{account}/{OUTBOX_ID}");
         self.db
@@ -1135,7 +1141,7 @@ impl MailStore {
                  WHERE o.account = ?1 AND m.folder = ?2 AND NOT o.refused AND o.message > ?3
                    AND c.raw IS NOT NULL AND (o.send_after IS NULL OR o.send_after <= ?4)
                  ORDER BY o.message LIMIT 1",
-                params![account, outbox, after as i64, now],
+                params![account, outbox, after as i64, crate::dates::Sql(now)],
                 |r| {
                     let env_to: String = r.get(2)?;
                     Ok(OutgoingMail {
@@ -1147,7 +1153,7 @@ impl MailStore {
                         subject: r.get(4)?,
                         to: r.get(5)?,
                         attempts: r.get(6)?,
-                        send_after: r.get(7)?,
+                        send_after: crate::dates::get_opt(r, 7)?,
                     })
                 },
             )
@@ -1158,7 +1164,7 @@ impl MailStore {
     /// The SMTP server took the message: file it in Sent and queue a copy for the server's
     /// Sent folder, unless the server keeps its own: then the next download adopts that one
     /// by Message-ID. Without a Sent folder it stays in the Outbox, marked as sent.
-    pub fn outgoing_sent(&mut self, id: MessageId, at: NaiveDateTime) -> Result<(), StoreError> {
+    pub fn outgoing_sent(&mut self, id: MessageId, at: DateTime) -> Result<(), StoreError> {
         let (folder, _) = self.locate(id)?;
         let account = account_of(&folder).to_owned();
         let keeps_own = self.account(&account)?.server_keeps_sent() == Some(true);
@@ -1188,7 +1194,7 @@ impl MailStore {
                 let key = format!("{account}/{sent_id}");
                 tx.execute(
                     "UPDATE messages SET folder = ?1, date = ?2, note = NULL WHERE id = ?3",
-                    params![key, at, id as i64],
+                    params![key, crate::dates::Sql(at), id as i64],
                 )?;
                 if on_server && keeps_own {
                     set_server_location(&tx, id, &key, None)?;
@@ -1249,7 +1255,7 @@ impl MailStore {
 
     /// True when the account has mail due to be sent at `now` (refused and held mail
     /// doesn't count, nor mail still waiting out its moment to undo).
-    pub fn has_outgoing(&self, account: &str, now: NaiveDateTime) -> Result<bool, StoreError> {
+    pub fn has_outgoing(&self, account: &str, now: DateTime) -> Result<bool, StoreError> {
         let outbox = format!("{account}/{OUTBOX_ID}");
         Ok(self
             .db
@@ -1259,12 +1265,14 @@ impl MailStore {
              WHERE o.account = ?1 AND m.folder = ?2 AND NOT o.refused
                AND c.raw IS NOT NULL AND (o.send_after IS NULL OR o.send_after <= ?3))",
             )?
-            .query_row(params![account, outbox, now], |r| r.get(0))?)
+            .query_row(params![account, outbox, crate::dates::Sql(now)], |r| {
+                r.get(0)
+            })?)
     }
 
     /// When the next message sent later (or waiting out its moment) is due, of those never
     /// tried: the app sends it then. One that failed waits for the next check, as before.
-    pub fn next_scheduled(&self) -> Result<Option<NaiveDateTime>, StoreError> {
+    pub fn next_scheduled(&self) -> Result<Option<DateTime>, StoreError> {
         Ok(self
             .db
             .prepare_cached(&format!(
@@ -1272,11 +1280,11 @@ impl MailStore {
                  WHERE NOT o.refused AND o.attempts = 0 AND o.send_after IS NOT NULL
                    AND m.folder = o.account || '/{OUTBOX_ID}'"
             ))?
-            .query_row([], |r| r.get(0))?)
+            .query_row([], |r| crate::dates::get_opt(r, 0))?)
     }
 
     /// The accounts whose Outbox has mail sent later that is due at `now` and was never tried.
-    pub fn scheduled_due(&self, now: NaiveDateTime) -> Result<Vec<String>, StoreError> {
+    pub fn scheduled_due(&self, now: DateTime) -> Result<Vec<String>, StoreError> {
         let mut stmt = self.db.prepare_cached(&format!(
             "SELECT DISTINCT o.account FROM outbox o JOIN messages m ON m.id = o.message
              WHERE NOT o.refused AND o.attempts = 0 AND o.send_after IS NOT NULL
@@ -1284,7 +1292,7 @@ impl MailStore {
              ORDER BY o.account"
         ))?;
         let accounts = stmt
-            .query_map([now], |r| r.get(0))?
+            .query_map([crate::dates::Sql(now)], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
         Ok(accounts)
     }
@@ -1326,13 +1334,13 @@ impl MailStore {
     }
 
     /// When a message waiting in the Outbox goes, unless it is held or refused.
-    pub fn goes_at(&self, id: MessageId) -> Result<Option<NaiveDateTime>, StoreError> {
+    pub fn goes_at(&self, id: MessageId) -> Result<Option<DateTime>, StoreError> {
         Ok(self
             .db
             .query_row(
                 "SELECT send_after FROM outbox WHERE message = ?1 AND NOT refused",
                 [id as i64],
-                |r| r.get(0),
+                |r| crate::dates::get_opt(r, 0),
             )
             .optional()?
             .flatten())
@@ -1376,16 +1384,16 @@ impl MailStore {
 
     /// True while a message sent at most a moment ago may still be on its way into a server's
     /// own Sent folder (see [`SENT_COPY_WAIT`]).
-    pub fn sent_just_now(&self, id: MessageId, now: NaiveDateTime) -> Result<bool, StoreError> {
-        let date: Option<NaiveDateTime> = self
+    pub fn sent_just_now(&self, id: MessageId, now: DateTime) -> Result<bool, StoreError> {
+        let date: Option<DateTime> = self
             .db
             .query_row(
                 "SELECT date FROM messages WHERE id = ?1",
                 [id as i64],
-                |r| r.get(0),
+                |r| crate::dates::get(r, 0),
             )
             .optional()?;
-        Ok(date.is_some_and(|d| now - d < SENT_COPY_WAIT))
+        Ok(date.is_some_and(|d| now.duration_since(d) < SENT_COPY_WAIT))
     }
 
     /// The server filed the copy of sent mail in `folder_key` itself, so Telex uploads none:
@@ -1708,7 +1716,7 @@ impl MailStore {
             Ok(Rule {
                 on_arrival: r.get(8)?,
                 schedule: schedule.and_then(|s| serde_json::from_str(&s).ok()),
-                last_run: r.get(10)?,
+                last_run: crate::dates::get_opt(r, 10)?,
                 id: r.get(0)?,
                 name: r.get(1)?,
                 enabled: r.get(2)?,
@@ -1806,10 +1814,10 @@ impl MailStore {
     }
 
     /// When a rule's schedule last ran it.
-    pub fn set_rule_last_run(&mut self, id: i64, at: NaiveDateTime) -> Result<(), StoreError> {
+    pub fn set_rule_last_run(&mut self, id: i64, at: DateTime) -> Result<(), StoreError> {
         self.db.execute(
             "UPDATE rules SET last_run = ?2 WHERE id = ?1",
-            params![id, at],
+            params![id, crate::dates::Sql(at)],
         )?;
         Ok(())
     }
@@ -1857,17 +1865,13 @@ impl MailStore {
     }
 
     /// When a rule last auto-replied to this sender.
-    pub fn last_auto_reply(
-        &self,
-        rule: i64,
-        sender: &str,
-    ) -> Result<Option<NaiveDateTime>, StoreError> {
+    pub fn last_auto_reply(&self, rule: i64, sender: &str) -> Result<Option<DateTime>, StoreError> {
         Ok(self
             .db
             .query_row(
                 "SELECT sent_at FROM auto_replies WHERE rule = ?1 AND sender = ?2",
                 params![rule, sender],
-                |r| r.get(0),
+                |r| crate::dates::get(r, 0),
             )
             .optional()?)
     }
@@ -1876,12 +1880,12 @@ impl MailStore {
         &mut self,
         rule: i64,
         sender: &str,
-        at: NaiveDateTime,
+        at: DateTime,
     ) -> Result<(), StoreError> {
         self.db.execute(
             "INSERT INTO auto_replies (rule, sender, sent_at) VALUES (?1, ?2, ?3)
              ON CONFLICT (rule, sender) DO UPDATE SET sent_at = excluded.sent_at",
-            params![rule, sender, at],
+            params![rule, sender, crate::dates::Sql(at)],
         )?;
         Ok(())
     }
@@ -2683,7 +2687,7 @@ impl MailStore {
                     .chain(a.identities.iter().map(|i| i.email.to_lowercase()))
             })
             .collect();
-        let now = chrono::Local::now().naive_local();
+        let now = crate::dates::now();
         let tx = self.db.transaction()?;
         let mut ids = Vec::new();
         for item in batch {
@@ -3408,12 +3412,12 @@ pub(crate) fn summary_from_row(r: &Row<'_>) -> rusqlite::Result<MessageSummary> 
         from_email: r.get(3)?,
         to: r.get(4)?,
         subject: r.get(5)?,
-        date: r.get(6)?,
+        date: crate::dates::get(r, 6)?,
         size_kb: r.get(7)?,
         unread: r.get(8)?,
         flagged: r.get(9)?,
         has_attachments: r.get(10)?,
-        goes: r.get(11)?,
+        goes: crate::dates::get_opt(r, 11)?,
         tags: crate::tags::split(&r.get::<_, String>(12)?),
         answered: r.get(13)?,
         forwarded: r.get(14)?,
@@ -3436,7 +3440,7 @@ fn message_from_row(r: &Row<'_>) -> rusqlite::Result<Message> {
         to: r.get(4)?,
         cc: r.get(5)?,
         subject: r.get(6)?,
-        date: r.get(7)?,
+        date: crate::dates::get(r, 7)?,
         size_kb: r.get(8)?,
         unread: r.get(9)?,
         flagged: r.get(10)?,
@@ -3708,7 +3712,7 @@ pub(crate) fn insert_message(
         m.to,
         m.cc,
         m.subject,
-        m.date,
+        crate::dates::Sql(m.date),
         m.size_kb,
         m.unread,
         m.flagged,

@@ -27,8 +27,8 @@ const SIGNED_ENCRYPTED: &[u8] = include_bytes!("fixtures/signed-encrypted.eml");
 const ALICE_PASS: &str = "zażółć";
 const ALICE_FP: &str = "5D72EDF7989391A1828D85A0EE8917FA9A5382657559851CA61E8769A747A68B";
 
-fn now() -> NaiveDateTime {
-    chrono::Local::now().naive_local()
+fn now() -> DateTime {
+    crate::dates::now()
 }
 
 /// A mail base for `email`: one IMAP account with an Inbox.
@@ -360,7 +360,7 @@ fn composed(s: &MailStore, d: &crate::model::OutgoingDraft, choice: Choice) -> V
     let p = s
         .protection(&account.email, &to, &bcc, choice, true, false)
         .unwrap();
-    crate::smtp::compose_protected(&account, d, &Default::default(), chrono::Local::now(), &p)
+    crate::smtp::compose_protected(&account, d, &Default::default(), jiff::Timestamp::now(), &p)
         .unwrap()
         .raw
 }

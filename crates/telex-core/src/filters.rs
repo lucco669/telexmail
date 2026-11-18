@@ -15,7 +15,9 @@
 use std::cell::OnceCell;
 use std::collections::HashMap;
 
-use chrono::{DateTime, Local, NaiveDateTime, TimeDelta, Timelike};
+use jiff::civil::DateTime;
+
+use jiff::{SignedDuration, Timestamp};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +30,7 @@ use crate::store::{MailStore, StoreError, LOCAL_ID};
 use crate::tr;
 
 /// How long a rule waits before auto-replying to the same sender again.
-pub const AUTO_REPLY_EVERY: TimeDelta = TimeDelta::days(4);
+pub const AUTO_REPLY_EVERY: SignedDuration = crate::dates::days(4);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Rule {
@@ -57,7 +59,7 @@ pub struct Rule {
     /// When the schedule last ran it, local time; none before its first run. The store keeps
     /// it: saving a rule leaves it as it was.
     #[serde(default)]
-    pub last_run: Option<NaiveDateTime>,
+    pub last_run: Option<DateTime>,
 }
 
 impl Default for Rule {
@@ -100,11 +102,11 @@ pub enum Every {
 }
 
 impl Every {
-    pub fn period(self) -> TimeDelta {
+    pub fn period(self) -> SignedDuration {
         match self {
-            Every::Hour => TimeDelta::hours(1),
-            Every::Day => TimeDelta::days(1),
-            Every::Week => TimeDelta::weeks(1),
+            Every::Hour => SignedDuration::from_hours(1),
+            Every::Day => crate::dates::days(1),
+            Every::Week => crate::dates::days(7),
         }
     }
 }
@@ -481,7 +483,7 @@ impl<'r> Ready<'r> {
 
     /// Whether the message's summary alone (its date, size, read and flag) rules it out: a
     /// scheduled run then never reads its text.
-    fn rules_out(&self, m: &MessageSummary, now: NaiveDateTime) -> bool {
+    fn rules_out(&self, m: &MessageSummary, now: DateTime) -> bool {
         let mut known = self.rule.conditions.iter().map(|c| c.on_summary(m, now));
         if self.rule.match_all {
             known.any(|hit| hit == Some(false))
@@ -639,21 +641,21 @@ impl Condition {
     }
 
     /// The answer for the conditions a summary can answer (date, size, read, flag).
-    fn on_summary(&self, m: &MessageSummary, now: NaiveDateTime) -> Option<bool> {
+    fn on_summary(&self, m: &MessageSummary, now: DateTime) -> Option<bool> {
         self.on_facts(m.date, m.size_kb, m.unread, m.flagged, now)
     }
 
     fn on_facts(
         &self,
-        date: NaiveDateTime,
+        date: DateTime,
         size_kb: u32,
         unread: bool,
         flagged: bool,
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Option<bool> {
         match self.field {
             Field::Received => {
-                let since = now - TimeDelta::days(self.days()?);
+                let since = now - crate::dates::days(self.days()?);
                 Some(match self.op {
                     Op::OlderThan => date < since,
                     _ => date >= since,
@@ -733,7 +735,7 @@ impl Condition {
 struct Folded<'a> {
     m: &'a Message,
     /// The clock age conditions compare with.
-    now: NaiveDateTime,
+    now: DateTime,
     from: OnceCell<[String; 2]>,
     to: OnceCell<Vec<String>>,
     subject: OnceCell<String>,
@@ -749,9 +751,9 @@ impl<'a> Folded<'a> {
         Self::with_raw(m, None)
     }
     fn with_raw(m: &'a Message, raw: Option<&'a [u8]>) -> Self {
-        Self::at(m, raw, Local::now().naive_local())
+        Self::at(m, raw, crate::dates::now())
     }
-    fn at(m: &'a Message, raw: Option<&'a [u8]>, now: NaiveDateTime) -> Self {
+    fn at(m: &'a Message, raw: Option<&'a [u8]>, now: DateTime) -> Self {
         Self {
             m,
             now,
@@ -933,7 +935,7 @@ pub fn run(
     store: &mut MailStore,
     ids: &[MessageId],
     trigger: Trigger,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<RunReport, StoreError> {
     let rules: Vec<Rule> = store
         .rules()?
@@ -969,7 +971,7 @@ fn run_ready(
     rules: &[Ready],
     ids: &[MessageId],
     trigger: Trigger,
-    now: DateTime<Local>,
+    now: Timestamp,
     report: &mut RunReport,
 ) -> Result<(), StoreError> {
     if rules.is_empty() {
@@ -987,7 +989,7 @@ fn run_ready(
         };
         let account = account_of(&message.folder).to_owned();
         let raw = if needs_raw { store.raw_of(id)? } else { None };
-        let folded = Folded::at(&message, raw.as_deref(), now.naive_local());
+        let folded = Folded::at(&message, raw.as_deref(), crate::dates::local(now));
         let mut notes = Vec::new();
         let mut destination = None;
         for ready in rules
@@ -1151,12 +1153,12 @@ pub struct ScheduledRun {
 
 /// Whether a rule's schedule is due at `now`: it never ran, its period has passed since it
 /// last did, or the clock was put back past that.
-pub fn due(rule: &Rule, now: NaiveDateTime) -> bool {
+pub fn due(rule: &Rule, now: DateTime) -> bool {
     let Some(schedule) = rule.schedule.as_ref().filter(|_| rule.enabled) else {
         return false;
     };
     rule.last_run
-        .is_none_or(|last| last > now || now - last >= schedule.every.period())
+        .is_none_or(|last| last > now || now.duration_since(last) >= schedule.every.period())
 }
 
 /// Run every rule whose schedule is due on the folders it names, one rule at a time, and
@@ -1165,10 +1167,10 @@ pub fn due(rule: &Rule, now: NaiveDateTime) -> bool {
 /// server like the user's own, and each message it changes gets a note.
 pub fn run_scheduled(
     store: &mut MailStore,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<Vec<ScheduledRun>, StoreError> {
-    let clock = now.naive_local();
-    let clock = clock.with_nanosecond(0).unwrap_or(clock);
+    let clock = crate::dates::local(now);
+    let clock = clock.with().subsec_nanosecond(0).build().unwrap_or(clock);
     let mut runs = Vec::new();
     for rule in store.rules()?.into_iter().filter(|r| due(r, clock)) {
         let mut report = RunReport::default();
@@ -1221,7 +1223,7 @@ fn forward(
     rule: &Rule,
     message: &Message,
     to: &str,
-    now: DateTime<Local>,
+    now: Timestamp,
 ) -> Result<bool, String> {
     let account = store
         .account(rule.account.as_deref().unwrap_or_default())
@@ -1336,7 +1338,7 @@ pub fn preview(
 ) -> Result<RulePreview, StoreError> {
     rule.check(store.accounts()).map_err(StoreError::Invalid)?;
     let ready = Ready::new(rule).map_err(StoreError::Invalid)?;
-    let now = Local::now().naive_local();
+    let now = crate::dates::now();
     let mut view = view.clone();
     view.grouped = false;
     view.expanded.clear();
@@ -1407,8 +1409,8 @@ pub(crate) fn auto_reply(
     m: &Message,
     subject: &str,
     body: &str,
-    every: TimeDelta,
-    now: DateTime<Local>,
+    every: SignedDuration,
+    now: Timestamp,
 ) -> Result<bool, String> {
     let account = store
         .account(account_of(&m.folder))
@@ -1434,7 +1436,7 @@ pub(crate) fn auto_reply(
         Replier::Away(account) => store.last_away_reply(account, sender),
     }
     .map_err(|e| e.to_string())?;
-    if last.is_some_and(|at| now.naive_local() - at < every) {
+    if last.is_some_and(|at| crate::dates::local(now).duration_since(at) < every) {
         return Ok(false);
     }
     let to = if m.from_name.trim().is_empty() || m.from_name == m.from_email {
@@ -1474,8 +1476,10 @@ pub(crate) fn auto_reply(
         )
         .map_err(|e| e.to_string())?;
     match replier {
-        Replier::Rule(id) => store.record_auto_reply(id, sender, now.naive_local()),
-        Replier::Away(account) => store.record_away_reply(account, sender, now.naive_local()),
+        Replier::Rule(id) => store.record_auto_reply(id, sender, crate::dates::local(now)),
+        Replier::Away(account) => {
+            store.record_away_reply(account, sender, crate::dates::local(now))
+        }
     }
     .map_err(|e| e.to_string())?;
     Ok(true)
@@ -1539,10 +1543,9 @@ mod tests {
     use crate::model::{AccountSetup, Folder, SmtpSecurity};
     use crate::sample::sample_store;
     use crate::store::SyncedMessage;
-    use chrono::TimeZone;
 
-    fn when(day: u32) -> DateTime<Local> {
-        Local.with_ymd_and_hms(2026, 10, day, 9, 0, 0).unwrap()
+    fn when(day: i8) -> Timestamp {
+        crate::dates::instant(jiff::civil::date(2026, 10, day).at(9, 0, 0, 0)).unwrap()
     }
 
     fn cond(field: Field, op: Op, value: &str) -> Condition {
@@ -1582,7 +1585,7 @@ mod tests {
             to: to.into(),
             cc: String::new(),
             subject: subject.into(),
-            date: when(10).naive_local(),
+            date: crate::dates::local(when(10)),
             size_kb: 1,
             unread: true,
             flagged: false,
@@ -2333,13 +2336,13 @@ mod tests {
     #[test]
     fn age_size_and_state_conditions_use_the_clock_given() {
         let mut m = message(("A", "a@x.pl"), "b@y.pl", "Oferta", "");
-        m.date = when(1).naive_local();
+        m.date = crate::dates::local(when(1));
         m.size_kb = 600;
         m.unread = false;
-        let at = |c: Condition, day: u32| {
+        let at = |c: Condition, day: i8| {
             Ready::new(&rule("r", None, vec![c], vec![Action::Flag]))
                 .unwrap()
-                .matches(&Folded::at(&m, None, when(day).naive_local()))
+                .matches(&Folded::at(&m, None, crate::dates::local(when(day))))
         };
         let older = cond(Field::Received, Op::OlderThan, "7");
         assert!(!at(older.clone(), 8), "exactly 7 days is not older");
@@ -2374,12 +2377,7 @@ mod tests {
 
     #[test]
     fn schedules_are_due_once_their_period_has_passed() {
-        let at = |day: u32, hour: u32| {
-            Local
-                .with_ymd_and_hms(2026, 10, day, hour, 0, 0)
-                .unwrap()
-                .naive_local()
-        };
+        let at = |day: i8, hour: i8| jiff::civil::date(2026, 10, day).at(hour, 0, 0, 0);
         let mut r = rule(
             "r",
             None,
@@ -2393,7 +2391,7 @@ mod tests {
         });
         assert!(due(&r, at(10, 9)), "never ran");
         r.last_run = Some(at(10, 9));
-        assert!(!due(&r, at(10, 9) + TimeDelta::minutes(59)));
+        assert!(!due(&r, at(10, 9) + SignedDuration::from_mins(59)));
         assert!(due(&r, at(10, 10)));
         r.schedule.as_mut().unwrap().every = Every::Day;
         assert!(!due(&r, at(10, 23)));
@@ -2530,17 +2528,19 @@ mod tests {
             .iter()
             .any(|c| c.kind == crate::store::ChangeKind::Move(account.folder_key("archive"))));
         let rules = store.rules().unwrap();
-        assert_eq!(rules[0].last_run, Some(when(10).naive_local()));
+        assert_eq!(rules[0].last_run, Some(crate::dates::local(when(10))));
 
         // Saving the rule again keeps its last run; it isn't due again until tomorrow.
         store.save_rule(&rules[0]).unwrap();
         assert_eq!(
             store.rules().unwrap()[0].last_run,
-            Some(when(10).naive_local())
+            Some(crate::dates::local(when(10)))
         );
-        assert!(run_scheduled(&mut store, when(10) + TimeDelta::hours(5))
-            .unwrap()
-            .is_empty());
+        assert!(
+            run_scheduled(&mut store, when(10) + SignedDuration::from_hours(5))
+                .unwrap()
+                .is_empty()
+        );
         store.set_unread(old_unread, false).unwrap();
         let runs = run_scheduled(&mut store, when(11)).unwrap();
         assert_eq!(runs[0].report.moved, 1);

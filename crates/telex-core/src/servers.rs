@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use chrono::{Local, TimeDelta};
+use jiff::SignedDuration;
 use serde::Serialize;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
@@ -120,7 +120,9 @@ pub struct Attempt {
 }
 
 fn now_text() -> String {
-    Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
+    crate::dates::now()
+        .strftime("%Y-%m-%dT%H:%M:%S")
+        .to_string()
 }
 
 fn ms(since: Instant) -> u64 {
@@ -174,9 +176,10 @@ impl Log {
         error: Option<String>,
     ) {
         let mut trace = Trace::new(purpose, "smtp", user, host, port);
-        trace.started = (Local::now() - TimeDelta::from_std(started.elapsed()).unwrap_or_default())
-            .format("%Y-%m-%dT%H:%M:%S")
-            .to_string();
+        trace.started = (crate::dates::now()
+            - SignedDuration::try_from(started.elapsed()).unwrap_or_default())
+        .strftime("%Y-%m-%dT%H:%M:%S")
+        .to_string();
         trace.mark = started;
         trace.at = Step::Work;
         match error {
@@ -438,27 +441,28 @@ impl Servers {
     /// Every server reached since Telex started, by address.
     pub fn states(&self) -> Vec<ServerState> {
         let now = Instant::now();
-        let mut states: Vec<ServerState> =
-            self.known()
-                .iter()
-                .map(|(address, s)| ServerState {
-                    address: address.clone(),
-                    names: s.names.iter().cloned().collect(),
-                    sessions: [
-                        self.sessions - s.sessions.available_permits(),
-                        self.sessions,
-                    ],
-                    watches: [self.watches - s.watches.available_permits(), self.watches],
-                    silences: s.silent,
-                    resting_until: s.until.and_then(|u| u.checked_duration_since(now)).map(
-                        |left| {
-                            (Local::now() + TimeDelta::from_std(left).unwrap_or_default())
-                                .format("%Y-%m-%dT%H:%M:%S")
-                                .to_string()
-                        },
-                    ),
-                })
-                .collect();
+        let mut states: Vec<ServerState> = self
+            .known()
+            .iter()
+            .map(|(address, s)| ServerState {
+                address: address.clone(),
+                names: s.names.iter().cloned().collect(),
+                sessions: [
+                    self.sessions - s.sessions.available_permits(),
+                    self.sessions,
+                ],
+                watches: [self.watches - s.watches.available_permits(), self.watches],
+                silences: s.silent,
+                resting_until: s
+                    .until
+                    .and_then(|u| u.checked_duration_since(now))
+                    .map(|left| {
+                        (crate::dates::now() + SignedDuration::try_from(left).unwrap_or_default())
+                            .strftime("%Y-%m-%dT%H:%M:%S")
+                            .to_string()
+                    }),
+            })
+            .collect();
         states.sort_by(|a, b| {
             a.names
                 .cmp(&b.names)

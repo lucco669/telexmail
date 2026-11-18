@@ -475,14 +475,14 @@ async fn mail_can_leave_the_server_at_once_or_after_some_days() {
     check(addr, &store, &account).await;
     assert_eq!(on_server(&server).len(), 2);
     // One came five days ago.
-    let five_days_ago = Local::now().naive_local() - TimeDelta::days(5);
+    let five_days_ago = crate::dates::now() - crate::dates::days(5);
     store
         .lock()
         .unwrap()
         .db
         .execute(
             "UPDATE pop3_uidls SET downloaded = ?1 WHERE uidl = 'UID-0001'",
-            [five_days_ago],
+            [crate::dates::Sql(five_days_ago)],
         )
         .unwrap();
     check(addr, &store, &account).await;
@@ -492,7 +492,7 @@ async fn mail_can_leave_the_server_at_once_or_after_some_days() {
 
 #[test]
 fn what_stays_follows_the_settings() {
-    let now = Local::now().naive_local();
+    let now = crate::dates::now();
     let listing: Vec<(u32, String)> = ["here", "gone", "old", "older", "known", "big"]
         .iter()
         .enumerate()
@@ -501,7 +501,7 @@ fn what_stays_follows_the_settings() {
     let known = |state, message: Option<MessageId>, days: i64| Known {
         state,
         message,
-        downloaded: Some(now - TimeDelta::days(days)),
+        downloaded: Some(now - crate::dates::days(days)),
     };
     let all: HashMap<String, Known> = HashMap::from([
         ("here".to_owned(), known(State::Here, Some(1), 0)),
@@ -848,7 +848,7 @@ fn sent_mail_goes_to_the_local_sent_and_nothing_is_uploaded() {
             None,
         )
         .unwrap();
-    s.outgoing_sent(id, Local::now().naive_local()).unwrap();
+    s.outgoing_sent(id, crate::dates::now()).unwrap();
     assert_eq!(s.folder_of(id).unwrap().as_deref(), Some("poczta/sent"));
     assert!(s.pending_changes(&account.id).unwrap().is_empty());
 }
@@ -861,7 +861,7 @@ fn thunderbird_s_record_marks_mail_already_downloaded() {
     let with_uidl = b"X-UIDL: UID-0001\r\nFrom: anna@studio.pl\r\nSubject: Z Thunderbirda\r\n\r\nTre\xc5\x9b\xc4\x87\r\n";
     let m = parse_message(with_uidl, "poczta/inbox", None);
     let linked = insert_message(&s.db, "poczta/inbox", None, &m, None, Some(with_uidl)).unwrap();
-    let at = Some(Local::now().naive_local());
+    let at = Some(crate::dates::now());
     let added = s
         .pop3_mark_known(
             &account.id,
@@ -870,7 +870,7 @@ fn thunderbird_s_record_marks_mail_already_downloaded() {
                 ("UID-0002".into(), at, false),
                 ("UID-0003".into(), at, true),
             ],
-            Local::now().date_naive(),
+            crate::dates::today(),
         )
         .unwrap();
     assert_eq!(added, 3);
@@ -888,7 +888,7 @@ fn thunderbird_s_record_marks_mail_already_downloaded() {
         .pop3_mark_known(
             &account.id,
             &[("UID-0002".into(), at, false)],
-            Local::now().date_naive(),
+            crate::dates::today(),
         )
         .unwrap();
     assert_eq!(again, 0);
@@ -905,7 +905,7 @@ async fn after_moving_in_only_new_mail_comes_down() {
     let (store, account) = store_with(Pop3Keep::default());
     {
         let mut s = store.lock().unwrap();
-        let at = Some(Local::now().naive_local());
+        let at = Some(crate::dates::now());
         s.pop3_mark_known(
             &account.id,
             &[
@@ -913,7 +913,7 @@ async fn after_moving_in_only_new_mail_comes_down() {
                 ("UID-0002".into(), at, false),
                 ("UID-0003".into(), at, true),
             ],
-            Local::now().date_naive(),
+            crate::dates::today(),
         )
         .unwrap();
     }

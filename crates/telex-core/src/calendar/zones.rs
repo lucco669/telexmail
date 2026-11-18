@@ -1,14 +1,15 @@
 //! The time zones of calendar invitations.
 //!
-//! A TZID is first looked up by name in the IANA database (chrono-tz, compiled in): IANA names
+//! A TZID is first looked up by name in the IANA database (jiff's, compiled in): IANA names
 //! as Google and Apple write them (also behind a path such as `/mozilla.org/…/Europe/Warsaw`),
 //! and the Windows names Outlook writes (`Central European Standard Time`), through CLDR's
 //! table. Anything else (Outlook's "Customized Time Zone", "(UTC+01:00) Sarajevo, Skopje,
 //! Warsaw, Zagreb") comes from the calendar's own VTIMEZONE: its STANDARD and DAYLIGHT
 //! observances, each with a start, offsets and a yearly rule or dates.
 
-use chrono::{Datelike, Duration as TimeDelta, NaiveDate, NaiveDateTime, Offset, TimeZone};
-use chrono_tz::Tz;
+use jiff::civil::{Date, DateTime};
+use jiff::tz::TimeZone;
+use jiff::SignedDuration;
 
 use super::{Component, Freq, Moment, Prop, Rule};
 
@@ -26,7 +27,7 @@ pub struct Zone {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Kind {
-    Iana(Tz),
+    Iana(TimeZone),
     Rules(Vec<Observance>),
 }
 
@@ -37,11 +38,11 @@ struct Observance {
     from: i32,
     to: i32,
     /// Its first start, a wall time in `from`.
-    start: NaiveDateTime,
+    start: DateTime,
     /// A yearly rule (BYMONTH and BYDAY), when it repeats.
     rule: Option<Rule>,
     /// Further starts, wall times in `from`.
-    rdates: Vec<NaiveDateTime>,
+    rdates: Vec<DateTime>,
 }
 
 impl Zone {
@@ -51,9 +52,9 @@ impl Zone {
     }
 
     /// Seconds east of UTC at a UTC time.
-    pub fn offset_at(&self, utc: NaiveDateTime) -> i32 {
+    pub fn offset_at(&self, utc: DateTime) -> i32 {
         match &self.kind {
-            Kind::Iana(tz) => tz.offset_from_utc_datetime(&utc).fix().local_minus_utc(),
+            Kind::Iana(tz) => tz.to_offset(crate::dates::utc_instant(utc)).seconds(),
             Kind::Rules(observances) => rules_offset(observances, utc),
         }
     }
@@ -61,15 +62,15 @@ impl Zone {
     /// The UTC time of a wall time in this zone. A wall time in the gap of a change to summer
     /// time is read with the offset before the change (so 02:30 becomes 03:30); one that
     /// comes twice is the first of the two (RFC 5545 3.3.5).
-    pub fn to_utc(&self, local: NaiveDateTime) -> NaiveDateTime {
-        let day = TimeDelta::days(1);
+    pub fn to_utc(&self, local: DateTime) -> DateTime {
+        let day = crate::dates::days(1);
         let before = self.offset_at(local - day);
         let after = self.offset_at(local + day);
         let valid = [before, after]
             .into_iter()
-            .filter(|o| self.offset_at(local - TimeDelta::seconds(i64::from(*o))) == *o)
+            .filter(|o| self.offset_at(local - SignedDuration::from_secs(i64::from(*o))) == *o)
             .max();
-        local - TimeDelta::seconds(i64::from(valid.unwrap_or(before)))
+        local - SignedDuration::from_secs(i64::from(valid.unwrap_or(before)))
     }
 }
 
@@ -78,7 +79,7 @@ pub fn find(tzid: &str, vtimezones: &[Component]) -> Option<Zone> {
     let tzid = tzid.trim().trim_matches('"').trim();
     if let Some(tz) = iana(tzid) {
         return Some(Zone {
-            name: display(tzid, tz),
+            name: display(tzid, &tz),
             kind: Kind::Iana(tz),
         });
     }
@@ -89,7 +90,7 @@ pub fn find(tzid: &str, vtimezones: &[Component]) -> Option<Zone> {
     // Apple and Mozilla name the IANA zone inside.
     if let Some(tz) = vt.value("X-LIC-LOCATION").and_then(iana) {
         return Some(Zone {
-            name: display(tzid, tz),
+            name: display(tzid, &tz),
             kind: Kind::Iana(tz),
         });
     }
@@ -101,32 +102,32 @@ pub fn find(tzid: &str, vtimezones: &[Component]) -> Option<Zone> {
 }
 
 /// The IANA zone a TZID names, directly, behind a path, or as Windows names it.
-pub fn iana(tzid: &str) -> Option<Tz> {
+pub fn iana(tzid: &str) -> Option<TimeZone> {
     let t = tzid.trim().trim_matches('"').trim();
     if t.is_empty() || t.len() > 200 {
         return None;
     }
-    if let Ok(tz) = t.parse::<Tz>() {
+    if let Ok(tz) = TimeZone::get(t) {
         return Some(tz);
     }
     let parts: Vec<&str> = t.split('/').filter(|p| !p.is_empty()).collect();
     for n in [3, 2] {
         if parts.len() > n {
-            if let Ok(tz) = parts[parts.len() - n..].join("/").parse::<Tz>() {
+            if let Ok(tz) = TimeZone::get(&parts[parts.len() - n..].join("/")) {
                 return Some(tz);
             }
         }
     }
-    windows(t).and_then(|name| name.parse().ok())
+    windows(t).and_then(|name| TimeZone::get(name).ok())
 }
 
 /// How a zone is named on the card: Windows names as they are, IANA ones without their path
 /// and underscores.
-fn display(tzid: &str, tz: Tz) -> String {
+fn display(tzid: &str, tz: &TimeZone) -> String {
     if windows(tzid).is_some() {
         tzid.to_owned()
     } else {
-        tz.name().replace('_', " ")
+        tz.iana_name().unwrap_or(tzid).replace('_', " ")
     }
 }
 
@@ -151,10 +152,10 @@ fn offset(v: &str) -> Option<i32> {
     (h < 24 && m < 60 && s < 60).then_some(sign * (h * 3600 + m * 60 + s))
 }
 
-fn wall(m: Moment) -> NaiveDateTime {
+fn wall(m: Moment) -> DateTime {
     match m {
         Moment::Utc(at) | Moment::Zoned(at, _) | Moment::Floating(at) => at,
-        Moment::Date(d) => d.and_hms_opt(0, 0, 0).unwrap_or_default(),
+        Moment::Date(d) => d.at(0, 0, 0, 0),
     }
 }
 
@@ -197,7 +198,7 @@ fn observances(vt: &Component) -> Vec<Observance> {
 }
 
 /// When an observance's yearly rule starts it in year `y`, as a wall time in its `from`.
-fn onset_in(o: &Observance, r: &Rule, y: i32) -> Option<NaiveDateTime> {
+fn onset_in(o: &Observance, r: &Rule, y: i16) -> Option<DateTime> {
     let first = o.start.year();
     if y < first {
         return None;
@@ -210,20 +211,20 @@ fn onset_in(o: &Observance, r: &Rule, y: i32) -> Option<NaiveDateTime> {
     let month = r
         .by_month
         .first()
-        .map_or(o.start.month(), |m| u32::from(*m));
+        .map_or(o.start.month(), |m| i8::try_from(*m).unwrap_or(0));
     let date = if r.by_day.is_empty() {
         let d = match r.by_month_day.first() {
-            Some(d) if *d > 0 => u32::try_from(*d).ok()?,
+            Some(d) if *d > 0 => *d,
             Some(_) => return None,
             None => o.start.day(),
         };
-        NaiveDate::from_ymd_opt(y, month, d)?
+        Date::new(y, month, d).ok()?
     } else {
         let (n, weekday) = r.by_day[0];
-        let days: Vec<NaiveDate> = (1..=31)
-            .filter_map(|d| NaiveDate::from_ymd_opt(y, month, d))
+        let days: Vec<Date> = (1..=31)
+            .filter_map(|d| Date::new(y, month, d).ok())
             .filter(|d| d.weekday() == weekday)
-            .filter(|d| r.by_month_day.is_empty() || r.by_month_day.contains(&(d.day() as i8)))
+            .filter(|d| r.by_month_day.is_empty() || r.by_month_day.contains(&d.day()))
             .collect();
         match n {
             0 => days.first().copied(),
@@ -234,19 +235,18 @@ fn onset_in(o: &Observance, r: &Rule, y: i32) -> Option<NaiveDateTime> {
                 .and_then(|i| days.get(i).copied()),
         }?
     };
-    let at = date.and_time(o.start.time());
+    let at = date.to_datetime(o.start.time());
     if at < o.start {
         return None;
     }
     if let Some(until) = &r.until {
-        let onset_utc = at - TimeDelta::seconds(i64::from(o.from));
+        let onset_utc = at - SignedDuration::from_secs(i64::from(o.from));
         let until_utc = match until {
             Moment::Utc(u) => *u,
-            Moment::Date(d) => {
-                d.and_hms_opt(23, 59, 59).unwrap_or_default()
-                    - TimeDelta::seconds(i64::from(o.from))
+            Moment::Date(d) => d.at(23, 59, 59, 0) - SignedDuration::from_secs(i64::from(o.from)),
+            Moment::Floating(u) | Moment::Zoned(u, _) => {
+                *u - SignedDuration::from_secs(i64::from(o.from))
             }
-            Moment::Floating(u) | Moment::Zoned(u, _) => *u - TimeDelta::seconds(i64::from(o.from)),
         };
         if onset_utc > until_utc {
             return None;
@@ -256,11 +256,11 @@ fn onset_in(o: &Observance, r: &Rule, y: i32) -> Option<NaiveDateTime> {
 }
 
 /// The offset of the observance that started last before a UTC time.
-fn rules_offset(observances: &[Observance], utc: NaiveDateTime) -> i32 {
-    let mut best: Option<(NaiveDateTime, i32)> = None;
+fn rules_offset(observances: &[Observance], utc: DateTime) -> i32 {
+    let mut best: Option<(DateTime, i32)> = None;
     for o in observances {
-        let mut consider = |onset: NaiveDateTime| {
-            let onset_utc = onset - TimeDelta::seconds(i64::from(o.from));
+        let mut consider = |onset: DateTime| {
+            let onset_utc = onset - SignedDuration::from_secs(i64::from(o.from));
             if onset_utc <= utc && best.is_none_or(|(b, _)| onset_utc > b) {
                 best = Some((onset_utc, o.to));
             }

@@ -2,13 +2,11 @@
 //! settings file through Windows' own Save and Open dialogs. The logic is in
 //! `telex_core::settings`.
 
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex, MutexGuard};
-
-use chrono::Local;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tauri::{AppHandle, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
@@ -165,7 +163,7 @@ pub async fn export_settings(
 ) -> CmdResult<Option<String>> {
     let current = settings.current()?;
     let version = app.package_info().version.to_string();
-    let now = Local::now().naive_local();
+    let now = telex_core::dates::now();
     let text = with_store(&store, |s| core::export(s, &current, choice, &version, now))?;
     let (tx, rx) = mpsc::channel();
     app.dialog()

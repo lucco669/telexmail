@@ -24,7 +24,8 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use base64::Engine;
-use chrono::{DateTime, Local, NaiveDateTime};
+use jiff::civil::DateTime;
+
 use mail_parser::{MessageParser, MessagePart, MimeHeaders, PartType};
 mod backend;
 use backend::{Password, Primary, PublicOrSecret, SignedPublicKey, SignedSecretKey};
@@ -92,7 +93,7 @@ pub struct SigView {
     /// The key id the signature names, for "key 1234 5678 9ABC DEF0 isn't here".
     pub key_id: String,
     /// When it was signed (local time).
-    pub created: Option<NaiveDateTime>,
+    pub created: Option<DateTime>,
     /// S/MIME: who issued the signing certificate ("Actalis Client Authentication CA G3").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub issuer: Option<String>,
@@ -155,8 +156,8 @@ pub struct KeyInfo {
     pub fingerprint: String,
     pub user_ids: Vec<String>,
     pub emails: Vec<String>,
-    pub created: NaiveDateTime,
-    pub expires: Option<NaiveDateTime>,
+    pub created: DateTime,
+    pub expires: Option<DateTime>,
     /// "Ed25519", "RSA 3072"
     pub algorithm: String,
     /// The user's own: Telex has its secret part.
@@ -168,7 +169,7 @@ pub struct KeyInfo {
     pub verified: bool,
     pub revoked: bool,
     pub can_encrypt: bool,
-    pub added: NaiveDateTime,
+    pub added: DateTime,
 }
 
 /// What an import did.
@@ -253,10 +254,8 @@ fn key_id_of(key: &Primary) -> String {
     key.id.clone()
 }
 
-fn local_time(secs: u32) -> NaiveDateTime {
-    DateTime::from_timestamp(i64::from(secs), 0)
-        .map(|utc| utc.with_timezone(&Local).naive_local())
-        .unwrap_or_default()
+fn local_time(secs: u32) -> DateTime {
+    crate::dates::from_unix(i64::from(secs)).unwrap_or_default()
 }
 
 /// The address in a user id: "Anna <anna@x.pl>" → "anna@x.pl", lower-case.
@@ -331,7 +330,7 @@ fn revoked(key: &SignedPublicKey) -> bool {
     key.revoked
 }
 fn now_secs() -> u32 {
-    u32::try_from(chrono::Utc::now().timestamp()).unwrap_or(u32::MAX)
+    u32::try_from(jiff::Timestamp::now().as_second()).unwrap_or(u32::MAX)
 }
 pub(crate) fn encryption_key(key: &SignedPublicKey) -> Option<&SignedPublicKey> {
     key.encrypt.then_some(key)
@@ -345,8 +344,8 @@ struct Facts {
     fingerprint: String,
     user_ids: Vec<String>,
     emails: Vec<String>,
-    created: NaiveDateTime,
-    expires: Option<NaiveDateTime>,
+    created: DateTime,
+    expires: Option<DateTime>,
     /// Every key id and fingerprint of its parts.
     ids: Vec<String>,
 }
@@ -379,7 +378,7 @@ pub(crate) fn save_key(
     db: &Connection,
     key: &PublicOrSecret,
     source: Source,
-    now: NaiveDateTime,
+    now: DateTime,
 ) -> Result<(KeyRef, Saved), StoreError> {
     let public = public_of(key);
     let f = facts(&public);
@@ -431,11 +430,11 @@ pub(crate) fn save_key(
             secret_bytes,
             f.user_ids.join("\n"),
             f.emails.join(" "),
-            f.created,
-            f.expires,
+            crate::dates::Sql(f.created),
+            f.expires.map(crate::dates::Sql),
             source.as_str(),
             source.confirmed() || secret_bytes.is_some(),
-            now,
+            crate::dates::Sql(now),
         ],
     )?;
     db.execute(
@@ -545,11 +544,11 @@ impl MailStore {
                     r.get::<_, Option<Vec<u8>>>(2)?,
                     r.get::<_, String>(3)?,
                     r.get::<_, String>(4)?,
-                    r.get::<_, NaiveDateTime>(5)?,
-                    r.get::<_, Option<NaiveDateTime>>(6)?,
+                    crate::dates::get(r, 5)?,
+                    crate::dates::get_opt(r, 6)?,
                     r.get::<_, String>(7)?,
                     r.get::<_, bool>(8)?,
-                    r.get::<_, NaiveDateTime>(9)?,
+                    crate::dates::get(r, 9)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -602,7 +601,7 @@ impl MailStore {
         &mut self,
         data: &[u8],
         source: Source,
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<ImportReport, StoreError> {
         let (keys, skipped) = read_keys(data);
         let mut report = ImportReport {
@@ -780,7 +779,7 @@ impl MailStore {
         email: &str,
         passphrase: &str,
         kind: KeyKind,
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<KeyRef, StoreError> {
         let key = generate(name, email, passphrase, kind)?;
         let (reference, _) = save_key(&self.db, &PublicOrSecret::Secret(key), Source::Own, now)?;
@@ -1547,8 +1546,8 @@ pub(crate) fn note_autocrypt(
     db: &Connection,
     raw: &[u8],
     from: &str,
-    date: NaiveDateTime,
-    now: NaiveDateTime,
+    date: DateTime,
+    now: DateTime,
 ) -> Result<(), StoreError> {
     let from = from.trim().to_lowercase();
     if from.is_empty() || !memfind(raw, b"utocrypt") && !peer_exists(db, &from)? {
@@ -1562,18 +1561,18 @@ pub(crate) fn note_autocrypt(
         return Ok(());
     }
     let header = autocrypt_of(&p, &from);
-    let peer: Option<Option<NaiveDateTime>> = db
+    let peer: Option<Option<DateTime>> = db
         .query_row(
             "SELECT autocrypt_seen FROM autocrypt_peers WHERE email = ?1",
             [&from],
-            |r| r.get(0),
+            |r| crate::dates::get_opt(r, 0),
         )
         .optional()?;
     let Some(header) = header else {
         if peer.is_some() {
             db.execute(
                 "UPDATE autocrypt_peers SET last_seen = MAX(last_seen, ?2) WHERE email = ?1",
-                params![from, date],
+                params![from, crate::dates::Sql(date)],
             )?;
         }
         return Ok(());
@@ -1600,7 +1599,7 @@ pub(crate) fn note_autocrypt(
              prefer_encrypt = excluded.prefer_encrypt,
              last_seen = MAX(autocrypt_peers.last_seen, excluded.last_seen),
              autocrypt_seen = excluded.autocrypt_seen",
-        params![from, reference.fingerprint, header.prefer_encrypt, date],
+        params![from, reference.fingerprint, header.prefer_encrypt, crate::dates::Sql(date)],
     )?;
     Ok(())
 }
@@ -2286,7 +2285,7 @@ impl MailStore {
     pub fn import_offered_keys(
         &mut self,
         id: MessageId,
-        now: NaiveDateTime,
+        now: DateTime,
     ) -> Result<ImportReport, StoreError> {
         let message = self.get(id)?;
         let raw = self

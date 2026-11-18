@@ -5,7 +5,8 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Local, NaiveDateTime};
+use jiff::civil::DateTime;
+
 use mail_parser::{Address, MessageParser, MessagePart, MimeHeaders, PartType};
 
 use crate::model::{Attachment, Message};
@@ -22,7 +23,7 @@ pub struct FileAttachment {
 
 /// Parse `raw` into a message filed in `folder`. `fallback_date` (the server's
 /// INTERNALDATE) is used when the Date header is missing or unreadable.
-pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTime>) -> Message {
+pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<DateTime>) -> Message {
     let size_kb = kb(raw.len());
     let Some(p) = MessageParser::default().parse(raw) else {
         return Message {
@@ -33,7 +34,7 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
             to: String::new(),
             cc: String::new(),
             subject: tr!("(unreadable message)", "(nieczytelna wiadomość)"),
-            date: fallback_date.unwrap_or_else(|| Local::now().naive_local()),
+            date: fallback_date.unwrap_or_else(crate::dates::now),
             size_kb,
             unread: true,
             flagged: false,
@@ -71,10 +72,9 @@ pub fn parse_message(raw: &[u8], folder: &str, fallback_date: Option<NaiveDateTi
     let date = p
         .date()
         .filter(|d| d.is_valid())
-        .and_then(|d| DateTime::from_timestamp(d.to_timestamp(), 0))
-        .map(|utc| utc.with_timezone(&Local).naive_local())
+        .and_then(|d| crate::dates::from_unix(d.to_timestamp()))
         .or(fallback_date)
-        .unwrap_or_else(|| Local::now().naive_local());
+        .unwrap_or_else(crate::dates::now);
 
     let body = (0..p.text_body_count())
         .filter_map(|i| p.body_text(i))
@@ -457,17 +457,10 @@ fn kb(bytes: usize) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{NaiveDate, TimeZone, Utc};
-
-    fn local(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> NaiveDateTime {
-        Utc.from_utc_datetime(
-            &NaiveDate::from_ymd_opt(y, mo, d)
-                .unwrap()
-                .and_hms_opt(h, mi, 0)
-                .unwrap(),
-        )
-        .with_timezone(&Local)
-        .naive_local()
+    fn local(y: i16, mo: i8, d: i8, h: i8, mi: i8) -> DateTime {
+        crate::dates::local(crate::dates::utc_instant(
+            jiff::civil::date(y, mo, d).at(h, mi, 0, 0),
+        ))
     }
 
     #[test]

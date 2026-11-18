@@ -13,7 +13,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use chrono::{Datelike, NaiveDate};
+use jiff::civil::Date;
 use serde::{Deserialize, Serialize};
 
 /// The one address a count goes to.
@@ -23,7 +23,7 @@ pub const ENDPOINT: &str = "https://telexmail.app/api/count";
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Sent {
     /// The UTC day of the last count the site took.
-    pub last: Option<NaiveDate>,
+    pub last: Option<Date>,
     /// The month of the first one, "2026-10".
     pub since: Option<String>,
 }
@@ -46,7 +46,7 @@ impl Sent {
     }
 
     /// The site took `ping` on `today`.
-    pub fn record(&mut self, ping: &Ping, today: NaiveDate) {
+    pub fn record(&mut self, ping: &Ping, today: Date) {
         self.last = Some(today);
         self.since = Some(ping.since.clone());
     }
@@ -87,7 +87,7 @@ pub fn os() -> &'static str {
 /// The count due `today`, or `None` when today's was sent already (or the clock went back).
 pub fn due(
     sent: &Sent,
-    today: NaiveDate,
+    today: Date,
     version: &str,
     os: &'static str,
     lang: &'static str,
@@ -95,8 +95,11 @@ pub fn due(
     if sent.last.is_some_and(|last| last >= today) {
         return None;
     }
-    let week = |d: NaiveDate| (d.iso_week().year(), d.iso_week().week());
-    let month = |d: NaiveDate| (d.year(), d.month());
+    let week = |d: Date| {
+        let w = d.iso_week_date();
+        (w.year(), w.week())
+    };
+    let month = |d: Date| (d.year(), d.month());
     Some(Ping {
         version: version.to_owned(),
         os,
@@ -105,7 +108,7 @@ pub fn due(
             .since
             .clone()
             .filter(|s| valid_month(s))
-            .unwrap_or_else(|| today.format("%Y-%m").to_string()),
+            .unwrap_or_else(|| today.strftime("%Y-%m").to_string()),
         new: sent.last.is_none(),
         week: sent.last.is_none_or(|last| week(last) != week(today)),
         month: sent.last.is_none_or(|last| month(last) != month(today)),
@@ -113,7 +116,7 @@ pub fn due(
 }
 
 fn valid_month(s: &str) -> bool {
-    NaiveDate::parse_from_str(&format!("{s}-01"), "%Y-%m-%d").is_ok() && s.len() == 7
+    format!("{s}-01").parse::<Date>().is_ok() && s.len() == 7
 }
 
 /// Send one count. Ok when the site took it; the next try is the next due one.
@@ -137,8 +140,8 @@ pub fn send(endpoint: &str, ping: &Ping) -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn day(s: &str) -> NaiveDate {
-        NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    fn day(s: &str) -> Date {
+        s.parse().unwrap()
     }
 
     fn after(last: &str, since: &str) -> Sent {
