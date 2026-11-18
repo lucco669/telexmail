@@ -53,7 +53,7 @@ export default async function ChangelogPage() {
       <PageHeader
         page={pages.changelog}
         title="What’s new."
-        lead="Every release of Telex, newest first, with downloads and upgrade notes. Version 0.9.23 adds mailbox-first checks, preview actions, fresh unread markers, stronger scam filtering and migrated encryption dependencies. Click the version number in Telex’s status bar to check for an update."
+        lead="Every release of Telex, newest first, with downloads and upgrade notes. Version 0.9.24 lets you read other mail while you write, with your message set aside and saved, and brings security updates. Click the version number in Telex’s status bar to check for an update."
       >
         <DownloadButton release={latest} unknown={!live && !latest} />
         <Link className="btn btn-lg" href={pages.demo.path}>

@@ -1041,6 +1041,7 @@ export const versions: Version[] = [
       'Security updates: the mail-sending library fixes six advisories, among them a forged STARTTLS reply and SMTP command injection; the HTML cleaner fixes an XSS through SVG and MathML; SQLite is updated for a reported CVE.',
       'Dates and time zones use jiff instead of the unmaintained chrono and chrono-tz. Dates already in your mail base keep their format.',
     ],
+    upgrade: 'No change to the mail base: 0.9.23 still opens it if you need to go back.',
     highlights: [
       { title: 'Read while you write', text: 'Another message or folder sets your message aside.', href: '/features#writing' },
       { title: 'Back with one key', text: 'W brings it back with your text and caret where they were.', keys: 'W', href: '/features#writing' },

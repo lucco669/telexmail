@@ -84,7 +84,7 @@ export const pages = {
     label: 'Download',
     title: 'Download for Windows and Linux',
     description:
-      'Download Telex 0.9.23 for Windows or Linux: mailbox-first checks, preview actions, spam/scam filtering and updated encryption. Upgrade guidance included.',
+      'Download Telex 0.9.24 for Windows or Linux: read other mail while you write, security updates, spam/scam filtering and encrypted mail. Upgrade guidance included.',
     ogTitle: 'Get Telex for Windows and Linux.',
     ogScreen: 'account',
   },
@@ -93,7 +93,7 @@ export const pages = {
     label: 'Changelog',
     title: 'Changelog: what’s new in each version',
     description:
-      'Every Telex release, including 0.9.23: mailbox-first checks, preview actions, unread arrivals, scam filtering and encryption migration. Notes and downloads.',
+      'Every Telex release, including 0.9.24: a message set aside while you read other mail, and security updates. Notes and downloads.',
     ogTitle: 'What’s new in Telex.',
     ogScreen: 'saved-searches',
   },

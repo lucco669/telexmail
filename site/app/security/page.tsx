@@ -10,9 +10,9 @@ export const metadata = pageMetadata(pages.security);
 const repo = `https://github.com/${site.sourceRepo}`;
 const source = (path: string) => `${repo}/blob/main/${path}`;
 const workflow = `${repo}/actions/workflows/security.yml`;
-const releaseRun = `${repo}/actions/runs/40689971610`;
-const releaseCi = `${repo}/actions/runs/40689967240`;
-const releasedSource = (path: string) => `${repo}/blob/v0.9.23/${path}`;
+const releaseRun = `${repo}/actions/runs/44312446196`;
+const releaseCi = `${repo}/actions/runs/44302525685`;
+const releasedSource = (path: string) => `${repo}/blob/v0.9.24/${path}`;
 
 const protections = [
   {
@@ -126,14 +126,14 @@ export default function SecurityPage() {
       </PageHeader>
       <div className={`container ${s.layout}`}>
         <aside className={s.summary}>
-          <p className={s.updated}>Updated 28 October 2026 · 0.9.23</p>
+          <p className={s.updated}>Updated 18 November 2026 · 0.9.24</p>
           <p className={s.summaryTitle}>Evidence you can inspect.</p>
           <p>Source, tests and scan results describe specific protections. They do not establish that an app is safe in every situation.</p>
           <nav aria-label="On this page">
             <a href="#protections">Protections and source</a>
             <a href="#network">Network access</a>
             <a href="#checks">Automated checks</a>
-            <a href="#release-0923">0.9.23 release results</a>
+            <a href="#release-0924">0.9.24 release results</a>
             <a href="#limits">Current limits</a>
             <a href="#report">Report a problem</a>
           </nav>
@@ -201,22 +201,23 @@ export default function SecurityPage() {
               These checks do not establish antivirus clearance or reproducible builds.</p>
           </section>
 
-          <section id="release-0923" aria-labelledby="release-0923-h">
-            <h2 id="release-0923-h">0.9.23: completed release checks</h2>
-            <p className={s.intro}>Published 28 October 2026 from commit <code>2db2d53</code> on main.
+          <section id="release-0924" aria-labelledby="release-0924-h">
+            <h2 id="release-0924-h">0.9.24: completed release checks</h2>
+            <p className={s.intro}>Published 18 November 2026 from commit <code>7c0f2e4</code> on main.
               The <a href={releaseRun}>release workflow</a> completed the Windows and Linux security gates before signing its packages.</p>
             <ul className={s.checks}>
               <li><b>Dependency results:</b> the application, fuzz and vendor-reference RustSec scans reported zero vulnerabilities and zero warnings, with no advisory exceptions. Both npm audits also reported zero vulnerabilities.</li>
               <li><b>Runtime checks:</b> core tests, the optimized GLib regression, hostile-email tests in WebView2 and WebKitGTK, and bounded MIME/HTML and PST fuzzing passed.</li>
+              <li><b>Dependency updates:</b> lettre 0.11.24 (six advisories, including STARTTLS reply and SMTP command injection), ammonia 4.2.5 (mutation XSS through SVG and MathML), SQLite through rusqlite 0.43, and Next.js 16.4.6 for this website. The unmaintained chrono, chrono-tz and pin-utils packages were removed rather than excepted.</li>
               <li><b>Desktop integration:</b> <a href={releaseCi}>CI passed</a> the Windows installer build, Linux app checks, notification tests and real D-Bus single-instance handoff and failure cases.</li>
               <li><b>Release files:</b> Windows EXE/MSI and Linux AppImage/DEB packages have update signatures, SHA-256 checksums and GitHub build-provenance attestations. <Link href={`${pages.download.path}#verify`}>Verify a download</Link>.</li>
             </ul>
             <div className={s.actions}>
               <a href={releaseRun}>Inspect the completed release run ↗</a>
               <a href={releasedSource('Cargo.lock')}>Inspect the released lockfile ↗</a>
-              <a href={`${repo}/releases/tag/v0.9.23`}>Release notes and files ↗</a>
+              <a href={`${repo}/releases/tag/v0.9.24`}>Release notes and files ↗</a>
             </div>
-            <p className={s.note}>This is evidence for 0.9.23, not an independent security audit or a guarantee that every possible problem has been found.</p>
+            <p className={s.note}>This is evidence for 0.9.24, not an independent security audit or a guarantee that every possible problem has been found.</p>
           </section>
 
           <section id="limits" aria-labelledby="limits-h">
@@ -243,14 +244,14 @@ export default function SecurityPage() {
                 Every vendored source file is checksum-verified and an optimized Linux test exercises the affected operations.
                 Registry dependency scans exclude local path dependencies; these additional checks are required.
                 <span className={s.inlineEvidence}> <a href={source('docs/security-backport.md')}>Backport evidence</a> · <a href={source('crates/telex-security/tests/glib_regression.rs')}>Regression test</a></span></li>
-              <li><b>Maintenance findings are release blockers.</b> The 0.9.23 migration replaces the unmaintained GTK macro,
-                Linux IPC and credential dependencies. Verified vendor sources also receive an upstream advisory scan.
+              <li><b>Maintenance findings are release blockers.</b> The 0.9.23 migration replaced the unmaintained GTK macro,
+                Linux IPC and credential dependencies; 0.9.24 replaced chrono, chrono-tz and pin-utils with jiff and two verified source overrides (async-imap, serde_with). Verified vendor sources also receive an upstream advisory scan.
                 Dependency checks reject audit exclusions and fail on vulnerabilities, unsoundness and unmaintained packages.
                 <span className={s.inlineEvidence}> <a href={source('docs/security.md')}>Checks and current run evidence</a></span></li>
               <li><b>No independent security audit is published here.</b> Automated scans and tests have a limited scope and can miss problems.
                 There is no antivirus certification, reproducible-build claim or guarantee of complete safety on this page.</li>
             </ul>
-            <p className={s.note}>The initial findings were identified on 12 October 2026, with cryptography findings updated on 28 October 2026. Use the newest run for the latest dependency results.</p>
+            <p className={s.note}>The initial findings were identified on 12 October 2026, with cryptography findings updated on 28 October 2026 and date-library findings on 18 November 2026. Use the newest run for the latest dependency results.</p>
           </section>
 
           <section id="report" aria-labelledby="report-h">
