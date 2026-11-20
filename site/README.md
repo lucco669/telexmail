@@ -224,6 +224,22 @@ Run `npm run test:seo` for the canonical-origin and JSON-LD script-escaping regr
 After `npm run build`, run `npm run check:seo` to verify every public page's metadata, headings,
 canonical, sitemap inclusion, JSON-LD, original images and the 600 KB HTML budget.
 
+### IndexNow
+
+[IndexNow](https://www.indexnow.org) tells Bing, Yandex, Seznam, Naver and the other engines that
+take part (not Google) that pages changed, so they crawl them soon instead of on their own
+schedule. The key is in `scripts/indexnow.mjs` (`KEY`) and served from
+`public/<key>.txt`; it is public by design, and `npm run test:seo` checks the two agree.
+
+`node scripts/indexnow.mjs` reads the live `sitemap.xml`, checks the live site serves the key, and
+sends every page to `api.indexnow.org` (shared by all the engines). Give paths to send only those
+(`node scripts/indexnow.mjs /features /download`); `--dry-run` sends nothing. A failure is printed
+but exits 0. To send after every deploy, set the Coolify application's **Post-deployment
+command** to `node scripts/indexnow.mjs`: it runs in the new container once it is up. Submit only
+after real deploys: the engines slow down sites that send unchanged pages over and over. To use
+a new key, put a new 8–128 character hex key in `KEY` and in a `public/<key>.txt` holding just
+it, and delete the old file.
+
 ### SEO audits through Vercel
 
 If a crawler receives `429` with `X-Vercel-Mitigated: challenge` or renders a page titled
